@@ -90,7 +90,7 @@ describe('an OWNER sees their own "Needs you" items on the executive Home', () =
 
   it('the page reads the items ONCE, from ONE loader, with the session principal, and hands the same items to BOTH Homes', () => {
     const page = code(read('../src/app/app/page.tsx'));
-    assert.match(page, /settle\(\(\) => loadNeedsYou\(principal\)\)/);
+    assert.match(page, /settle\(\(\) => loadNeedsYou\(principal, HOME_NEEDS_YOU_LIMIT\)\)/);
     assert.match(page, /const principal = \{ organizationId: session\.organizationId, userId: session\.userId \};/);
     assert.equal((page.match(/loadNeedsYou\(/g) ?? []).length, 1, 'read exactly once');
     assert.match(page, /const needsYou = needsYouResult\.ok \? needsYouResult\.value : \[\];/);
@@ -112,12 +112,17 @@ describe('an OWNER sees their own "Needs you" items on the executive Home', () =
     // Interleaved for display only: each row keeps its provider, and the review's own totals are untouched.
     assert.match(composer, /provider: 'TELEGRAM',/);
     assert.match(composer, /attentionElsewhere: input\.review\?\.attentionElsewhere \?\? \[\],/);
+    // The Chats reading is built from the SAME items the page read, handed down as data: no second read.
+    const front = code(read('../src/app/app/_home/front-door-data.ts'));
+    assert.match(front, /loadChatsInput\(\{ session, principal, now: time\.now, needsYou \}\)/);
+    assert.equal(front.includes('loadNeedsYou'), false);
+    assert.match(home, /loadFrontDoor\(\{ session, principal, groups, time, needsYou, executive: true \}\)/);
   });
 
   it('the rows an OWNER receives render their items, source-labelled, minimized and without a fabricated link', () => {
     const item: NeedsYouItem = { id: 'w1', provider: 'TELEGRAM', sourceLabel: 'Telegram', title: 'Client asks to move the Thursday call', category: 'REQUEST', counterparty: null, topic: null, nextStep: null, deadline: null, at: new Date('2026-09-22T04:01:00Z'), detectionCount: 1 };
     const time = createTimeView({ timeZone: 'America/New_York', source: 'device' }, new Date('2026-09-22T12:00:00Z'));
-    const briefing = composeBriefing({ now: time.now, review: null, period: null, headlines: null, needsYou: [item], day: null, dayFailed: false, mail: null, mailFailed: false, dashboard: null, workDue: [], connectionsHref: '/app/connections', headlinesHref: '/app/admin/headlines' });
+    const briefing = composeBriefing({ now: time.now, review: null, period: null, headlines: null, needsYou: [item], day: null, dayFailed: false, mail: null, mailFailed: false, callgrid: null, workDue: [], connectionsHref: '/app/connections', headlinesHref: '/app/admin/headlines' });
     const html = renderToStaticMarkup(<NeedsAttention briefing={briefing} time={time} />);
     assert.match(html, /Needs your attention/);
     assert.match(html, /data-briefing-provider="TELEGRAM"/);

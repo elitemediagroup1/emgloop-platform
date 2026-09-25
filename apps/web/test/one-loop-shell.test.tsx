@@ -162,12 +162,23 @@ describe('Grouping', () => {
     assert.deepEqual(LOOP_NAV.nav[0]!.items.map((i) => [i.label, i.href]), [
       ['Home', '/app'],
       ['Mail', '/app/mail'],
+      ['Chats', '/app/chats'],
+      ['Calendar', '/app/calendar'],
       ['Connections', '/app/connections'],
     ]);
-    // Both personal entries state the authority their own page enforces: a person's own work
-    // state, and a person's own Google connection. Neither is an administrative surface.
-    assert.deepEqual(LOOP_NAV.nav[0]!.items[1]!.requires, { resource: 'employeeIntelligence', action: 'view' });
-    assert.deepEqual(LOOP_NAV.nav[0]!.items[2]!.requires, { resource: 'googleWorkspace', action: 'view' });
+    // Every personal entry states the authority its own page enforces: a person's own work state
+    // (Mail, and Calendar over the same read), and a person's own connections (Connections, and
+    // Chats under the very gate the Connections page's Telegram tile has). None is administrative.
+    assert.deepEqual(LOOP_NAV.nav[0]!.items.map((i) => [i.label, i.requires ?? null, i.workspace ?? null, Boolean(i.folded)]), [
+      ['Home', null, null, false],
+      ['Mail', { resource: 'employeeIntelligence', action: 'view' }, null, false],
+      ['Chats', { resource: 'googleWorkspace', action: 'view' }, null, false],
+      ['Calendar', { resource: 'employeeIntelligence', action: 'view' }, null, false],
+      ['Connections', { resource: 'googleWorkspace', action: 'view' }, null, false],
+    ]);
+    // Chats and Calendar are domain pages; Connections is configuration. The domain pages exist as
+    // their own routes and never route through Connections.
+    for (const href of ['/app/chats', '/app/calendar']) assert.ok(existsSync(join(APP, href, 'page.tsx')), href);
     // Operations: live execution and health (C-03) and creator administration (C-02).
     assert.deepEqual(LOOP_NAV.nav[4]!.items.map((i) => [i.label, i.href]), [
       ['Live Operations', '/crm/live/activity'], ['Live Calls', '/crm/live/calls'], ['Websites', '/crm/live/websites'],
@@ -334,7 +345,7 @@ describe('Navigation follows the authority each page enforces', () => {
     // grants view to human workspace roles and it is not one. Those two denials are
     // the whole reason these roles are asserted separately rather than in one loop.
     assert.deepEqual(labels(navForRole('EMPLOYEE')), [
-      ['', ['Home', 'Mail', 'Connections']],
+      ['', ['Home', 'Mail', 'Chats', 'Calendar', 'Connections']],
       ['CRM', crm],
       ['Work', ['My Work']],
       ['Intelligence', intelligence],
@@ -342,8 +353,8 @@ describe('Navigation follows the authority each page enforces', () => {
       ['Administration', ['AI Employees ▸']],
     ]);
     assert.deepEqual(labels(navForRole('AI_EMPLOYEE')), [
-      // No Mail and no Connections: an AI Employee holds neither a Google connection nor the
-      // work state derived from one, and no Permission row can give it either.
+      // No Mail, Chats, Calendar or Connections: an AI Employee holds neither a Google connection
+      // nor the work state derived from one, and no Permission row can give it either.
       ['', ['Home']],
       ['CRM', crm.filter((l) => !['People', 'Relationships', 'Identity Review ▸'].includes(l))],
       ['Work', ['My Work']],
@@ -361,7 +372,7 @@ describe('Navigation follows the authority each page enforces', () => {
     const operations = ['Live Operations ▸', 'Live Calls ▸', 'Websites ▸'];
     const expected = [
       // A read-only member still connects their OWN Google account (googleWorkspace).
-      ['', ['Home', 'Mail', 'Connections']],
+      ['', ['Home', 'Mail', 'Chats', 'Calendar', 'Connections']],
       // READ_ONLY holds identityResolution:view and relationships:view, and may
       // perform no act through either -- capabilities decide that, not the nav.
       ['CRM', ['People', 'Relationships', 'Command Center', 'Conversations ▸', 'Intake Records ▸', 'Intake Board ▸', 'Identity Review ▸', 'Inbox ▸', 'Search ▸', 'Automations ▸']],
@@ -494,6 +505,9 @@ describe('The shell is about the person, not a role-branded workspace', () => {
   it('breadcrumb and active item resolve on nested routes', () => {
     const active = (path: string) => resolveActiveNav(LOOP_NAV, path)?.label ?? null;
     assert.equal(active('/app'), 'Home');
+    assert.equal(active('/app/chats'), 'Chats');
+    assert.equal(active('/app/calendar'), 'Calendar');
+    assert.equal(active('/app/connections'), 'Connections');
     assert.equal(active('/crm'), 'Command Center');
     assert.equal(active('/crm/customers/c_1/activity'), 'Intake Records');
     assert.equal(active('/crm/live/calls'), 'Live Calls');
@@ -600,22 +614,27 @@ describe('Loop Home', () => {
     assert.equal(existsSync(join(APP, 'app', '_home', 'workspace-home.tsx')), false, 'the role-branded placeholder home is gone');
   });
 
-  it('greets the person and links only to what they can open', () => {
+  it('greets the person and offers tiles only for what they can open and Loop has read', () => {
     const time = createTimeView({ timeZone: 'America/New_York', source: 'device' }, new Date('2026-09-24T14:00:00Z'));
     const html = render(<ModuleHome name="Charlie Reyes" userId="user_charlie" groups={navForRole('EMPLOYEE')} time={time} day={null} dayFailed={false} mail={null} mailFailed={false} needsYou={[]} queue={[]} />);
-    // The module Home is the daily briefing too (2026-09-24): it greets by the reader's clock.
+    // The module Home is the front door too (2026-09-24): it greets by the reader's clock.
     assert.match(html, /<h1 class="loop-title">Good morning, Charlie Reyes<\/h1>/);
-    // Relationships and Parties are built and an employee can open both, so Home
-    // links to them. It was in the absent list only while they were `soon`.
-    for (const href of ['/crm', '/crm/customers', '/app/crm/people', '/app/crm/relationships', '/crm/parties', '/crm/intelligence', '/app/employee/work', '/crm/ai-employees']) {
-      assert.ok(html.includes(`href="${href}"`), href);
-    }
-    for (const absent of ['/app/admin', '/crm/opportunities', '/app/work/workflows', 'href="/app"', 'Workspace']) {
+    // A tile exists only where its destination is in this person's rail AND its domain was read:
+    // the employee's own queue is offered and read (empty), so My Work is the one tile here. With
+    // no calendar, mail or connection read there is no tile for them -- nothing is faked.
+    assert.match(html, /<section class="loop-front__tools" aria-label="Your tools &amp; spaces"/);
+    assert.match(html, /data-home-tile="work"[^>]*data-home-tile-state="EMPTY"/);
+    assert.ok(html.includes('href="/app/employee/work"'), 'My Work leads to the employee tree');
+    for (const absent of ['/app/admin', '/crm/opportunities', '/app/work/workflows', 'href="/app"', 'Workspace', 'data-home-tile="callgrid"', 'data-home-tile="campaigns"', 'data-home-tile="creators"', 'data-home-tile="intake"', 'data-home-tile="chats"', 'loop-launchers', 'id="executive-kpis"', 'id="headlines"', 'id="recent-activity"']) {
       assert.equal(html.includes(absent), false, absent);
     }
-    // Drawn with the shared primitives of the Loop design system.
-    assert.match(html, /<section class="loop-panel" aria-label="CRM"><h2 class="loop-panel__title">CRM<\/h2>/);
+    // Drawn with the shared primitives of the Loop design system, in the front door's sequential
+    // sections: the briefing, then the day (with what needs them), then the tools -- no side rail.
     assert.match(html, /<div class="loop-page" aria-label="Loop Home">/);
+    assert.match(html, /<section class="loop-panel loop-front__briefing" aria-label="Your briefing"/);
+    assert.match(html, /<section class="loop-panel loop-front__day" aria-label="Your day"/);
+    assert.ok(html.indexOf('id="your-briefing"') < html.indexOf('id="today"') && html.indexOf('id="today"') < html.indexOf('id="tools"'), 'briefing, then the day, then the tools');
+    assert.equal(/<aside\b|loop-front__side/.test(html), false, 'no side rail');
   });
 });
 
@@ -674,6 +693,25 @@ describe('Every page in a role-guarded tree states its authority itself', () => 
     for (const role of WORKSPACE_ROLES) {
       const layout = code(readFileSync(join(APP, WORKSPACES[role].basePath, 'layout.tsx'), 'utf8'));
       assert.match(layout, new RegExp(`const session = await requireWorkspace\\('${role}'\\);`), role);
+    }
+  });
+});
+
+describe('Intelligence status is one folded Intelligence item behind the Executive Brain’s gate', () => {
+  it('states ADMIN authority and intelligence:view, folds, and its page enforces both before any read', () => {
+    const item = find('Intelligence status', '/app/admin/intelligence-status');
+    assert.equal(item.group, 'Intelligence');
+    assert.deepEqual(item.requires, { resource: 'intelligence', action: 'view' });
+    assert.equal(item.workspace, 'ADMIN');
+    assert.equal(item.folded, true);
+    const brain = find('Executive Brain', '/app/admin/brain');
+    assert.deepEqual(item.requires, brain.requires, 'the same gate as the Executive Brain');
+    const page = code(read('app/app/admin/intelligence-status/page.tsx'));
+    const guard = page.indexOf("await requireWorkspace('ADMIN')");
+    const perm = page.indexOf("await requirePermission('intelligence', 'view')");
+    assert.ok(guard > -1 && perm > guard && page.indexOf('loadIntelligenceStatus(') > perm, 'authority, then the grant, then the read');
+    for (const role of ['EMPLOYEE', 'READ_ONLY', 'AI_EMPLOYEE', 'CREATOR'] as const) {
+      assert.equal(navForRole(role).flatMap((g) => g.items).some((i) => i.href === '/app/admin/intelligence-status'), false, role);
     }
   });
 });

@@ -32,6 +32,9 @@ import type { PriorityState } from './operational-lifecycle';
 import type { FindingEvidenceState, FindingJudgment, FindingLifecycle } from './case-finding';
 import type { EvidenceClass } from './evidence-class';
 import type { EvidenceRelation } from './evidence-context';
+import type { OperationalOutcome } from './operational-lifecycle';
+import type { HeadlineSituation } from './headline-situation';
+import type { IntelligenceCoverage } from './intelligence-coverage';
 
 export const PRODUCT_LANGUAGE_VERSION = 'product-language.v1';
 
@@ -341,6 +344,98 @@ export const CASE_STATE_LANGUAGE: Record<PriorityState, ProductLabel> = {
 };
 
 /**
+ * WHAT A PERSON RECORDED WHEN A CASE CLOSED. Words only, and DELIBERATELY NO
+ * TONE.
+ *
+ * An outcome is a human's account of what happened -- "we acted and it came
+ * back", "Loop should not have raised this" -- not a statement about what Loop
+ * knows, so it gets none of the five epistemic tones and is kept out of
+ * `productLabel`, exactly as a Finding judgement is. Rendering "Recovered" with
+ * the tick that means "Loop stands behind this" is how a person's report comes
+ * to read as a measurement.
+ *
+ * ONE DICTIONARY. The Decision surfaces used to carry these words as a local
+ * `OUTCOME_LABEL` map and the Headlines workspace needed the same words; two
+ * copies is how "Partly recovered" and "Partially recovered" end up on two
+ * screens meaning one thing. They read this table now.
+ */
+export const CASE_OUTCOME_LANGUAGE: Record<
+  OperationalOutcome,
+  { label: string; detail: string; from: OperationalOutcome }
+> = {
+  RECOVERED: { label: 'Recovered', detail: 'Somebody acted, and the measure returned.', from: 'RECOVERED' },
+  PARTIALLY_RECOVERED: { label: 'Partly recovered', detail: 'Somebody acted, and it partly returned.', from: 'PARTIALLY_RECOVERED' },
+  NOT_RECOVERED: { label: 'Not recovered', detail: 'Somebody acted, and it did not return.', from: 'NOT_RECOVERED' },
+  NO_ACTION_NEEDED: { label: 'No action was needed', detail: 'Confirmed acceptable as it stood.', from: 'NO_ACTION_NEEDED' },
+  FALSE_POSITIVE: { label: 'Loop should not have raised it', detail: 'The finding was wrong about these numbers.', from: 'FALSE_POSITIVE' },
+  ACCEPTED_RISK: { label: 'Real, and accepted', detail: 'The business accepts it. Raised again only if it gets worse.', from: 'ACCEPTED_RISK' },
+  NOT_ACTIONABLE: { label: 'Real, and nothing could be done', detail: 'True, and beyond anything the organization can change.', from: 'NOT_ACTIONABLE' },
+  DUPLICATE: { label: 'Already tracked elsewhere', detail: 'The same finding as another decision, which carries it.', from: 'DUPLICATE' },
+  MERGED: { label: 'Merged into another decision', detail: 'Folded into another decision that now carries the work.', from: 'MERGED' },
+  SUPPRESSED: { label: 'Suppressed', detail: 'Real, and Loop should stop raising it unless it gets worse.', from: 'SUPPRESSED' },
+  EXPIRED: { label: 'Stopped on its own', detail: 'It went away before anyone acted.', from: 'EXPIRED' },
+  CONVERTED_TO_WORK: { label: 'Became work elsewhere', detail: 'Handed to work that now carries it.', from: 'CONVERTED_TO_WORK' },
+  UNKNOWN: { label: 'Outcome unknown', detail: 'Closed without a known outcome. Too early to tell, or never recorded.', from: 'UNKNOWN' },
+};
+
+/** The outcome word, or null for a value this build has no word for. Never a guess. */
+export function caseOutcomeLabel(outcome: string): { label: string; detail: string; from: OperationalOutcome } | null {
+  return (CASE_OUTCOME_LANGUAGE as Record<string, { label: string; detail: string; from: OperationalOutcome }>)[outcome] ?? null;
+}
+
+/**
+ * Where a Headline stands, in the words the Headlines workspace uses.
+ *
+ * A PROJECTION'S WORDS, NOT A STATE'S. `headlineSituation()` derives each of
+ * these from the Headline record and its Case on every read; nothing stores
+ * them. The tones follow the authorities they are derived from: an open Case's
+ * situation reads as its lane does, a closed-without-acting one as the lane's
+ * DISMISSED does, and a set-aside Headline as attention feedback that Loop keeps
+ * measuring behind.
+ *
+ * NOT IN THE FLAT LOOKUP BELOW. `RESOLVED` is also a Case lane, and the Case's
+ * words must keep answering for the Case; `headlineSituationLabel` keeps these
+ * words from answering for anyone else's state, the same way `brainWorkLabel`
+ * does for Brain work.
+ */
+export const HEADLINE_SITUATION_LANGUAGE: Record<HeadlineSituation, ProductLabel> = {
+  NEW: {
+    tone: 'INCOMPLETE',
+    label: 'New',
+    detail: 'Loop measured this. Nobody has decided whether to investigate it or set it aside.',
+    from: 'NEW',
+  },
+  UNDER_INVESTIGATION: {
+    tone: 'VERIFIED',
+    label: 'Under investigation',
+    detail: 'A person authorized an investigation. Where it stands is the investigation’s to say.',
+    from: 'UNDER_INVESTIGATION',
+  },
+  RESOLVED: {
+    tone: 'VERIFIED',
+    label: 'Resolved',
+    detail: 'The investigation closed, having acted. What happened is recorded on it.',
+    from: 'RESOLVED',
+  },
+  DISMISSED_BY_INVESTIGATION: {
+    tone: 'WAITING_FOR_DATA',
+    label: 'Closed without acting',
+    detail: 'The investigation closed because it did not need action. Loop keeps watching whether this persists.',
+    from: 'DISMISSED_BY_INVESTIGATION',
+  },
+  SET_ASIDE: {
+    tone: 'WAITING_FOR_DATA',
+    label: 'Set aside',
+    detail: 'Somebody recorded that this did not need attention. Loop keeps watching whether it persists.',
+    from: 'SET_ASIDE',
+  },
+};
+
+export function headlineSituationLabel(situation: HeadlineSituation): ProductLabel {
+  return HEADLINE_SITUATION_LANGUAGE[situation];
+}
+
+/**
  * Findings, on three axes that never share a word.
  *
  * WHAT THE EVIDENCE SUPPORTS is the only one of the three that carries a tone,
@@ -625,6 +720,61 @@ export const BRAIN_END_REASON_LANGUAGE: Readonly<Record<string, string>> = {
 
 export function brainWorkLabel(state: BrainWorkDisplayState): ProductLabel {
   return BRAIN_WORK_LANGUAGE[state];
+}
+
+/**
+ * Intelligence coverage (2026-09-24): the words every surface shows next to domain intelligence,
+ * keyed by the governed coverage contract (`INTELLIGENCE_COVERAGE`, intelligence-coverage.ts; a
+ * test keeps the keys complete).
+ *
+ * EVERY DETAIL SAYS WHAT THE STATE DOES NOT MEAN when a reader would otherwise assume it: not
+ * enough evidence is not "nothing happened", not connected is not zero, an error is not "there is
+ * nothing". Provider-neutral: no source, provider or model is named.
+ *
+ * NOT IN THE FLAT LOOKUP BELOW. `STALE` and `ERROR` are generic names other authorities may use;
+ * `intelligenceCoverageLabel` keeps these words from answering for anyone else's state.
+ */
+export const INTELLIGENCE_COVERAGE_LANGUAGE: Record<IntelligenceCoverage, ProductLabel> = {
+  CONNECTED_SUFFICIENT: {
+    tone: 'VERIFIED',
+    label: 'Up to date',
+    detail: 'Loop read enough of this, recently, to stand behind this reading. It is still a reading, not a fact.',
+    from: 'CONNECTED_SUFFICIENT',
+  },
+  CONNECTED_INSUFFICIENT: {
+    tone: 'WAITING_FOR_DATA',
+    label: 'Not enough to go on',
+    detail: 'Connected, but there is too little here to conclude anything. That is not the same as nothing happening.',
+    from: 'CONNECTED_INSUFFICIENT',
+  },
+  CONNECTED_PARTIAL: {
+    tone: 'INCOMPLETE',
+    label: 'Partly read',
+    detail: 'Loop read part of this. What is shown is true of what was read, not of everything.',
+    from: 'CONNECTED_PARTIAL',
+  },
+  DISCONNECTED: {
+    tone: 'NEEDS_SETUP',
+    label: 'Not connected',
+    detail: 'Loop is not reading this, so it cannot say what is happening here now. This is not a zero.',
+    from: 'DISCONNECTED',
+  },
+  STALE: {
+    tone: 'WAITING_FOR_DATA',
+    label: 'Out of date',
+    detail: 'This reading is older than the latest activity. It shows how things stood when it was made, not now.',
+    from: 'STALE',
+  },
+  ERROR: {
+    tone: 'NEEDS_SETUP',
+    label: 'Could not be read',
+    detail: 'Loop could not produce or read this. It does not mean there is nothing here.',
+    from: 'ERROR',
+  },
+};
+
+export function intelligenceCoverageLabel(coverage: IntelligenceCoverage): ProductLabel {
+  return INTELLIGENCE_COVERAGE_LANGUAGE[coverage];
 }
 
 /**

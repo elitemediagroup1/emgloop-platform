@@ -1,11 +1,16 @@
-// Loop Home as a daily briefing (approved design pass, 2026-09-24).
+// Loop Home as a daily briefing (approved design pass, 2026-09-24; the composition correction, the
+// same day: the briefing is a SYNTHESIS in prose, `briefingNarrative`, with what Loop read folded
+// beneath it; the day is a compact card with a constrained "needs you").
 //
-// The composer is pure: these tests hand it the loaders' outputs and read the plan back. They pin
+// The composers are pure: these tests hand them the loaders' outputs and read the plan back. They pin
 // the order and the cap, the ranking as presentation over unchanged producers, the read-side rule
 // that a dismissed Headline never reappears, the honest empty and not-connected states, the
 // wording, and -- carried over from the retired Needs You, Your Day and Your Mail panels -- that a
 // Telegram row is minimized, source-labelled and never given a link, that a calendar row shows only
 // stored columns in the reader's zone, and that mail is a line of counts, not a second inbox.
+//
+// Since the front door (2026-09-24) the composer has no "pulse": CallGrid reaches it as the projected
+// command context (kpis.ts) and the one CallGrid row carries the window's own comparison label.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -13,6 +18,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { renderToStaticMarkup } from 'react-dom/server';
 import {
+  callGridKpis,
   composeReview,
   createTimeView,
   positionInDay,
@@ -28,12 +34,14 @@ import {
   type ReviewContribution,
   type ReviewUpdate,
 } from '@emgloop/shared';
-import { BRIEFING_LIMITS, briefingWords, composeBriefing, dueTodayFromQueue, dueTodayFromWork, rankAttention, type Briefing, type BriefingInput, type QueueInstance } from '../src/app/app/_home/briefing';
-import { BriefingLead, NeedsAttention, PulsePanel, TodayPanel, WhatChanged } from '../src/app/app/_home/briefing-view';
+import { BRIEFING_LIMITS, composeBriefing, coverageWords, dueTodayFromQueue, dueTodayFromWork, rankAttention, workPostureFromQueue, workPostureFromSummary, type Briefing, type BriefingInput, type QueueInstance } from '../src/app/app/_home/briefing';
+import { BriefingCard, NeedsAttention, WhatLoopRead, YourDayCard } from '../src/app/app/_home/briefing-view';
+import { NARRATIVE_MAX, briefingNarrative, type NarrativeInput } from '../src/app/app/_home/narrative';
+import { chatsIntelligence, type ChatsIntelligenceInput } from '../src/daily-loop/chats-intelligence';
+import { HOME_KPI_KEYS, projectHomeKpis, type HomeKpiStrip } from '../src/app/app/_home/kpis';
 import type { NeedsYouItem } from '../src/daily-loop/needs-you';
 import type { YourDayView } from '../src/daily-loop/your-day';
 import type { MailDashboard } from '../src/daily-loop/mail-dashboard';
-import type { DashboardData } from '../src/app/app/admin/dashboard-data';
 import type { MyWorkItem } from '../src/app/app/admin/workspace-home-data';
 
 const NY = 'America/New_York';
@@ -176,16 +184,24 @@ function mailDashboard(freshness: string, summary?: Partial<MailDashboard['summa
 function myWork(over: Partial<MyWorkItem> = {}): MyWorkItem {
   return { workInstanceId: 'w1', title: 'Production 1 · Kona unboxing — cut A', stageName: 'Edit', status: 'in_progress', verb: 'Resume', assignedLabel: 'Waiting 2 hours', href: '/app/admin/work/w1', expectedReturnAtIso: '2026-09-24T16:00:00Z', dueAtIso: null, ...over };
 }
-function dashboard(over: { yesterday?: Partial<DashboardData['callgrid']['yesterday']>; today?: Partial<DashboardData['callgrid']['today']>; total?: number; work?: MyWorkItem[] } = {}): DashboardData {
-  const score = (o: Partial<DashboardData['callgrid']['yesterday']>) => ({ available: true, totalCalls: 20, billableCalls: 9, revenueCents: 85_000, profitCents: 40_000, ...o });
-  return {
-    home: { workspace: { myWork: over.work ?? [myWork()], workSummary: { assignedToMe: 4, readyNow: 2, waitingBlocked: 1, completedToday: 2 }, header: { greeting: 'Good morning', displayName: 'Matt', organizationName: 'Elite Media Group', roleLabel: 'Super Admin' } }, brain: { present: true } },
-    callgrid: { total: over.total ?? 400, recent: 40, yesterday: score(over.yesterday ?? {}), today: score(over.today ?? { totalCalls: 20, billableCalls: 14, revenueCents: 112_000, profitCents: 61_000 }) },
-  } as unknown as DashboardData;
+type Metrics = Parameters<typeof callGridKpis>[0]['metrics'];
+const metrics = (over: Partial<Metrics> = {}): Metrics => ({ available: true, totalCalls: 20, billableCalls: 14, revenueCents: 112_000, profitCents: 61_000, costCents: 400, revenueCoverage: 1, profitCoverage: 1, ...over });
+/** The Command Center's context, projected exactly as Home projects it: the contract's KPIs over today so far and yesterday to the same time. */
+function callgrid(over: { current?: Partial<Metrics>; comparison?: Partial<Metrics> | null; withheld?: boolean; ok?: boolean; freshnessState?: string } = {}): HomeKpiStrip {
+  const m = metrics(over.current);
+  const c = over.comparison === null ? null : metrics({ totalCalls: 20, billableCalls: 9, revenueCents: 85_000, profitCents: 40_000, ...(over.comparison ?? {}) });
+  return projectHomeKpis({
+    kpis: callGridKpis({ keys: HOME_KPI_KEYS, metrics: m, comparison: c, series: [], comparisonWithheld: over.withheld }),
+    window: { label: 'Sep 24, 2026', includesLiveData: true, comparisonLabel: c ? 'Yesterday to the same time' : null },
+    coverage: { note: over.withheld ? 'Not compared: Loop’s call record starts Sep 24, after the comparison period began.' : null },
+    freshness: { state: over.freshnessState ?? 'LIVE', word: 'Live', detail: 'CallGrid delivered data 3 min ago.' },
+    report: { ok: over.ok ?? true, metrics: over.ok === false ? { ...m, available: false } : m, dimensions: { campaigns: [{ label: 'Campaign 1', monetized: 3, revenueCents: 50_000 }, { label: 'Campaign 2', monetized: 0, revenueCents: null }, { label: 'Campaign 3', monetized: 0, revenueCents: 1_000 }] } },
+    query: 'period=day',
+  });
 }
 function input(over: Partial<BriefingInput> = {}): BriefingInput {
   return {
-    now: NOW, review: review(), period, headlines: [headline()], needsYou: [needsYou()], day: day({ events: DAY }), dayFailed: false, mail: mailDashboard('CURRENT'), mailFailed: false, dashboard: dashboard(),
+    now: NOW, review: review(), period, headlines: [headline()], needsYou: [needsYou()], day: day({ events: DAY }), dayFailed: false, mail: mailDashboard('CURRENT'), mailFailed: false, callgrid: callgrid(),
     workDue: [], connectionsHref: '/app/connections', headlinesHref: '/app/admin/headlines', ...over,
   };
 }
@@ -214,11 +230,11 @@ describe('the briefing is a pure projection of what the loaders returned', () =>
     assert.deepEqual(frozen, input(), 'the input is exactly what it was');
   });
 
-  it('answers the three questions in order and caps each: what changed, what needs you, then today and movement', () => {
+  it('holds what changed (capped), everything that needs you (ranked; Home shows three), and today', () => {
     const b = brief();
     assert.ok(b.changes.length > 0 && b.attention.length > 0);
     assert.ok(b.changes.length <= BRIEFING_LIMITS.changes);
-    assert.ok(b.attention.length <= BRIEFING_LIMITS.attention);
+    assert.equal(BRIEFING_LIMITS.attention, 3, 'Home shows the top three; the rest fold behind "Show all"');
     const many = brief({ headlines: Array.from({ length: 9 }, (_, i) => headline({ id: `h${i}`, lastDetectedAt: `2026-09-24T0${i}:00:00Z` })) });
     assert.equal(many.changes.length, BRIEFING_LIMITS.changes);
     assert.ok(many.changesObserved > BRIEFING_LIMITS.changes, 'the cap is stated, not silently applied');
@@ -263,11 +279,16 @@ describe('the briefing is a pure projection of what the loaders returned', () =>
     assert.equal(b.changes.some((c) => c.key === 'update:mail:t1'), false);
     assert.ok(b.changes.some((c) => c.key === 'update:activity:a1' && c.why === 'work you can see moved a step (Work)'));
     const moved = brief().changes.find((c) => c.source === 'CALLGRID')!;
-    assert.match(moved.what, /14 billable calls so far today, 9 yesterday \(▲ 55\.6%\)/);
-    assert.match(moved.why, /a move, not a verdict/);
-    const still = brief({ dashboard: dashboard({ today: { totalCalls: 20, billableCalls: 9, revenueCents: 85_000, profitCents: 40_000 } }) });
+    // The contract's own figures and percentages (14 against 9 is +56%), the window's own comparison words.
+    // Total calls did not move (20 against 20), so it is not part of the change row: only moved figures are.
+    assert.match(moved.what, /^CallGrid: Revenue \$1,120 \(▲ 32%\) · Net Profit \$610 \(▲ 53%\) · Billable Calls 14 \(▲ 56%\)$/);
+    assert.equal(moved.where, 'Today so far');
+    assert.equal(moved.why, 'against yesterday to the same time; a move, not a verdict');
+    const still = brief({ callgrid: callgrid({ comparison: { totalCalls: 20, billableCalls: 14, revenueCents: 112_000, profitCents: 61_000 } }) });
     assert.equal(still.changes.some((c) => c.source === 'CALLGRID'), false, 'no movement, no row');
-    assert.equal(brief({ dashboard: dashboard({ total: 0 }) }).changes.some((c) => c.source === 'CALLGRID'), false, 'no calls ever, no row');
+    assert.equal(brief({ callgrid: callgrid({ ok: false }) }).changes.some((c) => c.source === 'CALLGRID'), false, 'could not be read, no row');
+    assert.equal(brief({ callgrid: callgrid({ freshnessState: 'UNAVAILABLE' }) }).changes.some((c) => c.source === 'CALLGRID'), false, 'nothing ever delivered, no row');
+    assert.equal(brief({ callgrid: null }).changes.some((c) => c.source === 'CALLGRID'), false, 'not offered, no row');
   });
 
   it('needs you: ranked by a named deadline, then the kind, then how long it has waited -- ordering only, the producers unchanged', () => {
@@ -317,8 +338,7 @@ describe('the briefing is a pure projection of what the loaders returned', () =>
     assert.equal(b.today.inProgress?.eventId, 'brand');
     assert.deepEqual(b.today.due.map((d) => [d.what, d.detail, d.href]), [['Production 1 · Kona unboxing — cut A', 'expected back · Edit', '/app/admin/work/w1']]);
     assert.deepEqual(b.today.mailCounts, { needsReply: 3, followUps: 1, waiting: 2, current: true });
-    assert.equal(b.sentence.meetings, 3);
-    assert.equal(b.sentence.inProgress, true);
+    assert.equal(b.today.inProgress?.eventId, 'brand');
   });
 
   it('the employee seat: due today comes from its own queue rows -- only a current stage this person owns, dated by the row itself, linked into the employee tree', () => {
@@ -347,9 +367,9 @@ describe('the briefing is a pure projection of what the loaders returned', () =>
       ['Production 1 · Kona unboxing — cut A', 'expected back · Edit', '/app/employee/work/w1', '12:00 PM'],
       ['Step due today', 'Edit due', '/app/employee/work/w2', '2:00 PM'],
     ]);
-    const b = brief({ review: null, dashboard: null, headlines: null, period: null, workDue: rows });
+    const b = brief({ review: null, callgrid: null, headlines: null, period: null, workDue: rows });
     assert.equal(b.today.due.length, 2);
-    assert.match(html(<TodayPanel today={b.today} time={time} mailHref="/app/mail" />), /Due today[\s\S]*href="\/app\/employee\/work\/w1"[\s\S]*expected back · Edit/);
+    assert.match(html(<YourDayCard today={b.today} briefing={b} time={time} calendarHref={null} />), /Due today[\s\S]*href="\/app\/employee\/work\/w1"[\s\S]*expected back · Edit/);
   });
 
   it('a source that is not connected is one line with its way in; one Loop is not set up for says nothing; one that failed says it failed', () => {
@@ -364,7 +384,9 @@ describe('the briefing is a pure projection of what the loaders returned', () =>
     assert.deepEqual(brief({ mail: null, mailFailed: true }).today.mail, { state: 'UNAVAILABLE', line: 'Loop could not open your mail just now.' });
     // A clear day is clear only when Loop read the calendar: a never-read one is unread, an old read says so.
     assert.deepEqual(brief({ day: day({ freshness: 'NEVER_SYNCED', lastSyncedAt: null, events: [] }) }).today.calendar, { state: 'NOT_READ', line: 'Loop has not read your calendar yet.' });
-    assert.equal(brief({ day: day({ freshness: 'NEVER_SYNCED', lastSyncedAt: null, events: [] }) }).sentence.meetings, null, 'no "no meetings" claim about an unread calendar');
+    const unreadDay = brief({ day: day({ freshness: 'NEVER_SYNCED', lastSyncedAt: null, events: [] }) });
+    const unreadSentence = briefingNarrative(narrativeInput({ today: unreadDay.today })).find((x) => x.topic === 'day')!;
+    assert.match(unreadSentence.text, /^Loop has not read your calendar yet/, 'no "no meetings" claim about an unread calendar');
     const stale = brief({ day: day({ freshness: 'STALE', lastSyncedAt: at('2026-09-24T10:00:00Z') }) }).today.calendar;
     assert.deepEqual(stale, { state: 'READ', current: false, readAt: at('2026-09-24T10:00:00Z'), failed: false });
     const failed = brief({ day: day({ freshness: 'SYNC_FAILED', lastSyncedAt: at('2026-09-24T10:00:00Z') }) }).today.calendar;
@@ -377,42 +399,184 @@ describe('the briefing is a pure projection of what the loaders returned', () =>
     assert.equal(brief({ mail: mailDashboard('STALE', {}, { current: false }) }).today.mailCounts?.current, false);
   });
 
-  it('pulse: movement only -- unchanged figures are named once, untracked ones are omitted with their reason, never drawn as a zero', () => {
-    const p = brief().pulse!;
-    assert.deepEqual(p.kpis.map((k) => k.key), ['callgrid:billable', 'callgrid:revenue', 'callgrid:profit', 'review:relevantEmails', 'work:mine']);
-    assert.deepEqual(p.kpis.find((k) => k.key === 'callgrid:billable')!.delta, { kind: 'up', text: '▲ 55.6%' });
-    assert.deepEqual(p.kpis.find((k) => k.key === 'review:relevantEmails')!.delta, { kind: 'up', text: '▲ 4 vs the period before' });
-    assert.deepEqual(p.unchanged, ['total calls', 'outreach sent']);
-    const dropped = brief({ review: review([{ ...mailContribution, metrics: { ...mailContribution.metrics, relevantEmails: { state: 'VALUE', value: 0, prior: 5, href: '/app/mail', scope: 'your mail' } } }]) }).pulse!;
-    assert.deepEqual(dropped.kpis.find((k) => k.key === 'review:relevantEmails')!.delta, { kind: 'down', text: '▼ 5 vs the period before' }, 'a drop to zero is a move, never "unchanged"');
-    assert.deepEqual(p.omitted, [{ label: 'Opportunities', reason: 'Loop does not track opportunities yet.' }]);
-    assert.equal(brief({ review: null, dashboard: null }).pulse, null, 'a seat with no organization figures has no pulse');
-    const quiet = brief({ dashboard: dashboard({ today: { totalCalls: 20, billableCalls: 9, revenueCents: 85_000, profitCents: 40_000 } }) }).pulse!;
-    assert.deepEqual(quiet.unchanged, ['billable calls', 'callgrid revenue', 'net profit', 'total calls', 'outreach sent']);
+  it('there is no pulse: figures live on the KPI row, and CallGrid is compared only the way the Command Center compares it', () => {
+    assert.equal('pulse' in brief(), false, 'the plan carries no figures of its own');
+    const src = code(read('../src/app/app/_home/briefing.ts'));
+    for (const forbidden of ['easternYesterdayWindow', 'easternTodayWindow', 'trend(', 'metricValue(', 'yesterday complete', 'DashboardData', 'dashboard-data']) assert.equal(src.includes(forbidden), false, forbidden);
+    // The row's why is the window's own comparison label, verbatim: never "yesterday" alone against a partial day.
+    const row = brief().changes.find((c) => c.source === 'CALLGRID')!;
+    assert.match(row.why, /yesterday to the same time/);
+    assert.equal(/\byesterday\b(?! to the same time)/.test(row.why), false);
+    // A comparison Loop's record does not cover is withheld by the context, and then there is no row at all.
+    const withheld = callgrid({ comparison: null, withheld: true });
+    assert.equal(withheld.comparisonLabel, null);
+    assert.equal(brief({ callgrid: withheld }).changes.some((c) => c.source === 'CALLGRID'), false);
+    // The aggregate Headlines row leaves Needs you when Home draws the Headlines panel, and the total says so.
+    const headlinesRow = { ...mailContribution, source: 'HEADLINES' as const, attention: [attention({ key: 'headlines', source: 'HEADLINES', who: 'Headlines', happened: 'One thing needs your attention.', next: 'Review', tone: 'attention', href: '/app/admin/headlines' })], attentionCount: undefined, updates: [], metrics: undefined };
+    const withRow = brief({ review: review([mailContribution, workContribution, headlinesRow]) });
+    const withPanel = brief({ review: review([mailContribution, workContribution, headlinesRow]), headlinesPanel: true });
+    assert.ok(withRow.attention.some((a) => a.source === 'HEADLINES'));
+    assert.equal(withPanel.attention.some((a) => a.source === 'HEADLINES'), false);
+    assert.equal(withPanel.attentionTotal, withRow.attentionTotal - 1);
   });
 
-  it('the sentence is the facts in words, and names the sources it read and the ones it could not', () => {
-    const words = briefingWords(brief().sentence, time);
-    assert.match(words.lead, /^Since .*: 4 things changed, 6 need you, one by Thursday\. Your day has 3 meetings, one on now\.$/);
-    assert.equal(brief().sentence.attention, brief().attentionTotal, 'the sentence counts what the list counts');
-    assert.match(words.sources!, /From your mail, Loop work, Telegram\./);
-    assert.match(words.sources!, /Not read: your calendar — Loop has not read your calendar yet; CallGrid — Loop could not read CallGrid just now; Headlines — Loop could not read Headlines just now\./);
-    const quiet = briefingWords(brief({ review: review([{ source: 'MAIL', state: 'OK', attention: [], updates: [] }]), headlines: [], needsYou: [], dashboard: null, day: null, mail: null }).sentence, time);
-    assert.match(quiet.lead, /nothing changed in what Loop can read, nothing needs you\./i);
-    for (const forbidden of ['accelerat', 'major', 'urgent', 'momentum', 'strong week', 'probably']) assert.equal(words.lead.toLowerCase().includes(forbidden), false, forbidden);
+  it('coverage names the sources the evidence came from and the ones Loop could not read', () => {
+    const words = coverageWords(brief().coverage);
+    assert.match(words!, /From your mail, Loop work, Telegram\./);
+    assert.match(words!, /Not read: your calendar — Loop has not read your calendar yet; CallGrid — Loop could not read CallGrid just now; Headlines — Loop could not read Headlines just now\./);
     // The module Home, with nothing but the viewer's own sources, still says what it read.
-    const own = briefingWords(brief({ review: null, dashboard: null, headlines: null, period: null }).sentence, time);
-    assert.match(own.sources!, /From your calendar, your mail, Telegram\./);
-    const unread = briefingWords(brief({ review: null, dashboard: null, headlines: null, period: null, day: day({ freshness: 'NEVER_SYNCED', lastSyncedAt: null }), mail: mailDashboard('NEVER_SYNCED') }).sentence, time);
-    assert.match(unread.sources!, /Not read: your calendar — not read yet; your mail — not read yet\./);
+    assert.match(coverageWords(brief({ review: null, callgrid: null, headlines: null, period: null }).coverage)!, /From your calendar, your mail, Telegram\./);
+    const unread = coverageWords(brief({ review: null, callgrid: null, headlines: null, period: null, day: day({ freshness: 'NEVER_SYNCED', lastSyncedAt: null }), mail: mailDashboard('NEVER_SYNCED') }).coverage);
+    assert.match(unread!, /Not read: your calendar — not read yet; your mail — not read yet\./);
+    // The count-template lead ("4 things changed, 6 need you") is gone: the narrative supersedes it.
+    const src = code(read('../src/app/app/_home/briefing.ts'));
+    for (const retired of ['briefingWords', 'BriefingSentence', 'things changed']) assert.equal(src.includes(retired), false, retired);
+  });
+
+  it('work posture comes from the Work OS rows’ own dates: overdue, due later today, and a floor when the rows were capped', () => {
+    const now = NOW;
+    const dayEnd = new Date(time.startOfDay().getTime() + 86_400_000);
+    const posture = workPostureFromSummary(
+      { assignedToMe: 7, readyNow: 2, waitingBlocked: 1 },
+      [myWork({ expectedReturnAtIso: '2026-09-24T12:00:00Z' }), myWork({ workInstanceId: 'w2', expectedReturnAtIso: null, dueAtIso: '2026-09-24T20:00:00Z' }), myWork({ workInstanceId: 'w3', expectedReturnAtIso: null }), myWork({ workInstanceId: 'w4', expectedReturnAtIso: '2026-09-26T12:00:00Z' })],
+      now,
+      dayEnd,
+    );
+    assert.deepEqual(posture, { assigned: 7, readyNow: 2, blocked: 1, overdue: 1, dueToday: 1, datesPartial: true });
+    const stage = (over: Partial<QueueInstance['stages'][number]> = {}) => ({ id: 's1', name: 'Edit', ownerUserId: 'me', status: 'ready', dueAt: null, ...over });
+    const q = workPostureFromQueue(
+      [
+        { id: 'a', title: 'Mine, late', currentStageId: 's1', expectedReturnAt: null, stages: [stage({ dueAt: at('2026-09-24T10:00:00Z') })] },
+        { id: 'b', title: 'Mine, today', currentStageId: 's1', expectedReturnAt: at('2026-09-24T21:00:00Z'), stages: [stage({ status: 'in_progress' })] },
+        { id: 'c', title: 'Theirs', currentStageId: 's1', expectedReturnAt: null, stages: [stage({ ownerUserId: 'other', dueAt: at('2026-09-24T10:00:00Z') })] },
+      ],
+      'me',
+      now,
+      dayEnd,
+    );
+    assert.deepEqual(q, { assigned: 2, readyNow: 1, blocked: 1, overdue: 1, dueToday: 1, datesPartial: false }, 'someone else’s overdue step is not yours');
+  });
+});
+
+// --- the narrative ----------------------------------------------------------------------------------
+
+const CHATS_INPUT: ChatsIntelligenceInput = {
+  connection: { configured: true, state: 'READY', label: 'Ready', contentAuthorized: true },
+  items: [
+    { provider: 'TELEGRAM', category: 'REQUEST', counterparty: 'Ana R.', topic: 'landing page assets', title: 'Ana asked for the creative assets', nextStep: null, deadline: null, at: at('2026-09-24T12:00:00Z') },
+    { provider: 'TELEGRAM', category: 'DECISION_NEEDED', counterparty: 'Ops group', topic: 'October budget', title: 'The ops group needs a budget decision', nextStep: null, deadline: 'by Friday', at: at('2026-09-24T13:00:00Z') },
+  ],
+  activity24h: { since: at('2026-09-23T15:30:00Z'), messages: 14, conversations: 5 },
+  activity7d: null,
+};
+function narrativeInput(over: Partial<NarrativeInput> = {}): NarrativeInput {
+  return {
+    time,
+    business: { ok: true, value: callgrid() },
+    headlines: { rows: [headline(), headline({ id: 'h2' })], attention: null, standings: new Map([['h1', { situation: 'UNDER_INVESTIGATION', caseId: 'c1' }], ['h2', { situation: 'NEW', caseId: null }]]) },
+    today: brief().today,
+    mail: { needsReply: 3, waiting: 2, followUps: 1, lines: ['3 conversations need your reply.'] },
+    chats: { ok: true, value: chatsIntelligence(CHATS_INPUT) },
+    work: { ok: true, value: { assigned: 4, readyNow: 2, blocked: 1, overdue: 1, dueToday: 2, datesPartial: false } },
+    hrefs: { callgrid: '/app/admin/marketplace', headlines: '/app/admin/headlines', mail: '/app/mail', chats: '/app/chats', calendar: '/app/calendar', work: '/app/admin/work' },
+    ...over,
+  };
+}
+const said = (over: Partial<NarrativeInput> = {}) => Object.fromEntries(briefingNarrative(narrativeInput(over)).map((x) => [x.topic, x.text]));
+
+describe('your briefing is a synthesis in prose, not the What-changed list', () => {
+  it('a distinct pure function: at most four sentences, business → intelligence → communications → day, each with its sources', () => {
+    const n = briefingNarrative(narrativeInput());
+    assert.ok(n.length >= 2 && n.length <= NARRATIVE_MAX);
+    assert.deepEqual(n.map((x) => x.topic), ['business', 'intelligence', 'communications', 'day']);
+    assert.deepEqual(n.map((x) => x.text), [
+      'Today so far: revenue $1,120 (up 32%), net profit $610 (up 53%) and billable calls 14 (up 56%) against yesterday to the same time.',
+      '2 Headlines are open; 1 under investigation.',
+      '3 conversations in your mail need your reply and you are waiting on 2 replies; 2 Telegram conversations need you.',
+      '“Harbor / Kona — reel review” is on now, then “CallGrid weekly” at 4:00 PM; 4 work items are assigned to you, 1 overdue and 2 due today.',
+    ]);
+    assert.deepEqual(n.map((x) => x.sources.map((src) => `${src.label}:${src.href}`)), [
+      ['CallGrid:/app/admin/marketplace'],
+      ['Headlines:/app/admin/headlines'],
+      ['Mail:/app/mail', 'Chats:/app/chats'],
+      ['Calendar:/app/calendar', 'My Work:/app/admin/work'],
+    ]);
+    // Not the evidence list: no row of it is repeated, and no count template.
+    const text = n.map((x) => x.text).join(' ');
+    for (const c of brief().changes) assert.equal(text.includes(c.what), false, c.key);
+    assert.equal(/things? changed|need you, one by/.test(text), false);
+    const src = code(read('../src/app/app/_home/narrative.ts'));
+    for (const forbidden of ["from '@emgloop/database'", 'prisma', 'fetch(', 'Math.random', 'new Date()', 'Date.now(', "'server-only'", "'use client'", '?? 0', '|| 0']) assert.equal(src.includes(forbidden), false, forbidden);
+    assert.deepEqual(briefingNarrative(narrativeInput()), briefingNarrative(narrativeInput()), 'deterministic');
+  });
+
+  it('business: the window’s own comparison, or why nothing is compared, or that CallGrid could not be read -- never a zero', () => {
+    assert.equal(said({ business: { ok: true, value: callgrid({ comparison: { totalCalls: 20, billableCalls: 14, revenueCents: 112_000, profitCents: 61_000 } }) } }).business, 'Today so far: revenue $1,120 and net profit $610, level with yesterday to the same time.');
+    assert.equal(said({ business: { ok: true, value: callgrid({ comparison: null, withheld: true }) } }).business, 'Today so far: revenue $1,120, net profit $610 and billable calls 14. Not compared: Loop’s call record starts Sep 24, after the comparison period began.');
+    assert.equal(said({ business: { ok: false } }).business, 'CallGrid could not be read just now, so Loop says nothing about the numbers.');
+    assert.equal(said({ business: { ok: true, value: callgrid({ ok: false }) } }).business, 'CallGrid could not be read just now, so Loop says nothing about the numbers.');
+    const unknown = said({ business: { ok: true, value: callgrid({ current: { revenueCents: null, profitCents: null, revenueCoverage: 0, profitCoverage: 0 } }) } }).business!;
+    assert.equal(/revenue|\$0/.test(unknown), false, 'an unknown figure is left out, never a zero');
+    assert.equal(said({ business: null }).business, undefined, 'not offered: nothing is said');
+    assert.equal(/\byesterday\b(?! to the same time)/.test(said().business!), false, 'never "yesterday" alone against a partial day');
+  });
+
+  it('intelligence: open Headlines and their investigation, or the governed statement, or that the read failed', () => {
+    assert.equal(said({ headlines: { rows: [], attention: { ruleVersion: 'v', state: 'INSUFFICIENT_COVERAGE', objectivesConsidered: 3, objectivesMeasurable: 2, unmeasurable: [], headlineCount: 0, statement: "Loop can't determine whether anything requires attention. 1 of 3 objectives has incomplete measurement coverage.", notKnown: [] }, standings: new Map() } }).intelligence, "Loop can't determine whether anything requires attention. 1 of 3 objectives has incomplete measurement coverage.");
+    assert.equal(said({ headlines: { rows: null, attention: null, standings: new Map() } }).intelligence, 'Loop could not read Headlines just now.');
+    assert.equal(said({ headlines: { rows: [headline()], attention: null, standings: new Map([['h1', { situation: null, caseId: null }]]) } }).intelligence, '1 Headline is open; Loop could not read which are under investigation.');
+    assert.equal(said({ headlines: null }).intelligence, undefined, 'a seat that cannot open Headlines hears nothing of them');
+  });
+
+  it('communications are the viewer’s own, as counts: never a subject, a counterpart or another person’s chat; not read is said, not zero', () => {
+    const text = said().communications!;
+    for (const name of ['Ana', 'Ops group', 'budget', 'Dana']) assert.equal(text.includes(name), false, name);
+    const notConnected = brief({ mail: mailDashboard('NOT_CONNECTED') }).today;
+    assert.equal(said({ today: notConnected, mail: null, chats: { ok: true, value: chatsIntelligence({ ...CHATS_INPUT, connection: { ...CHATS_INPUT.connection!, state: 'NOT_CONNECTED' } }) } }).communications, 'Your mail isn’t connected; Telegram isn’t connected.');
+    const unread = brief({ mail: mailDashboard('NEVER_SYNCED') }).today;
+    assert.match(said({ today: unread, mail: null }).communications!, /^Loop has not read your mail yet/);
+    assert.equal(/\b0 conversations\b/.test(said({ today: unread, mail: null }).communications!), false);
+    assert.match(said({ mail: { needsReply: 0, waiting: 0, followUps: 0, lines: [] } }).communications!, /^Nothing in your mail needs you; /);
+    assert.match(said({ chats: { ok: true, value: chatsIntelligence({ ...CHATS_INPUT, items: [] }) } }).communications!, /Loop flagged no Telegram conversation for you\.$/);
+    assert.match(said({ chats: { ok: false } }).communications!, /Loop could not read your chats just now\.$/);
+  });
+
+  it('the day: the next meeting and when, or none left; the work from the rows’ own dates; a missing source is omitted or said', () => {
+    const later = brief({ day: day({ events: [event({ eventId: 'x', summary: 'Kona sync', startsAt: at('2026-09-24T18:00:00Z'), endsAt: at('2026-09-24T18:30:00Z') })] }) }).today;
+    assert.match(said({ today: later }).day!, /^Your next meeting is “Kona sync” at 2:00 PM; /);
+    const done = brief({ day: day({ events: [event()] }) }).today;
+    assert.match(said({ today: done }).day!, /^No meetings are left today; /);
+    assert.match(said({ work: { ok: true, value: { assigned: 0, readyNow: 0, blocked: 0, overdue: 0, dueToday: 0, datesPartial: false } } }).day!, /; no work is assigned to you\.$/);
+    assert.match(said({ work: { ok: true, value: { assigned: 7, readyNow: 0, blocked: 0, overdue: 1, dueToday: 0, datesPartial: true } } }).day!, /7 work items are assigned to you, at least 1 overdue\.$/);
+    assert.match(said({ work: { ok: false } }).day!, /Loop could not read your work just now\.$/);
+    const nothing = brief({ day: null, mail: null }).today;
+    assert.equal(said({ today: nothing, work: null }).day, undefined, 'nothing set up and no work read: no sentence');
   });
 });
 
 // --- the views ----------------------------------------------------------------------------------------
 
 describe('the briefing, drawn', () => {
-  it('what changed: what, the source, why, next, when -- and a way back; a Telegram row says where it is and has no link', () => {
-    const out = html(<WhatChanged briefing={brief({ needsYou: [needsYou({ id: 'chg', category: 'BUSINESS_CHANGE', title: 'Kona moved the two-reel delivery to October 11', nextStep: 'confirm the new date with Denise' })] })} time={time} />);
+  it('the briefing card leads with the prose and its source chips; What Loop read is folded, closed by default, capped', () => {
+    const b = brief();
+    const out = html(<BriefingCard narrative={briefingNarrative(narrativeInput())} briefing={b} time={time} />);
+    assert.match(out, /<section class="loop-panel loop-front__briefing" aria-label="Your briefing" id="your-briefing">/);
+    assert.match(out, /data-briefing-sentence="business"><span>Today so far: revenue \$1,120/);
+    assert.match(out, /<a class="loop-front__chip" data-briefing-chip="CallGrid" href="\/app\/admin\/marketplace">CallGrid<\/a>/);
+    assert.match(out, /data-briefing-chip="Chats" href="\/app\/chats"/);
+    // The prose comes before the evidence, and the evidence is a native, closed <details>.
+    assert.ok(out.indexOf('data-briefing-narrative') < out.indexOf('data-briefing-evidence'));
+    assert.match(out, /<details class="loop-front__evidence" id="what-changed" data-briefing-evidence="true"><summary class="loop-front__evidence-sum">What Loop read/);
+    assert.equal(/<details[^>]*\bopen\b/.test(out), false, 'closed by default');
+    assert.match(out, /data-briefing-coverage[^>]*>From your mail, Loop work, Telegram\./);
+    // A chip without a destination on the viewer's rail is text, never a link.
+    const noLinks = html(<BriefingCard narrative={briefingNarrative(narrativeInput({ hrefs: { callgrid: null, headlines: null, mail: null, chats: null, calendar: null, work: null } }))} briefing={b} time={time} />);
+    assert.equal(/<a class="loop-front__chip"/.test(noLinks), false);
+    assert.match(html(<BriefingCard narrative={[]} briefing={b} time={time} />), /data-briefing-narrative-empty/);
+  });
+
+  it('what Loop read: what, the source, why, next, when -- and a way back; a Telegram row says where it is and has no link', () => {
+    const out = html(<WhatLoopRead briefing={brief({ needsYou: [needsYou({ id: 'chg', category: 'BUSINESS_CHANGE', title: 'Kona moved the two-reel delivery to October 11', nextStep: 'confirm the new date with Denise' })] })} time={time} />);
     assert.match(out, /id="what-changed"/);
     assert.match(out, /Roofing lead revenue in Texas/);
     assert.match(out, /data-briefing-why[^>]*>Why: movement against an objective you set/);
@@ -424,7 +588,10 @@ describe('the briefing, drawn', () => {
     const telegramRow = out.slice(out.indexOf('data-briefing-change="TELEGRAM"'), out.indexOf('</li>', out.indexOf('data-briefing-change="TELEGRAM"')));
     assert.equal(telegramRow.includes('href='), false, 'no fabricated deep link for a private chat');
     assert.match(out, /datetime="2026-09-24T06:10:00\.000Z"/i);
-    assert.match(html(<WhatChanged briefing={brief({ headlines: [], needsYou: [], review: review([{ source: 'MAIL', state: 'OK', attention: [], updates: [] }]), dashboard: null })} time={time} />), /Nothing changed in what Loop can read since yesterday\./);
+    assert.match(html(<WhatLoopRead briefing={brief({ headlines: [], needsYou: [], review: review([{ source: 'MAIL', state: 'OK', attention: [], updates: [] }]), callgrid: null })} time={time} />), /Nothing changed in what Loop can read since yesterday\./);
+    const many = html(<WhatLoopRead briefing={brief({ headlines: Array.from({ length: 9 }, (_, i) => headline({ id: `h${i}`, lastDetectedAt: `2026-09-24T0${i}:00:00Z` })) })} time={time} />);
+    assert.equal((many.match(/data-briefing-change="/g) ?? []).length, BRIEFING_LIMITS.changes, 'capped at five');
+    assert.match(many, /Not shown: \d+ earlier changes\./, 'the hidden rows are older, and it says so');
   });
 
   it('needs you: ranked rows with who, what, kind, the grounded deadline, next and source; minimized, no forms, no invented fields', () => {
@@ -441,9 +608,7 @@ describe('the briefing, drawn', () => {
     assert.match(out, /Dana Rivera/);
     assert.match(out, /href="\/app\/mail\/t1"[^>]*>Reply/);
     assert.match(out, /href="\/app\/admin\/work\/w9"[^>]*>Assign/);
-    assert.match(out, /Showing 3 of 6\./);
-    const many = html(<WhatChanged briefing={brief({ headlines: Array.from({ length: 9 }, (_, i) => headline({ id: `h${i}`, lastDetectedAt: `2026-09-24T0${i}:00:00Z` })) })} time={time} />);
-    assert.match(many, /Not shown: \d+ earlier changes\./, 'the hidden rows are older, and it says so');
+    assert.match(out, /6 items need you in all; the rest are in their sources\./);
     assert.match(out, /href="\/app\/mail"[^>]*>3 more in Mail →/);
     assert.equal(/<form\b|<button\b/.test(out), false, 'corrections live on the source, not as buttons on Home');
     assert.equal(/\bnull\b|\bundefined\b/.test(out), false);
@@ -456,6 +621,19 @@ describe('the briefing, drawn', () => {
     for (const forbidden of ['urgent', 'important', 'probably', 'seems', 'priority']) assert.equal(out.toLowerCase().includes(forbidden), false, forbidden);
   });
 
+  it('needs you is constrained: the top three, and the rest behind a native "Show all N" -- no new page', () => {
+    const items = Array.from({ length: 5 }, (_, i) => needsYou({ id: `n${i}`, deadline: null, at: at(`2026-09-24T1${i}:00:00Z`) }));
+    const b = brief({ needsYou: items });
+    const out = html(<NeedsAttention briefing={b} time={time} />);
+    const top = out.slice(0, out.indexOf('<details'));
+    assert.equal((top.match(/data-briefing-attention="/g) ?? []).length, BRIEFING_LIMITS.attention);
+    assert.match(out, new RegExp(`<details class="loop-front__more" data-briefing-attention-more="true"><summary class="loop-link">Show all ${b.attention.length}</summary>`));
+    assert.equal((out.match(/data-briefing-attention="/g) ?? []).length, b.attention.length, 'every row is still on the page, folded');
+    assert.equal(/<details[^>]*\bopen\b/.test(out), false);
+    assert.equal(/href="\/app\/(needs|attention)/.test(out), false, 'no new page');
+    assert.equal(html(<NeedsAttention briefing={brief({ needsYou: [] })} time={time} />).includes('<details'), false, 'three or fewer: nothing folded');
+  });
+
   it('needs you says which kind of empty it is', () => {
     const none = brief({ needsYou: [], review: review([{ source: 'MAIL', state: 'OK', attention: [], updates: [], metrics: { needAttention: { state: 'VALUE', value: 0, prior: null, href: null, scope: 'x' } } }]) });
     assert.match(html(<NeedsAttention briefing={none} time={time} />), /Nothing needs you right now in what Loop can read\./);
@@ -464,71 +642,52 @@ describe('the briefing, drawn', () => {
     assert.equal(unreadable.includes('Nothing needs you'), false);
   });
 
-  it('today: events in the reader’s zone from stored columns only, the one on now marked, work due today, and mail as a line of counts', () => {
-    const out = html(<TodayPanel today={brief({ workDue: dueTodayFromWork([myWork()], time.startOfDay(), new Date(time.startOfDay().getTime() + 86_400_000)) }).today} time={time} mailHref="/app/mail" />);
-    assert.match(out, /id="today"/);
+  it('your day: the meeting on now and those ahead in the reader’s zone from stored columns only, work due today, then needs you', () => {
+    const b = brief({ workDue: dueTodayFromWork([myWork()], time.startOfDay(), new Date(time.startOfDay().getTime() + 86_400_000)) });
+    const out = html(<YourDayCard today={b.today} briefing={b} time={time} calendarHref="/app/calendar" />);
+    assert.match(out, /<section class="loop-panel loop-front__day" aria-label="Your day" id="today">/);
     assert.match(out, /3 meetings/);
-    assert.match(out, /9:30 AM/);
+    assert.equal(/>9:30 AM</.test(out), false, 'a meeting that already ended is counted, not listed');
     assert.match(out, /11:00 AM/);
+    assert.match(out, /4:00 PM/);
     assert.equal(/>[^<]*13:30/.test(out), false, 'no UTC time is rendered as text');
     assert.match(out, /class="is-live"[\s\S]*?Harbor \/ Kona — reel review/);
-    assert.match(out, /6 people/);
     assert.match(out, /3 people · external/);
-    assert.match(out, /video call/);
     assert.match(out, /organizer: you/);
     assert.match(out, /Due today/);
     assert.match(out, /href="\/app\/admin\/work\/w1"/);
     assert.match(out, /expected back · Edit/);
     assert.match(out, /12:00 PM/);
-    assert.match(out, /data-briefing-mail[^>]*>3 need a reply · 1 follow-up due · 2 waiting on others/);
-    assert.match(out, /href="\/app\/mail"[^>]*>Open Mail →/);
-    assert.match(out, /href="https:\/\/calendar\.google\.com\/"[^>]*target="_blank"/);
+    // The calendar link is Loop's own Calendar page, and only where the rail leads; no external link.
+    assert.match(out, /href="\/app\/calendar"[^>]*>Calendar →/);
+    assert.equal(out.includes('calendar.google.com'), false);
+    assert.equal(html(<YourDayCard today={b.today} briefing={b} time={time} calendarHref={null} />).includes('href="/app/calendar"'), false);
+    // Needs you follows the day, inside the same card; mail is the Mail tile's and the briefing's, not a second list here.
+    assert.ok(out.indexOf('id="needs-attention"') > out.indexOf('Due today'));
+    assert.equal(out.includes('data-briefing-mail'), false);
     for (const absent of ['>Week<', '>Month<', 'View Full Calendar', 'href="mailto']) assert.equal(out.includes(absent), false, absent);
   });
 
-  it('today: a source that is not connected is one line with its way in; a clear day is clear only after a read; nothing configured renders nothing', () => {
-    const notConnected = html(<TodayPanel today={brief({ day: day({ freshness: 'CAPABILITY_NOT_GRANTED' }), mail: mailDashboard('NOT_CONNECTED') }).today} time={time} mailHref="/app/mail" />);
+  it('your day: a calendar that is not connected is one line with its way in; a clear day is clear only after a read', () => {
+    const notConnectedB = brief({ day: day({ freshness: 'CAPABILITY_NOT_GRANTED' }), mail: mailDashboard('NOT_CONNECTED') });
+    const notConnected = html(<YourDayCard today={notConnectedB.today} briefing={notConnectedB} time={time} calendarHref={null} />);
     assert.match(notConnected, /data-briefing-source-state="NOT_CONNECTED" data-briefing-source-of="calendar"/);
     assert.match(notConnected, /Calendar isn’t connected, so your day isn’t here yet\.[\s\S]*?href="\/app\/connections"[^>]*>Connect Calendar/);
-    assert.match(notConnected, /Mail isn’t connected\. Loop shows only your own Gmail once it is\.[\s\S]*?href="\/app\/connections"[^>]*>Connect Google/);
-    assert.equal(notConnected.includes('need a reply'), false, 'no counts of a mailbox Loop has not read');
     assert.equal(notConnected.includes('loop-brief__tl'), false);
-    const expired = html(<TodayPanel today={brief({ mail: mailDashboard('AUTHORIZATION_EXPIRED') }).today} time={time} mailHref="/app/mail" />);
-    assert.match(expired, /Google no longer accepts this connection[\s\S]*?Reconnect Google/);
-    assert.match(html(<TodayPanel today={brief({ day: day({ events: [] }) }).today} time={time} mailHref="/app/mail" />), /No meetings on your calendar today\./);
-    assert.match(html(<TodayPanel today={brief({ mail: mailDashboard('CURRENT', { needsReply: 0, followUps: 0, waiting: 0 }) }).today} time={time} mailHref="/app/mail" />), /Nothing in your mail needs you right now\./);
-    const staleMail = html(<TodayPanel today={brief({ mail: mailDashboard('STALE', { needsReply: 0, followUps: 0, waiting: 0 }, { current: false }) }).today} time={time} mailHref="/app/mail" />);
-    assert.match(staleMail, /Nothing in your mail needed you when Loop last read it\./);
-    assert.equal(staleMail.includes('right now'), false);
-    assert.match(staleMail, /Loop last read your mail 4 minutes ago\./);
-    const neverRead = html(<TodayPanel today={brief({ day: day({ freshness: 'NEVER_SYNCED', lastSyncedAt: null }), mail: mailDashboard('NEVER_SYNCED') }).today} time={time} mailHref="/app/mail" />);
+    const clearB = brief({ day: day({ events: [] }) });
+    assert.match(html(<YourDayCard today={clearB.today} briefing={clearB} time={time} calendarHref={null} />), /No meetings on your calendar today\./);
+    const neverB = brief({ day: day({ freshness: 'NEVER_SYNCED', lastSyncedAt: null }) });
+    const neverRead = html(<YourDayCard today={neverB.today} briefing={neverB} time={time} calendarHref={null} />);
     assert.match(neverRead, /data-briefing-source-state="NOT_READ" data-briefing-source-of="calendar"[\s\S]*Loop has not read your calendar yet\./);
     assert.equal(neverRead.includes('No meetings on your calendar today'), false, 'an unread calendar is never an empty one');
-    assert.match(neverRead, /Loop has not read your mail yet\./);
-    const failedRead = html(<TodayPanel today={brief({ day: day({ freshness: 'SYNC_FAILED', lastSyncedAt: at('2026-09-24T10:00:00Z'), events: DAY }) }).today} time={time} mailHref="/app/mail" />);
+    const failedB = brief({ day: day({ freshness: 'SYNC_FAILED', lastSyncedAt: at('2026-09-24T10:00:00Z'), events: DAY }) });
+    const failedRead = html(<YourDayCard today={failedB.today} briefing={failedB} time={time} calendarHref={null} />);
     assert.match(failedRead, /Loop could not reach Google just now\. This is your calendar as Loop last read it, 5 hours ago\./);
-    assert.match(failedRead, /Team Daily/);
-    assert.equal(html(<TodayPanel today={brief({ day: null, mail: null }).today} time={time} mailHref="/app/mail" />), '', 'no source set up, no panel');
-    assert.match(html(<TodayPanel today={brief({ day: null, dayFailed: true, mail: null }).today} time={time} mailHref="/app/mail" />), /could not open your calendar/);
-  });
-
-  it('pulse: a value opens where it came from; a review figure compares only with a period it can count; unchanged and untracked are sentences', () => {
-    const out = html(<PulsePanel pulse={brief().pulse!} brainHref="/app/admin/brain" />);
-    assert.match(out, /id="business-pulse"/);
-    assert.match(out, /href="\/app\/admin\/marketplace"[^>]*>14</);
-    assert.match(out, /yesterday 9/);
-    assert.match(out, /href="\/app\/mail"[^>]*>12<[\s\S]*?▲ 4 vs the period before/);
-    assert.match(out, /No movement: total calls, outreach sent\./);
-    assert.match(out, /Opportunities: Loop does not track opportunities yet\./);
-    assert.match(out, /href="\/app\/admin\/brain"[^>]*>Executive Brain →/);
-    assert.equal(/loop-brief__kpi-v">0</.test(out), false, 'never a zero dressed as data');
-    assert.match(html(<PulsePanel pulse={{ kpis: [], unchanged: [], omitted: [] }} brainHref={null} />), /No movement in the figures Loop can read\./);
-  });
-
-  it('the lead sentence is on the page as text, with the sources beside it', () => {
-    const out = html(<BriefingLead briefing={brief()} time={time} />);
-    assert.match(out, /data-briefing-lead[^>]*>Since .*4 things changed, 6 need you, one by Thursday\./);
-    assert.match(out, /From your mail, Loop work, Telegram\./);
+    assert.match(failedRead, /Harbor \/ Kona — reel review/);
+    const noneB = brief({ day: null, mail: null });
+    assert.equal(html(<YourDayCard today={noneB.today} briefing={noneB} time={time} calendarHref={null} />).includes('data-briefing-source-of'), false, 'no calendar set up: nothing said about it');
+    const failedDayB = brief({ day: null, dayFailed: true, mail: null });
+    assert.match(html(<YourDayCard today={failedDayB.today} briefing={failedDayB} time={time} calendarHref={null} />), /could not open your calendar/);
   });
 
   it('the views are server components over the plan and draw with the design system only', () => {
@@ -547,7 +706,10 @@ describe('both Homes compose the same briefing from the page’s reads, and load
   it('the page loads day, mail and needs-you once each with the session principal and hands them to whichever Home renders', () => {
     const page = code(read('../src/app/app/page.tsx'));
     assert.match(page, /const principal = \{ organizationId: session\.organizationId, userId: session\.userId \};/);
-    for (const loader of ['loadYourDay(principal)', 'loadMailDashboard(principal', 'loadNeedsYou(principal)']) assert.equal(page.split(loader).length - 1, 1, loader);
+    for (const loader of ['loadYourDay(principal)', 'loadMailDashboard(principal', 'loadNeedsYou(principal']) assert.equal(page.split(loader).length - 1, 1, loader);
+    // Home reads every open item the loader holds (not its default six), so Chats counts conversations, not a page.
+    assert.match(page, /loadNeedsYou\(principal, HOME_NEEDS_YOU_LIMIT\)/);
+    assert.match(page, /const HOME_NEEDS_YOU_LIMIT = 200;/);
     // The employee seat's own queue: the same guarded read its My Work page makes, and only for that seat.
     assert.match(page, /role === 'EMPLOYEE' \? settle\(\(\) => loadMyQueueForHome\(\)\) : Promise\.resolve\(null\),/);
     assert.equal(page.split('loadMyQueueForHome(').length - 1, 1);
@@ -562,11 +724,15 @@ describe('both Homes compose the same briefing from the page’s reads, and load
   it('the executive Home states its authority first, loads only the organization reads, and composes -- it never reads the viewer’s items or a second time', () => {
     const home = code(read('../src/app/app/_home/admin-home.tsx'));
     const body = home.slice(home.indexOf('export async function AdminHome'));
-    assert.ok(body.indexOf("await requireWorkspace('ADMIN')") < body.indexOf('loadDashboard('), 'authority before any read');
-    for (const forbidden of ['loadNeedsYou', 'loadYourDay', 'loadMailDashboard', 'prisma', 'repositories']) assert.equal(home.includes(forbidden), false, forbidden);
+    assert.ok(body.indexOf("await requireWorkspace('ADMIN')") < body.indexOf('loadHome('), 'authority before any read');
+    assert.ok(body.indexOf("await requireWorkspace('ADMIN')") < body.indexOf('loadFrontDoor('), 'authority before the front door reads too');
+    for (const forbidden of ['loadNeedsYou', 'loadYourDay', 'loadMailDashboard', 'prisma', 'repositories', 'loadDashboard', 'PulsePanel']) assert.equal(home.includes(forbidden), false, forbidden);
     assert.match(body, /composeBriefing\(\{[\s\S]*?headlines: review\?\.headlines \?\? null,[\s\S]*?needsYou,/);
-    assert.match(body, /<WhatChanged[\s\S]*<NeedsAttention[\s\S]*<TodayPanel[\s\S]*<PulsePanel/, 'the approved order');
-    assert.match(body, /const brainHref = groups\.some\(\(g\) => g\.items\.some\(\(i\) => i\.href === HOME_PATHS\.brain\)\) \? HOME_PATHS\.brain : null;/, 'Home links to the Brain only where the rail would');
+    assert.match(body, /callgrid,[\s\S]*?headlinesPanel: showHeadlines,/, 'the projected command context in, the aggregate Headlines row out');
+    // The approved order: KPIs, the briefing, Headlines, then Your day beside Recent activity, then the tools.
+    assert.match(body, /<KpiStrip[\s\S]*<BriefingCard[\s\S]*<HeadlinesPanel[\s\S]*<div className="loop-front__pair">\s*<YourDayCard[\s\S]*<RecentActivityPanel[\s\S]*<\/div>\s*<ToolsGrid/, 'the approved order');
+    assert.match(body, /const narrative = briefingNarrative\(\{/, 'the briefing is the narrative, a distinct synthesis');
+    assert.match(body, /const auditHref = navOffers\(groups, AUDIT_PATH\) \? AUDIT_PATH : null;/, 'Home links to the audit log only where the rail would');
     const review = code(read('../src/app/app/_home/review-data.ts'));
     assert.match(review, /loadAttention\(organizationId, new Date\(\), \{ dismissed: false \}\)/, 'the Home read excludes dismissed Headlines');
     assert.equal(review.includes('loadNeedsYou'), false, 'the review never reads the employee-private items');
@@ -575,7 +741,8 @@ describe('both Homes compose the same briefing from the page’s reads, and load
   it('the module Home composes from the viewer’s own sources only and keeps the areas they can open', () => {
     const home = code(read('../src/app/app/_home/module-home.tsx'));
     for (const forbidden of ['loadNeedsYou', 'loadDashboard', 'loadExecutiveReview', 'loadMyQueueForHome', 'loadEmployeeWork', 'prisma', 'repositories']) assert.equal(home.includes(forbidden), false, forbidden);
-    assert.match(home, /review: null,[\s\S]*?dashboard: null,/);
+    assert.match(home, /review: null,[\s\S]*?callgrid: null,/);
+    for (const absent of ['KpiStrip', 'HeadlinesPanel', 'RecentActivityPanel', 'loadFrontDoor']) assert.equal(home.includes(absent), false, `${absent}: not this seat's to read`);
     assert.match(home, /workDue: dueTodayFromQueue\(queue, userId, dayStart, dayEnd, \(id\) => `\/app\/employee\/work\/\$\{encodeURIComponent\(id\)\}`\),/);
     // The narrow loader: the queue page's guard and read, nothing more.
     const loader = code(read('../src/app/app/employee/work/work-data.ts'));
@@ -583,6 +750,7 @@ describe('both Homes compose the same briefing from the page’s reads, and load
     assert.match(narrow, /const actor = await requireEmployeeActor\(\);/);
     assert.match(narrow, /workRepo\(\)\.listMyWork\(actor\.userId, actor\.organizationId\)/);
     for (const extra of ['getMyNextAction', 'listMyCompletedToday', 'listNotifications', 'prisma.']) assert.equal(narrow.includes(extra), false, extra);
-    assert.match(home, /<NeedsAttention[\s\S]*<TodayPanel[\s\S]*loop-launchers/);
+    assert.match(home, /<BriefingCard[\s\S]*<YourDayCard[\s\S]*<ToolsGrid/);
+    assert.match(home, /business: null,\s*headlines: null,/, 'the employee briefing speaks of their own sources only');
   });
 });

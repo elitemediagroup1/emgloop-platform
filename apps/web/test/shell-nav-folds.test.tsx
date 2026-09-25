@@ -52,7 +52,7 @@ describe('The fold model is data in the one registry', () => {
   it('for the whole application: which folds exist, their keys, labels, counts and items', () => {
     assert.deepEqual(shape(everything), [
       // Home is all primary and unlabelled: no heading, no fold.
-      ['', null, ['Home', 'Mail', 'Connections'], null],
+      ['', null, ['Home', 'Mail', 'Chats', 'Calendar', 'Connections'], null],
       // CRM keeps the redesigned surfaces and the Command Center primary; the intake tools fold.
       ['CRM', 'CRM', ['People', 'Relationships', 'Command Center'], {
         key: 'crm-intake-tools', id: 'loop-fold-crm-intake-tools', label: 'Intake tools', count: 7,
@@ -66,8 +66,8 @@ describe('The fold model is data in the one registry', () => {
       }],
       // Whole groups fold: no heading, the row carries the group label.
       ['Intelligence', null, [], {
-        key: 'intelligence-intelligence', id: 'loop-fold-intelligence-intelligence', label: 'Intelligence', count: 8,
-        items: ['Headlines', 'Your queue', 'Executive Brain', 'Intelligence Flow', 'CallGrid Intelligence', 'Analytics', 'Traffic', 'Revenue'],
+        key: 'intelligence-intelligence', id: 'loop-fold-intelligence-intelligence', label: 'Intelligence', count: 9,
+        items: ['Headlines', 'Your queue', 'Executive Brain', 'Intelligence status', 'Intelligence Flow', 'CallGrid Intelligence', 'Analytics', 'Traffic', 'Revenue'],
         activeInside: false,
       }],
       ['Operations', null, [], {
@@ -83,7 +83,7 @@ describe('The fold model is data in the one registry', () => {
 
   it('for an employee: the same folds over what they can open, and no fold where nothing folds for them', () => {
     assert.deepEqual(shape(navForRole('EMPLOYEE')), [
-      ['', null, ['Home', 'Mail', 'Connections'], null],
+      ['', null, ['Home', 'Mail', 'Chats', 'Calendar', 'Connections'], null],
       ['CRM', 'CRM', ['People', 'Relationships', 'Command Center'], {
         key: 'crm-intake-tools', id: 'loop-fold-crm-intake-tools', label: 'Intake tools', count: 7,
         items: ['Conversations', 'Intake Records', 'Intake Board', 'Identity Review', 'Inbox', 'Search', 'Automations'],
@@ -183,7 +183,7 @@ describe('A fold opens itself around the page shown', () => {
     assert.equal((html.match(/aria-expanded="true"/g) ?? []).length, 1);
     assert.equal(/style="/.test(html), false, 'hidden by attribute, never by style');
     // The row shows how many items it holds.
-    for (const [key, count] of [['work-team-work-types', 2], ['intelligence-intelligence', 8], ['operations-operations', 4], ['administration-administration', 7]] as const) {
+    for (const [key, count] of [['work-team-work-types', 2], ['intelligence-intelligence', 9], ['operations-operations', 4], ['administration-administration', 7]] as const) {
       assert.match(html, new RegExp(`aria-controls="loop-fold-${key}">.*?<span class="loop-sb__foldcount">${count}</span></button><div id="loop-fold-${key}" class="loop-sb__foldlist" hidden="">`), key);
     }
     // A wholly folded group has no heading: the row carries the label.

@@ -494,13 +494,17 @@ test('AI-ON: the ai secret is REFERENCED not created; ANTHROPIC_API_KEY is a Sec
     assert.notEqual(e.Name, 'OPENAI_API_KEY', 'the credential must never be a plaintext Environment entry');
   }
 
-  // The five activation vars reach the worker with the placeholder org id and exact values.
+  // The four activation vars reach the worker with the placeholder org id and exact values -- and
+  // exactly those four. LOOP_AI_PROVIDER_TERMS_CONFIRMED is NOT set (2026-09-24): the stack used to set
+  // it automatically for every provider it listed, which made "listed" imply "terms approved". G2 is
+  // now a recorded provider policy in the database, and nothing in this stack can stand in for it.
   const env = Object.fromEntries((c.Environment ?? []).map((e) => [e.Name, e.Value]));
   assert.equal(env.LOOP_AI_ENABLED, 'true');
   assert.equal(env.LOOP_AI_PROVIDERS, 'anthropic');
-  assert.equal(env.LOOP_AI_PROVIDER_TERMS_CONFIRMED, 'anthropic');
   assert.equal(env.LOOP_AI_ORGANIZATIONS, PLACEHOLDER_ORG_ID);
   assert.equal(env.LOOP_AI_TASKS, 'telegram.content.triage');
+  assert.equal('LOOP_AI_PROVIDER_TERMS_CONFIRMED' in env, false, 'the stack never implies a provider policy');
+  assert.deepEqual(Object.keys(env).filter((k) => k.startsWith('LOOP_AI_')).sort(), ['LOOP_AI_ENABLED', 'LOOP_AI_ORGANIZATIONS', 'LOOP_AI_PROVIDERS', 'LOOP_AI_TASKS']);
 
   // OpenAI is opt-in: no OPENAI_API_KEY secret unless the fallback is requested.
   assert.ok(!(c.Secrets ?? []).some((s) => s.Name === 'OPENAI_API_KEY'), 'OPENAI_API_KEY must be absent by default');
@@ -521,7 +525,7 @@ test('AI-ON + fallback: OPENAI_API_KEY referenced from openai_api_key; providers
 
   const env = Object.fromEntries((c.Environment ?? []).map((e) => [e.Name, e.Value]));
   assert.equal(env.LOOP_AI_PROVIDERS, 'anthropic,openai');
-  assert.equal(env.LOOP_AI_PROVIDER_TERMS_CONFIRMED, 'anthropic,openai');
+  assert.equal('LOOP_AI_PROVIDER_TERMS_CONFIRMED' in env, false, 'listing openai does not approve it either');
 
   for (const e of c.Environment ?? []) {
     assert.notEqual(e.Name, 'ANTHROPIC_API_KEY');

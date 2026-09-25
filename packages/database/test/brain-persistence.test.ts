@@ -1074,6 +1074,23 @@ test('fence: the four declarations are four sets of columns, and no Brain table 
   for (const field of ledgerFields) assert.doesNotMatch(field, /prompt|response|completion|body|content/i, `the ledger still stores no body: ${field}`);
 });
 
+/** Columns later migrations added to the tables this one created. Each is added nullable, and only there. */
+const ADDED_LATER: Record<string, readonly { column: string; migration: string }[]> = {
+  // G2 (2026-09-24): a provider policy's sensitivity ceiling.
+  AiControl: [{ column: 'ceiling', migration: '20261003000001_ai_provider_policy_controls' }],
+};
+
+test('fence: the columns added to these tables later are added by their own migration, nullable', () => {
+  for (const [model, columns] of Object.entries(ADDED_LATER)) {
+    const map = /@@map\("(\w+)"\)/.exec(modelBody(model))![1]!;
+    for (const { column, migration } of columns) {
+      const later = readFileSync(join(__dirname, '..', 'prisma', 'migrations', migration, 'migration.sql'), 'utf8');
+      assert.match(later, new RegExp(`ALTER TABLE "${map}" ADD COLUMN "${column}" TEXT;`), `${map}.${column} is added nullable by ${migration}`);
+      assert.doesNotMatch(MIGRATION, new RegExp(`"${column}"`), `${column} is not this migration's`);
+    }
+  }
+});
+
 test('fence: the migration is additive, ASCII, touches one existing table additively, and matches the schema', () => {
   // eslint-disable-next-line no-control-regex
   assert.doesNotMatch(MIGRATION, /[^\x00-\x7F]/, 'ASCII only');
@@ -1101,7 +1118,11 @@ test('fence: the migration is additive, ASCII, touches one existing table additi
     const body = modelBody(model);
     const map = /@@map\("(\w+)"\)/.exec(body)![1]!;
     const create = new RegExp(`CREATE TABLE "${map}" \\(([\\s\\S]*?)\\n\\);`).exec(sql)![1]!;
-    const scalar = [...body.matchAll(/^\s{2}(\w+)\s+(String|Int|DateTime|Json|Bytes|Boolean)\??/gm)].map((m) => m[1]!);
+    // Columns a LATER migration added to these tables are that migration's, not this one's; each
+    // is named here with the migration that adds it, and asserted to be added there (below).
+    const scalar = [...body.matchAll(/^\s{2}(\w+)\s+(String|Int|DateTime|Json|Bytes|Boolean)\??/gm)]
+      .map((m) => m[1]!)
+      .filter((c) => !(ADDED_LATER[model] ?? []).some((later) => later.column === c));
     for (const c of scalar) assert.match(create, new RegExp(`"${c}"`), `${map}.${c} is created`);
     assert.equal((create.match(/^\s+"\w+"/gm) ?? []).length, scalar.length, `${map} creates exactly the schema's columns`);
   }

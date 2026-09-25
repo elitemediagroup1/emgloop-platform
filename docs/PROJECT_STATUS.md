@@ -25,51 +25,41 @@ NOT by seeing it render or run. Those must be checked on the deploy.
 
 ---
 
-## Loop Home as a daily briefing — BUILT, IN REVIEW (draft PR on `feat/loop-home-briefing`) · design approved 2026-09-24
+## Loop Home — COMPOSITION CORRECTED (2026-09-24, PR open on `fix/loop-home-composition`) · over merged #335
 
-**What it is.** Home answers three questions in order — what changed that matters, what needs you, what
-to do next — then shows movement, not dashboards: What changed (≤5 rows: what · source · why Loop
-surfaced it · next action or the way back to the source; "Headlines history" opens the existing
-Headlines page) → Needs your attention (one ranked list: the viewer's own Telegram obligations and
-the executive review's attention rows, ranked by grounded deadline → kind → how long it has waited)
-→ Today (calendar events, work expected back today, mail as counts; a source that is not connected
-is one line with its connect link) → Business pulse (movement only; unchanged figures are one
-sentence; untracked ones are omitted, never a zero). The module Home (employees) is the same
-briefing over the viewer's own sources plus the areas they can open. The creator Home is untouched.
+**Why.** Matt's review of merged #335: the data and governance were right, the rendered Home was an admin
+dashboard — a giant What-changed list, an uncapped Needs-you side rail whose height left a dead band
+before Tools & Spaces, buried Headlines, tiles that were counts, and Chats/Calendar routed to Connections.
 
-**How.** `apps/web/src/app/app/_home/briefing.ts` is a pure composer over the existing loaders'
-outputs (executive review, dashboard, Headlines, `loadNeedsYou`, your day, mail); `briefing-view.tsx`
-draws it. No new loader, table, provider or permission; no change to Telegram triage, observations,
-WorkItem state, Brain rules, CRM or Work OS authority. The one read-side fix: the Home read of
-Headlines passes `dismissed: false` (`CaseWorkspaceService.attention` gained the option; the Headlines
-page still reads them all), so a dismissed Headline never reappears on Home. `MyWorkItem` carries the
-Work OS rows' `expectedReturnAt`/`dueAt` so "due today" is a date the row already had; the employee seat's Home
-reads its own queue through `loadMyQueueForHome` (the queue page's EMPLOYEE guard and
-`WorkRepository.listMyWork`, nothing more) and projects "due today" with the pure `dueTodayFromQueue`
-(only a current stage the person owns; links into the employee tree). Retired with
-their panels: `admin-home`'s review card, metric cards, CallGrid table and quick actions;
-`your-day.tsx`, `day-calendar.tsx`, `your-mail.tsx`, `needs-you.tsx` and their CSS.
+**Now, top to bottom (sequential sections, no side rail):** header → Executive KPIs (unchanged authority:
+the CallGrid Command Center context, elapsed-matched, missing ≠ 0) → **Your briefing** (a pure
+deterministic narrative, `_home/narrative.ts` `briefingNarrative`, ≤4 sentences with source chips: business
+from the KPI strip, intelligence from Headlines, the viewer's own mail and chats, the day and work; the
+old change rows sit behind a closed "What Loop read" disclosure) → **Headlines** (wide cards from the
+unchanged Headline authority + Case situation; honest knowledge-state card when none) → **Your day |
+Recent activity** (compact peers; Needs you capped at 3 with "Show all" in a native disclosure) → **Your
+tools & spaces**. Measured locally: section order correct at 1440/834/390, 22px between the Day|Activity
+row and the tools (was 120/411/669px), no horizontal overflow.
 
-**Rail.** `LOOP_NAV` stays one registry; `NavGroup.fold` / `NavItem.folded` mark what sits behind a
-disclosure. Primary: Home · Mail · Connections | People · Relationships · Command Center (+ Intake
-tools ▸7) | My Work (+ Team work & types ▸2); Intelligence ▸, Operations ▸, Administration ▸ fold
-entirely. A fold opens itself when the page shown is inside it; a person's choice is remembered per
-browser (`loop.nav.folds`). Opportunities, Campaigns and Workflows (`soon`) left the rail; the Command
-Center's Upcoming list names them. Mobile five-area bar and the creator rail unchanged.
+**Domain surfaces (new, read-only compositions):** `/app/chats` — the viewer's own Telegram triage
+obligations grouped by conversation label + content-free 24h/7d activity + connection status
+(`googleWorkspace:view`, same gate as Connections; `daily-loop/chats-intelligence.ts` pure +
+`chats.ts` loader); `/app/calendar` — the viewer's own day (`employeeIntelligence:view`, Mail's gate).
+Both in `LOOP_NAV` after Mail. Mail's interpretation is `mailDomainIntelligence` in
+`@emgloop/shared` mail-intelligence, shown on `/app/mail` and the Home tile. **Connections is
+configuration only**: a tile routes there only when its source is not connected.
 
-**Validated (2026-09-24, local):** web 715 tests (new `home-briefing`, `shell-nav-folds`; rewritten
-`home-needs-you-owner`, `one-loop-shell`; retired `home-executive`, `needs-you`, `your-day` with their
-intents ported), database 1651 (Postgres suite included), both web tsconfigs clean, build passes.
-Browser verification against `next dev` + local Postgres for OWNER, EMPLOYEE and CREATOR seats:
-section order; Telegram change and decision rows (seeded triage rows) with no link; the employee
-sees none of the owner's items; no Business pulse for the employee; creator Home and rail untouched;
-folds closed by default, open on click, persist across reload, close and stay closed, auto-open
-inside Headlines and Inbox; phone bar unchanged, no horizontal scroll; composing Home for three seats
-changed no work item, stage, headline or instance row (only `auth.login` audit rows from signing in);
-the employee seat shows its own step expected back today under Due today, linked into its tree,
-while the owner's and a read-only seat's Homes do not (fixture created through the repository).
+**Tiles:** Mail → `/app/mail`; Chats → `/app/chats`; Calendar → `/app/calendar`; My Work (overdue / due
+today from the rows' own dates); Intake Board; CallGrid Intelligence = the Overview's own `executiveBrief`
+band/reason/sentence over `loadExecutiveReading` (reads only — Home never records a detection); Campaigns;
+Creator Hub. Each only when the rail offers its href.
 
-**Next:** Matt reviews the draft PR. Staging deploy follows the usual path (merge → `staging` FF).
+**Validated:** web 821, shared 1410, database 1610 (+73 Postgres-gated), typechecks clean, web build
+passes; local browser run of /app, /app/chats, /app/calendar, /app/mail at three widths (metrics above).
+
+**Gaps:** connective (cross-source) Headlines still do not exist; Intake has no "new since" read; calendar
+events carry no join link, location or attendee names; no Files surface; Chats says nothing about
+conversations triage has not flagged beyond content-free counts, by design.
 
 ## Creator Hub — COMMISSIONED ON STAGING (2026-09-23) · #323 #324 #325 on main · staging = main `c4bd264` · production schema untouched
 

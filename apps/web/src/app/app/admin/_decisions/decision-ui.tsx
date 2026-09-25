@@ -32,7 +32,7 @@ import type {
   PriorityState, DecisionActivity, Rate, LifecycleHistory,
   UnknownGroup, Ownership, OutcomeChoiceGroup,
 } from '@emgloop/shared';
-import { PRIORITY_STATES, priorClosure } from '@emgloop/shared';
+import { CASE_OUTCOME_LANGUAGE, PRIORITY_STATES, priorClosure } from '@emgloop/shared';
 import type { OperationalObservation, OperationalPriority } from '@emgloop/database';
 import { viewerTime } from '../../../../time/viewer-time';
 import { relativeTime, timeOfDayGreeting } from '@emgloop/shared';
@@ -54,21 +54,17 @@ export const STATE_LABEL: Record<PriorityState, string> = {
   DISMISSED: 'Dismissed',
 };
 
-export const OUTCOME_LABEL: Record<string, string> = {
-  RECOVERED: 'Recovered',
-  PARTIALLY_RECOVERED: 'Partly recovered',
-  NOT_RECOVERED: 'Not recovered',
-  NO_ACTION_NEEDED: 'No action was needed',
-  FALSE_POSITIVE: 'Loop should not have raised it',
-  ACCEPTED_RISK: 'Real, and accepted',
-  NOT_ACTIONABLE: 'Real, and nothing could be done',
-  DUPLICATE: 'Already tracked elsewhere',
-  MERGED: 'Merged into another decision',
-  SUPPRESSED: 'Suppressed',
-  EXPIRED: 'Stopped on its own',
-  CONVERTED_TO_WORK: 'Became work elsewhere',
-  UNKNOWN: 'Outcome unknown',
-};
+/**
+ * The outcome words, read from the one dictionary in `@emgloop/shared`.
+ *
+ * This map used to be declared here, verbatim. The Headlines workspace needed
+ * the same words for a resolved investigation, and a second copy is how two
+ * screens drift; `CASE_OUTCOME_LANGUAGE` now owns them and this is a view of it,
+ * kept so the two existing consumers read unchanged.
+ */
+export const OUTCOME_LABEL: Record<string, string> = Object.fromEntries(
+  Object.values(CASE_OUTCOME_LANGUAGE).map((o) => [o.from, o.label]),
+);
 
 export const OBSERVATION_LABEL: Record<string, string> = {
   SITUATION_DETECTED: 'Loop first saw this',

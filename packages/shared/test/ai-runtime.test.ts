@@ -138,6 +138,13 @@ function admission(patch: Partial<AiAdmissionRequest> = {}): AiAdmissionRequest 
     registeredProviders: ['anthropic', 'openai'],
     contextRefusals: [],
     tools: [],
+    // G2: both providers hold a recorded ACTIVE policy that reaches the task's ceiling. The
+    // missing / KILLED / lower / unreadable cases are in ai-provider-policy.test.ts.
+    providerPolicies: [
+      { providerId: 'anthropic', state: 'ACTIVE', ceiling: 'OPERATIONAL', version: 1, recordedAtMs: 0 },
+      { providerId: 'openai', state: 'ACTIVE', ceiling: 'OPERATIONAL', version: 1, recordedAtMs: 0 },
+    ],
+    sensitivityCeiling: 'OPERATIONAL',
     ...patch,
   };
 }

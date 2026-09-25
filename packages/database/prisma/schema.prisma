@@ -295,6 +295,8 @@ model Organization {
   /// Content-processing authorizations (Telegram content-triage): per member per provider; see
   /// SourceContentAuthorization. The employee's explicit consent to process message content with AI.
   sourceContentAuthorizations SourceContentAuthorization[]
+  /// Loop Intelligence (PR A). Principal-private domain intelligence; always read with a userId as well.
+  intelligenceDigests         IntelligenceDigest[]
   /// Daily Loop (DL-1). Employee-private work state; always read with a userId as well.
   workSourceCursors           WorkSourceCursor[]
   workDrafts                  WorkDraft[]
@@ -547,6 +549,8 @@ model OrganizationMembership {
   /// The content-processing authorization belongs to the membership too, so offboarding takes the
   /// employee's content consent with them.
   sourceContentAuthorizations SourceContentAuthorization[] @relation("SourceContentAuthorizationMember")
+  /// Loop Intelligence (PR A). One person's domain intelligence belongs to their membership.
+  intelligenceDigests         IntelligenceDigest[]         @relation("IntelligenceDigestMember")
   /// Daily Loop (DL-1). One person's own work state, in THIS organization: it belongs to the
   /// membership, so offboarding takes it with them.
   workSourceCursors           WorkSourceCursor[]           @relation("WorkSourceCursorMember")
@@ -5633,6 +5637,9 @@ model AiControl {
   actorKind      String
   actorUserId    String?
   actorReference String?
+  /// G2 (migration 20261003000001): PROVIDER_POLICY only -- the highest sensitivity class the
+  /// provider may receive. Required when ACTIVE, NULL on every other scope (checked).
+  ceiling        String?
   recordedAt     DateTime
   createdAt      DateTime @default(now())
 
@@ -6109,6 +6116,63 @@ model SourceContentAuthorization {
   @@index([revokedAt, lastRunAt])
   @@index([historicalState, historicalLastRunAt])
   @@map("source_content_authorizations")
+}
+
+// ---------------------------------------------------------------------------
+// Loop Intelligence -- DOMAIN INTELLIGENCE digests (PR A, approved 2026-09-24)
+//
+// AUTHORITATIVE EVIDENCE -> DOMAIN INTELLIGENCE (this) -> domain UI / Briefing -> Headlines ->
+// Investigation -> Work. Intelligence is NOT Work. One current row per subject, overwritten on
+// regeneration: a REBUILDABLE PROJECTION of evidence kept elsewhere, never truth. PRINCIPAL-private;
+// ORGANIZATION scope is reserved and refused by a CHECK and by the repository. Nothing writes it in
+// PR A. See IntelligenceDigestRepository and @emgloop/shared intelligence-digest.ts.
+// ---------------------------------------------------------------------------
+
+model IntelligenceDigest {
+  id             String  @id @default(cuid())
+  organizationId String
+  /// PRINCIPAL (one person's) or ORGANIZATION (RESERVED -- refused until a separate decision).
+  scope          String
+  /// Required for PRINCIPAL (checked). With organizationId, a composite FK to the membership.
+  userId         String?
+  /// CHATS, MAIL, CALENDAR, CALLGRID, CREATORS, WORK, CRM or CAMPAIGNS.
+  domain         String
+  /// CONVERSATION, THREAD or DOMAIN.
+  subjectKind    String
+  /// A keyed reference, never a raw provider id. 'domain' for a DOMAIN rollup.
+  subjectRef     String
+  /// The source provider (TELEGRAM, GMAIL, ...): how a consent revoke finds these rows.
+  provider       String?
+  /// Minimized structured intelligence (DigestContent). Bounded; never a body, text, quote or message.
+  content        Json
+  /// The coverage contract value recorded at generation.
+  coverage       String
+  windowStart    DateTime
+  windowEnd      DateTime
+  evidenceCount  Int
+  lastEvidenceAt DateTime?
+  /// Keyed source refs, anchor event ids, aiInvocationId, taskId, taskVersion, schemaId, producerVersion.
+  provenance     Json
+  aiInvocationId String?
+  /// Changes only when the digest's meaning changes; an unchanged fingerprint writes nothing.
+  fingerprint    String
+  version        Int      @default(1)
+  /// CURRENT, STALE or WITHDRAWN.
+  status         String
+  generatedAt    DateTime
+  /// Stamped at write from the retention policy; the worker's sweep deletes past it.
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  membership   OrganizationMembership? @relation("IntelligenceDigestMember", fields: [userId, organizationId], references: [userId, organizationId], onDelete: Cascade)
+
+  @@unique([organizationId, userId, domain, subjectKind, subjectRef])
+  @@index([organizationId, userId, domain, status])
+  @@index([organizationId, userId, provider])
+  @@index([expiresAt])
+  @@map("intelligence_digests")
 }
 
 // ---------------------------------------------------------------------------

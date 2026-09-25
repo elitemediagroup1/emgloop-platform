@@ -99,6 +99,12 @@ describe('Shell and navigation', () => {
     assert.equal(/<h1[^>]*>Customers</.test(PEOPLE), false);
     assert.match(CUSTOMER, /<span aria-hidden="true">←<\/span> Intake Records/);
     assert.match(code(PEOPLE), /<h1 className="crm-h1">Intake Records<\/h1>/);
+    // The personal domain pages under Home carry their nav names too (2026-09-24).
+    for (const [label, file] of [['Chats', 'app/app/chats/page.tsx'], ['Calendar', 'app/app/calendar/page.tsx']] as const) {
+      const item = LOOP_NAV.nav.flatMap((g) => g.items).find((i) => i.label === label);
+      assert.ok(item, `${label} is in LOOP_NAV`);
+      assert.match(read(`../src/${file}`), new RegExp(`title="${label}"`), file);
+    }
   });
 });
 

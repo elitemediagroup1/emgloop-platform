@@ -38,6 +38,7 @@ import {
 import type { SealedConnectionSecret } from '../services/connections/connection-secret-sealer';
 import { AuditRepository } from './audit.repository';
 import { membershipAuthority } from './membership.repository';
+import { IntelligenceDigestRepository, intelligenceDigestsPresent } from './intelligence/intelligence-digest.repository';
 import { WorkWithdrawalRepository } from './work-state/work-withdrawal.repository';
 
 type Tx = Prisma.TransactionClient;
@@ -108,7 +109,7 @@ export interface DueDerivedExpiry {
 }
 
 export type DerivedExpiryOutcome =
-  | { readonly outcome: 'EXPIRED'; readonly items: number; readonly observations: number }
+  | { readonly outcome: 'EXPIRED'; readonly items: number; readonly observations: number; readonly digests: number }
   | { readonly outcome: 'NOTHING_TO_DO' };
 
 function sealedOf(row: Record<string, any>): SealedConnectionSecret | null {
@@ -400,8 +401,9 @@ export class SourceConnectionRepository {
 
   /**
    * Delete this person's derived (MODEL-produced) items for a provider whose connection has been
-   * disconnected past the grace window -- the §21.2 "deleted at 30 days" row -- and record the act
-   * with counts only. The row is re-resolved in scope inside the transaction: a connection that is
+   * disconnected past the grace window -- the §21.2 "deleted at 30 days" row -- together with their
+   * domain-intelligence digests drawn from that provider (Loop Intelligence PR A, 2026-09-24), and
+   * record the act with counts only. The row is re-resolved in scope inside the transaction: a connection that is
    * live again, or whose disconnect is still inside the window, is NOTHING_TO_DO (that is what makes
    * a reconnect inside the month restore the frozen queue). No audit row when nothing was deleted.
    * The grace window is applied HERE from the shared constant, so no caller can shorten it.
@@ -412,12 +414,14 @@ export class SourceConnectionRepository {
     provider: ConnectionProvider,
     request: { readonly now: Date },
   ): Promise<DerivedExpiryOutcome> {
+    const digestsPresent = await intelligenceDigestsPresent(this.prisma, { organizationId, userId });
     return this.prisma.$transaction(async (tx) => {
       const current = await tx.sourceConnection.findFirst({ where: { organizationId, userId, provider } });
       if (!current || connectionIsLive(current.state as ConnectionState)) return { outcome: 'NOTHING_TO_DO' as const };
       if (!current.disconnectedAt || current.disconnectedAt >= disconnectGraceCutoff(request.now)) return { outcome: 'NOTHING_TO_DO' as const };
       const deleted = await new WorkWithdrawalRepository(tx).deleteDerived({ organizationId, userId }, { provider });
-      if (deleted.items === 0) return { outcome: 'NOTHING_TO_DO' as const };
+      const digests = digestsPresent ? await new IntelligenceDigestRepository(tx).deleteForPrincipal({ organizationId, userId }, { provider }) : { deleted: 0 };
+      if (deleted.items === 0 && digests.deleted === 0) return { outcome: 'NOTHING_TO_DO' as const };
       await writeAudit(this.prisma, tx, {
         organizationId,
         connectionId: current.id,
@@ -427,11 +431,12 @@ export class SourceConnectionRepository {
         metadata: {
           subjectUserId: userId,
           deleted: { items: deleted.items, observations: deleted.observations },
+          digestsDeleted: digests.deleted,
           graceDays: WORK_DISCONNECT_GRACE_DAYS,
           retentionPolicy: WORK_RETENTION_POLICY_VERSION,
         },
       });
-      return { outcome: 'EXPIRED' as const, items: deleted.items, observations: deleted.observations };
+      return { outcome: 'EXPIRED' as const, items: deleted.items, observations: deleted.observations, digests: digests.deleted };
     });
   }
 

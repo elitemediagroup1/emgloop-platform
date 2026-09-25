@@ -4,7 +4,8 @@
 //
 // WHAT IT DOES. Discover, across every tenant, the connections that are NOT live and whose disconnect
 // is older than the grace window; for each, ask the repository to delete that ONE principal's derived
-// items for that ONE provider. The repository re-resolves the connection in scope inside its own
+// items -- and their domain-intelligence digests (Loop Intelligence PR A, 2026-09-24) -- for that ONE
+// provider. The repository re-resolves the connection in scope inside its own
 // transaction and refuses one that is live again (a reconnect inside the month keeps the frozen
 // queue) or still inside the window -- and it applies the grace window itself from the shared
 // constant, so this sweep cannot shorten it. The audit row is the repository's, with counts only.
@@ -32,6 +33,8 @@ export interface DerivedRetentionSummary {
   readonly principals: number;
   /** Items deleted, across all principals. */
   readonly deleted: number;
+  /** Domain-intelligence digests deleted, across all principals. */
+  readonly digests: number;
   /** Connections that discovery returned but the scoped delete refused (live again, inside the window, nothing to delete). */
   readonly skipped: number;
   /** Deletes that threw; the connection is retried on the next sweep. */
@@ -43,6 +46,7 @@ export async function runDerivedRetentionSweep(ports: DerivedRetentionPorts): Pr
   const due = await ports.dueForDerivedExpiry(now);
   let principals = 0;
   let deleted = 0;
+  let digests = 0;
   let skipped = 0;
   let failed = 0;
   for (const connection of due) {
@@ -51,6 +55,7 @@ export async function runDerivedRetentionSweep(ports: DerivedRetentionPorts): Pr
       if (outcome.outcome === 'EXPIRED') {
         principals += 1;
         deleted += outcome.items;
+        digests += outcome.digests;
       } else {
         skipped += 1;
       }
@@ -59,5 +64,5 @@ export async function runDerivedRetentionSweep(ports: DerivedRetentionPorts): Pr
       failed += 1;
     }
   }
-  return { due: due.length, principals, deleted, skipped, failed };
+  return { due: due.length, principals, deleted, digests, skipped, failed };
 }

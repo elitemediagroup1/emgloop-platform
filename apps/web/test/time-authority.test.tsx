@@ -11,7 +11,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -200,7 +200,14 @@ describe('Surfaces present time through the authority', () => {
     assert.match(objectives, /return formatCalendarDate\(iso\) \|\| '—';/, 'effective dates are the same day for everyone');
     assert.match(objectives, /formatInstant\(startIso, BUSINESS_TIME_ZONE, 'date'\)/, 'measurement windows are CallGrid reporting days');
     assert.match(code(read('app/app/admin/headlines/headline-ui.tsx')), /formatInstant\(iso, BUSINESS_TIME_ZONE, 'monthDay'\)/);
-    assert.match(code(read('app/app/admin/dashboard-data.ts')), /easternYesterdayWindow\(now\)/, 'CallGrid scorecard days are unchanged');
+    // Home's CallGrid figures come from the Command Center's own context, whose window is CallGrid's
+    // Eastern reporting calendar by construction; the scorecard that once computed its own day
+    // boundaries on Home is gone, and nothing under _home does day arithmetic on the server clock.
+    assert.match(code(read('app/app/_home/front-door-data.ts')), /loadCommandContextFor\(organizationId, undefined,/, 'Home reads CallGrid through the command context');
+    assert.equal(existsSync(join(SRC, 'app/app/admin/dashboard-data.ts')), false, 'the today-so-far vs yesterday-complete scorecard is retired');
+    for (const file of ['app/app/_home/kpis.ts', 'app/app/_home/tiles.ts', 'app/app/_home/front-door-data.ts', 'app/app/_home/narrative.ts', 'app/app/_home/briefing.ts']) {
+      assert.equal(/easternYesterdayWindow|easternTodayWindow|toLocaleDateString|getHours\(/.test(code(read(file))), false, file);
+    }
   });
 
   it('the retired server-clock helpers are gone', () => {

@@ -1,13 +1,27 @@
-// The morning surface, and the investigation behind each Headline.
+// The Headlines workspace, and the investigation behind each Headline.
 //
 // SERVER COMPONENTS ONLY. Every control is a <form> posting to a guarded server
-// action, matching every other administration surface in this repository. There
-// is no client JavaScript in this file and nothing here needs any.
+// action, supplied by the page and never built here, matching every other
+// administration surface in this repository. There is no client JavaScript in
+// this file and nothing here needs any.
 //
 // THE ATTENTION STATE GOVERNS THE PAGE, NOT THE LENGTH OF THE LIST. `AttentionView`
 // arrives already decided; this renders four visibly different mornings from it
 // and has no branch anywhere on `headlines.length === 0`. That is the whole
 // safety property of the surface, and it is a test.
+//
+// WHERE A HEADLINE STANDS IS DERIVED, NEVER STORED. `headlineSituation()` in
+// `@emgloop/shared` reads two records that already exist -- the Headline (open,
+// or set aside with a basis) and the Case opened from it (its lane, its outcome,
+// when it closed) -- and answers on every render. Nothing here is a Headline
+// state, and the card offers a decision ONLY while the projection says nobody has
+// made one: a set-aside or investigated Headline renders its record and its
+// links, and drops whatever controls the page passed.
+//
+// ONE LIST, THREE SECTIONS, NOTHING ARCHIVED. Current, under investigation and
+// history are three places in the same list. A resolved, dismissed or set-aside
+// Headline is history the workspace keeps and shows; a filter expands a section,
+// it never removes one.
 //
 // EVIDENCE IS PART OF THE HEADLINE. Not a technical screen somewhere else. A
 // person reading a claim can see, in the same card, how much of the window was
@@ -22,12 +36,29 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 
-import type { AttentionAssessment } from '@emgloop/shared';
-import { isAllClear } from '@emgloop/shared';
-import type { HeadlineView } from '@emgloop/shared';
+import type {
+  AttentionAssessment,
+  CaseStandingInput,
+  HeadlineSection,
+  HeadlineSituation,
+  HeadlineView,
+  TimeView,
+} from '@emgloop/shared';
+import {
+  BUSINESS_TIME_ZONE,
+  HEADLINE_DISMISSAL_BASES,
+  HEADLINE_DISMISSAL_BASIS_HELP,
+  HEADLINE_DISMISSAL_BASIS_LABELS,
+  caseOutcomeLabel,
+  formatInstant,
+  headlineAcceptsDecision,
+  headlineSection,
+  headlineSituation,
+  headlineSituationLabel,
+  isAllClear,
+} from '@emgloop/shared';
 
-import { NotKnown, StateBadge, StateList } from '../../_loop-os/product-state';
-import { BUSINESS_TIME_ZONE, formatInstant } from '@emgloop/shared';
+import { LabelBadge, NotKnown, StateBadge, StateList } from '../../_loop-os/product-state';
 
 // --- The morning ------------------------------------------------------------------------
 
@@ -111,6 +142,216 @@ export function AttentionBanner({ attention }: { attention: AttentionAssessment 
         </p>
       )}
     </section>
+  );
+}
+
+// --- Where a Headline stands ------------------------------------------------------------------
+
+/**
+ * The Case behind a Headline, as the workspace reads it: which thread, and the
+ * lane, outcome and close time the Decision Center projects from its own log.
+ *
+ * SHAPED AS THE SHARED PROJECTION'S INPUT plus an id, so the database's
+ * `HeadlineCaseLifecycle` satisfies it structurally and nothing here names a
+ * database type.
+ */
+export interface HeadlineCaseRef extends CaseStandingInput {
+  caseId: string;
+}
+
+/** One Headline, its Case if any, and where the two together put it. */
+export interface HeadlineEntry {
+  headline: HeadlineView;
+  kase: HeadlineCaseRef | null;
+  situation: HeadlineSituation;
+}
+
+export interface HeadlineSections {
+  current: HeadlineEntry[];
+  investigating: HeadlineEntry[];
+  history: HeadlineEntry[];
+}
+
+/**
+ * The list, sorted into its three sections by the derived situation.
+ *
+ * ORDER IS PRESERVED WITHIN A SECTION. The repository orders by when a
+ * development was last confirmed, and nothing here re-ranks; a Headline missing
+ * from `cases` has no investigation, which is a real answer and not a gap.
+ */
+export function sectionHeadlines(
+  headlines: readonly HeadlineView[],
+  cases: ReadonlyMap<string, HeadlineCaseRef>,
+): HeadlineSections {
+  const out: HeadlineSections = { current: [], investigating: [], history: [] };
+  for (const headline of headlines) {
+    const kase = cases.get(headline.id) ?? null;
+    const situation = headlineSituation(headline, kase);
+    const entry: HeadlineEntry = { headline, kase, situation };
+    const section = headlineSection(situation);
+    if (section === 'CURRENT') out.current.push(entry);
+    else if (section === 'INVESTIGATING') out.investigating.push(entry);
+    else out.history.push(entry);
+  }
+  return out;
+}
+
+/**
+ * The `show` filter: which section a person asked to have open.
+ *
+ * A CLOSED SET, and an unrecognised value is the default rather than an error --
+ * a stale link should land on the workspace, not on a complaint. Null is the
+ * default view: current and under investigation open, history collapsed.
+ */
+export const HEADLINE_SHOW = ['current', 'investigating', 'history', 'all'] as const;
+export type HeadlineShow = (typeof HEADLINE_SHOW)[number] | null;
+
+export function parseShow(raw: string | string[] | undefined): HeadlineShow {
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  return value && (HEADLINE_SHOW as readonly string[]).includes(value) ? (value as HeadlineShow) : null;
+}
+
+/**
+ * Which sections start open. Every section is ALWAYS rendered; a filter only
+ * decides what a person sees without clicking.
+ */
+export function expandedSections(show: HeadlineShow): Record<HeadlineSection, boolean> {
+  switch (show) {
+    case 'current':
+      return { CURRENT: true, INVESTIGATING: false, HISTORY: false };
+    case 'investigating':
+      return { CURRENT: false, INVESTIGATING: true, HISTORY: false };
+    case 'history':
+      return { CURRENT: false, INVESTIGATING: false, HISTORY: true };
+    case 'all':
+      return { CURRENT: true, INVESTIGATING: true, HISTORY: true };
+    default:
+      return { CURRENT: true, INVESTIGATING: true, HISTORY: false };
+  }
+}
+
+/** The workspace URL for a filter and an objective scope. Both optional; both the repository's own options. */
+export function workspaceHref(show: HeadlineShow, objectiveId: string | null): string {
+  const params = new URLSearchParams();
+  if (show) params.set('show', show);
+  if (objectiveId) params.set('objective', objectiveId);
+  const query = params.toString();
+  return '/app/admin/headlines' + (query ? '?' + query : '');
+}
+
+/** The filter, as links. Counts beside each so nothing reads as empty by omission. */
+export function HeadlineShowNav({
+  show,
+  counts,
+  objectiveId,
+}: {
+  show: HeadlineShow;
+  counts: { current: number; investigating: number; history: number };
+  objectiveId: string | null;
+}) {
+  const items: Array<{ show: HeadlineShow; label: string; count: number | null }> = [
+    { show: null, label: 'Open', count: counts.current + counts.investigating },
+    { show: 'current', label: 'Current', count: counts.current },
+    { show: 'investigating', label: 'Under investigation', count: counts.investigating },
+    { show: 'history', label: 'History', count: counts.history },
+    { show: 'all', label: 'All', count: null },
+  ];
+  return (
+    <nav aria-label="Which Headlines to show">
+      <ul className="hl-show">
+        {items.map((item) => (
+          <li key={item.label}>
+            <Link
+              href={workspaceHref(item.show, objectiveId)}
+              className="hl-show__link"
+              aria-current={item.show === show ? 'page' : undefined}
+            >
+              {item.label}
+              {item.count !== null ? <span className="hl-show__count">{item.count}</span> : null}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  );
+}
+
+/**
+ * Where one Headline stands, in one line: the governed word, then the facts
+ * that word rests on.
+ *
+ *   Set aside · <basis> · <when> · by <who>
+ *   Resolved · <outcome> · <when>
+ *   Closed without acting · <outcome> · <when>
+ *
+ * EVERY FACT IS THE RECORD'S. The basis and the dismisser are the Headline's;
+ * the outcome and the close time are the Case's. An absent fact says it is
+ * absent rather than being dropped, because "resolved, no outcome recorded" and
+ * "resolved, recovered" are different things to know.
+ */
+export function HeadlineStanding({
+  headline,
+  kase,
+  time,
+}: {
+  headline: HeadlineView;
+  kase: HeadlineCaseRef | null;
+  time: Pick<TimeView, 'date'>;
+}) {
+  const situation = headlineSituation(headline, kase);
+  const label = headlineSituationLabel(situation);
+  const parts: string[] = [];
+
+  if (situation === 'SET_ASIDE') {
+    parts.push(
+      headline.dismissalBasis
+        ? HEADLINE_DISMISSAL_BASIS_LABELS[headline.dismissalBasis]
+        : 'No basis recorded',
+    );
+    parts.push(headline.dismissedAt ? time.date(headline.dismissedAt) : 'Time not recorded');
+    if (headline.dismissedByName) parts.push('by ' + headline.dismissedByName);
+  } else if (kase && (situation === 'RESOLVED' || situation === 'DISMISSED_BY_INVESTIGATION')) {
+    // The outcome word from the one dictionary; an outcome this build has no
+    // word for renders as its governed name rather than a guess.
+    parts.push(kase.outcome ? (caseOutcomeLabel(kase.outcome)?.label ?? kase.outcome) : 'No outcome recorded');
+    parts.push(kase.resolvedAt ? time.date(kase.resolvedAt) : 'Close time not recorded');
+  }
+
+  return (
+    <span className={'hl-stand hl-stand--' + situation.toLowerCase().replace(/_/g, '-')}>
+      <LabelBadge label={label} />
+      {parts.map((part, i) => (
+        <span key={i} className="hl-stand__part">
+          <span className="hl-stand__sep" aria-hidden="true">·</span>
+          {part}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/**
+ * The two reasons a person can set a Headline aside, as a fieldset the page
+ * wraps in its guarded form.
+ *
+ * NO DEFAULT, DELIBERATELY. Which of the two a person means is the only signal
+ * Loop gets about whether it earns attention, and a pre-ticked answer would
+ * corrupt it.
+ */
+export function DismissalBasisFieldset() {
+  return (
+    <fieldset className="hl-acts__fs">
+      <legend>Why?</legend>
+      {HEADLINE_DISMISSAL_BASES.map((basis) => (
+        <label key={basis} className="hl-acts__radio">
+          <input type="radio" name="basis" value={basis} required />
+          <span>
+            <strong>{HEADLINE_DISMISSAL_BASIS_LABELS[basis]}</strong>
+            <em>{HEADLINE_DISMISSAL_BASIS_HELP[basis]}</em>
+          </span>
+        </label>
+      ))}
+    </fieldset>
   );
 }
 
@@ -210,23 +451,34 @@ function Receipts({ headline }: { headline: HeadlineView }) {
 /**
  * One Headline in the feed.
  *
- * `caseId` DECIDES THE ACTION AND NOTHING ELSE DOES. When an investigation
- * already exists the card offers a way into it rather than a second Investigate
- * button, because a person pressing Investigate on something already under
- * investigation should arrive somewhere useful rather than be told off.
+ * THE DERIVED SITUATION DECIDES THE FOOTER, AND NOTHING ELSE DOES. While nobody
+ * has decided anything, the card offers reading and whatever decision controls
+ * the page passed. Once an investigation exists it offers a way into it rather
+ * than a second Investigate button. Once the Headline is history -- set aside,
+ * resolved, closed without acting -- it shows its record and its links, and the
+ * controls the page passed are NOT rendered, whatever they were: the question
+ * they answer is closed.
  */
 export function HeadlineCard({
   headline,
-  caseId,
+  kase,
   investigate,
+  time,
 }: {
   headline: HeadlineView;
-  caseId: string | null;
+  kase: HeadlineCaseRef | null;
   investigate: ReactNode;
+  time: Pick<TimeView, 'date'>;
 }) {
   const m = headline.measurement;
+  const situation = headlineSituation(headline, kase);
+  const section = headlineSection(situation);
   return (
-    <article className="hl-card" aria-labelledby={'hl-' + headline.id}>
+    <article
+      className={'hl-card hl-card--' + section.toLowerCase()}
+      aria-labelledby={'hl-' + headline.id}
+      data-situation={situation}
+    >
       <header className="hl-card__head">
         <span
           className={'hl-card__dir hl-card__dir--' + (m.againstObjective ? 'against' : 'with')}
@@ -278,22 +530,37 @@ export function HeadlineCard({
       />
 
       <footer className="hl-card__foot">
-        {caseId ? (
-          <>
-            <span className="hl-card__state">
-              <StateBadge state="NEEDS_ATTENTION" />
-              Already under investigation
-            </span>
-            <Link href={'/app/admin/cases/' + caseId} className="ent-btn ent-btn--primary">
-              Open investigation
-            </Link>
-          </>
-        ) : (
+        {headlineAcceptsDecision(situation) ? (
           <>
             <Link href={'/app/admin/headlines/' + headline.id} className="ent-btn ent-btn--ghost">
               Look into it
             </Link>
             {investigate}
+          </>
+        ) : situation === 'UNDER_INVESTIGATION' && kase ? (
+          <>
+            {/* THE CASE'S OWN LANE WORD, beside the fact. Where the investigation
+                stands is the investigation's to say. */}
+            <span className="hl-card__state">
+              Already under investigation
+              <StateBadge state={kase.state} />
+            </span>
+            <Link href={'/app/admin/cases/' + kase.caseId} className="ent-btn ent-btn--primary">
+              Open investigation
+            </Link>
+          </>
+        ) : (
+          <>
+            <HeadlineStanding headline={headline} kase={kase} time={time} />
+            {/* Reading is always available. History is kept, and it stays navigable. */}
+            <Link href={'/app/admin/headlines/' + headline.id} className="ent-btn ent-btn--ghost">
+              Look into it
+            </Link>
+            {kase ? (
+              <Link href={'/app/admin/cases/' + kase.caseId} className="ent-btn ent-btn--ghost">
+                Open investigation
+              </Link>
+            ) : null}
           </>
         )}
       </footer>
@@ -317,5 +584,62 @@ export function HeadlineCard({
         </dl>
       </details>
     </article>
+  );
+}
+
+// --- A section of the workspace ------------------------------------------------------------
+
+/**
+ * One of the three sections: a native disclosure with the cards inside.
+ *
+ * ALWAYS RENDERED, WHATEVER THE FILTER. `expanded` decides whether it starts
+ * open; it never decides whether it exists. An empty section says so in words
+ * that defer to the banner, because whether "no current Headlines" is good news
+ * is the governed attention state's call and not this list's.
+ */
+export function HeadlineSectionBlock({
+  id,
+  title,
+  lead,
+  entries,
+  expanded,
+  empty,
+  time,
+  controls,
+}: {
+  id: HeadlineSection;
+  title: string;
+  lead: string;
+  entries: readonly HeadlineEntry[];
+  expanded: boolean;
+  empty: string;
+  time: Pick<TimeView, 'date'>;
+  /** The decision controls for one entry, from the page. Rendered only while a decision is open. */
+  controls?: (entry: HeadlineEntry) => ReactNode;
+}) {
+  const key = id.toLowerCase();
+  return (
+    <details className={'hl-sec hl-sec--' + key} id={'hl-sec-' + key} open={expanded || undefined}>
+      <summary className="hl-sec__head">
+        <h2 className="hl-sec__title">{title}</h2>
+        <span className="hl-sec__count">{entries.length}</span>
+        <span className="hl-sec__lead">{lead}</span>
+      </summary>
+      {entries.length > 0 ? (
+        <div className="hl-feed">
+          {entries.map((entry) => (
+            <HeadlineCard
+              key={entry.headline.id}
+              headline={entry.headline}
+              kase={entry.kase}
+              investigate={controls ? controls(entry) : null}
+              time={time}
+            />
+          ))}
+        </div>
+      ) : (
+        <p className="hl-sec__empty">{empty}</p>
+      )}
+    </details>
   );
 }

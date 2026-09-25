@@ -1,29 +1,42 @@
-// What the morning surface reads, and what it refuses to conclude.
+// What the Headlines workspace reads, and what it refuses to conclude.
 //
-// ONE READ, ONE AUTHORITY. `CaseWorkspaceService.attention()` already composes
-// the governed attention state from every active objective's readiness verdict
-// and the open Headlines. This file does not re-derive any of that; it loads it,
-// and it turns a thrown read into a NAMED FAILURE rather than an empty page.
+// TWO AUTHORITIES, READ SEPARATELY, COMBINED NOWHERE HERE. The Headline record
+// (open or set aside, with a basis) and the Case opened from it (its lane, its
+// outcome, when it closed) are each read through the service that owns them.
+// Where a Headline STANDS is `headlineSituation()` in `@emgloop/shared`, a pure
+// projection the surface derives at render time; this file never stores or
+// caches an answer to that question, because a stored answer would be a
+// Headline lifecycle, and the Headline contract forbids one by design.
+//
+// ONE READ, ONE AUTHORITY, for the morning. `CaseWorkspaceService.attention()`
+// already composes the governed attention state from every active objective's
+// readiness verdict and the Headlines. This file does not re-derive any of that;
+// it loads it, and it turns a thrown read into a NAMED FAILURE rather than an
+// empty page.
 //
 // THE ORGANIZATION COMES FROM THE SIGNED SESSION, always. Nothing here accepts an
 // organization id from a caller, a URL or a form, and the services below resolve
 // every row within the organization they are given.
 //
-// A FAILED READ IS NOT AN EMPTY ONE. `loadAttention` returns a discriminated
-// result rather than a nullable view, so a surface literally cannot render the
-// success branch on a failure. That shape is the enforcement: an `AttentionView |
-// null` would let `?? []` turn an outage into a calm morning, and somebody
-// eventually writes that.
+// A FAILED READ IS NOT AN EMPTY ONE. Every loader returns a discriminated result
+// rather than a nullable view, so a surface literally cannot render the success
+// branch on a failure. That shape is the enforcement: an `AttentionView | null`
+// would let `?? []` turn an outage into a calm morning, and somebody eventually
+// writes that.
+//
+// NOTHING HERE WRITES. Every export is a read; the only writes on the Headlines
+// surfaces are forms posting to guarded server actions.
 
 import {
   CaseBriefService,
+  CaseWorkCoordinationService,
   CaseWorkspaceService,
   HeadlineInvestigationService,
   prisma,
   repositories,
 } from '@emgloop/database';
-import type { AttentionView } from '@emgloop/database';
-import type { CaseBriefView, HeadlineView } from '@emgloop/shared';
+import type { AttentionView, HeadlineCaseLifecycle } from '@emgloop/database';
+import type { CaseBriefView, CaseCoordinationView, HeadlineView } from '@emgloop/shared';
 
 /**
  * A read that either produced intelligence or could not.
@@ -86,5 +99,71 @@ export function loadExistingCase(organizationId: string, headlineId: string) {
 export function loadBrief(organizationId: string, caseId: string) {
   return attempt<CaseBriefView | null>('this investigation', () =>
     new CaseBriefService(prisma).get(organizationId, caseId),
+  );
+}
+
+/**
+ * Every Headline this organization holds -- current and historical -- optionally
+ * for one objective.
+ *
+ * `dismissed` IS DELIBERATELY NOT PASSED, so set-aside Headlines are read with
+ * the rest: the workspace is the one place all of a Headline's history lives,
+ * and a read that dropped the dismissed ones would be an archive by omission.
+ * The objective filter is the repository's own option, not a filter applied
+ * here; a cross-organization objective id matches nothing.
+ */
+export function loadHeadlinesForWorkspace(
+  organizationId: string,
+  options: { readonly performanceObjectiveId?: string } = {},
+) {
+  return attempt<readonly HeadlineView[]>('the headlines for this objective', () =>
+    repositories.headlines.list(organizationId, {
+      take: 200,
+      ...(options.performanceObjectiveId
+        ? { performanceObjectiveId: options.performanceObjectiveId }
+        : {}),
+    }),
+  );
+}
+
+/**
+ * Where the investigations behind a list of Headlines stand, in one query.
+ *
+ * THE SECOND AUTHORITY, BATCHED. Each Headline's Case is resolved through the
+ * same identity `loadExistingCase` uses, so a list and a detail page can never
+ * disagree about which thread a Headline opened. A Headline that never opened
+ * one is absent from the map; a Headline in another organization resolves to
+ * nothing. The lane, outcome and close time are the Case's own projection
+ * columns, carried and never re-derived.
+ *
+ * THIS READ CREATES NOTHING.
+ */
+export function loadCasesForHeadlines(organizationId: string, headlineIds: readonly string[]) {
+  return attempt<ReadonlyMap<string, HeadlineCaseLifecycle>>(
+    'the investigations behind these headlines',
+    () => new HeadlineInvestigationService(prisma).findCasesForHeadlines(organizationId, headlineIds),
+  );
+}
+
+/** One objective's identity and title, for naming a filtered list. Cross-org is null. */
+export function loadObjective(organizationId: string, objectiveId: string) {
+  return attempt<{ id: string; title: string } | null>('this objective', async () => {
+    const objective = await repositories.performanceObjectives.get(organizationId, objectiveId);
+    return objective ? { id: objective.id, title: objective.title } : null;
+  });
+}
+
+/**
+ * What a Case asked for, and where that work stands -- read from Work OS through
+ * the same coordination read the Case Workspace composes, and owned by Work OS.
+ *
+ * READ-ONLY, AND THE HEADLINE SURFACE DOES NOT CREATE WORK. There is no path
+ * from a Headline or a Case to a new work item in this build; this shows what a
+ * Case already references and links to the Case, which is where the work is
+ * read in full.
+ */
+export function loadCoordination(organizationId: string, caseId: string, now: Date = new Date()) {
+  return attempt<CaseCoordinationView | null>('the work behind this investigation', () =>
+    new CaseWorkCoordinationService(prisma).get(organizationId, caseId, now),
   );
 }

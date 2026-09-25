@@ -123,6 +123,11 @@ export type { CrmRelationshipActor, CrmRelationshipServiceResult, CrmRelationshi
 // own guard; the service grants nothing. See ./services/activity.service.ts.
 export { ActivityService } from './services/activity.service';
 export type { ActivityViewer, ActivityReadResult, ActivityServiceDeps } from './services/activity.service';
+// The composed read model, so a surface can narrow which adapters it composes (Loop Home's
+// organization feed composes only organization-level observable events). It still grants nothing:
+// every read goes through ActivityService's two authorization checks.
+export { ActivityReadModelRepository } from './repositories/activity-read-model.repository';
+export type { ActivityAdapter, ActivitySubject } from './repositories/activity-read-model.repository';
 // CRM P0.2e: governed Customer -> Party links (identityResolution:approve; target must be established).
 export {
   CustomerPartyLinkService,
@@ -206,9 +211,11 @@ export type {
 } from './services/case-finding.service';
 export { HeadlineInvestigationService } from './services/headline-investigation.service';
 export type {
+  HeadlineCaseLifecycle,
   HeadlineInvestigationDeps,
   HeadlineReader,
   InvestigationFinder,
+  InvestigationLifecycleReader,
   InvestigationOpener,
   PromoteHeadlineInput,
   PromotionResult,
@@ -363,6 +370,35 @@ export {
 // recorded fixtures. No SDK, no credential, and `activated` defaults to false.
 // See ./services/ai-runtime/gateway.ts.
 export { AiRuntimeGateway, InMemoryAiUsageLedger, AI_CALL_OUTCOMES } from './services/ai-runtime/gateway';
+// G2 (2026-09-24): the gateway reads recorded provider policies through this, cached <= 60 s.
+export {
+  aiProviderPolicyReader,
+  cachedAiProviderPolicies,
+  AI_PROVIDER_POLICY_CACHE_MS,
+  AI_PROVIDER_POLICY_CACHE_MAX_MS,
+} from './services/ai-runtime/provider-policy-reader';
+export type { AiProviderPolicySource } from './services/ai-runtime/provider-policy-reader';
+// Loop Intelligence PR A (2026-09-24): principal-private domain intelligence digests. Every
+// method takes a principal from the signed session; there is no organization-wide read.
+export {
+  IntelligenceDigestRepository,
+  intelligenceDigestsPresent,
+  INTELLIGENCE_DIGEST_METADATA_SELECT,
+  INTELLIGENCE_CONTENT_CONSENT_PROVIDERS,
+  INTELLIGENCE_CONSENT_BASES,
+  INTELLIGENCE_DIGEST_WRITE_REFUSALS,
+} from './repositories/intelligence/intelligence-digest.repository';
+export type {
+  IntelligencePrincipal,
+  IntelligenceConsentBasis,
+  DigestProvenance,
+  IntelligenceDigestInput,
+  IntelligenceDigestRecord,
+  IntelligenceDigestMetadata,
+  IntelligenceDigestCount,
+  IntelligenceDigestWriteRefusal,
+  IntelligenceDigestWriteOutcome,
+} from './repositories/intelligence/intelligence-digest.repository';
 export type {
   AiProviderPort,
   AiUsageLedger,

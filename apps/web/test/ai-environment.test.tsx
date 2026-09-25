@@ -4,7 +4,9 @@
 //
 // CONFIGURED IS NOT ON. A deployment holding both keys constructs no provider and
 // admits nothing until LOOP_AI_ENABLED is exactly "true" -- and even then only the
-// organizations, tasks and providers listed, with provider terms confirmed.
+// organizations, tasks and providers listed. Provider approval (G2) is a RECORDED policy the
+// gateway reads (2026-09-24); LOOP_AI_PROVIDER_TERMS_CONFIRMED is no longer read, so it can
+// neither enable nor disable anything here.
 //
 // NO CREDENTIAL LEAVES THE MODULE. The value goes to the factory and nowhere else.
 // The returned structure, serialized every way a log or a prop would serialize it,
@@ -87,12 +89,17 @@ describe('configured is not on', () => {
     assert.equal(seen[0]!.apiKey, ANTHROPIC_PLACEHOLDER, 'the credential goes to the factory');
   });
 
-  it('a provider is enabled only when listed, terms-confirmed and actually configured', () => {
+  it('a provider client is built only when listed and actually configured; the old terms variable means nothing', () => {
     const { deps } = stubs();
     const unlisted = readAiEnvironment({ ...FULLY_ON, LOOP_AI_PROVIDERS: 'anthropic' }, deps);
     assert.deepEqual([...unlisted.activation.providers], ['anthropic']);
-    const unconfirmed = readAiEnvironment({ ...FULLY_ON, LOOP_AI_PROVIDER_TERMS_CONFIRMED: 'openai' }, deps);
-    assert.deepEqual([...unconfirmed.activation.providers], ['openai'], 'G2: unconfirmed terms, not enabled');
+    // G2 moved to a recorded provider policy (2026-09-24). The environment variable that used to
+    // imply it -- set automatically by the connections stack -- neither enables nor disables.
+    const termsOnly = readAiEnvironment({ ...FULLY_ON, LOOP_AI_PROVIDERS: '', LOOP_AI_PROVIDER_TERMS_CONFIRMED: 'anthropic,openai' }, deps);
+    assert.deepEqual([...termsOnly.activation.providers], [], 'TERMS_CONFIRMED alone admits nothing');
+    const termsNarrower = readAiEnvironment({ ...FULLY_ON, LOOP_AI_PROVIDER_TERMS_CONFIRMED: 'openai' }, deps);
+    assert.deepEqual([...termsNarrower.activation.providers], ['anthropic', 'openai'], 'and is not read as a filter either');
+    assert.equal(Object.values(AI_ENVIRONMENT).includes('LOOP_AI_PROVIDER_TERMS_CONFIRMED' as never), false, 'the module no longer names it');
     const noKey = readAiEnvironment({ ...FULLY_ON, ANTHROPIC_API_KEY: '' }, deps);
     assert.deepEqual([...noKey.activation.providers], ['openai']);
     assert.equal(noKey.providers.find((p) => p.providerId === 'anthropic')?.state, 'PROVIDER_NOT_CONFIGURED');

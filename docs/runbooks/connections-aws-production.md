@@ -352,6 +352,18 @@ variable set and the secret missing, AI also stays off -- but the task definitio
 secret that does not exist, tasks cannot start, and the deployment circuit breaker rolls the deploy
 back: a loud failure, not a quiet one. To turn AI off, clear the variable and re-deploy.
 
+**Then record the provider policy (G2) -- nothing is sent without it.** Since 2026-09-24 the stack no
+longer sets `LOOP_AI_PROVIDER_TERMS_CONFIRMED` and nothing reads it; the approval is a stored control.
+Run Actions → **Record AI Provider Policy** with `stage: production`, `provider: anthropic`,
+`ceiling: COMMUNICATION_CONTENT`, `state: ACTIVE`, a reason naming the data terms reviewed (training,
+retention, region), who reviewed them and when, and `confirm: record ai-provider-policy production`.
+It runs in the `connections-production` environment (Matt as required reviewer) through the production
+migrations role, reads only `loop/connections/production/database-url`, and prints the policies before
+and after. Order: (1) Deploy Prisma Migrations (it carries `20261003000001_ai_provider_policy_controls`),
+(2) record the policy, (3) deploy the worker. Without the record the worker refuses every triage call as
+`POLICY_DENIED` and holds its frontier. `state: KILLED` stops all sends to that provider within 60
+seconds, without a deploy.
+
 **The consent re-check inside `WorkItemRepository.detect` landed on `fix/detect-consent-recheck`
 (PR #331) and must be on `main`, and in the deployed worker image,
 before AI is turned on here.** Before it, a content sweep already in flight when an employee
@@ -373,7 +385,8 @@ represented as resolved.
    triage on, the worker reads the bodies of messages that other people (the employee's
    counterparties) wrote, transiently, to derive minimized obligations. The repository records only
    the *employee's* own content authorization (`source_content_authorizations`) and the operator's
-   confirmation of the AI provider's terms (`LOOP_AI_PROVIDER_TERMS_CONFIRMED`). It records nothing
+   recorded provider policy (`ai_controls`, scope `PROVIDER_POLICY` -- the reviewed data class per
+   provider; it replaced `LOOP_AI_PROVIDER_TERMS_CONFIRMED` on 2026-09-24). It records nothing
    about counterparties' notice or consent, nothing about Telegram's API terms as they apply to
    this use, and no legal review of either. No technical or provider restriction that prevents
    deployment was identified; that is a different statement from "this is cleared". When a

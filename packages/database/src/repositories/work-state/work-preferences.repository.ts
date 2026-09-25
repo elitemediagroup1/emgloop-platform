@@ -14,7 +14,7 @@
 // otherwise. DL-1 represents the policy; DL-13 builds the sweep that acts on it.
 
 import type { PrismaClient } from '@prisma/client';
-import { WORK_RETENTION_CATEGORIES, WORK_RETENTION_POLICY_VERSION, type WorkRetentionCategory } from '@emgloop/shared';
+import { WORK_RETENTION_CATEGORIES, WORK_RETENTION_NOT_OVERRIDABLE, WORK_RETENTION_POLICY_VERSION, type WorkRetentionCategory } from '@emgloop/shared';
 
 import { workScope, type WorkPrincipal } from './work-principal';
 
@@ -115,6 +115,8 @@ export class WorkPreferencesRepository {
     const approved = WORK_RETENTION_CATEGORIES.find((c) => c.category === category);
     if (!approved) throw new Error('unknown retention category');
     if (approved.rule !== 'DAYS') throw new Error('only a day-counted category can be overridden');
+    // Its window is stamped on each row when written; an override would be a promise nothing keeps.
+    if (WORK_RETENTION_NOT_OVERRIDABLE.includes(category)) throw new Error('this category is not overridable');
     const existing = await this.prisma.workRetentionOverride.findFirst({ where: { organizationId, category } });
     const data = {
       days: override.days,

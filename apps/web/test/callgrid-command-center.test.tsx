@@ -300,13 +300,21 @@ describe('every CallGrid page states its own authority, and reads only its own o
     const loader = code(read(`${MKT}/command-data.ts`));
     // A page's context is the session's organization, always.
     assert.match(loader, /return loadCommandContextFor\(session\.organizationId, searchParams, \{ session, canAct: \(\) => hasPermission\('intelligence', 'update'\) \}\);/);
-    // The one other caller is the scheduled detection route, which takes organizations from the
-    // database and nothing from its request (intelligence-triggers.test.tsx).
+    // The two other callers: the scheduled detection route, which takes organizations from the
+    // database and nothing from its request (intelligence-triggers.test.tsx), and Loop Home's front
+    // door, which takes the SESSION's organization and can act on nothing.
     const callers = walkSrc(fileURLToPath(new URL('../src', import.meta.url))).filter((f) => /loadCommandContextFor\(/.test(code(readFileSync(f, 'utf8'))));
     assert.deepEqual(
       callers.map((f) => f.slice(f.indexOf('/src/'))).sort(),
-      ['/src/app/api/internal/intelligence/callgrid/route.ts', '/src/app/app/admin/marketplace/command-data.ts'],
+      ['/src/app/api/internal/intelligence/callgrid/route.ts', '/src/app/app/_home/front-door-data.ts', '/src/app/app/admin/marketplace/command-data.ts'],
     );
+    const front = code(read('../src/app/app/_home/front-door-data.ts'));
+    assert.match(front, /const organizationId = principal\.organizationId;/, 'Home’s organization is the principal’s');
+    assert.match(front, /loadCommandContextFor\(organizationId, undefined, \{ session, canAct: async \(\) => false \}\)/, 'no selection from any request, and no authority to act');
+    assert.equal((front.match(/loadCommandContextFor\(/g) ?? []).length, 1);
+    for (const forbidden of ['searchParams', "get('organizationId')", 'get("organizationId")', 'params.organizationId', 'formData']) assert.equal(front.includes(forbidden), false, `front-door-data: ${forbidden}`);
+    // ...and that principal is built from the signed session by the page, nowhere else.
+    assert.match(code(read('../src/app/app/page.tsx')), /const principal = \{ organizationId: session\.organizationId, userId: session\.userId \};/);
     for (const p of [...PAGES, 'entity-detail.tsx', 'command-data.ts', 'executive-data.ts', 'call-dimension-page.tsx']) {
       const src = code(read(`${MKT}/${p}`));
       for (const forbidden of ["searchParams?.organizationId", "params.organizationId", "get('organizationId')", 'get("organizationId")']) {

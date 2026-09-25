@@ -18,11 +18,13 @@
 //   3. Classifies observations into summary / risks / opportunities /
 //      recommendations, ranked by severity then confidence.
 //   4. Derives System Health and Evidence Coverage from counts across sensors —
-//      never authored — and reports uninstrumented sensors as exactly that.
+//      never authored — and reports uninstrumented sensors as exactly that, and
+//      sources it deliberately does not read (excluded) as exactly that.
 //
 // Everything is pure and deterministic: `now` is injected, ids come from the
 // sensors, and given the same sensors it returns the same report. No clock, no
-// I/O, no domain vocabulary.
+// I/O, no domain vocabulary, and no model: the Executive Brain calls no AI
+// provider. Its conclusions are these rules over the evidence it is handed.
 
 import type { MetricEvidence } from '../evidence/types';
 import {
@@ -33,7 +35,7 @@ import {
   type ObservationFact,
   type ObservationSeverity,
 } from './observation';
-import type { ExecutiveSensor, InstrumentedSensor, SensorFinding } from './sensor';
+import { isExcludedSensor, type ExecutiveSensor, type InstrumentedSensor, type SensorFinding } from './sensor';
 import { runCorrelations } from './correlation';
 
 // ---------------------------------------------------------------------------
@@ -58,6 +60,8 @@ export interface SuppressedFinding {
  * never authored:
  *
  *   missing    — no Evidence Engine contributor (not connected at all).
+ *   excluded   — the source exists, and the Executive Brain deliberately does
+ *                not read it (employee-private sources; model output).
  *   connected  — instrumented, but it examined nothing this window, OR nothing
  *                it saw cleared the engine yet. Wired, not yet informative.
  *   stale      — instrumented and carrying data, but at least one metric is
@@ -65,7 +69,7 @@ export interface SuppressedFinding {
  *   healthy    — instrumented, examined data, and carrying trustworthy, fresh
  *                metrics.
  */
-export type SensorStatus = 'healthy' | 'stale' | 'connected' | 'missing';
+export type SensorStatus = 'healthy' | 'stale' | 'connected' | 'missing' | 'excluded';
 
 /** The evidential position of one sensor, for the Evidence Coverage panel. */
 export interface SensorCoverage {
@@ -86,11 +90,15 @@ export interface SensorCoverage {
   withheld: readonly { label: string; reason: string }[];
   uninstrumentedReason: string | null;
   unblockedBy: string | null;
+  /** For an excluded sensor: what exists, and why the Executive Brain does not read it. */
+  excluded: { exists: string; reason: string } | null;
 }
 
 export interface EvidenceCoverageSummary {
   sensors: readonly SensorCoverage[];
   instrumentedSensors: number;
+  /** Sources that exist and are deliberately not read. Not a gap to close. */
+  excludedSensors: number;
   totalSensors: number;
   /** How many sensors sit in each posture — the executive coverage headline. */
   statusCounts: Record<SensorStatus, number>;
@@ -261,6 +269,24 @@ function observeFinding(
 // ---------------------------------------------------------------------------
 
 function coverageForSensor(sensor: ExecutiveSensor): SensorCoverage {
+  if (isExcludedSensor(sensor)) {
+    return {
+      sensorId: sensor.id,
+      label: sensor.label,
+      domain: null,
+      instrumented: false,
+      status: 'excluded',
+      scopeLabel: null,
+      populationSize: null,
+      metricsAvailable: 0,
+      metricsWithheld: 0,
+      available: [],
+      withheld: [],
+      uninstrumentedReason: null,
+      unblockedBy: null,
+      excluded: { exists: sensor.excluded.exists, reason: sensor.excluded.reason },
+    };
+  }
   if (!sensor.instrumented) {
     return {
       sensorId: sensor.id,
@@ -276,6 +302,7 @@ function coverageForSensor(sensor: ExecutiveSensor): SensorCoverage {
       withheld: [],
       uninstrumentedReason: sensor.uninstrumented.reason,
       unblockedBy: sensor.uninstrumented.unblockedBy,
+      excluded: null,
     };
   }
   const { report } = sensor;
@@ -308,6 +335,7 @@ function coverageForSensor(sensor: ExecutiveSensor): SensorCoverage {
     })),
     uninstrumentedReason: null,
     unblockedBy: null,
+    excluded: null,
   };
 }
 
@@ -332,15 +360,19 @@ function deriveSystemHealth(
   const components = [
     {
       name: 'Instrumented sensors',
-      detail: `${coverage.instrumentedSensors} of ${coverage.totalSensors} sensors wired.`,
+      detail:
+        `${coverage.instrumentedSensors} of ${coverage.totalSensors - coverage.excludedSensors} sensors wired.` +
+        (coverage.excludedSensors > 0 ? ` ${coverage.excludedSensors} source(s) deliberately not read.` : ''),
     },
     { name: 'Severe risks', detail: `${severe} risk(s) at high or critical severity.` },
     { name: 'Open risks', detail: `${risks.length} risk observation(s) in total.` },
   ];
 
+  // A source deliberately not read is not a gap: only the not-yet-wired ones qualify the posture.
+  const notWired = coverage.totalSensors - coverage.instrumentedSensors - coverage.excludedSensors;
   const caveat =
-    coverage.instrumentedSensors < coverage.totalSensors
-      ? `${coverage.totalSensors - coverage.instrumentedSensors} sensor(s) are not yet instrumented, so this posture reflects only what is wired.`
+    notWired > 0
+      ? `${notWired} sensor(s) are not yet instrumented, so this posture reflects only what is wired.`
       : anyWithheld
         ? 'Some metrics were withheld by the Evidence Engine; this posture reflects only what could be trusted.'
         : null;
@@ -406,12 +438,13 @@ export function runExecutiveBrain(
       ? null
       : allAvailable.reduce((sum, m) => sum + m.confidence, 0) / allAvailable.length;
 
-  const statusCounts: Record<SensorStatus, number> = { healthy: 0, stale: 0, connected: 0, missing: 0 };
+  const statusCounts: Record<SensorStatus, number> = { healthy: 0, stale: 0, connected: 0, missing: 0, excluded: 0 };
   for (const s of sensorCoverages) statusCounts[s.status] += 1;
 
   const evidenceCoverage: EvidenceCoverageSummary = {
     sensors: sensorCoverages,
     instrumentedSensors,
+    excludedSensors: statusCounts.excluded,
     totalSensors: sensors.length,
     statusCounts,
     overallConfidence,

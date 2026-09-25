@@ -3,22 +3,25 @@ import type { ReactNode } from 'react';
 import { counted, productLabel, type DayEvent, type TimeView } from '@emgloop/shared';
 import { StateBlock } from '../_loop-os/record';
 import {
+  BRIEFING_LIMITS,
   BRIEFING_SOURCE_LABELS,
-  briefingWords,
+  coverageWords,
   type Briefing,
   type BriefingAttention,
   type BriefingChange,
   type BriefingSourceState,
   type BriefingToday,
-  type BriefingPulse,
   type BriefingTone,
 } from './briefing';
+import type { NarrativeSentence } from './narrative';
 
-// The Home briefing, drawn (approved design pass, 2026-09-24). Server components over the plan the
-// pure composer returned: what changed, what needs you, today, and movement. Presentation only --
-// nothing here loads, decides or widens anything. Every row names its source; a row from a private
-// chat says where it is instead of inventing a link; an empty section is one sentence, never a
-// card of zeros; a source that is not connected is one line with its way in.
+// The Home briefing and the viewer's day, drawn (approved design pass, 2026-09-24; the composition
+// correction, 2026-09-24). Server components over the pure plans: the briefing card (the narrative's
+// prose with its sources, and "What Loop read" folded beneath it), and the Your Day card (the day,
+// work due today, and a constrained "needs you" list). Presentation only -- nothing here loads,
+// decides or widens anything. Every row names its source; a row from a private chat says where it is
+// instead of inventing a link; an empty section is one sentence, never a card of zeros; a source that
+// is not connected is one line with its way in.
 
 const PILL_TONE: Readonly<Record<BriefingTone, string>> = Object.freeze({
   critical: 'loop-pill--critical',
@@ -49,34 +52,60 @@ function Way({ href, label, place }: { href: string | null; label: string | null
   return null;
 }
 
-// --- The sentence ------------------------------------------------------------------------------------
+// --- Your briefing ---------------------------------------------------------------------------------
 
-export function BriefingLead({ briefing, time }: { briefing: Briefing; time: TimeView }) {
-  const words = briefingWords(briefing.sentence, time);
+/**
+ * The briefing card: the synthesis first, in prose, each sentence with its sources as small chips;
+ * then, folded, the rows Loop read that changed -- kept for inspection, never the centerpiece.
+ */
+export function BriefingCard({ narrative, briefing, time }: { narrative: readonly NarrativeSentence[]; briefing: Briefing; time: TimeView }) {
   return (
-    <p className="loop-brief__lead" data-briefing-lead>
-      {words.lead}
-      {words.sources ? <span className="loop-brief__sources"> {words.sources}</span> : null}
-    </p>
+    <section className="loop-panel loop-front__briefing" aria-label="Your briefing" id="your-briefing">
+      <div className="loop-brief__head">
+        <h2 className="loop-panel__title">Your briefing</h2>
+        <span className="loop-brief__sub">{time.date(time.now)}</span>
+      </div>
+      {narrative.length === 0 ? (
+        <p className="loop-front__prose-quiet" data-briefing-narrative-empty>
+          Loop has no source it can read for you yet. Connect one in Connections and your briefing starts here.
+        </p>
+      ) : (
+        <div className="loop-front__prose" data-briefing-narrative>
+          {narrative.map((s) => (
+            <p className="loop-front__sentence" key={s.topic} data-briefing-sentence={s.topic}>
+              <span>{s.text}</span>
+              {s.sources.map((src) =>
+                src.href ? (
+                  <Link key={src.label} className="loop-front__chip" href={src.href} data-briefing-chip={src.label}>
+                    {src.label}
+                  </Link>
+                ) : (
+                  <span key={src.label} className="loop-front__chip" data-briefing-chip={src.label}>
+                    {src.label}
+                  </span>
+                ),
+              )}
+            </p>
+          ))}
+        </div>
+      )}
+      <WhatLoopRead briefing={briefing} time={time} />
+    </section>
   );
 }
 
-// --- What changed --------------------------------------------------------------------------------
-
-export function WhatChanged({ briefing, time }: { briefing: Briefing; time: TimeView }) {
+/** What Loop read that changed: the evidence under the briefing, closed by default, capped. */
+export function WhatLoopRead({ briefing, time }: { briefing: Briefing; time: TimeView }) {
   const { changes, changesObserved, historyHref } = briefing;
-  const sub = changes.length === 0 ? null : changesObserved > changes.length ? `${changes.length} of ${changesObserved} observed` : `${counted(changes.length, 'change', 'changes')} since yesterday`;
+  const sources = coverageWords(briefing.coverage);
   return (
-    <section className="loop-panel loop-brief__panel" aria-label="What changed" id="what-changed">
-      <div className="loop-brief__head">
-        <h2 className="loop-panel__title">What changed</h2>
-        {sub ? <span className="loop-brief__sub">{sub}</span> : null}
-        {historyHref ? (
-          <Link className="loop-link loop-brief__more" href={historyHref}>
-            Headlines history →
-          </Link>
-        ) : null}
-      </div>
+    <details className="loop-front__evidence" id="what-changed" data-briefing-evidence>
+      <summary className="loop-front__evidence-sum">
+        What Loop read
+        <span className="loop-brief__sub">
+          {changesObserved === 0 ? ' · nothing changed' : changesObserved > changes.length ? ` · ${changes.length} of ${changesObserved} changes` : ` · ${counted(changes.length, 'change', 'changes')}`}
+        </span>
+      </summary>
       {changes.length === 0 ? (
         <p className="loop-brief__quiet">Nothing changed in what Loop can read since yesterday.</p>
       ) : (
@@ -106,12 +135,18 @@ export function WhatChanged({ briefing, time }: { briefing: Briefing; time: Time
           ))}
         </ul>
       )}
-      {changesObserved > changes.length ? (
+      {changesObserved > changes.length || historyHref || sources ? (
         <p className="loop-brief__foot">
-          Not shown: {counted(changesObserved - changes.length, 'earlier change', 'earlier changes')}.
+          {changesObserved > changes.length ? <span>Not shown: {counted(changesObserved - changes.length, 'earlier change', 'earlier changes')}.</span> : null}
+          {sources ? <span data-briefing-coverage>{sources}</span> : null}
+          {historyHref ? (
+            <Link className="loop-link" href={historyHref}>
+              Headlines history →
+            </Link>
+          ) : null}
         </p>
       ) : null}
-    </section>
+    </details>
   );
 }
 
@@ -120,29 +155,42 @@ export function WhatChanged({ briefing, time }: { briefing: Briefing; time: Time
 /** The section is titled by the governed attention state's own label: one vocabulary, imported. */
 const ATTENTION_TITLE = productLabel('NEEDS_ATTENTION')?.label ?? 'Needs attention';
 
+/**
+ * What needs the viewer, CONSTRAINED: the top three ranked rows, and the rest behind a native
+ * "Show all" -- no new page, nothing hidden that the count does not state.
+ */
 export function NeedsAttention({ briefing, time }: { briefing: Briefing; time: TimeView }) {
   const { attention, attentionTotal, attentionElsewhere, attentionReadable } = briefing;
+  const top = attention.slice(0, BRIEFING_LIMITS.attention);
+  const rest = attention.slice(BRIEFING_LIMITS.attention);
   const more = attentionElsewhere.filter((e) => e.count > 0 && e.href);
   return (
-    <section className="loop-panel loop-brief__panel" aria-label={ATTENTION_TITLE} id="needs-attention">
-      <div className="loop-brief__head">
-        <h2 className="loop-panel__title">{ATTENTION_TITLE}</h2>
-        {attention.length > 0 ? <span className="loop-brief__sub">Ranked by deadline, then kind, then how long it has waited</span> : null}
-      </div>
+    <section className="loop-front__needs" aria-label={ATTENTION_TITLE} id="needs-attention">
+      <h3 className="loop-brief__subhead">{ATTENTION_TITLE}</h3>
       {attention.length === 0 ? (
         <p className="loop-brief__quiet">
           {attentionReadable ? 'Nothing needs you right now in what Loop can read.' : 'Loop could not read the sources that raise attention items just now.'}
         </p>
       ) : (
         <ol className="loop-brief__rows">
-          {attention.map((a, i) => (
+          {top.map((a, i) => (
             <AttentionRow key={a.key} row={a} rank={i + 1} time={time} />
           ))}
         </ol>
       )}
+      {rest.length > 0 ? (
+        <details className="loop-front__more" data-briefing-attention-more>
+          <summary className="loop-link">Show all {attention.length}</summary>
+          <ol className="loop-brief__rows" start={top.length + 1}>
+            {rest.map((a, i) => (
+              <AttentionRow key={a.key} row={a} rank={top.length + i + 1} time={time} />
+            ))}
+          </ol>
+        </details>
+      ) : null}
       {attentionTotal > attention.length || more.length > 0 ? (
         <p className="loop-brief__foot">
-          {attentionTotal > attention.length ? <span>Showing {attention.length} of {attentionTotal}. </span> : null}
+          {attentionTotal > attention.length ? <span>{counted(attentionTotal, 'item needs you', 'items need you')} in all; the rest are in their sources. </span> : null}
           {more.map((e) => (
             <Link className="loop-link" href={e.href!} key={e.source}>
               {e.count} more in {BRIEFING_SOURCE_LABELS[e.source]} →
@@ -190,7 +238,10 @@ function AttentionRow({ row, rank, time }: { row: BriefingAttention; rank: numbe
   );
 }
 
-// --- Today --------------------------------------------------------------------------------------------
+// --- Your day -------------------------------------------------------------------------------------
+
+/** The meetings the card lists: the one on now and those still ahead, the next few only. */
+export const DAY_EVENTS_SHOWN = 4;
 
 function attendance(event: DayEvent): string | null {
   if (!event.attendanceKnown || event.attendeeCount === null || event.attendeeCount <= 1) return null;
@@ -212,24 +263,24 @@ function eventFacts(event: DayEvent): string[] {
 }
 
 /** How current a read is, in the source's own words: said only when it is not current. */
-function currencyWords(state: Extract<BriefingSourceState, { state: 'READ' }>, noun: 'calendar' | 'mail', time: TimeView): string | null {
+function currencyWords(state: Extract<BriefingSourceState, { state: 'READ' }>, time: TimeView): string | null {
   if (state.current) return null;
   const when = state.readAt ? time.relative(state.readAt, { style: 'long' }) : 'earlier';
-  return state.failed ? `Loop could not reach Google just now. This is your ${noun} as Loop last read it, ${when}.` : `Loop last read your ${noun} ${when}.`;
+  return state.failed ? `Loop could not reach Google just now. This is your calendar as Loop last read it, ${when}.` : `Loop last read your calendar ${when}.`;
 }
 
-function SourceLine({ state, mark, time }: { state: BriefingSourceState; mark: 'calendar' | 'mail'; time: TimeView }) {
+function CalendarLine({ state, time }: { state: BriefingSourceState; time: TimeView }) {
   if (state.state === 'NOT_CONFIGURED') return null;
   if (state.state === 'READ') {
-    const words = currencyWords(state, mark, time);
+    const words = currencyWords(state, time);
     return words ? (
-      <p className="loop-brief__source-line" data-briefing-source-state="STALE" data-briefing-source-of={mark}>
+      <p className="loop-brief__source-line" data-briefing-source-state="STALE" data-briefing-source-of="calendar">
         <span>{words}</span>
       </p>
     ) : null;
   }
   return (
-    <p className="loop-brief__source-line" data-briefing-source-state={state.state} data-briefing-source-of={mark}>
+    <p className="loop-brief__source-line" data-briefing-source-state={state.state} data-briefing-source-of="calendar">
       <span className="loop-brief__ring" aria-hidden="true" />
       <span>{state.line}</span>
       {state.state === 'NOT_CONNECTED' ? (
@@ -241,7 +292,24 @@ function SourceLine({ state, mark, time }: { state: BriefingSourceState; mark: '
   );
 }
 
-export function TodayPanel({ today, time, refresh, mailHref }: { today: BriefingToday; time: TimeView; refresh?: ReactNode; mailHref: string }) {
+/**
+ * The Your Day card, compact: today's meetings (the one on now and the next few), all-day events,
+ * work due today, and then what needs the viewer -- constrained. `calendarHref` is the Calendar page
+ * when the viewer's rail leads there, else null and no link is drawn.
+ */
+export function YourDayCard({
+  today,
+  briefing,
+  time,
+  refresh,
+  calendarHref,
+}: {
+  today: BriefingToday;
+  briefing: Briefing;
+  time: TimeView;
+  refresh?: ReactNode;
+  calendarHref: string | null;
+}) {
   const read = today.calendar.state === 'READ';
   const meetings = read ? `${counted(today.events.length, 'meeting', 'meetings')}${today.allDayCount > 0 ? ` · ${counted(today.allDayCount, 'all-day event', 'all-day events')}` : ''}` : null;
   const nextWords = today.inProgress
@@ -254,17 +322,17 @@ export function TodayPanel({ today, time, refresh, mailHref }: { today: Briefing
           ? 'none left today'
           : null;
   const clear = today.afternoonClear === true ? 'afternoon clear' : null;
-  const nothingToSay = today.calendar.state === 'NOT_CONFIGURED' && today.mail.state === 'NOT_CONFIGURED' && today.due.length === 0;
-  if (nothingToSay) return null;
+  // The one on now and those still ahead; a meeting that already ended is counted, not listed.
+  const ahead = today.events.filter((e) => today.inProgress?.eventId === e.eventId || (e.startsAt !== null && e.startsAt.getTime() >= time.now.getTime())).slice(0, DAY_EVENTS_SHOWN);
   return (
-    <section className="loop-panel loop-brief__panel" aria-label="Today" id="today">
+    <section className="loop-panel loop-front__day" aria-label="Your day" id="today">
       <div className="loop-brief__head">
-        <h2 className="loop-panel__title">Today</h2>
+        <h2 className="loop-panel__title">Your day</h2>
         <span className="loop-brief__sub">{time.date(time.now)}</span>
-        {read ? (
-          <a className="loop-link loop-brief__more" href="https://calendar.google.com/" target="_blank" rel="noreferrer">
-            Open Google Calendar ↗
-          </a>
+        {calendarHref ? (
+          <Link className="loop-link loop-brief__more" href={calendarHref}>
+            Calendar →
+          </Link>
         ) : null}
       </div>
       {read ? (
@@ -275,10 +343,10 @@ export function TodayPanel({ today, time, refresh, mailHref }: { today: Briefing
           ))}
         </p>
       ) : null}
-      <SourceLine state={today.calendar} mark="calendar" time={time} />
-      {read && today.events.length > 0 ? (
+      <CalendarLine state={today.calendar} time={time} />
+      {read && ahead.length > 0 ? (
         <ul className="loop-brief__tl">
-          {today.events.map((e) => (
+          {ahead.map((e) => (
             <li key={e.eventId} className={today.inProgress?.eventId === e.eventId ? 'is-live' : undefined}>
               <span className="loop-brief__t">{e.startsAt ? time.time(e.startsAt) : '—'}</span>
               <span className="loop-brief__e">
@@ -292,7 +360,7 @@ export function TodayPanel({ today, time, refresh, mailHref }: { today: Briefing
       {read && today.events.length === 0 && today.allDayCount === 0 ? <p className="loop-brief__quiet">No meetings on your calendar today.</p> : null}
       {today.due.length > 0 ? (
         <>
-          <p className="loop-brief__subhead">Due today</p>
+          <h3 className="loop-brief__subhead">Due today</h3>
           <ul className="loop-brief__tl">
             {today.due.map((d) => (
               <li key={d.key} className="is-due">
@@ -312,73 +380,8 @@ export function TodayPanel({ today, time, refresh, mailHref }: { today: Briefing
           </ul>
         </>
       ) : null}
-      {today.mail.state !== 'NOT_CONFIGURED' ? <p className="loop-brief__subhead">Mail</p> : null}
-      <SourceLine state={today.mail} mark="mail" time={time} />
-      {today.mailCounts ? (
-        <p className="loop-brief__mailline" data-briefing-mail>
-          {today.mailCounts.needsReply > 0 || today.mailCounts.followUps > 0 || today.mailCounts.waiting > 0
-            ? [
-                today.mailCounts.needsReply > 0 ? `${today.mailCounts.needsReply} need a reply` : null,
-                today.mailCounts.followUps > 0 ? `${counted(today.mailCounts.followUps, 'follow-up', 'follow-ups')} due` : null,
-                today.mailCounts.waiting > 0 ? `${today.mailCounts.waiting} waiting on others` : null,
-              ]
-                .filter(Boolean)
-                .join(' · ')
-            : today.mailCounts.current
-              ? 'Nothing in your mail needs you right now.'
-              : 'Nothing in your mail needed you when Loop last read it.'}
-          {' '}
-          <Link className="loop-link" href={mailHref}>
-            Open Mail →
-          </Link>
-        </p>
-      ) : null}
-      {refresh ? <div className="loop-brief__refresh">{refresh}</div> : null}
-    </section>
-  );
-}
-
-// --- Business pulse -------------------------------------------------------------------------------
-
-export function PulsePanel({ pulse, brainHref }: { pulse: BriefingPulse; brainHref: string | null }) {
-  const nothingMoved = pulse.kpis.length === 0;
-  return (
-    <section className="loop-panel loop-brief__panel" aria-label="Business pulse" id="business-pulse">
-      <div className="loop-brief__head">
-        <h2 className="loop-panel__title">Business pulse</h2>
-        <span className="loop-brief__sub">Movement only</span>
-      </div>
-      {nothingMoved ? (
-        <p className="loop-brief__quiet">No movement in the figures Loop can read.</p>
-      ) : (
-        <div className="loop-brief__kpis">
-          {pulse.kpis.map((k) => (
-            <div className="loop-brief__kpi" key={k.key} title={`Counted from ${k.scope}`} data-briefing-kpi={k.key}>
-              <span className="loop-brief__kpi-l">{k.label}</span>
-              <span className="loop-brief__kpi-v">
-                {k.href ? <Link href={k.href}>{k.value}</Link> : k.value}
-                {k.delta ? <span className={`loop-brief__kpi-d is-${k.delta.kind}`}>{k.delta.text}</span> : null}
-              </span>
-              {k.sub ? <span className="loop-brief__kpi-s">{k.sub}</span> : null}
-            </div>
-          ))}
-        </div>
-      )}
-      {pulse.unchanged.length > 0 || pulse.omitted.length > 0 || brainHref ? (
-        <p className="loop-brief__foot">
-          {pulse.unchanged.length > 0 ? <span>No movement: {pulse.unchanged.join(', ')}. </span> : null}
-          {pulse.omitted.map((o) => (
-            <span key={o.label}>
-              {o.label}: {o.reason.replace(/\.$/, '')}.{' '}
-            </span>
-          ))}
-          {brainHref ? (
-            <Link className="loop-link" href={brainHref}>
-              Executive Brain →
-            </Link>
-          ) : null}
-        </p>
-      ) : null}
+      {(read || today.calendar.state === 'NOT_READ') && refresh ? <div className="loop-brief__refresh">{refresh}</div> : null}
+      <NeedsAttention briefing={briefing} time={time} />
     </section>
   );
 }

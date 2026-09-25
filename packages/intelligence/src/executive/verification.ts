@@ -32,7 +32,7 @@ import { marketplaceExecutiveSensor } from '../marketplace/executive-sensor';
 import { runExecutiveBrain, type ExecutiveBrainReport } from './brain';
 import { buildDomainSensor } from './domain-sensor';
 import type { ExecutiveObservation } from './observation';
-import { uninstrumentedSensor, type InstrumentedSensor, type SensorFinding } from './sensor';
+import { excludedSensor, uninstrumentedSensor, type InstrumentedSensor, type SensorFinding } from './sensor';
 
 function assert(cond: boolean, message: string): void {
   if (!cond) throw new Error(`VERIFICATION FAILED: ${message}`);
@@ -336,13 +336,13 @@ export function verifyExecutiveBrain(): { passed: true; checks: string[] } {
       emptyScopeReason: 'x', measuredAt: NOW.toISOString(),
       metrics: [{ metricId: 'website.sessions', label: 'Sessions', observed: 0, total: null, provenance: src('web-db') }],
     });
-    const missing = uninstrumentedSensor('gmail', 'Gmail', 'No inbound email ingestion exists.', 'A Gmail contributor.');
+    const missing = uninstrumentedSensor('tasks', 'Tasks', 'There is no Task model.', 'A Task model with real rows.');
 
     const out = runExecutiveBrain([healthy, connectedEmpty, missing], NOW);
     const status = new Map(out.evidenceCoverage.sensors.map((s) => [s.sensorId, s.status]));
     assert(status.get('crm') === 'healthy', 'a sensor with fresh available metrics is healthy');
     assert(status.get('website') === 'connected', 'an instrumented sensor that examined nothing is connected — wired, not yet informative — never missing or healthy');
-    assert(status.get('gmail') === 'missing', 'an uninstrumented sensor is missing');
+    assert(status.get('tasks') === 'missing', 'an uninstrumented sensor is missing');
     assert(
       out.evidenceCoverage.statusCounts.healthy === 1 &&
         out.evidenceCoverage.statusCounts.connected === 1 &&
@@ -350,6 +350,25 @@ export function verifyExecutiveBrain(): { passed: true; checks: string[] } {
       'the coverage board tallies each posture',
     );
     checks.push('Evidence Coverage derives a connected/healthy/stale/missing status per sensor and tallies the board');
+  }
+
+  // --- A source deliberately not read is EXCLUDED, never "missing" ---------
+  {
+    const healthy = buildDomainSensor({
+      id: 'crm', label: 'CRM', domain: 'crm', scopeLabel: 's', populationSize: 100, staleAfterMs: null,
+      emptyScopeReason: 'x', measuredAt: NOW.toISOString(),
+      metrics: [{ metricId: 'crm.conversations', label: 'Conversations opened', observed: 40, total: null, provenance: src('crm-db') }],
+    });
+    const privateMail = excludedSensor('gmail', 'Gmail', 'Each employee may connect their own mailbox.', 'Employee-private; not rolled up.');
+    const out = runExecutiveBrain([healthy, privateMail], NOW);
+    const row = out.evidenceCoverage.sensors.find((s) => s.sensorId === 'gmail');
+    assert(row?.status === 'excluded' && row.excluded?.reason === 'Employee-private; not rolled up.', 'an excluded source is reported as excluded, with what exists and why');
+    assert(row?.instrumented === false && row.metricsAvailable === 0 && row.unblockedBy === null, 'an excluded source contributes no metric and has nothing to "connect"');
+    assert(out.evidenceCoverage.statusCounts.excluded === 1 && out.evidenceCoverage.statusCounts.missing === 0, 'excluded is tallied apart from missing');
+    assert(out.evidenceCoverage.excludedSensors === 1, 'the coverage summary counts excluded sources');
+    assert(out.systemHealth.caveat === null, 'a source deliberately not read is not a gap that qualifies the posture');
+    assert([...out.summary, ...out.risks, ...out.opportunities, ...out.recommendations].every((o) => o.source.sensorId !== 'gmail'), 'no observation originates from an excluded source');
+    checks.push('a source the Brain deliberately does not read is EXCLUDED, not missing, and never a gap or an observation');
   }
 
   return { passed: true, checks };

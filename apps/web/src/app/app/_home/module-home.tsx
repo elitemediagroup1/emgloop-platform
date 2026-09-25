@@ -1,24 +1,29 @@
-import Link from 'next/link';
 import type { NavGroup } from '../../../workspaces/config';
-import { CONNECTIONS_PATH, LOOP_HOME } from '../../../auth/landing';
+import { CONNECTIONS_PATH } from '../../../auth/landing';
+import { chatsIntelligence } from '../../../daily-loop/chats-intelligence';
 import type { MailDashboard } from '../../../daily-loop/mail-dashboard';
 import type { NeedsYouItem } from '../../../daily-loop/needs-you';
 import type { YourDayView } from '../../../daily-loop/your-day';
-import { SidebarIcon } from '../../crm/_brand/SidebarIcon';
-import type { TimeView } from '@emgloop/shared';
-import { LoopPage, PageHead, Panel } from '../_loop-os/record';
-import { HOME_PATHS, composeBriefing, dueTodayFromQueue, type QueueInstance } from './briefing';
-import { BriefingLead, NeedsAttention, TodayPanel, WhatChanged } from './briefing-view';
+import { mailDomainIntelligence, type TimeView } from '@emgloop/shared';
+import { LoopPage, PageHead } from '../_loop-os/record';
+import { HOME_PATHS, composeBriefing, dueTodayFromQueue, workPostureFromQueue, type QueueInstance } from './briefing';
+import { BriefingCard, YourDayCard } from './briefing-view';
+import { navOffers, type FrontDoorReads } from './front-door-data';
+import { ToolsGrid } from './front-door-view';
+import { briefingNarrative } from './narrative';
 import { RefreshCalendar } from './refresh-calendar';
+import { TILE_PATHS, projectTiles } from './tiles';
 
-// Loop Home for a person without the operational overview's authority, as the same daily briefing
-// (approved design pass, 2026-09-24): what changed, what needs them, their day -- from their own
-// sources only -- and then each area of Loop they can open.
+// Loop Home for a person without the operational overview's authority: the same front door over
+// their own sources only (2026-09-24; the composition correction, the same day). Top to bottom: their
+// briefing (the synthesis of their mail, chats, calendar and work, in prose), their day with what
+// needs them, and the tools & spaces they can open. No KPI row, no Headlines, no organization
+// activity: none of those is theirs to read, and nothing is faked.
 //
 // The groups arrive already resolved from their permissions and role authority
 // (workspaces/nav-access.ts), so nothing here decides access, and nothing a person cannot open is
-// shown. There is no executive review and no organization pulse for this seat: the briefing is
-// composed from the viewer's own calendar, mailbox and "needs you" items, and says so.
+// shown. The additive reads (their own chats, the intake counts) were made by the page under the same
+// gates (front-door-data.ts); this component composes and draws.
 
 export function ModuleHome({
   name,
@@ -31,6 +36,7 @@ export function ModuleHome({
   mailFailed,
   needsYou,
   queue,
+  front = null,
 }: {
   name: string;
   /** The viewer, for the "due today" projection over their own queue rows. */
@@ -46,6 +52,8 @@ export function ModuleHome({
   needsYou: readonly NeedsYouItem[];
   /** The viewer's own work queue rows, read by the page for the employee seat only; empty otherwise. */
   queue: readonly QueueInstance[];
+  /** The front door's additive reads for this seat, made by the page; null when none were made. */
+  front?: FrontDoorReads | null;
 }) {
   const dayStart = time.startOfDay();
   const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
@@ -59,46 +67,57 @@ export function ModuleHome({
     dayFailed,
     mail,
     mailFailed,
-    dashboard: null,
+    callgrid: null,
     workDue: dueTodayFromQueue(queue, userId, dayStart, dayEnd, (id) => `/app/employee/work/${encodeURIComponent(id)}`),
     connectionsHref: CONNECTIONS_PATH,
     headlinesHref: HOME_PATHS.headlines,
   });
-  const areas = groups
-    .map((group) => ({
-      label: group.label || 'More',
-      items: group.items.filter((item) => !item.soon && item.href !== LOOP_HOME),
-    }))
-    .filter((area) => area.items.length > 0);
+  const mailReading = briefing.today.mail.state === 'READ' && mail ? mailDomainIntelligence(mail.rows.map((r) => r.insight), mail.summary, mail.now) : null;
+  const chatsRead = front?.chats ?? null;
+  const chats = chatsRead === null ? null : chatsRead.ok ? { ok: true as const, value: chatsIntelligence(chatsRead.value) } : { ok: false as const };
+  // The work posture only where the person's own queue is offered: a seat without My Work has no work read.
+  const work = navOffers(groups, TILE_PATHS.employeeWork) ? { ok: true as const, value: workPostureFromQueue(queue, userId, time.now, dayEnd) } : null;
+  const offer = (href: string) => (navOffers(groups, href) ? href : null);
+
+  const narrative = briefingNarrative({
+    time,
+    business: null,
+    headlines: null,
+    today: briefing.today,
+    mail: mailReading,
+    chats,
+    work,
+    hrefs: {
+      callgrid: null,
+      headlines: null,
+      mail: offer(TILE_PATHS.mail),
+      chats: offer(TILE_PATHS.chats),
+      calendar: offer(TILE_PATHS.calendar),
+      work: offer(TILE_PATHS.employeeWork),
+    },
+  });
+  const tiles = projectTiles({
+    groups,
+    today: briefing.today,
+    mail: mailReading,
+    chats,
+    work: work ? { kind: 'EMPLOYEE', posture: work } : null,
+    intake: front?.intake ?? null,
+    creators: null,
+    callgrid: null,
+    callgridBrief: null,
+    time,
+  });
 
   return (
     <LoopPage label="Loop Home">
-      <PageHead trail={[{ label: 'Your Loop' }]} title={`${time.greeting()}, ${name}`} />
-      <BriefingLead briefing={briefing} time={time} />
-      <div className="loop-brief">
-        <div className="loop-brief__main">
-          {briefing.changes.length > 0 ? <WhatChanged briefing={briefing} time={time} /> : null}
-          <NeedsAttention briefing={briefing} time={time} />
+      <div className="loop-front">
+        <div className="loop-front__band">
+          <PageHead trail={[{ label: 'Your Loop' }]} title={`${time.greeting()}, ${name}`} subtitle={time.date(time.now)} />
         </div>
-        <aside className="loop-brief__side" aria-label="Your day">
-          <TodayPanel today={briefing.today} time={time} refresh={<RefreshCalendar />} mailHref={HOME_PATHS.mail} />
-        </aside>
-      </div>
-      <div className="loop-home">
-        {areas.map((area) => (
-          <Panel title={area.label} key={area.label}>
-            <div className="loop-launchers">
-              {area.items.map((item) => (
-                <Link href={item.href} className="loop-launch" key={item.href}>
-                  <span className="loop-launch__icon">
-                    <SidebarIcon name={item.icon} />
-                  </span>
-                  <span className="loop-launch__title">{item.label}</span>
-                </Link>
-              ))}
-            </div>
-          </Panel>
-        ))}
+        <BriefingCard narrative={narrative} briefing={briefing} time={time} />
+        <YourDayCard today={briefing.today} briefing={briefing} time={time} refresh={<RefreshCalendar />} calendarHref={offer(TILE_PATHS.calendar)} />
+        <ToolsGrid tiles={tiles} />
       </div>
     </LoopPage>
   );

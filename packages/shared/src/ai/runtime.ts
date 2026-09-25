@@ -10,7 +10,9 @@
 // OFF IS THE DEFAULT, AND CREDENTIALS ARE NOT A SWITCH. A deployment holding valid
 // provider keys still makes no call until an operator enables the runtime globally,
 // for the organization, for the task and for the provider. Four separate answers,
-// because "the key is present" means CONFIGURED and nothing more.
+// because "the key is present" means CONFIGURED and nothing more. And a fifth: the
+// provider must hold a RECORDED policy (G2, provider-policy.ts) whose sensitivity
+// ceiling reaches the task's -- the environment can list a provider, never approve one.
 //
 // ROUTING IS VERSIONED POLICY, PER TASK. A task declares the capability it needs
 // (capability.ts); a reviewed, versioned routing policy names the exact primary and
@@ -31,7 +33,8 @@
 // PURE. No clock, no I/O. Instants and counters are supplied by the caller.
 
 import { aiToolsAdmissible, type AiModelRequest, type AiUsage } from './provider';
-import { aiContextSourceRefs, type AiContextPackage } from './context';
+import { aiContextSourceRefs, type AiContextPackage, type AiSensitivityClass } from './context';
+import { aiProviderPolicyRefusal, type AiProviderPolicy, type AiProviderPolicyRefusal } from './provider-policy';
 
 /** How hard a model should think. Provider-neutral; each adapter maps it to its own knob. */
 export const AI_REASONING_EFFORTS = ['low', 'medium', 'high'] as const;
@@ -252,6 +255,13 @@ export const AI_ADMISSION_REFUSALS = [
   'ROUTE_TASK_VERSION_MISMATCH',
   'PROVIDER_NOT_ENABLED',
   'PROVIDER_NOT_REGISTERED',
+  // G2 (2026-09-24): no provider on the route holds a recorded policy that admits this task's
+  // sensitivity ceiling. Always accompanied by the PROVIDER_POLICY_* reason(s) that decided it.
+  'POLICY_DENIED',
+  'PROVIDER_POLICY_MISSING',
+  'PROVIDER_POLICY_KILLED',
+  'PROVIDER_POLICY_BELOW_TASK',
+  'PROVIDER_POLICY_UNREADABLE',
   'BUDGET_NOT_CONFIGURED',
   'BUDGET_CLASS_UNKNOWN',
   'INPUT_LIMIT_ABOVE_POLICY',
@@ -281,12 +291,20 @@ export interface AiAdmissionRequest {
   readonly registeredProviders: readonly string[];
   readonly contextRefusals: readonly string[];
   readonly tools: readonly { readonly writes?: unknown }[];
+  /**
+   * G2. Every provider's CURRENT recorded policy (`ai_controls`, scope PROVIDER_POLICY), as read
+   * by the caller. Null or absent means the read failed, and every target is refused as
+   * PROVIDER_POLICY_UNREADABLE -- never "no policy needed" (provider-policy.ts).
+   */
+  readonly providerPolicies: readonly AiProviderPolicy[] | null;
+  /** The task's own sensitivity ceiling, from its definition. A provider policy must reach it. */
+  readonly sensitivityCeiling: AiSensitivityClass;
 }
 
 /** Why an admissible primary did not serve. Recorded, so a provider never changes silently. */
 export interface AiSkippedTarget {
   readonly target: AiRouteTarget;
-  readonly reason: 'KILL_SWITCH' | 'PROVIDER_NOT_ENABLED' | 'PROVIDER_NOT_REGISTERED';
+  readonly reason: 'KILL_SWITCH' | 'PROVIDER_NOT_ENABLED' | 'PROVIDER_NOT_REGISTERED' | AiProviderPolicyRefusal;
 }
 
 export type AiAdmission =
@@ -340,6 +358,8 @@ export function admitAiInvocation(request: AiAdmissionRequest): AiAdmission {
     if (skipped.some((s) => s.reason === 'PROVIDER_NOT_ENABLED')) refusals.push('PROVIDER_NOT_ENABLED');
     if (skipped.some((s) => s.reason === 'PROVIDER_NOT_REGISTERED')) refusals.push('PROVIDER_NOT_REGISTERED');
     if (skipped.some((s) => s.reason === 'KILL_SWITCH')) refusals.push('KILL_SWITCH');
+    const policyReasons = skipped.map((s) => s.reason).filter(isProviderPolicyRefusal);
+    if (policyReasons.length > 0) refusals.push('POLICY_DENIED', ...policyReasons);
   }
 
   const [primary, ...fallbacks] = serving;
@@ -365,7 +385,14 @@ function unavailableReason(request: AiAdmissionRequest, target: AiRouteTarget): 
   if (stoppedTarget(request.killSwitches, target)) return 'KILL_SWITCH';
   if (!request.activation.providers.includes(target.providerId)) return 'PROVIDER_NOT_ENABLED';
   if (!request.registeredProviders.includes(target.providerId)) return 'PROVIDER_NOT_REGISTERED';
-  return null;
+  // G2, last: the provider could serve, and the recorded policy decides whether it may be SENT
+  // this task's class of data. Checked per target, so a primary without a policy is skipped
+  // (and says why) exactly as a killed one is.
+  return aiProviderPolicyRefusal(request.providerPolicies, target.providerId, request.sensitivityCeiling);
+}
+
+function isProviderPolicyRefusal(reason: AiSkippedTarget['reason']): reason is AiProviderPolicyRefusal {
+  return reason.startsWith('PROVIDER_POLICY_');
 }
 
 function isStopped(request: AiAdmissionRequest): boolean {
