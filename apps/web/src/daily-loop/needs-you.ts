@@ -39,6 +39,12 @@ export interface NeedsYouItem {
   /** When the source last found it still unresolved. */
   readonly at: Date;
   readonly detectionCount: number;
+  /**
+   * The KEYED conversation the item came from (an HMAC key, never a raw chat id), or null when the
+   * evidence carried none. Never shown: it only links an obligation to Loop's reading of the same
+   * conversation on the Chats page.
+   */
+  readonly conversationKey?: string | null;
 }
 
 function evidenceProvider(evidence: unknown): ConnectionProvider | null {
@@ -97,6 +103,7 @@ export async function loadNeedsYou(principal: WorkPrincipal, limit = 6, db: Need
         deadline: evidenceText(item.evidence, 'deadline', AI_TRIAGE_LIMITS.maxDeadlineChars),
         at: item.lastDetectedAt,
         detectionCount: item.detectionCount,
+        conversationKey: evidenceText(item.evidence, 'conversationKey', 256),
       });
     }
     out.sort((a, b) => b.at.getTime() - a.at.getTime());

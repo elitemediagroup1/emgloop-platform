@@ -1,22 +1,34 @@
-// The Chats page's body: what is happening in the person's own chats, drawn from `chatsIntelligence`.
+// The Chats page's body: what Loop understands about the person's own chats, drawn from
+// `composeChatsIntelligence` -- the same composition Home's Chats tile shows at its shallowest depth.
+//
+// IN THIS ORDER, AND KEPT APART:
+//   1. What Loop understands -- the composed statement and the business-conversation figure;
+//   2. Conversation intelligence -- Loop's INTERPRETATION of each conversation, one digest's own
+//      fields, labelled as interpretation, with its confidence, how current it is (the governed
+//      coverage words) and, per list, what it rests on (`DIGEST_FIELD_KNOWLEDGE`);
+//   3. What you owe -- the viewer's own obligations (Work OS), visually distinct from the reading;
+//   4. Coverage and connection -- how current the reading is, content-free activity, and the
+//      connection, with Connections as the setup/manage link only.
 //
 // A WINDOW, NOT A CHAT CLIENT. There is no message body here (Loop keeps none), no composer, and no
 // link into Telegram: private Telegram chats have no stable deep link, so a conversation says where
-// it lives ("In Telegram") rather than inventing a URL. Connections appears only as setup -- "Connect",
-// "Reconnect" -- when nothing is live, and otherwise as the secondary "Manage connection".
+// it lives ("In Telegram") rather than inventing a URL. A conversation is named by Telegram's own
+// label or said to be one Loop could not name -- never by a key.
 //
 // SERVER COMPONENT, pure over its props: every honest state is a different block with different words.
 
 import Link from 'next/link';
-import type { TimeView } from '@emgloop/shared';
+import { DIGEST_FIELD_KNOWLEDGE, type DigestKnowledge, type TimeView } from '@emgloop/shared';
 
 import {
   UNNAMED_CONVERSATION,
   chatsKindLabel,
   type ChatsActivity,
   type ChatsConversation,
+  type ChatsConversationCard,
   type ChatsIntelligence,
 } from '../../../../daily-loop/chats-intelligence';
+import { LabelBadge } from '../../_loop-os/product-state';
 import { Facts, Panel, StateBlock } from '../../_loop-os/record';
 
 export const CONNECTIONS_HREF = '/app/connections';
@@ -26,7 +38,7 @@ const PLACE = 'In Telegram';
 function activityWords(activity: ChatsActivity | null): string | null {
   if (activity === null) return null;
   const messages = `${activity.messages} ${activity.messages === 1 ? 'message' : 'messages'}`;
-  const conversations = `${activity.conversations} ${activity.conversations === 1 ? 'conversation' : 'conversations'}`;
+  const conversations = `${activity.conversations} active ${activity.conversations === 1 ? 'conversation' : 'conversations'}`;
   return `${messages} across ${conversations}`;
 }
 
@@ -47,17 +59,41 @@ function StateLine({ intel }: { intel: ChatsIntelligence }) {
         <StateBlock
           kind="empty"
           title="Telegram is not connected"
-          body="Connect your own Telegram account and Loop will show here what needs you in your chats. You keep replying in Telegram."
+          body="Connect your own Telegram account and Loop will show here what it understands about your chats. You keep replying in Telegram."
           action={{ label: 'Connect Telegram', href: CONNECTIONS_HREF, primary: true }}
         />
       );
-    case 'UNAVAILABLE':
+    case 'CONSENT_OFF':
       return (
+        <StateBlock
+          kind="empty"
+          title="AI triage is off"
+          body="Loop observes who and when in your chats, but reads no content — so it has no reading of any conversation and flags nothing — until you turn on AI triage for Telegram. That is a separate consent, managed with the connection."
+          action={{ label: 'Turn on AI triage', href: CONNECTIONS_HREF, primary: true }}
+        />
+      );
+    case 'UNAVAILABLE':
+      return intel.unavailable === 'CONNECTION' ? (
         <StateBlock
           kind="attention"
           title="Loop cannot use your Telegram connection"
-          body="The connection needs attention before Loop can observe your chats again. What it flagged earlier stays below until you clear it."
+          body="The connection needs attention before Loop can read your chats again. What Loop read and flagged earlier stays below, marked as not current."
           action={{ label: 'Reconnect Telegram', href: CONNECTIONS_HREF, primary: true }}
+        />
+      ) : (
+        <StateBlock
+          kind="error"
+          title="Loop could not read its Chats intelligence just now"
+          body="This is a failure to read, not a finding: it does not mean nothing is happening in your chats. What you owe is still listed below. Try again in a moment."
+        />
+      );
+    case 'NO_INTELLIGENCE_YET':
+      return (
+        <StateBlock
+          kind="empty"
+          title="No conversation has a reading yet"
+          body="Loop writes its reading of a conversation after new messages arrive there. Conversations that have been quiet since then have none yet, which does not mean nothing is happening in them."
+          compact
         />
       );
     default:
@@ -65,18 +101,72 @@ function StateLine({ intel }: { intel: ChatsIntelligence }) {
   }
 }
 
-function TriageOff() {
+/**
+ * What a field KNOWS, from the digest contract (`DIGEST_FIELD_KNOWLEDGE`): what the conversation itself
+ * said, or Loop's reading of the whole. Said beside every list so an inference never reads as a quote.
+ */
+const basisWords = (k: DigestKnowledge) => (k === 'OBSERVED' ? 'as the conversation said it' : 'Loop’s reading');
+
+function ReadingList({ title, items, basis }: { title: string; items: readonly string[]; basis: DigestKnowledge }) {
+  if (items.length === 0) return null;
   return (
-    <StateBlock
-      kind="empty"
-      title="AI triage is off"
-      body="Loop observes who and when in your chats, but flags nothing that needs you until you turn on AI triage for Telegram. That is a separate consent, managed with the connection."
-      compact
-    />
+    <div className="loop-chats__reading" data-chats-reading={title} data-chats-basis={basis}>
+      <p className="loop-chats__reading-title">
+        {title} <span className="loop-chats__reading-basis">· {basisWords(basis)}</span>
+      </p>
+      <ul className="loop-chats__reading-list">
+        {items.map((line, i) => (
+          <li key={`${i}-${line}`}>{line}</li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
-function ConversationRow({ conversation, time }: { conversation: ChatsConversation; time: TimeView }) {
+const confidenceWords = (c: NonNullable<ChatsConversationCard['confidence']>) => `${c.charAt(0)}${c.slice(1).toLowerCase()} confidence`;
+
+function ConversationCard({ card, time }: { card: ChatsConversationCard; time: TimeView }) {
+  return (
+    <li className="loop-chats__card" data-chats-card data-chats-card-coverage={card.coverage}>
+      <div className="loop-chats__conv-head">
+        <span className="loop-chats__label">{card.label ?? UNNAMED_CONVERSATION}</span>
+        {card.relevance !== 'BUSINESS' ? <span className="loop-pill">Business relevance unclear</span> : null}
+        {card.flags.map((a) => (
+          <span key={a} className="loop-pill loop-pill--attention">
+            {a}
+          </span>
+        ))}
+        <span className="loop-chats__place">{PLACE}</span>
+      </div>
+      <p className="loop-chats__basis">
+        <span>Loop’s interpretation</span>
+        {card.confidence ? <span data-chats-confidence>{confidenceWords(card.confidence)}</span> : null}
+        <LabelBadge label={card.coverageLabel} />
+        <span>
+          {card.asCurrent ? 'Read ' : 'As of '}
+          <time dateTime={time.iso(card.generatedAt)}>{time.relative(card.generatedAt)}</time>
+        </span>
+      </p>
+      {card.synthesis ? <p className="loop-chats__synthesis">{card.synthesis}</p> : null}
+      {card.attention ? (
+        <p className="loop-chats__meta loop-chats__attention" data-chats-attention>
+          Why it needs you now: {card.attention}
+        </p>
+      ) : null}
+      {card.stateChange ? <p className="loop-chats__meta">What changed: {card.stateChange}</p> : null}
+      <ReadingList title="Developments" items={card.developments} basis={DIGEST_FIELD_KNOWLEDGE.developments} />
+      <ReadingList title="Commitments and decisions" items={card.commitments} basis={DIGEST_FIELD_KNOWLEDGE.commitments} />
+      <ReadingList title="Opportunities" items={card.opportunities} basis={DIGEST_FIELD_KNOWLEDGE.opportunities} />
+      <ReadingList title="Concerns" items={card.concerns} basis={DIGEST_FIELD_KNOWLEDGE.concerns} />
+      <ReadingList title="Operational" items={card.operational} basis={DIGEST_FIELD_KNOWLEDGE.operational} />
+      <ReadingList title="Unresolved" items={card.unresolved} basis={DIGEST_FIELD_KNOWLEDGE.unresolved} />
+      {card.topics.length > 0 ? <p className="loop-chats__meta">About {card.topics.join(', ')}</p> : null}
+      {card.limitations.length > 0 ? <p className="loop-chats__meta">What Loop could not see or conclude: {card.limitations.join('; ')}</p> : null}
+    </li>
+  );
+}
+
+function ObligationRow({ conversation, time }: { conversation: ChatsConversation; time: TimeView }) {
   return (
     <li className="loop-chats__conv" data-chats-conversation>
       <div className="loop-chats__conv-head">
@@ -115,59 +205,86 @@ export function ChatsView({ intel, time }: { intel: ChatsIntelligence | 'UNAVAIL
     );
   }
 
-  const live = intel.state === 'QUIET' || intel.state === 'ACTIVE';
-  const triageOff = live && intel.status !== null && intel.status.endsWith('Triage off');
+  const connected = intel.state !== 'NOT_PERMITTED' && intel.state !== 'NOT_AVAILABLE' && intel.state !== 'NOT_CONNECTED' && !(intel.state === 'UNAVAILABLE' && intel.unavailable === 'CONNECTION');
 
   return (
     <div className="loop-chats" data-chats-state={intel.state}>
-      <section className="loop-chats__summary" aria-label="What is happening in your chats">
+      <section className="loop-chats__summary" aria-label="What Loop understands">
         {intel.metric ? (
           <p className="loop-chats__metric">
             <b>{intel.metric.value}</b> {intel.metric.label}
           </p>
         ) : null}
-        {intel.summary.map((line) => (
-          <p key={line} className="loop-chats__line">
+        {intel.headline.map((line, i) => (
+          <p key={line} className="loop-chats__line" data-chats-statement={i === 0 ? '' : undefined}>
             {line}
           </p>
         ))}
       </section>
 
-      {intel.status ? (
-        <p className="loop-chats__status" data-chats-status>
-          <span>{intel.status}</span>
-          {live || intel.state === 'NOT_AVAILABLE' ? (
-            <Link className="loop-link" href={CONNECTIONS_HREF}>
-              Manage connection
-            </Link>
-          ) : null}
-        </p>
-      ) : null}
-
       <StateLine intel={intel} />
-      {triageOff ? <TriageOff /> : null}
-      {live && !triageOff && intel.conversations.length === 0 ? (
-        <StateBlock kind="empty" title="Nothing in your chats needs you" body="Loop has flagged no unresolved obligation for you. It keeps observing, and anything new appears here and on Home." compact />
-      ) : null}
 
-      {intel.conversations.length > 0 ? (
-        <Panel title="Conversations that need you" lead="Grouped by the name Telegram shows for each conversation, most pressing first. Reply in Telegram itself.">
-          <ul className="loop-chats__list">
-            {intel.conversations.map((c, i) => (
-              <ConversationRow key={`${c.label ?? 'unnamed'}-${i}`} conversation={c} time={time} />
-            ))}
-          </ul>
+      {intel.conversations.length > 0 || intel.notBusiness > 0 ? (
+        <Panel
+          title="Conversation intelligence"
+          lead="Loop’s interpretation of each business conversation, from what it read: a reading, not a fact. Each says how confident Loop is and how current the reading is."
+        >
+          {intel.conversations.length > 0 ? (
+            <ul className="loop-chats__list">
+              {intel.conversations.map((card) => (
+                <ConversationCard key={card.key} card={card} time={time} />
+              ))}
+            </ul>
+          ) : null}
+          {intel.notBusiness > 0 ? (
+            <p className="loop-chats__meta" data-chats-not-business>
+              {intel.notBusiness === 1 ? '1 conversation Loop read as not business is not shown.' : `${intel.notBusiness} conversations Loop read as not business are not shown.`}
+            </p>
+          ) : null}
         </Panel>
       ) : null}
 
-      {live ? (
-        <Panel title="Activity" lead="Who and when only: counts from what Loop observed, never message contents.">
+      {intel.obligations.length > 0 ? (
+        <section className="loop-chats__owe" aria-label="What you owe" data-chats-owe>
+          <h2 className="loop-panel__title">What you owe</h2>
+          <p className="loop-panel__lead">Your own open items from these chats, kept with your work and separate from Loop’s interpretation above. Reply in Telegram itself.</p>
+          {intel.owed ? <p className="loop-chats__line">{intel.owed}</p> : null}
+          <ul className="loop-chats__list">
+            {intel.obligations.map((c, i) => (
+              <ObligationRow key={`${c.label ?? 'unnamed'}-${i}`} conversation={c} time={time} />
+            ))}
+          </ul>
+        </section>
+      ) : connected && intel.state !== 'CONSENT_OFF' ? (
+        <StateBlock kind="empty" title="Nothing in your chats is flagged for you" body="Loop has flagged no open obligation for you. It keeps observing, and anything new appears here and on Home." compact />
+      ) : null}
+
+      {intel.status ? (
+        <Panel title="Coverage and connection" lead="How current Loop’s reading is, and what it observed: who and when only, never message contents.">
           <Facts
             rows={[
-              { label: 'Since yesterday', value: activityWords(intel.activity24h), unknownText: 'Could not be read' },
-              { label: 'In the last 7 days', value: activityWords(intel.activity7d), unknownText: 'Could not be read' },
+              ...(connected
+                ? [
+                    { label: 'Loop’s reading', value: intel.coverage.words, unknownText: 'No reading yet' },
+                    {
+                      label: 'Last generated',
+                      value: intel.coverage.latestGeneratedAt ? <time dateTime={time.iso(intel.coverage.latestGeneratedAt)}>{time.relative(intel.coverage.latestGeneratedAt)}</time> : null,
+                      unknownText: 'Never',
+                    },
+                    { label: 'Since yesterday', value: activityWords(intel.activity24h), unknownText: 'Could not be read' },
+                    { label: 'In the last 7 days', value: activityWords(intel.activity7d), unknownText: 'Could not be read' },
+                  ]
+                : []),
+              { label: 'Connection', value: intel.status },
             ]}
           />
+          {connected || intel.state === 'NOT_AVAILABLE' ? (
+            <p className="loop-chats__status" data-chats-status>
+              <Link className="loop-link" href={CONNECTIONS_HREF}>
+                Manage connection
+              </Link>
+            </p>
+          ) : null}
         </Panel>
       ) : null}
     </div>

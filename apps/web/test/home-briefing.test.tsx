@@ -37,7 +37,7 @@ import {
 import { BRIEFING_LIMITS, composeBriefing, coverageWords, dueTodayFromQueue, dueTodayFromWork, rankAttention, workPostureFromQueue, workPostureFromSummary, type Briefing, type BriefingInput, type QueueInstance } from '../src/app/app/_home/briefing';
 import { BriefingCard, NeedsAttention, WhatLoopRead, YourDayCard } from '../src/app/app/_home/briefing-view';
 import { NARRATIVE_MAX, briefingNarrative, type NarrativeInput } from '../src/app/app/_home/narrative';
-import { chatsIntelligence, type ChatsIntelligenceInput } from '../src/daily-loop/chats-intelligence';
+import { composeChatsIntelligence, type ChatsIntelligenceInput } from '../src/daily-loop/chats-intelligence';
 import { HOME_KPI_KEYS, projectHomeKpis, type HomeKpiStrip } from '../src/app/app/_home/kpis';
 import type { NeedsYouItem } from '../src/daily-loop/needs-you';
 import type { YourDayView } from '../src/daily-loop/your-day';
@@ -468,6 +468,9 @@ const CHATS_INPUT: ChatsIntelligenceInput = {
   ],
   activity24h: { since: at('2026-09-23T15:30:00Z'), messages: 14, conversations: 5 },
   activity7d: null,
+  digests: [],
+  latestActivity: new Map(),
+  now: at('2026-09-24T15:30:00Z'),
 };
 function narrativeInput(over: Partial<NarrativeInput> = {}): NarrativeInput {
   return {
@@ -476,7 +479,7 @@ function narrativeInput(over: Partial<NarrativeInput> = {}): NarrativeInput {
     headlines: { rows: [headline(), headline({ id: 'h2' })], attention: null, standings: new Map([['h1', { situation: 'UNDER_INVESTIGATION', caseId: 'c1' }], ['h2', { situation: 'NEW', caseId: null }]]) },
     today: brief().today,
     mail: { needsReply: 3, waiting: 2, followUps: 1, lines: ['3 conversations need your reply.'] },
-    chats: { ok: true, value: chatsIntelligence(CHATS_INPUT) },
+    chats: { ok: true, value: composeChatsIntelligence(CHATS_INPUT) },
     work: { ok: true, value: { assigned: 4, readyNow: 2, blocked: 1, overdue: 1, dueToday: 2, datesPartial: false } },
     hrefs: { callgrid: '/app/admin/marketplace', headlines: '/app/admin/headlines', mail: '/app/mail', chats: '/app/chats', calendar: '/app/calendar', work: '/app/admin/work' },
     ...over,
@@ -531,13 +534,16 @@ describe('your briefing is a synthesis in prose, not the What-changed list', () 
   it('communications are the viewer’s own, as counts: never a subject, a counterpart or another person’s chat; not read is said, not zero', () => {
     const text = said().communications!;
     for (const name of ['Ana', 'Ops group', 'budget', 'Dana']) assert.equal(text.includes(name), false, name);
+    // Chats intelligence (the viewer's digests) is not fed into the briefing: the sentence is the same with or without it.
+    const digest = { subjectRef: 'telegram_conversation:ck', content: { relevance: 'BUSINESS' as const, synthesis: 'SECRET-SYNTHESIS about a buyer' }, coverage: 'CONNECTED_SUFFICIENT' as const, status: 'CURRENT', windowEnd: at('2026-09-24T14:00:00Z'), expiresAt: at('2026-10-24T14:00:00Z'), generatedAt: at('2026-09-24T14:00:00Z'), lastEvidenceAt: at('2026-09-24T14:00:00Z'), evidenceCount: 3 };
+    assert.equal(said({ chats: { ok: true, value: composeChatsIntelligence({ ...CHATS_INPUT, digests: [digest] }) } }).communications, text);
     const notConnected = brief({ mail: mailDashboard('NOT_CONNECTED') }).today;
-    assert.equal(said({ today: notConnected, mail: null, chats: { ok: true, value: chatsIntelligence({ ...CHATS_INPUT, connection: { ...CHATS_INPUT.connection!, state: 'NOT_CONNECTED' } }) } }).communications, 'Your mail isn’t connected; Telegram isn’t connected.');
+    assert.equal(said({ today: notConnected, mail: null, chats: { ok: true, value: composeChatsIntelligence({ ...CHATS_INPUT, connection: { ...CHATS_INPUT.connection!, state: 'NOT_CONNECTED' } }) } }).communications, 'Your mail isn’t connected; Telegram isn’t connected.');
     const unread = brief({ mail: mailDashboard('NEVER_SYNCED') }).today;
     assert.match(said({ today: unread, mail: null }).communications!, /^Loop has not read your mail yet/);
     assert.equal(/\b0 conversations\b/.test(said({ today: unread, mail: null }).communications!), false);
     assert.match(said({ mail: { needsReply: 0, waiting: 0, followUps: 0, lines: [] } }).communications!, /^Nothing in your mail needs you; /);
-    assert.match(said({ chats: { ok: true, value: chatsIntelligence({ ...CHATS_INPUT, items: [] }) } }).communications!, /Loop flagged no Telegram conversation for you\.$/);
+    assert.match(said({ chats: { ok: true, value: composeChatsIntelligence({ ...CHATS_INPUT, items: [] }) } }).communications!, /Loop flagged no Telegram conversation for you\.$/);
     assert.match(said({ chats: { ok: false } }).communications!, /Loop could not read your chats just now\.$/);
   });
 
