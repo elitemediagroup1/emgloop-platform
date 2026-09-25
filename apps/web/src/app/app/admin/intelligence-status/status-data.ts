@@ -26,10 +26,15 @@ import 'server-only';
 //   aggregate (`organizationCounts`). Until it does, the page says the read is not exposed; it never
 //   falls back to a read that loads digest content (`forDomain` returns content, so it is not used).
 //
+//   AI CAPACITY (PR 1): this organization's spend today per lane and over the trailing 24 hours, read
+//   through the SAME durable ledger and controls reader the gateway admits against, beside the recorded
+//   operating budget (or its absence) and the stored KILLED switches that apply here. Organization totals
+//   only; the trailing figure is this organization's, never the platform's.
+//
 // Each section fails on its own: a read that throws is UNAVAILABLE, never empty. No model is called.
 
 import type { PrismaClient } from '@prisma/client';
-import { AiControlRepository, IntelligenceDigestRepository, prisma } from '@emgloop/database';
+import { AiControlRepository, DurableAiUsageLedger, IntelligenceDigestRepository, aiRuntimeControlsReader, prisma } from '@emgloop/database';
 import { AI_PROVIDER_IDS } from '@emgloop/shared';
 import type { AuthSession } from '../../../../auth/auth';
 import {
@@ -38,8 +43,11 @@ import {
   STATUS_WINDOWS,
   digestCountsOnly,
   digestMetadataOnly,
+  projectCapacity,
   projectProviderPolicies,
   projectTaskStatus,
+  type CapacityRead,
+  type CapacityStatus,
   type DigestCount,
   type DigestMetadata,
   type IntelligenceStatus,
@@ -63,6 +71,24 @@ export interface StatusDeps {
   readonly ledger: LedgerDb;
   readonly providerPolicies: () => Promise<readonly { providerId: string; state: 'ACTIVE' | 'KILLED'; ceiling: string | null; version: number; recordedAtMs: number }[]>;
   readonly digests: DigestReader;
+  /** PR 1. The capacity read. Absent: the section is NOT_EXPOSED. */
+  readonly capacity?: (organizationId: string, now: Date) => Promise<CapacityRead>;
+}
+
+/** The same ledger windows and recorded controls the gateway admits against, for one organization. */
+async function readCapacity(organizationId: string, now: Date): Promise<CapacityRead> {
+  const reader = aiRuntimeControlsReader(prisma, { ttlMs: 0 });
+  const budget = await reader.operatingBudget();
+  const operating = budget.state === 'RECORDED' ? budget.budget : null;
+  // The task only selects the task window, which this page does not show; `[organizationId]` keeps the
+  // trailing-day figure to this organization.
+  const spend = await new DurableAiUsageLedger(prisma).spend(organizationId, 'intelligence-status', now, [organizationId], operating);
+  if (!spend.cost) throw new Error('the ledger reported no cost');
+  return {
+    budget: budget.state === 'RECORDED' ? { state: 'RECORDED', budget: budget.budget, version: budget.version, recordedAtMs: budget.recordedAtMs } : budget,
+    cost: spend.cost,
+    storedKills: await reader.storedKillSwitches(organizationId),
+  };
 }
 
 function defaultDeps(): StatusDeps {
@@ -71,6 +97,7 @@ function defaultDeps(): StatusDeps {
     ledger: prisma,
     providerPolicies: () => controls.providerPolicies(),
     digests: new IntelligenceDigestRepository(prisma) as unknown as DigestReader,
+    capacity: readCapacity,
   };
 }
 
@@ -174,7 +201,8 @@ export async function loadIntelligenceStatus(
   const metadataFor = deps.digests.metadataFor?.bind(deps.digests);
   const organizationCounts = deps.digests.organizationCounts?.bind(deps.digests);
 
-  const [tasks, providers, yourDigests, organizationDigests] = await Promise.all([
+  const capacityRead = deps.capacity;
+  const [tasks, providers, yourDigests, organizationDigests, capacity] = await Promise.all([
     section(() => readTasks(deps.ledger, organizationId, userId, now)),
     section<readonly ProviderPolicyRow[]>(async () => projectProviderPolicies(AI_PROVIDER_IDS, await deps.providerPolicies())),
     metadataFor
@@ -183,7 +211,10 @@ export async function loadIntelligenceStatus(
     organizationCounts
       ? section<readonly DigestCount[]>(async () => digestCountsOnly(await organizationCounts(organizationId, { now })))
       : Promise.resolve<Section<readonly DigestCount[]>>({ state: 'NOT_EXPOSED' }),
+    capacityRead
+      ? section<CapacityStatus>(async () => projectCapacity(await capacityRead(organizationId, now)))
+      : Promise.resolve<Section<CapacityStatus>>({ state: 'NOT_EXPOSED' }),
   ]);
 
-  return { generatedAt: now, tasks, providers, yourDigests, organizationDigests };
+  return { generatedAt: now, tasks, providers, yourDigests, organizationDigests, capacity };
 }

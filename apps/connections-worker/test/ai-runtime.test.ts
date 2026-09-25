@@ -29,6 +29,24 @@ test('the worker never reads the old terms variable, in any spelling', () => {
 });
 
 test('the gateway is given the recorded provider policies from the worker\'s own database', () => {
-  assert.match(CODE, /providerPolicies: aiProviderPolicyReader\(prisma\)/);
-  assert.match(CODE, /import \{[^}]*aiProviderPolicyReader[^}]*\} from '@emgloop\/database'/);
+  // PR 1: ONE cached reader over this worker's own database serves every recorded control the gateway
+  // admits against -- provider policies, stored KILLED switches and the operating budget.
+  assert.match(CODE, /const controls = aiRuntimeControlsReader\(prisma\)/);
+  assert.match(CODE, /providerPolicies: controls\.providerPolicies/);
+  assert.match(CODE, /storedKillSwitches: controls\.storedKillSwitches/);
+  assert.match(CODE, /operatingBudget: controls\.operatingBudget/);
+  assert.match(CODE, /import \{[^}]*aiRuntimeControlsReader[^}]*\} from '@emgloop\/database'/);
+});
+
+test('PR 1: only the history and hydration sweeps move their calls to BACKGROUND; live triage is called exactly as before', () => {
+  const index = readFileSync(join(__dirname, '..', 'src', 'index.ts'), 'utf8');
+  const port = (name: string) => {
+    const start = index.indexOf(`const ${name}: `);
+    assert.ok(start > -1, name);
+    return index.slice(start, index.indexOf('\n  };', start));
+  };
+  assert.match(port('contentPorts'), /triage: \(principal, input\) => aiRuntime\.service\.triage\(principal, input\),/, 'live triage: unchanged');
+  assert.match(port('historicalContentPorts'), /triage: \(principal, input\) => aiRuntime\.service\.triage\(principal, \{ \.\.\.input, lane: 'BACKGROUND' \}\),/);
+  assert.match(port('hydrationPorts'), /triage: \(principal, input\) => aiRuntime\.service\.triage\(principal, \{ \.\.\.input, lane: 'BACKGROUND' \}\),/);
+  assert.equal((index.match(/lane: 'BACKGROUND'/g) ?? []).length, 2, 'nothing else claims a lane');
 });

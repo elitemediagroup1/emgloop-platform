@@ -15,11 +15,16 @@
 //
 // G2 IS RECORDED, NOT CONFIGURED (2026-09-24). Whether Loop may SEND a provider this task's class of
 // data is a stored control (`ai_controls`, scope PROVIDER_POLICY), read by the gateway through
-// `aiProviderPolicyReader` (cached in-process for 30 s, never more than 60). Without a current ACTIVE
+// `aiRuntimeControlsReader` (cached in-process for 30 s, never more than 60). Without a current ACTIVE
 // policy whose ceiling reaches COMMUNICATION_CONTENT (the triage task's ceiling), every triage call is
 // refused as POLICY_DENIED + PROVIDER_POLICY_* and the content sweep HOLDS its frontier (nothing is
 // dropped). LOOP_AI_PROVIDER_TERMS_CONFIRMED is no longer read: listing a provider in the environment
 // never implies its terms were confirmed.
+//
+// RECORDED CONTROLS (PR 1, 2026-09-26). The gateway also reads the stored KILLED switches and the
+// recorded OPERATING BUDGET through `aiRuntimeControlsReader` -- one cached reader for everything this
+// worker admits against, the provider policies included. With no budget recorded, admission is the
+// reviewed budget policy exactly as before, plus the always-on emergency ceiling.
 //
 // NO CREDENTIAL VALUE IS RETURNED, LOGGED OR ECHOED. It goes straight into the provider factory and
 // nowhere else. The message body the triage judges never reaches this module -- it is assembled into a
@@ -31,8 +36,9 @@ import {
   AiRuntimeGateway,
   DurableAiUsageLedger,
   TelegramContentTriageService,
-  aiProviderPolicyReader,
+  aiRuntimeControlsReader,
   iamAiAuthorizer,
+  type AiRuntimeControls,
   type TelegramContentTriageRuntime,
 } from '@emgloop/database';
 import { AI_BUDGET_POLICY, AI_MAX_ATTEMPTS_PER_TARGET, AI_ROUTING_POLICY, aiCatalogCapabilities } from '@emgloop/providers';
@@ -46,6 +52,7 @@ import {
   AI_ACTIVATION_OFF,
   AI_KILL_SWITCH_SCOPES,
   AI_TASK_TELEGRAM_CONTENT_TRIAGE,
+  aiEffectiveBudgetPolicy,
   type AiActivation,
   type AiBudgetPolicy,
   type AiKillSwitch,
@@ -110,16 +117,18 @@ export interface WorkerAiRuntime {
 }
 
 /**
- * The telegram.content.triage invocation headroom in a spend snapshot: the smallest of (cap - used) over
- * the task, organization and global windows. The task cap is read from the reviewed budget policy via the
- * task's routing budget class -- never a literal. A missing route, class or unusable cap is 0 (fail closed).
+ * One task's invocation headroom in a spend snapshot: the smallest of (cap - used) over the task,
+ * organization and global windows. The task cap is read from the budget policy via the task's routing
+ * budget class -- never a literal. A missing route, class or unusable cap is 0 (fail closed). PR 1: generic
+ * over the task; pass the EFFECTIVE policy (`aiEffectiveBudgetPolicy`) when an operating budget is recorded.
  */
-export function triageInvocationHeadroom(
+export function aiInvocationHeadroom(
+  taskId: string,
   spend: AiSpendSnapshot,
   budget: AiBudgetPolicy = AI_BUDGET_POLICY,
   routing: AiRoutingPolicy = AI_ROUTING_POLICY,
 ): number {
-  const route = routing.tasks[AI_TASK_TELEGRAM_CONTENT_TRIAGE.taskId];
+  const route = routing.tasks[taskId];
   const cls = route ? budget.classes[route.budgetClass] : undefined;
   if (!cls) return 0;
   const room = (cap: number, used: number) => (Number.isFinite(cap) && cap > 0 ? cap - used : 0);
@@ -133,11 +142,38 @@ export function triageInvocationHeadroom(
   );
 }
 
-/** The headroom reader over the durable ledger, for the organizations this activation names. */
-export function ledgerTriageHeadroom(prisma: PrismaClient, activeOrganizations: readonly string[]): (organizationId: string, at: Date) => Promise<number> {
+/** telegram.content.triage's invocation headroom: `aiInvocationHeadroom` for that task. */
+export function triageInvocationHeadroom(
+  spend: AiSpendSnapshot,
+  budget: AiBudgetPolicy = AI_BUDGET_POLICY,
+  routing: AiRoutingPolicy = AI_ROUTING_POLICY,
+): number {
+  return aiInvocationHeadroom(AI_TASK_TELEGRAM_CONTENT_TRIAGE.taskId, spend, budget, routing);
+}
+
+/**
+ * The triage headroom reader over the durable ledger, for the organizations this activation names. With a
+ * recorded operating budget the caps are the EFFECTIVE ones; a budget that cannot be read is 0 headroom
+ * (the hydration then holds), never "unlimited".
+ */
+export function ledgerTriageHeadroom(
+  prisma: PrismaClient,
+  activeOrganizations: readonly string[],
+  controls: Pick<AiRuntimeControls, 'operatingBudget'> = aiRuntimeControlsReader(prisma),
+): (organizationId: string, at: Date) => Promise<number> {
   const ledger = new DurableAiUsageLedger(prisma);
-  return async (organizationId, at) =>
-    triageInvocationHeadroom(await ledger.spend(organizationId, AI_TASK_TELEGRAM_CONTENT_TRIAGE.taskId, at, activeOrganizations));
+  return async (organizationId, at) => {
+    let operating = null;
+    try {
+      const reading = await controls.operatingBudget();
+      if (reading.state === 'UNREADABLE') return 0;
+      operating = reading.state === 'RECORDED' ? reading.budget : null;
+    } catch {
+      return 0;
+    }
+    const spend = await ledger.spend(organizationId, AI_TASK_TELEGRAM_CONTENT_TRIAGE.taskId, at, activeOrganizations, operating);
+    return triageInvocationHeadroom(spend, aiEffectiveBudgetPolicy(AI_BUDGET_POLICY, operating));
+  };
 }
 
 /**
@@ -209,6 +245,8 @@ function assemble(
   newInvocationId: (() => string) | undefined,
 ): WorkerAiRuntime {
   const authorize = iamAiAuthorizer(prisma);
+  // One cached reader for every recorded control this worker admits against (<= 60 s).
+  const controls = aiRuntimeControlsReader(prisma);
   const gateway = new AiRuntimeGateway(
     {
       activation,
@@ -224,9 +262,16 @@ function assemble(
       now,
       newInvocationId: newInvocationId ?? (() => randomUUID()),
       // G2: the recorded provider policies, from this worker's own database. Never the environment.
-      providerPolicies: aiProviderPolicyReader(prisma),
+      providerPolicies: controls.providerPolicies,
+      // PR 1: stored KILLED switches and the recorded operating budget, from the same database.
+      storedKillSwitches: controls.storedKillSwitches,
+      operatingBudget: controls.operatingBudget,
     },
   );
   const enabled = activation.enabled && providers.length > 0 && Boolean(AI_ROUTING_POLICY.tasks['telegram.content.triage']);
-  return { service: new TelegramContentTriageService({ runtime: gateway }), enabled, triageHeadroom: ledgerTriageHeadroom(prisma, activation.organizations) };
+  return {
+    service: new TelegramContentTriageService({ runtime: gateway }),
+    enabled,
+    triageHeadroom: ledgerTriageHeadroom(prisma, activation.organizations, controls),
+  };
 }

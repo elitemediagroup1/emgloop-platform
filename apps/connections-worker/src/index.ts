@@ -297,7 +297,7 @@ async function main(): Promise<void> {
     adapterFor: (provider) => (provider === 'TELEGRAM' ? telegramAdapter : null),
     openCredential: (due: DueHistoricalContent) => openContentCredential(due),
     conversationSecret: config.conversationSecret,
-    triage: (principal, input) => aiRuntime.service.triage(principal, input),
+    triage: (principal, input) => aiRuntime.service.triage(principal, { ...input, lane: 'BACKGROUND' }),
     raiseWorkItem: historicalRaise.raiseWorkItem,
     resolveObligations,
     recordConversationIntelligence: historicalDigests.record,
@@ -342,7 +342,7 @@ async function main(): Promise<void> {
     dueForChatsHydration: () => contentAuthorizations.dueForChatsHydration(500),
     adapterFor: (provider) => (provider === 'TELEGRAM' ? telegramAdapter : null),
     openCredential: (due: DueChatsHydration) => openContentCredential(due),
-    triage: (principal, input) => aiRuntime.service.triage(principal, input),
+    triage: (principal, input) => aiRuntime.service.triage(principal, { ...input, lane: 'BACKGROUND' }),
     async hasCurrentConversationDigest(principal, subjectRef, now) {
       return (await digests.current(principal, 'CHATS', { subjectKind: 'CONVERSATION', subjectRef, now })) !== null;
     },

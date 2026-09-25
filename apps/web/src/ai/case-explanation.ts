@@ -21,7 +21,7 @@ import 'server-only';
 import { randomUUID } from 'crypto';
 import {
   AiRuntimeGateway,
-  aiProviderPolicyReader,
+  aiRuntimeControlsReader,
   CaseExplanationService,
   DurableAiUsageLedger,
   iamAiAuthorizer,
@@ -38,9 +38,9 @@ export interface AiSessionPrincipal {
   readonly userId: string;
 }
 
-// One cached reader per server instance (30 s, never more than 60): a policy recorded or KILLED
-// reaches every instance within a minute, without a deploy.
-const providerPolicies = aiProviderPolicyReader(prisma);
+// One cached reader per server instance (30 s, never more than 60): a provider policy, a KILLED control
+// or an operating budget recorded in `ai_controls` reaches every instance within a minute, without a deploy.
+const controls = aiRuntimeControlsReader(prisma);
 
 function assemble() {
   const env = aiEnvironment({ capabilities: aiCatalogCapabilities });
@@ -61,7 +61,10 @@ function assemble() {
       now: () => new Date(),
       newInvocationId: () => randomUUID(),
       // G2: the recorded provider policies, shared by every request this instance serves.
-      providerPolicies,
+      providerPolicies: controls.providerPolicies,
+      // PR 1: stored KILLED switches and the recorded operating budget.
+      storedKillSwitches: controls.storedKillSwitches,
+      operatingBudget: controls.operatingBudget,
     },
   );
   return { env, authorize, service: new CaseExplanationService(prisma, { runtime: gateway, authorize }) };
