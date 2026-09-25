@@ -5,7 +5,7 @@ losing the thread. **One current-state block per workstream — overwrite it, do
 Read this at the start of a session; update it at the end of a work batch. History lives
 in git, not here.
 
-_Last updated: 2026-09-24 (Loop Home briefing built, draft PR in review; Creator Hub commissioned on staging — #323/#324/#325 merged, infra + migration + seed done, staging fast-forwarded and verified; production schema untouched — see the Creator Hub block; earlier: Intelligence & Memory Foundation commissioned — #305/#306 on main, migration 42 applied, completion PR in review; Google onboarding: #302/#303 merged, Gmail cycle not yet on, one-derivation PR in review; production at migration 41; Gmail GM-1..GM-3 in review as #295/#296/#297; AI runtime #266–#271 merged, switched off; B0–B6 merged incl. #284, B7 pre-deployment #285 merged; AWS staging not bootstrapped, nothing deployed; Google Workspace connection (Private V1) merged as #286 and migration 37 applied in production; Daily Loop / Employee Intelligence architecture merged as #287, DL-0..DL-3 merged with migrations 38 and 39 applied and production verified, DL-4 (Your Day) merged as #293, DL-5 (the automated Calendar cycle) in review; see the Foundation handoff and Google Workspace blocks)._
+_Last updated: 2026-09-26 (Loop Intelligence Phases A–G built in one draft PR, nothing commissioned; #340 AI runtime corrected to MERGED/MIGRATED/DEPLOYED/VERIFIED with the operating budget recorded, Anthropic production-active, OpenAI not commissioned — see the two Loop Intelligence blocks; earlier 2026-09-24: Loop Home briefing built, draft PR in review; Creator Hub commissioned on staging — #323/#324/#325 merged, infra + migration + seed done, staging fast-forwarded and verified; production schema untouched — see the Creator Hub block; earlier: Intelligence & Memory Foundation commissioned — #305/#306 on main, migration 42 applied, completion PR in review; Google onboarding: #302/#303 merged, Gmail cycle not yet on, one-derivation PR in review; production at migration 41; Gmail GM-1..GM-3 in review as #295/#296/#297; AI runtime #266–#271 merged, switched off; B0–B6 merged incl. #284, B7 pre-deployment #285 merged; AWS staging not bootstrapped, nothing deployed; Google Workspace connection (Private V1) merged as #286 and migration 37 applied in production; Daily Loop / Employee Intelligence architecture merged as #287, DL-0..DL-3 merged with migrations 38 and 39 applied and production verified, DL-4 (Your Day) merged as #293, DL-5 (the automated Calendar cycle) in review; see the Foundation handoff and Google Workspace blocks)._
 
 ---
 
@@ -2423,32 +2423,65 @@ refreshes its title/evidence and appends REDETECTED without reopening — pinned
 `work-item-detect-consent.postgres.test.ts`); `/app/connections` shows only `contentAuthorized` (stuck
 cursors visible only via the probe and worker logs).
 
-## Loop Intelligence -- PR 1 AI runtime (peer providers, capacity, validator registry) -- IN REVIEW (draft PR, branch `feat/ai-runtime-peer-providers`, off main `97816a5`)
+## Loop Intelligence — PR 1 AI runtime (#340) — MERGED · MIGRATED · WORKER DEPLOYED · RUNTIME VERIFIED
 
-Blueprint: https://claude.ai/artifact/VZuKzXAmCpc2WZsQR32gDS (architecture approved 2026-09-26; budget figures
-are initial controls to be recalibrated from telemetry). PR 1 builds the runtime only; no domain change.
+**Corrected 2026-09-26.** This block previously read "IN REVIEW (draft PR)". That was stale. #340 is merged
+(main `d70f737`). Migration `20261005000000_ai_runtime_capacity` is applied in production, the connections
+worker is redeployed on it, and the runtime has been verified in production.
 
-**Built.** Output-contract registry (gateway looks up `outputSchemaId`, no branch); portable-schema check over
-every task schema (one named exemption: triage v4 `const`, until triage v5); Mail Reply Draft 1.1.0 / schema v2
-(v1 would have failed on both providers; never served); lanes + cost reserved at ceiling and recorded at
-reconcile (`ai_invocations.lane`, `costMicros`); the recorded OPERATING budget (`ai_controls` scope `BUDGET`,
-`record-ai-budget` workflow, code maximums $100/$125, recoverable when unreadable); always-on $25 emergency
-ceiling; stored KILLED controls honoured by the gateway (grants are not read); `OTHER_THAN_SUBJECT`
-independent-provider routing; specialization version on every call; worker/web read all controls through
-`aiRuntimeControlsReader`; hydration and history run in BACKGROUND; connections stack takes provider/task
-LISTS (`CONNECTIONS_<STAGE>_AI_PROVIDERS`, `_AI_TASKS`); status page shows spend by lane.
-**Migration `20261005000000_ai_runtime_capacity`** (additive; code is safe before it -- tested on a database
-at main's migrations).
+- **The operating budget is recorded:** `operating.initial.1` v1. Organization $20/day, emergency ceiling
+  $25, lanes FORWARD $8 / SYNTHESIS $6 / INTERACTIVE $2.50 / BACKGROUND $2 with a 60-call cap.
+- **Anthropic is production-active.** It is the only provider. `telegram.content.triage` is the only
+  production task.
+- **OpenAI is NOT commissioned.** That needs a terms decision, `record-ai-provider-policy` openai, the key
+  in the stage AI secret, and `CONNECTIONS_<STAGE>_AI_PROVIDERS=anthropic,openai`.
 
-**Production triage is unchanged**: task, schema, template, route targets, budget and every provider request
-hash-identical to main 97816a5 (pinned in `ai-runtime-capacity.test.ts`); the deploy template is byte-identical
-with the new variables unset.
+Blueprint: https://claude.ai/artifact/VZuKzXAmCpc2WZsQR32gDS
 
-**Next (Matt):** review/merge -> Deploy Prisma Migrations (production) -> redeploy the worker (optional; the
-web deploys on merge) -> OPTIONAL: `record-ai-budget` preset `initial` to switch on the $20/day operating
-budget (without it production behaves exactly as today). **OpenAI is NOT commissioned**: that needs the terms
-decision, `record-ai-provider-policy` openai, `openai_api_key` in the stage AI secret, then
-`CONNECTIONS_<STAGE>_AI_PROVIDERS=anthropic,openai`. Then PR 2 (intelligence fabric).
+## Loop Intelligence — COMPLETE BUILD (Phases A–G) — IN REVIEW (draft PR, branch `feat/loop-intelligence-fabric`, off main `d70f737`) · NOTHING COMMISSIONED
+
+**Built, in one draft PR with one commit per phase:**
+
+- **A:** the fabric (participation contract, registries, ORGANIZATION digests, entity links, refresh queue,
+  producer loop, domain-reading.v1).
+- **B:** Chats v5 (owedBy, typed signals, grounded parties, portable triage schema v5, what-needs-whom
+  groups, handled / snooze / dismiss).
+- **C:** Promote to Work.
+- **D:** Mail intelligence, gated closed by the counterparty-consent decision.
+- **E:** Calendar, CallGrid, Campaigns, Intake, People, Creators, Work and Website producers. Readings on
+  every domain page and on Home. A worker host, a Mail pass route and a shipped-off workflow.
+- **F:** connected situations held as Cases: deterministic clustering, cited synthesis, OTHER_THAN_SUBJECT
+  verification, and private situations that belong to one person alone.
+- **G:** the Loop Briefing, stored in `work_briefs`, reused when unchanged, deterministic when the model is
+  off.
+- **Plus** connections-infra plumbing for the worker's intelligence settings, unset by default.
+
+**Migrations, all additive, not applied anywhere:**
+
+1. `20261006000000_intelligence_org_digests`
+2. `20261006000001_entity_links`
+3. `20261006000002_intelligence_refresh_queue`
+4. `20261007000000_promote_to_work`
+5. `20261008000000_case_private_scopes`
+
+**Routing and budget:** routing `routing.2026-09-26.12`, budget `budget.2026-09-26.6`. Work retention is
+`.2`.
+
+**New tasks, all inactive:** mail.content.triage; eight `*.domain.reading` tasks (mail, calendar, callgrid,
+campaigns, pipeline, crm, creators, work, website); situation.synthesis[.private];
+situation.verify[.private]; loop.briefing.compose. `telegram.content.triage` moves to 4.0.0 (schema v5).
+
+**Next (Matt):**
+
+1. Review.
+2. Merge.
+3. Run `docs/runbooks/loop-intelligence-commissioning.md` section A on staging:
+   - migrations 1–5;
+   - redeploy the worker, which moves triage to v5;
+   - read back.
+4. Then section B, feature by feature.
+5. OpenAI is section C. Mail is section D, which stays blocked on the counterparty-consent decision
+   (UNRESOLVED).
 
 ## Working agreement
 **One branch per work batch.** After a PR merges, cut a fresh branch off freshly-merged
