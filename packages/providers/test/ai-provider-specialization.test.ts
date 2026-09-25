@@ -71,9 +71,10 @@ test('the shipped routing policy conforms for every task, and Case Explanation n
   assert.equal(caseExplanation.departure, 'NONE');
   // The version moves for a reviewed change to the policy: a new route (GM-3's Mail Reply Draft, the
   // content-triage slice's Telegram Content Triage) OR a task version bump (v2 conversation triage moved
-  // the Telegram entry's taskVersion, and v2.1 moved it again). Case Explanation's own entry is untouched,
-  // which is what the assertions around this one check.
-  assert.equal(AI_ROUTING_POLICY_VERSION, 'routing.2026-09-25.8');
+  // the Telegram entry's taskVersion, and v2.1 moved it again) OR a policy-wide field (PR 1 added each
+  // entry's lane and the specialization version the policy conforms to). Case Explanation's targets,
+  // efforts, deadlines and ceilings are untouched, which is what the assertions around this one check.
+  assert.equal(AI_ROUTING_POLICY_VERSION, 'routing.2026-09-26.9');
   assert.equal(AI_ROUTING_POLICY.tasks['case.explanation']!.providerChoiceReason, undefined);
   // The fallback is another provider, and that is not a departure.
   assert.equal(AI_ROUTING_POLICY.tasks['case.explanation']!.fallback!.providerId, 'openai');
@@ -140,7 +141,8 @@ test('an unknown route, a missing entry, a version the policy was not reviewed a
 });
 
 test('there is no universal fallback order: each task permits, and names, its own', () => {
-  assert.deepEqual(Object.keys(AI_ROUTING_POLICY).sort(), ['tasks', 'version'], 'no policy-wide primary or fallback');
+  // PR 1: the policy records which specialization version it conforms to -- a version label, not a target.
+  assert.deepEqual(Object.keys(AI_ROUTING_POLICY).sort(), ['specializationPolicyVersion', 'tasks', 'version'], 'no policy-wide primary or fallback');
   for (const route of AI_CAPABILITY_ROUTES) {
     assert.deepEqual(Object.keys(AI_PROVIDER_SPECIALIZATION_POLICY.routes[route]).sort(), ['preferredProviderId', 'rationale'], `${route} names no fallback`);
   }
@@ -224,7 +226,17 @@ test('telegram content triage: task 3.0.0 and its routing entry move in lockstep
   assert.equal(task.version, '3.0.0', 'the v3 task: obligations plus the conversation reading, in ONE call');
   const entry = AI_ROUTING_POLICY.tasks['telegram.content.triage']!;
   assert.equal(entry.taskVersion, task.version, 'the routing taskVersion tracks the task in lockstep');
-  assert.equal(AI_ROUTING_POLICY_VERSION, 'routing.2026-09-25.8', 'the policy version increment for v3');
+  // PR 1 moved the POLICY version (lanes, the specialization version, Mail Reply Draft 1.1.0); this entry's
+  // targets, efforts, deadlines, ceilings and budget class did not move, and its lane is FORWARD.
+  assert.equal(AI_ROUTING_POLICY_VERSION, 'routing.2026-09-26.9', 'the policy version after PR 1');
+  assert.equal(entry.lane, 'FORWARD', 'live triage runs in the FORWARD lane');
+  assert.equal(entry.primary.providerId, 'anthropic');
+  assert.equal(entry.primary.reasoningEffort, 'low');
+  assert.equal(entry.primary.timeoutMs, 20_000);
+  assert.equal(entry.fallback!.providerId, 'openai');
+  assert.equal(entry.fallback!.timeoutMs, 15_000);
+  assert.equal(entry.fallbackPermitted, true);
+  assert.equal(entry.budgetClass, 'telegram-content-triage');
   // The reviewed models were NOT changed: only two ids appear, both from the verified catalog. The
   // output ceiling rose to 2000 for the conversation reading -- on both targets, and no further.
   assert.equal(entry.primary.modelId, 'claude-opus-5');
@@ -235,7 +247,7 @@ test('telegram content triage: task 3.0.0 and its routing entry move in lockstep
   assert.equal(cls.maxOutputTokensPerCall, 2_000, 'the budget class follows the route ceiling');
   assert.equal(cls.taskDaily.maxInvocations, 50, 'the daily invocation cap was NOT raised');
   assert.equal(cls.taskDaily.maxOutputTokens, 100_000, 'daily output tokens keep 50 calls at the new ceiling');
-  assert.equal(AI_BUDGET_POLICY_VERSION, 'budget.2026-09-25.4-proposed');
+  assert.equal(AI_BUDGET_POLICY_VERSION, 'budget.2026-09-25.4');
 });
 
 test('telegram content triage: the whole-context input cap sits INSIDE the budget class per-call cap (the budget class was NOT raised)', () => {

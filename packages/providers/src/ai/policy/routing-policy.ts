@@ -36,13 +36,16 @@
 // 20, with one attempt each, leaves room for the reads, the reservations and the
 // reconciliation around them.
 //
-// THE BUDGET IS A PROPOSAL UNTIL MATT APPROVES IT. The figures below bound the worst
-// case -- every call falling back to the dearer model at its per-call ceiling -- to
-// roughly $0.70 a call and $35 a day across every enabled organization.
+// THE BUDGET BELOW IS THE REVIEWED FLOOR, APPROVED BY MATT (2026-09-25, with PR #338). It bounds every
+// call's tokens and every window's invocations. What a day may COST, per lane, is the OPERATING budget
+// (capacity.ts in @emgloop/shared), recorded in `ai_controls` and raised from observed usage without a
+// deploy; while one is recorded its invocation caps replace the ones below. The always-on emergency
+// ceiling ($25 over a trailing 24 hours, every organization) applies either way.
 
 import type { AiBudgetPolicy, AiRouteTargetPolicy, AiRoutingPolicy } from '@emgloop/shared';
 
 import { aiCatalogModel } from './model-catalog';
+import { AI_PROVIDER_SPECIALIZATION_POLICY_VERSION } from './provider-specialization';
 
 /** The synchronous function limit on Netlify, which a web-request AI call must fit inside. */
 export const AI_PLATFORM_REQUEST_LIMIT_MS = 60_000;
@@ -89,11 +92,18 @@ function target(
 // OUTPUT CEILING rises 1000 -> 2000 on both targets: the v4 answer's worst case (eight obligations plus a
 // full conversation reading) no longer fits 1000 tokens, and an answer cut off at the ceiling is not a
 // smaller answer, it is invalid JSON -- a FAILED call that holds the frontier and is re-run, i.e. spends
-// again. The budget class moves with it (budget .4-proposed below).
-export const AI_ROUTING_POLICY_VERSION = 'routing.2026-09-25.8';
+// again. The budget class moves with it (budget .4 below).
+// .9 (2026-09-26, PR 1 AI runtime): every entry now names its capacity LANE (capacity.ts) -- Case
+// Explanation and Mail Reply Draft INTERACTIVE (a person clicked), Telegram Content Triage FORWARD (its
+// hydration and history sweeps move themselves down to BACKGROUND per call) -- and the policy records
+// the provider-specialization version it conforms to, which every call now carries. Mail Reply Draft
+// moves to task 1.1.0 (output schema v2, one both providers accept). Telegram Content Triage's targets,
+// efforts, deadlines, output ceilings and budget class are UNCHANGED.
+export const AI_ROUTING_POLICY_VERSION = 'routing.2026-09-26.9';
 
 export const AI_ROUTING_POLICY: AiRoutingPolicy = Object.freeze({
   version: AI_ROUTING_POLICY_VERSION,
+  specializationPolicyVersion: AI_PROVIDER_SPECIALIZATION_POLICY_VERSION,
   tasks: Object.freeze({
     'case.explanation': Object.freeze({
       taskId: 'case.explanation',
@@ -104,17 +114,19 @@ export const AI_ROUTING_POLICY: AiRoutingPolicy = Object.freeze({
       fallback: target('openai', 'gpt-6-astra', { reasoningEffort: 'medium', timeoutMs: 20_000, maxOutputTokens: 6_000 }),
       fallbackPermitted: true,
       budgetClass: 'case-explanation',
+      lane: 'INTERACTIVE',
     }),
     // GM-3. Smaller ceilings than an explanation: a reply is a few hundred words, and the
     // deadlines leave room inside the platform's 60-second synchronous limit for the thread read
     // that precedes the call.
     'mail.reply.draft': Object.freeze({
       taskId: 'mail.reply.draft',
-      taskVersion: '1.0.0',
+      taskVersion: '1.1.0',
       primary: target('openai', 'gpt-6-astra', { reasoningEffort: 'low', timeoutMs: 20_000, maxOutputTokens: 2_000 }),
       fallback: target('anthropic', 'claude-opus-5', { reasoningEffort: 'low', timeoutMs: 15_000, maxOutputTokens: 2_000 }),
       fallbackPermitted: true,
       budgetClass: 'mail-reply-draft',
+      lane: 'INTERACTIVE',
     }),
     // content-triage. A background conversation review: LOW effort, a SMALL output ceiling (each
     // obligation is a category, a few short paraphrase fields and an anchor; at most eight, plus a
@@ -129,6 +141,7 @@ export const AI_ROUTING_POLICY: AiRoutingPolicy = Object.freeze({
       fallback: target('openai', 'gpt-6-astra', { reasoningEffort: 'low', timeoutMs: 15_000, maxOutputTokens: 2_000 }),
       fallbackPermitted: true,
       budgetClass: 'telegram-content-triage',
+      lane: 'FORWARD',
       providerChoiceReason:
         'GENERAL_REASONING has no default provider. Claude Opus 5 is the reviewed primary for a ' +
         'conservative conversation-review actionability judgment; GPT-6 Astra is the availability fallback.',
@@ -146,8 +159,10 @@ export const AI_ROUTING_POLICY: AiRoutingPolicy = Object.freeze({
 // .4 (2026-09-25, Chats Intelligence): the telegram-content-triage class's per-call OUTPUT cap follows the
 // route's ceiling, 1000 -> 2000, and its daily OUTPUT tokens 50k -> 100k so the same 50 daily invocations
 // still fit (the ledger reserves each call at its ceiling). Its invocation cap, its input caps, and the
-// organization and global ceilings are UNCHANGED -- they still bind first. Still a proposal.
-export const AI_BUDGET_POLICY_VERSION = 'budget.2026-09-25.4-proposed';
+// organization and global ceilings are UNCHANGED -- they still bind first. Approved by Matt on 2026-09-25
+// with PR #338; the "-proposed" suffix is dropped in PR 1 (the figures are unchanged, and no ledger row
+// records this label).
+export const AI_BUDGET_POLICY_VERSION = 'budget.2026-09-25.4';
 
 export const AI_BUDGET_POLICY: AiBudgetPolicy = Object.freeze({
   version: AI_BUDGET_POLICY_VERSION,
