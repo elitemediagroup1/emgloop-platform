@@ -7,6 +7,11 @@ export * from './provider';
 export * from './context';
 export * from './runtime';
 export * from './task';
+// PR 1 (AI runtime): lanes, the recorded operating budget and its cost ceilings; the output-contract
+// registry the gateway validates answers through; the structured-output subset both providers accept.
+export * from './capacity';
+export * from './output-contracts';
+export * from './portable-schema';
 
 // Brain execution contracts (B2): capability routes, execution classes, result types and
 // ownership, jobs, steps, the trust envelope and the executor port. Contracts only.
