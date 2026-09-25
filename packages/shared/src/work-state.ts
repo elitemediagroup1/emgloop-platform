@@ -272,7 +272,8 @@ export const WORK_EVIDENCE_QUOTE_MAX_CHARS = 240;
 // .2026-09-24.1: adds INTELLIGENCE_DIGESTS (Loop Intelligence PR A). Every earlier window is unchanged.
 // .2026-09-26.1: adds INTELLIGENCE_LINKS and INTELLIGENCE_REFRESH_REQUESTS (Loop Intelligence PR 2, the
 // fabric) for a person's own entity links and refresh requests. Every earlier window is unchanged.
-export const WORK_RETENTION_POLICY_VERSION = 'work-retention.2026-09-26.1';
+// .2026-09-26.2: adds PRIVATE_SITUATIONS (Loop Intelligence Phase F): a person's private situations.
+export const WORK_RETENTION_POLICY_VERSION = 'work-retention.2026-09-26.2';
 
 /**
  * How long each category is kept, and why.
@@ -324,6 +325,9 @@ export const WORK_RETENTION_CATEGORIES: readonly WorkRetentionCategory[] = Objec
   // A refresh request is deleted when it completes; one HELD for an operator is purged a week after it
   // was last touched. Metadata only: a reason, a revision, a fingerprint.
   Object.freeze({ category: 'INTELLIGENCE_REFRESH_REQUESTS', rule: 'DAYS', days: 7, anchor: 'a HELD request last changing; any other request is deleted on completion', tables: Object.freeze(['intelligence_refresh_queue']), why: 'A request is operational state; a week is enough for an operator to see why one was held.' }),
+  // Loop Intelligence Phase F (2026-09-26). A situation connected from one person's private intelligence
+  // is theirs alone (case_private_scopes names them); it lives as long as the membership, like their links.
+  Object.freeze({ category: 'PRIVATE_SITUATIONS', rule: 'TIED_TO_PARENT', days: null, anchor: 'the membership', tables: Object.freeze(['case_private_scopes', 'situation_candidates']), why: 'A situation read from one person’s own evidence is theirs, and means nothing once they are gone. (The organization’s own candidates name nobody.)' }),
   Object.freeze({ category: 'EMPLOYEE_PREFERENCES', rule: 'TIED_TO_PARENT', days: null, anchor: 'the membership', tables: Object.freeze(['employee_work_preferences', 'work_retention_overrides']), why: "A person's own settings last as long as they are a member." }),
   Object.freeze({ category: 'SECURITY_AUDIT', rule: 'GOVERNED_ELSEWHERE', days: null, anchor: 'not applicable', tables: Object.freeze([]), why: 'Audit records acts, never correspondence, and has its own policy.' }),
 ]);
@@ -435,6 +439,9 @@ export const WORK_STATE_TABLES: readonly string[] = Object.freeze([
   // Loop Intelligence PR 2 (2026-09-26): a person's own entity links and refresh requests.
   'entity_links',
   'intelligence_refresh_queue',
+  // Loop Intelligence Phase F (2026-09-26): a person's private situations (their Cases, with the scope).
+  'case_private_scopes',
+  'situation_candidates',
 ]);
 
 /** Categories whose window is stamped on the row at write time, so an organization override cannot apply. */

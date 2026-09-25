@@ -300,6 +300,8 @@ model Organization {
   entityLinks                 EntityLink[]
   intelligenceRefreshRequests IntelligenceRefreshRequest[]
   workOrigins                 WorkOrigin[]
+  casePrivateScopes           CasePrivateScope[]
+  situationCandidates         SituationCandidate[]
   /// Daily Loop (DL-1). Employee-private work state; always read with a userId as well.
   workSourceCursors           WorkSourceCursor[]
   workDrafts                  WorkDraft[]
@@ -473,6 +475,9 @@ model User {
   /// Daily Loop (DL-1). Corrections this person recorded, and retention overrides they set.
   workFeedbackAuthored      WorkFeedback[]          @relation("WorkFeedbackAuthor")
   workRetentionOverridesSet WorkRetentionOverride[] @relation("WorkRetentionOverrideAuthor")
+  /// Loop Intelligence Phase F: the private situations this person alone may see.
+  casePrivateScopes         CasePrivateScope[]
+  situationCandidates       SituationCandidate[]
 
   @@unique([organizationId, email])
   @@index([organizationId])
@@ -3596,6 +3601,8 @@ model OperationalPriority {
   /// ownerUserId and assigneeUserId, which answer accountability and execution;
   /// a real investigation routinely needs a third person for a third reason.
   participants     CaseParticipant[]
+  /// Loop Intelligence Phase F: the one owner of a PRIVATE situation (sourceSystem 'loop-situation:private').
+  privateScope     CasePrivateScope?
 
   @@unique([organizationId, sourceSystem, recurrenceKey])
   @@index([organizationId, state])
@@ -7446,4 +7453,47 @@ model WorkOrigin {
   @@unique([organizationId, originKind, originRef])
   @@index([organizationId, workInstanceId])
   @@map("work_origins")
+}
+
+/// Loop Intelligence Phase F (2026-09-26): the ONE owner of a private situation -- a Case whose
+/// sourceSystem is 'loop-situation:private' because it cites that person's private intelligence. Every
+/// organization Case read excludes the private sourceSystem; the private read requires this row naming
+/// the reader. A table, not a column, so no existing whole-row Case read changes (merge-safe).
+model CasePrivateScope {
+  id             String   @id @default(cuid())
+  organizationId String
+  caseId         String   @unique
+  userId         String
+  createdAt      DateTime @default(now())
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  case         OperationalPriority @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, userId])
+  @@map("case_private_scopes")
+}
+
+/// Loop Intelligence Phase F (2026-09-26): the last model decision per deterministic situation cluster and
+/// the fingerprint it was made on, so an unchanged cluster is never sent to a model again. userId NULL is
+/// the organization's; set, that person's own. Partial unique indexes (SQL) keep one row per scope+cluster.
+model SituationCandidate {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String?
+  clusterKey     String
+  fingerprint    String
+  /// NEW | UPDATE | NONE (CHECK).
+  decision       String
+  caseId         String?
+  verification   String?
+  decidedAt      DateTime
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, userId])
+  @@map("situation_candidates")
 }

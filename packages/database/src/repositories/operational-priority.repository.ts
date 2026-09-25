@@ -39,6 +39,7 @@ import {
   type LifecycleHistory,
   type PriorityState,
 } from '@emgloop/shared';
+import { CASE_ORGANIZATION_WHERE, PRIVATE_SITUATION_SOURCE, SITUATION_SOURCE } from '@emgloop/shared';
 
 /** A priority together with the log it was derived from. */
 export interface PriorityWithLog {
@@ -178,7 +179,7 @@ export class OperationalPriorityRepository {
   // --- Reads ---------------------------------------------------------------
 
   findById(organizationId: string, id: string): Promise<OperationalPriority | null> {
-    return this.prisma.operationalPriority.findFirst({ where: { id, organizationId } });
+    return this.prisma.operationalPriority.findFirst({ where: { id, organizationId, ...CASE_ORGANIZATION_WHERE } });
   }
 
   findByRecurrenceKey(
@@ -209,7 +210,7 @@ export class OperationalPriorityRepository {
     const keys = [...new Set(recurrenceKeys.filter((k) => k.length > 0))];
     if (keys.length === 0) return Promise.resolve([]);
     return this.prisma.operationalPriority.findMany({
-      where: { organizationId, sourceSystem, recurrenceKey: { in: keys } },
+      where: { organizationId, sourceSystem, recurrenceKey: { in: keys }, ...CASE_ORGANIZATION_WHERE },
       select: {
         id: true,
         recurrenceKey: true,
@@ -228,6 +229,7 @@ export class OperationalPriorityRepository {
     return this.prisma.operationalPriority.findMany({
       where: {
         organizationId,
+        ...CASE_ORGANIZATION_WHERE,
         ...(opts.sourceSystem ? { sourceSystem: opts.sourceSystem } : {}),
         ...(opts.state ? { state: opts.state } : {}),
         ...(opts.states ? { state: { in: opts.states } } : {}),
@@ -246,10 +248,12 @@ export class OperationalPriorityRepository {
     return { priority, observations, history: summarizeHistory(observations.map(toLifecycle)) };
   }
 
-  listObservations(
+  async listObservations(
     organizationId: string,
     priorityId: string,
   ): Promise<OperationalObservation[]> {
+    // An ORGANIZATION Case's log only: a private situation's log is its owner's alone.
+    if (!(await this.prisma.operationalPriority.findFirst({ where: { id: priorityId, organizationId, ...CASE_ORGANIZATION_WHERE }, select: { id: true } }))) return [];
     return this.prisma.operationalObservation.findMany({
       where: { organizationId, priorityId },
       orderBy: [{ sequence: 'asc' }],
@@ -262,7 +266,7 @@ export class OperationalPriorityRepository {
     sourceSystem?: string,
   ): Promise<Record<OperationalPriorityState, number>> {
     const rows = await this.prisma.operationalPriority.findMany({
-      where: { organizationId, ...(sourceSystem ? { sourceSystem } : {}) },
+      where: { organizationId, ...CASE_ORGANIZATION_WHERE, ...(sourceSystem ? { sourceSystem } : {}) },
       select: { state: true },
     });
     const counts = {
@@ -426,6 +430,20 @@ export class OperationalPriorityRepository {
       if (isP2002(e)) return { priority: existing, effect: 'ALREADY_RECORDED' };
       throw e;
     }
+  }
+
+  /**
+   * Loop Intelligence Phase F: append a situation's new evidence (an UPDATE) to the situation Case it
+   * belongs to. Resolved by (id, organization, THAT situation source) only -- never any other producer's
+   * Case, and a private situation only through the private source its writer names. EVIDENCE_ADDED moves
+   * no lane. False when nothing matched (no observation is written).
+   */
+  async appendSituationEvidence(organizationId: string, caseId: string, sourceSystem: string, at: Date, evidence: Record<string, unknown>): Promise<boolean> {
+    if (sourceSystem !== SITUATION_SOURCE && sourceSystem !== PRIVATE_SITUATION_SOURCE) return false;
+    const priority = await this.prisma.operationalPriority.findFirst({ where: { id: caseId, organizationId, sourceSystem } });
+    if (!priority) return false;
+    const updated = await this.append(organizationId, priority, { observationType: 'EVIDENCE_ADDED', occurredAt: at, actorType: 'SYSTEM', actorUserId: null, source: sourceSystem, evidence });
+    return updated !== null;
   }
 
   // --- Operator actions ----------------------------------------------------

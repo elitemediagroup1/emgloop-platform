@@ -144,7 +144,7 @@ test('every vocabulary the database also enforces appears in the DL-1 migration'
 });
 
 test('retention is a window per category, and every work table is covered exactly once', () => {
-  assert.equal(WORK_RETENTION_POLICY_VERSION, 'work-retention.2026-09-26.1');
+  assert.equal(WORK_RETENTION_POLICY_VERSION, 'work-retention.2026-09-26.2');
 
   const covered = WORK_RETENTION_CATEGORIES.flatMap((c) => [...c.tables]);
   assert.deepEqual([...covered].sort(), [...WORK_STATE_TABLES].sort(), 'every table appears in exactly one category');

@@ -16,7 +16,7 @@ import { absentUntilMigrated } from '../../creator/until-migrated';
 
 const ABSENT_RECHECK_MS = 60_000;
 
-type Probe = 'digestEntityRefs' | 'entityLinks' | 'refreshQueue';
+type Probe = 'digestEntityRefs' | 'entityLinks' | 'refreshQueue' | 'privateSituations';
 // Per client: two clients may point at two databases (a test does exactly that), and one database's
 // answer must never be read as the other's.
 let known = new WeakMap<object, Map<Probe, { present: boolean; at: number }>>();
@@ -53,13 +53,19 @@ export function refreshQueuePresent(prisma: PrismaClient): Promise<boolean> {
   return probe(prisma, 'refreshQueue', prisma.intelligenceRefreshRequest, () => prisma.intelligenceRefreshRequest.findFirst({ select: { id: true } }));
 }
 
+/** 20261008000000_case_private_scopes (Loop Intelligence Phase F). */
+export function privateSituationsPresent(prisma: PrismaClient): Promise<boolean> {
+  return probe(prisma, 'privateSituations', prisma.casePrivateScope, () => prisma.casePrivateScope.findFirst({ select: { id: true } }));
+}
+
 /** What offboarding erasure needs to know, per table, before its transaction starts. */
 export interface IntelligenceFabricPresence {
   readonly entityLinks: boolean;
   readonly refreshQueue: boolean;
+  readonly privateSituations: boolean;
 }
 
 export async function intelligenceFabricPresent(prisma: PrismaClient): Promise<IntelligenceFabricPresence> {
-  const [links, queue] = await Promise.all([entityLinksPresent(prisma), refreshQueuePresent(prisma)]);
-  return { entityLinks: links, refreshQueue: queue };
+  const [links, queue, situations] = await Promise.all([entityLinksPresent(prisma), refreshQueuePresent(prisma), privateSituationsPresent(prisma)]);
+  return { entityLinks: links, refreshQueue: queue, privateSituations: situations };
 }

@@ -412,6 +412,7 @@ export {
   digestEntityRefsPresent,
   entityLinksPresent,
   refreshQueuePresent,
+  privateSituationsPresent,
   intelligenceFabricPresent,
   forgetIntelligenceFabricPresence,
 } from './repositories/intelligence/intelligence-fabric-presence';
@@ -442,6 +443,11 @@ export type { LoopProducerPorts } from './services/intelligence-fabric/loop-prod
 export { runIntelligencePass } from './services/intelligence-fabric/intelligence-pass';
 export { gmailMailReadThrough, trimQuotedHistory } from './services/intelligence-fabric/domains/mail-read-through';
 export { MailContentTriageService } from './services/ai-runtime/mail-content-triage.service';
+// Loop Intelligence Phase F: connected situations, held as Cases; private ones are one person's alone.
+export { SituationRepository, SITUATION_RECORD_SCHEMA, situationRecurrenceKey } from './repositories/intelligence/situation.repository';
+export type { SituationOwner, SituationRecord, SituationView } from './repositories/intelligence/situation.repository';
+export { SituationService, situationInputsOf, situationContext } from './services/intelligence-fabric/situations';
+export type { SituationPorts, SituationPassReport } from './services/intelligence-fabric/situations';
 export type { IntelligencePassDeps, IntelligencePassReport } from './services/intelligence-fabric/intelligence-pass';
 export type { WebsiteEvidenceReader, WebsiteFacts } from './services/intelligence-fabric/domains/records';
 export { DomainFactsRepository } from './repositories/intelligence/domain-facts.repository';

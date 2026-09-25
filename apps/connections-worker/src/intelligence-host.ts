@@ -9,12 +9,18 @@
 // The worker hosts every producer that reads Loop's records. The Mail producers need the person's Gmail
 // read-through and run from the operations runner instead; naming one here is reported, never guessed at.
 //
+// SITUATIONS (Phase F) run from the same host, only when LOOP_INTELLIGENCE_SITUATIONS names a scope
+// (`organization`, `private`): a deterministic clustering pass over stored readings, whose model steps
+// additionally need situation.synthesis[.private] (and, for an independent check, situation.verify[.private])
+// in LOOP_AI_TASKS. An organization pass runs as the named acting operator; a private pass as the person.
+//
 // Logs counts and refusal codes only -- never a target, an organization, a person or content.
 
 import type { PrismaClient } from '@prisma/client';
 
 export interface IntelligenceHostConfig {
   readonly producers: readonly string[];
+  readonly situations: readonly ('ORGANIZATION' | 'PRINCIPAL')[];
   readonly actingUsersRaw: string;
   readonly intervalMs: number;
 }
@@ -26,7 +32,9 @@ export function readIntelligenceHostConfig(env: Record<string, string | undefine
   const producers = [...new Set(String(env.LOOP_INTELLIGENCE_PRODUCERS ?? '').split(',').map((s) => s.trim()).filter(Boolean))];
   const raw = Number(env.LOOP_INTELLIGENCE_INTERVAL_MS);
   const intervalMs = Number.isFinite(raw) && raw >= MIN_INTERVAL_MS ? Math.floor(raw) : DEFAULT_INTERVAL_MS;
-  return { producers, actingUsersRaw: String(env.LOOP_INTELLIGENCE_ACTING_USERS ?? ''), intervalMs };
+  const scopes = String(env.LOOP_INTELLIGENCE_SITUATIONS ?? '').split(',').map((s) => s.trim().toLowerCase());
+  const situations = (['ORGANIZATION', 'PRINCIPAL'] as const).filter((s) => scopes.includes(s === 'ORGANIZATION' ? 'organization' : 'private'));
+  return { producers, situations, actingUsersRaw: String(env.LOOP_INTELLIGENCE_ACTING_USERS ?? ''), intervalMs };
 }
 
 export interface IntelligenceHostRuntime {
@@ -47,16 +55,27 @@ export async function createIntelligenceHost(
   ai: IntelligenceHostRuntime,
   log: (event: string, fields?: Record<string, unknown>) => void,
 ): Promise<IntelligenceHost> {
-  if (config.producers.length === 0) return { scheduled: false, unknownProducers: [], pass: async () => undefined };
+  if (config.producers.length === 0 && config.situations.length === 0) return { scheduled: false, unknownProducers: [], pass: async () => undefined };
   const db = await import('@emgloop/database');
   const now = () => new Date();
+  const actingUsers = db.parseActingUsers(config.actingUsersRaw);
+  const modelEnabled = (taskId: string) => ai.activatedTasks.includes(taskId);
+  const principalFor = db.principalResolver(new db.DomainFactsRepository(prisma), actingUsers, now);
+  const situations = new db.SituationService({
+    prisma,
+    runtime: ai.runtime ? (ai.runtime as ConstructorParameters<typeof db.DomainReadingService>[0]) : null,
+    modelEnabled,
+    principalFor: (owner) => principalFor(owner.scope === 'PRINCIPAL' ? { scope: 'PRINCIPAL', organizationId: owner.organizationId, userId: owner.userId, domain: 'WORK', subjectKind: 'DOMAIN', subjectRef: 'domain' } : { scope: 'ORGANIZATION', organizationId: owner.organizationId, domain: 'WORK', subjectKind: 'DOMAIN', subjectRef: 'domain' }),
+    now,
+  });
+  const situationOwners = new db.SituationRepository(prisma);
   const producers = db.loopProducers({
     prisma,
     work: db.repositories.work,
     // The same governed gateway the worker's triage uses; a task not activated is never called.
     reader: ai.runtime ? new db.DomainReadingService(ai.runtime as ConstructorParameters<typeof db.DomainReadingService>[0]) : null,
-    modelEnabled: (taskId) => ai.activatedTasks.includes(taskId),
-    actingUsers: db.parseActingUsers(config.actingUsersRaw),
+    modelEnabled,
+    actingUsers,
     now,
   });
   const registry = new db.IntelligenceProducerRegistry(producers, config.producers);
@@ -74,7 +93,17 @@ export async function createIntelligenceHost(
           { registry, queue, digests, leaseOwner: `connections-worker:${process.pid}`, now },
           { limit: 25, leaseMs: 5 * 60 * 1000, maxAttempts: 4, discoverLimit: 200 },
         );
-        log('intelligence_pass', { active: report.activeProducers, discovered: report.discovered, enqueued: report.enqueued, refused: report.refused, discoveryFailures: report.discoveryFailures, ...(report.cycle ? { claimed: report.cycle.claimed, written: report.cycle.written, unchanged: report.cycle.unchanged, skipped: report.cycle.skippedUnchangedBeforeRead, retried: report.cycle.retried, held: report.cycle.held } : {}) });
+        const situationTally: Record<string, number> = {};
+        if (config.situations.length > 0) await situationOwners.purgeStaleCandidates(now());
+        for (const scope of config.situations) {
+          for (const owner of await situationOwners.owners(scope, now(), 100)) {
+            const r = await situations.pass(owner).catch(() => null);
+            const k = r ? `${scope}:${r.state}` : `${scope}:ERROR`;
+            situationTally[k] = (situationTally[k] ?? 0) + 1;
+            for (const [d, n] of Object.entries(r?.decisions ?? {})) situationTally[`${scope}:${d}`] = (situationTally[`${scope}:${d}`] ?? 0) + n;
+          }
+        }
+        log('intelligence_pass', { situations: situationTally, active: report.activeProducers, discovered: report.discovered, enqueued: report.enqueued, refused: report.refused, discoveryFailures: report.discoveryFailures, ...(report.cycle ? { claimed: report.cycle.claimed, written: report.cycle.written, unchanged: report.cycle.unchanged, skipped: report.cycle.skippedUnchangedBeforeRead, retried: report.cycle.retried, held: report.cycle.held } : {}) });
       } catch (err) {
         log('intelligence_pass_error', { name: (err as Error)?.name ?? 'error' });
       } finally {

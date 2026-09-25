@@ -142,6 +142,12 @@ function world() {
     },
     async observation(patch: Row = {}) {
       const id = (patch.id as string) ?? `obs_${++seq}`;
+      // The Case the log belongs to, once per (org, id): an ORGANIZATION Case (Phase F reads resolve it first).
+      const caseId = (patch.priorityId as string) ?? 'case_1';
+      const caseOrg = (patch.organizationId as string) ?? ORG_A;
+      if (!(await fake.operationalPriority.findFirst({ where: { id: caseId } }))) {
+        await fake.operationalPriority.create({ data: { id: caseId, organizationId: caseOrg, sourceSystem: 'CALLGRID', recurrenceKey: caseId, title: 'Case', firstDetectedAt: at('2026-09-09T00:00:00.000Z'), lastDetectedAt: at('2026-09-09T00:00:00.000Z'), severity: 'HIGH', state: 'NEEDS_REVIEW' } });
+      }
       await fake.operationalObservation.create({
         data: {
           id,

@@ -15,6 +15,8 @@
 
 import { DOMAIN_READING_SCHEMA_ID, parseDomainReadingOutput, validateDomainReadingOutput } from './domain-reading';
 import { MAIL_CONTENT_TRIAGE_SCHEMA_ID, TELEGRAM_TRIAGE_V5_SCHEMA_ID, parseConversationTriageOutput, parseTriageV5Output, validateTriageV5Output } from './telegram-triage-v5';
+import { BRIEFING_SCHEMA_ID, parseBriefingOutput, validateBriefingOutput } from './briefing-contract';
+import { SITUATION_SYNTHESIS_SCHEMA_ID, SITUATION_VERIFICATION_SCHEMA_ID, parseSituationSynthesisOutput, parseSituationVerificationOutput, validateSituationSynthesisOutput, validateSituationVerificationOutput } from './situation-contracts';
 import { parseAiTaskOutput, validateAiTaskOutput, type AiOutputRejection, type AiSupportedEvidence, type AiTaskDefinition, type AiTaskOutput } from './task';
 
 export interface AiOutputContract {
@@ -43,6 +45,10 @@ export const AI_OUTPUT_CONTRACTS: Readonly<Record<string, AiOutputContract>> = O
     parse: (value: unknown) => parseConversationTriageOutput(value, MAIL_CONTENT_TRIAGE_SCHEMA_ID),
     validate: validateTriageV5Output,
   }),
+  // Phase F: situation synthesis and its independent verification. Phase G: the Briefing.
+  [SITUATION_SYNTHESIS_SCHEMA_ID]: Object.freeze({ schemaId: SITUATION_SYNTHESIS_SCHEMA_ID, parse: parseSituationSynthesisOutput, validate: validateSituationSynthesisOutput }),
+  [SITUATION_VERIFICATION_SCHEMA_ID]: Object.freeze({ schemaId: SITUATION_VERIFICATION_SCHEMA_ID, parse: parseSituationVerificationOutput, validate: validateSituationVerificationOutput }),
+  [BRIEFING_SCHEMA_ID]: Object.freeze({ schemaId: BRIEFING_SCHEMA_ID, parse: parseBriefingOutput, validate: validateBriefingOutput }),
 });
 
 /** The contract an answer to this schema is judged by, or null when none is registered. */

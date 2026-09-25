@@ -627,7 +627,7 @@ test('retention is a window per category, with an organization’s override appl
   const overridden = after.find((c) => c.category === 'GMAIL_METADATA')!;
   assert.equal(overridden.days, 14);
   assert.equal(overridden.overridden, true);
-  assert.equal(overridden.overridePolicyVersion, 'work-retention.2026-09-26.1');
+  assert.equal(overridden.overridePolicyVersion, 'work-retention.2026-09-26.2');
   assert.equal(after.find((c) => c.category === 'BRIEFS')!.days, 365, 'one category at a time');
 
   // Only a day-counted category can be a duration.

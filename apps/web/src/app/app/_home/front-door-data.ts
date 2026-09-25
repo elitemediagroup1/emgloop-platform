@@ -45,6 +45,7 @@ import { settle, type Settled } from './settle';
 import { TILE_PATHS, type HomeTile, type RosterRowInput } from './tiles';
 import { loadOrganizationReading, loadPrincipalReading } from '../../../intelligence/domain-reading';
 import type { DomainProjection, IntelligenceDomain } from '@emgloop/shared';
+import { loadSituations, type SituationsRead } from '../../../intelligence/situations';
 
 /** Whether the rail this person was offered leads to `href`. Nav visibility, not authorization. */
 export function navOffers(groups: readonly NavGroup[], href: string): boolean {
@@ -75,6 +76,11 @@ export interface FrontDoorReads {
    * registry read authority. A read that fails settles to nothing (the tile keeps its own figures).
    */
   readonly readings: Partial<Record<HomeTile['key'], DomainProjection>>;
+  /**
+   * Loop Intelligence Phase F: open situations -- the viewer's own private ones, and the organization's
+   * they may read (every domain a situation cites). Null when the read failed.
+   */
+  readonly situations: SituationsRead | null;
 }
 
 /** Which tile shows which domain's reading, and at what scope. */
@@ -116,7 +122,7 @@ export async function loadFrontDoor(input: {
   const { session, principal, groups, time } = input;
   const organizationId = principal.organizationId;
 
-  const [context, chats, intake, creators, readings] = await Promise.all([
+  const [context, chats, intake, creators, readings, situations] = await Promise.all([
     input.executive && navOffers(groups, TILE_PATHS.marketplace)
       ? settle(() => loadCommandContextFor(organizationId, undefined, { session, canAct: async () => false }))
       : Promise.resolve(null),
@@ -126,6 +132,7 @@ export async function loadFrontDoor(input: {
       ? settle(() => absentUntilMigrated(creatorDomain().records.roster(organizationId)))
       : Promise.resolve(null),
     loadTileReadings(session, groups, time.now, input.executive).catch(() => ({})),
+    loadSituations(session).catch(() => null),
   ]);
 
   const callgrid: Settled<HomeKpiStrip> | null = context === null ? null : context.ok ? kpiStrip(context.value) : { ok: false };
@@ -141,7 +148,7 @@ export async function loadFrontDoor(input: {
       })
     : null;
 
-  return { callgrid, callgridBrief, chats, intake, creators, readings };
+  return { callgrid, callgridBrief, chats, intake, creators, readings, situations };
 }
 
 /**

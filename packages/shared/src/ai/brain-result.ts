@@ -111,6 +111,8 @@ export const BRAIN_RESULT_SUBJECT_TYPES = [
   'ORGANIZATION_DOMAIN',
   'SITUATION',
   'SITUATION_CLAIMS',
+  'EMPLOYEE_SITUATION',
+  'EMPLOYEE_SITUATION_CLAIMS',
   'EMPLOYEE_BRIEFING',
 ] as const;
 export type BrainResultSubjectType = (typeof BRAIN_RESULT_SUBJECT_TYPES)[number];
@@ -159,6 +161,8 @@ export const BRAIN_OWNERSHIP_RULES: readonly BrainOwnershipRule[] = Object.freez
   rule('ANALYSIS', 'LOOP_INTELLIGENCE', 'ORGANIZATION_DOMAIN', 'an organization domain reading over Loop records, stored as an ORGANIZATION digest'),
   rule('ANALYSIS', 'LOOP_INTELLIGENCE', 'SITUATION', 'a connected situation, stored as a Case with the evidence it cites'),
   rule('ANALYSIS', 'LOOP_INTELLIGENCE', 'SITUATION_CLAIMS', 'an independent check of a situation\'s claims, recorded on that Case'),
+  rule('ANALYSIS', 'EMPLOYEE_INTELLIGENCE', 'EMPLOYEE_SITUATION', 'a situation connected from one person\'s own intelligence, stored as their PRIVATE Case'),
+  rule('ANALYSIS', 'EMPLOYEE_INTELLIGENCE', 'EMPLOYEE_SITUATION_CLAIMS', 'an independent check of a private situation\'s claims, recorded on that person\'s own Case'),
   rule('ANALYSIS', 'EMPLOYEE_INTELLIGENCE', 'EMPLOYEE_BRIEFING', 'a person\'s own Briefing, stored in their work_briefs'),
 ]);
 

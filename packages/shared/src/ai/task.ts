@@ -32,6 +32,8 @@ import type { BrainResultOwner, BrainResultType } from './brain-result';
 import { brainOwnershipRule } from './brain-result';
 import type { AiDomainReading } from './domain-reading';
 import type { AiChatsTriage } from './telegram-triage-v5';
+import type { AiSituationSynthesis, AiSituationVerification } from './situation-contracts';
+import type { AiBriefing } from './briefing-contract';
 import { AI_INTELLIGENCE_TASKS } from './intelligence-tasks';
 
 export const AI_TASK_CONSEQUENCES = ['READ_ONLY', 'PROPOSES_FOR_APPROVAL'] as const;
@@ -312,6 +314,11 @@ export interface AiTaskOutput {
   readonly domainReading?: AiDomainReading;
   /** Chats v5 (`telegram-content-triage.v5`), parsed and validated by `telegram-triage-v5.ts` only. */
   readonly chatsTriage?: AiChatsTriage;
+  /** Phase F: situation synthesis / its independent verification (situation-contracts.ts). */
+  readonly situationSynthesis?: AiSituationSynthesis;
+  readonly situationVerification?: AiSituationVerification;
+  /** Phase G: the composed Briefing (briefing-contract.ts). */
+  readonly briefing?: AiBriefing;
 }
 
 export interface AiDraftText {
@@ -451,6 +458,12 @@ export const AI_OUTPUT_REJECTIONS = [
   'VERBATIM_CONTENT',
   /** PR 2 (domain-reading.v1): a reading named an entity reference the context did not supply. */
   'ENTITY_NOT_SUPPLIED',
+  /** Phase F (situations): a claim asserted a cause the evidence cannot show. */
+  'CAUSAL_OVERREACH',
+  /** Phase F: a claim joined evidence from windows too far apart to compare. */
+  'TEMPORAL_MISMATCH',
+  /** Phase F: a NEW situation that is exactly an open one supplied. */
+  'DUPLICATE_SITUATION',
   /** Chats v5: a `who` that is not a label the conversation itself showed. */
   'UNGROUNDED_PARTY',
 ] as const;

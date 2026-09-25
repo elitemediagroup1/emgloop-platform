@@ -107,7 +107,39 @@ function target(
 // (FORWARD, the triage targets) and one domain reading per domain (BACKGROUND, a small output ceiling).
 // ROUTED IS NOT ACTIVATED: none of them runs until a deployment lists it, a provider policy admits its data
 // class, and the producer that calls it is activated. Existing entries are UNCHANGED.
-export const AI_ROUTING_POLICY_VERSION = 'routing.2026-09-26.11';
+// .12 (2026-09-26, Loop Intelligence Phases F-G): situation synthesis (SYNTHESIS lane, Anthropic primary),
+// situation VERIFICATION routed OTHER_THAN_SUBJECT (GPT-6 Astra first, Claude Opus 5 only when the subject
+// was not Claude; no fallback to the subject's own provider -- with OpenAI uncommissioned a Claude-written
+// situation is simply not independently verified, and says so), and the Briefing (SYNTHESIS lane). One model
+// per call: no task calls both providers for the same answer. Existing entries are UNCHANGED.
+export const AI_ROUTING_POLICY_VERSION = 'routing.2026-09-26.12';
+
+function situationRoute(taskId: string) {
+  return Object.freeze({
+    taskId,
+    taskVersion: '1.0.0',
+    primary: target('anthropic', 'claude-opus-5', { reasoningEffort: 'medium', timeoutMs: 25_000, maxOutputTokens: 3_000 }),
+    fallback: target('openai', 'gpt-6-astra', { reasoningEffort: 'medium', timeoutMs: 20_000, maxOutputTokens: 3_000 }),
+    fallbackPermitted: true,
+    budgetClass: 'situation-synthesis',
+    lane: 'SYNTHESIS' as const,
+    providerChoiceReason: 'Connecting evidence across domains without overreach is technical analysis; Claude Opus 5 is the reviewed primary, GPT-6 Astra the availability fallback.',
+  });
+}
+
+function verificationRoute(taskId: string) {
+  return Object.freeze({
+    taskId,
+    taskVersion: '1.0.0',
+    primary: target('openai', 'gpt-6-astra', { reasoningEffort: 'low', timeoutMs: 20_000, maxOutputTokens: 1_500 }),
+    fallback: target('anthropic', 'claude-opus-5', { reasoningEffort: 'low', timeoutMs: 20_000, maxOutputTokens: 1_500 }),
+    fallbackPermitted: false,
+    budgetClass: 'situation-verification',
+    lane: 'SYNTHESIS' as const,
+    strategy: 'OTHER_THAN_SUBJECT' as const,
+    providerChoiceReason: 'An independent check must not be served by the provider that wrote the claims: both are named, the subject\'s is removed at admission.',
+  });
+}
 
 /** One domain reading's route: small, background, Anthropic first; GPT-6 Astra the availability fallback. */
 function domainReadingRoute(taskId: string, lane: 'BACKGROUND' | 'SYNTHESIS' = 'BACKGROUND') {
@@ -194,6 +226,23 @@ export const AI_ROUTING_POLICY: AiRoutingPolicy = Object.freeze({
     'creators.domain.reading': domainReadingRoute('creators.domain.reading'),
     'work.domain.reading': domainReadingRoute('work.domain.reading'),
     'website.domain.reading': domainReadingRoute('website.domain.reading'),
+    // Loop Intelligence Phase F: situations. Phase G: the Briefing.
+    'situation.synthesis': situationRoute('situation.synthesis'),
+    'situation.synthesis.private': situationRoute('situation.synthesis.private'),
+    'situation.verify': verificationRoute('situation.verify'),
+    'situation.verify.private': verificationRoute('situation.verify.private'),
+    'loop.briefing.compose': Object.freeze({
+      taskId: 'loop.briefing.compose',
+      taskVersion: '1.0.0',
+      primary: target('anthropic', 'claude-opus-5', { reasoningEffort: 'low', timeoutMs: 25_000, maxOutputTokens: 2_000 }),
+      fallback: target('openai', 'gpt-6-astra', { reasoningEffort: 'low', timeoutMs: 20_000, maxOutputTokens: 2_000 }),
+      fallbackPermitted: true,
+      budgetClass: 'loop-briefing',
+      lane: 'SYNTHESIS',
+      providerChoiceReason:
+        'A Briefing orders and says what Loop already holds; Claude Opus 5 is the reviewed primary for the existing ' +
+        'Anthropic-only commissioning, GPT-6 Astra the availability fallback on the same portable contract.',
+    }),
   }),
 });
 
@@ -214,7 +263,10 @@ export const AI_ROUTING_POLICY: AiRoutingPolicy = Object.freeze({
 // WITHOUT raising the organization or global ceilings, exactly as .3 did for triage. The RECORDED operating
 // budget (operating.initial.1: $20/day, lanes FORWARD $8, SYNTHESIS $6, INTERACTIVE $2.50, BACKGROUND $2 /
 // 60 calls) binds first and is not touched; these classes only bound one task's day inside it.
-export const AI_BUDGET_POLICY_VERSION = 'budget.2026-09-26.5';
+// .6 (2026-09-26, Loop Intelligence Phases F-G): adds situation-synthesis, situation-verification and
+// loop-briefing, again WITHOUT raising the organization or global ceilings. A synthesis runs only for a
+// CHANGED cluster; a Briefing only when its inputs changed (else the stored one is reused).
+export const AI_BUDGET_POLICY_VERSION = 'budget.2026-09-26.6';
 
 export const AI_BUDGET_POLICY: AiBudgetPolicy = Object.freeze({
   version: AI_BUDGET_POLICY_VERSION,
@@ -256,6 +308,23 @@ export const AI_BUDGET_POLICY: AiBudgetPolicy = Object.freeze({
       maxInputTokensPerCall: 12_000,
       maxOutputTokensPerCall: 2_000,
       taskDaily: Object.freeze({ maxInvocations: 24, maxInputTokens: 288_000, maxOutputTokens: 48_000 }),
+    }),
+    // Phase F: a changed cluster in, a NEW/UPDATE/NONE with cited claims out.
+    'situation-synthesis': Object.freeze({
+      maxInputTokensPerCall: 12_000,
+      maxOutputTokensPerCall: 3_000,
+      taskDaily: Object.freeze({ maxInvocations: 12, maxInputTokens: 144_000, maxOutputTokens: 36_000 }),
+    }),
+    'situation-verification': Object.freeze({
+      maxInputTokensPerCall: 12_000,
+      maxOutputTokensPerCall: 1_500,
+      taskDaily: Object.freeze({ maxInvocations: 12, maxInputTokens: 144_000, maxOutputTokens: 18_000 }),
+    }),
+    // Phase G: one person's Briefing, at most a few times a day and only when its inputs changed.
+    'loop-briefing': Object.freeze({
+      maxInputTokensPerCall: 10_000,
+      maxOutputTokensPerCall: 2_000,
+      taskDaily: Object.freeze({ maxInvocations: 30, maxInputTokens: 300_000, maxOutputTokens: 60_000 }),
     }),
   }),
   // The ceilings still bound the WORST case, which is every call being the dearest class at its

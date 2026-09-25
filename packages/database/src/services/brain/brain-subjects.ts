@@ -10,6 +10,7 @@
 
 import type { PrismaClient } from '@prisma/client';
 import type { BrainResultSubjectType } from '@emgloop/shared';
+import { CASE_ORGANIZATION_WHERE } from '@emgloop/shared';
 
 export interface BrainSubject {
   readonly type: BrainResultSubjectType;
@@ -39,7 +40,7 @@ export class PrismaBrainSubjectResolver implements BrainSubjectResolver {
     if (!organizationId || !ID.test(subject.id)) return false;
     switch (subject.type) {
       case 'CASE':
-        return (await this.prisma.operationalPriority.findFirst({ where: { id: subject.id, organizationId }, select: { id: true } })) !== null;
+        return (await this.prisma.operationalPriority.findFirst({ where: { id: subject.id, organizationId, ...CASE_ORGANIZATION_WHERE }, select: { id: true } })) !== null;
       case 'RELATIONSHIP':
         return (
           (await this.prisma.crmRelationship.findFirst({

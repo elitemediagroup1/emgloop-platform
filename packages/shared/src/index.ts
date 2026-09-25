@@ -207,6 +207,8 @@ export * from './intelligence-registry';
 export * from './intelligence-projection';
 // Loop Intelligence Phase C: Promote to Work, the one bridge from intelligence to Work OS.
 export * from './promote-to-work';
+// Loop Intelligence Phase F: situations are Cases; private ones are one person's alone.
+export * from './situation';
 // Loop Intelligence Phase D: the Mail content governance gate (counterparty consent: UNRESOLVED).
 export * from './mail-content-governance';
 // Representative product states for building and reviewing surfaces. Typed as the

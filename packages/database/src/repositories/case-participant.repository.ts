@@ -17,6 +17,7 @@
 
 import type { CaseParticipant, PrismaClient } from '@prisma/client';
 import { isCaseContribution, type CaseContribution } from '@emgloop/shared';
+import { CASE_ORGANIZATION_WHERE } from '@emgloop/shared';
 
 export interface AddParticipantInput {
   userId: string;
@@ -60,7 +61,7 @@ export class CaseParticipantRepository {
     // create a row joining two organizations.
     const [priority, user] = await Promise.all([
       this.prisma.operationalPriority.findFirst({
-        where: { id: priorityId, organizationId },
+        where: { id: priorityId, organizationId, ...CASE_ORGANIZATION_WHERE },
         select: { id: true },
       }),
       this.prisma.user.findFirst({

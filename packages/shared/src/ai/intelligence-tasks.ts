@@ -99,6 +99,69 @@ export const AI_TASK_CREATORS_DOMAIN_READING = organizationDomainReading('creato
 export const AI_TASK_WORK_DOMAIN_READING = organizationDomainReading('work.domain.reading', 'work');
 export const AI_TASK_WEBSITE_DOMAIN_READING = organizationDomainReading('website.domain.reading', 'analytics');
 
+// --- Phase F: situations ---------------------------------------------------------------------------
+
+function situationTask(taskId: string, schemaId: string, owner: { authority: 'LOOP_INTELLIGENCE' | 'EMPLOYEE_INTELLIGENCE'; subjectType: string }, personal: boolean): AiTaskDefinition {
+  return Object.freeze({
+    taskId,
+    version: '1.0.0',
+    capabilityRoute: 'TECHNICAL_ANALYSIS',
+    resultType: 'ANALYSIS',
+    resultOwner: Object.freeze(owner) as AiTaskDefinition['resultOwner'],
+    execution: BACKGROUND_EXECUTION,
+    sensitivityCeiling: personal ? 'COMMUNICATION_CONTENT' : 'OPERATIONAL',
+    consequence: 'READ_ONLY',
+    requires: Object.freeze([personal ? ({ resource: 'employeeIntelligence', action: 'view' } as const) : ({ resource: 'intelligence', action: 'view' } as const)]),
+    invokerRoles: personal ? HUMAN_ROLES : OPERATORS,
+    outputSchemaId: schemaId,
+    maxOutputTokens: 3000,
+    timeoutMs: 25_000,
+    tools: Object.freeze([]),
+  });
+}
+
+/**
+ * SITUATION SYNTHESIS (Phase F). A deterministic cluster of signals from several domains (shared entity
+ * references, explicit links, a common window) and the open situations that might already be this one.
+ * The model answers NEW / UPDATE / NONE with cited claims (situation-contracts.ts); Loop stores the answer
+ * as a Case. The ORGANIZATION task reads only organization readings; the PRIVATE task reads one person's
+ * own readings (and the organization's they may open) and its Case is theirs alone.
+ */
+export const AI_TASK_SITUATION_SYNTHESIS = situationTask('situation.synthesis', 'situation-synthesis.v1', { authority: 'LOOP_INTELLIGENCE', subjectType: 'SITUATION' }, false);
+export const AI_TASK_PRIVATE_SITUATION_SYNTHESIS = situationTask('situation.synthesis.private', 'situation-synthesis.v1', { authority: 'EMPLOYEE_INTELLIGENCE', subjectType: 'EMPLOYEE_SITUATION' }, true);
+/**
+ * SITUATION VERIFICATION (Phase F). An INDEPENDENT reader -- routed OTHER_THAN_SUBJECT, so never the
+ * provider that wrote the claims -- marks each claim SUPPORTED / UNSUPPORTED / UNCLEAR against the same
+ * cited evidence. With no independent provider commissioned the check does not run and the situation says
+ * so (UNAVAILABLE); it is never served by the same provider and called independent.
+ */
+export const AI_TASK_SITUATION_VERIFICATION = situationTask('situation.verify', 'situation-verification.v1', { authority: 'LOOP_INTELLIGENCE', subjectType: 'SITUATION_CLAIMS' }, false);
+export const AI_TASK_PRIVATE_SITUATION_VERIFICATION = situationTask('situation.verify.private', 'situation-verification.v1', { authority: 'EMPLOYEE_INTELLIGENCE', subjectType: 'EMPLOYEE_SITUATION_CLAIMS' }, true);
+
+// --- Phase G: the Briefing -------------------------------------------------------------------------
+
+/**
+ * LOOP BRIEFING (Phase G). One person's Briefing, composed from the artifacts Loop already holds for them
+ * (their digests, the organization readings they may open, the situations visible to them, their open
+ * work) -- ordered and said, never discovered (briefing-contract.ts). Stored in their own work_briefs.
+ */
+export const AI_TASK_LOOP_BRIEFING = Object.freeze({
+  taskId: 'loop.briefing.compose',
+  version: '1.0.0',
+  capabilityRoute: 'COMMUNICATION',
+  resultType: 'ANALYSIS',
+  resultOwner: Object.freeze({ authority: 'EMPLOYEE_INTELLIGENCE', subjectType: 'EMPLOYEE_BRIEFING' } as const),
+  execution: BACKGROUND_EXECUTION,
+  sensitivityCeiling: 'COMMUNICATION_CONTENT',
+  consequence: 'READ_ONLY',
+  requires: Object.freeze([{ resource: 'employeeIntelligence', action: 'view' } as const]),
+  invokerRoles: HUMAN_ROLES,
+  outputSchemaId: 'loop-briefing.v1',
+  maxOutputTokens: 2000,
+  timeoutMs: 25_000,
+  tools: Object.freeze([]),
+}) as AiTaskDefinition;
+
 /** Every Loop Intelligence task, in phase order. */
 export const AI_INTELLIGENCE_TASKS: readonly AiTaskDefinition[] = Object.freeze([
   AI_TASK_MAIL_CONTENT_TRIAGE,
@@ -111,4 +174,9 @@ export const AI_INTELLIGENCE_TASKS: readonly AiTaskDefinition[] = Object.freeze(
   AI_TASK_CREATORS_DOMAIN_READING,
   AI_TASK_WORK_DOMAIN_READING,
   AI_TASK_WEBSITE_DOMAIN_READING,
+  AI_TASK_SITUATION_SYNTHESIS,
+  AI_TASK_PRIVATE_SITUATION_SYNTHESIS,
+  AI_TASK_SITUATION_VERIFICATION,
+  AI_TASK_PRIVATE_SITUATION_VERIFICATION,
+  AI_TASK_LOOP_BRIEFING,
 ]);

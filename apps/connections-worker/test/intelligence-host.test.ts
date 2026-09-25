@@ -7,7 +7,8 @@ import { join } from 'node:path';
 import { createIntelligenceHost, readIntelligenceHostConfig } from '../src/intelligence-host';
 
 test('config: nothing named is nothing scheduled; the interval has a floor', () => {
-  assert.deepEqual(readIntelligenceHostConfig({}), { producers: [], actingUsersRaw: '', intervalMs: 15 * 60 * 1000 });
+  assert.deepEqual(readIntelligenceHostConfig({}), { producers: [], situations: [], actingUsersRaw: '', intervalMs: 15 * 60 * 1000 });
+  assert.deepEqual(readIntelligenceHostConfig({ LOOP_INTELLIGENCE_SITUATIONS: 'private, Organization ,bogus' }).situations, ['ORGANIZATION', 'PRINCIPAL']);
   const c = readIntelligenceHostConfig({ LOOP_INTELLIGENCE_PRODUCERS: ' callgrid.domain@1, ,callgrid.domain@1,work.domain@1', LOOP_INTELLIGENCE_INTERVAL_MS: '1000' });
   assert.deepEqual(c.producers, ['callgrid.domain@1', 'work.domain@1']);
   assert.equal(c.intervalMs, 15 * 60 * 1000, 'below the floor falls back to the default');

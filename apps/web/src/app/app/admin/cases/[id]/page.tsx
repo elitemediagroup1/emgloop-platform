@@ -57,6 +57,9 @@ import { PromotePanel, promoteRefusalWords } from '../../../../../work/promote-p
 import { promoteHref } from '../../../../../work/promote-origin';
 import { caseExplanationAvailability } from '../../../../../ai/case-explanation';
 import { ExplanationPanel } from '../explanation-panel';
+import { situationCaseFor } from '../../../../../intelligence/situations';
+import { SituationRecordSection } from '../../../../../intelligence/situations-view';
+import { viewerTime } from '../../../../../time/viewer-time';
 
 export const dynamic = 'force-dynamic';
 
@@ -86,6 +89,10 @@ export default async function CaseWorkspacePage({
   // indistinguishable from one that does not exist.
   const view = read.value;
   if (!view) notFound();
+  // Loop Intelligence Phase F: an organization SITUATION is visible only to someone who may read every
+  // domain it cites; anyone else gets the same not-found as a Case that does not exist.
+  const situation = await situationCaseFor(session, params.id);
+  if (situation.kind === 'HIDDEN') notFound();
 
   const brief = view.brief;
   const state = CASE_STATE_LANGUAGE[brief.status];
@@ -181,6 +188,8 @@ export default async function CaseWorkspacePage({
           ) : null}
         </dl>
       </header>
+
+      {situation.kind === 'VISIBLE' ? <SituationRecordSection view={situation.view} time={viewerTime()} /> : null}
 
       {searchParams?.notice ? (
         <p className="hl-flash hl-flash--notice" role="status">{searchParams.notice}</p>
