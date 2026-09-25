@@ -24,6 +24,9 @@
 //   -c mediaOrigins=https://a,https://b  the browser origins the media bucket answers CORS for
 //                                     (default: the stage's web origin)
 //   -c aiOrganizationId=<id>          activates AI content triage for that organization
+//   -c aiProviders=anthropic,openai   with aiOrganizationId: the providers given a key (default anthropic;
+//                                     listing one makes it callable, never approved)
+//   -c aiTasks=<task>,<task>          with aiOrganizationId: the tasks run (default telegram.content.triage)
 
 import { join } from 'node:path';
 import * as ecs from 'aws-cdk-lib/aws-ecs';

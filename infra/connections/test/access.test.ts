@@ -180,9 +180,13 @@ test('the deploy workflow: manual, one stage per run, environment and confirmati
   assert.deepEqual([...new Set([...code.matchAll(/vars\.([A-Z_]+)/g)].map((m) => m[1]))].sort(), [
     'CONNECTIONS_PRODUCTION_ACCOUNT_ID',
     'CONNECTIONS_PRODUCTION_AI_ORG_ID',
+    'CONNECTIONS_PRODUCTION_AI_PROVIDERS',
+    'CONNECTIONS_PRODUCTION_AI_TASKS',
     'CONNECTIONS_PRODUCTION_ALERT_EMAIL',
     'CONNECTIONS_PRODUCTION_DEPLOY_ROLE_ARN',
     'CONNECTIONS_STAGING_AI_ORG_ID',
+    'CONNECTIONS_STAGING_AI_PROVIDERS',
+    'CONNECTIONS_STAGING_AI_TASKS',
     'CONNECTIONS_STAGING_ALERT_EMAIL',
     'CONNECTIONS_STAGING_DEPLOY_ROLE_ARN',
   ]);
@@ -195,6 +199,16 @@ test('the deploy workflow: manual, one stage per run, environment and confirmati
   assert.match(code, /\[ "\$account" = "\$STAGING_ACCOUNT" \] \|\| \[ "\$account" = "\$MANAGEMENT_ACCOUNT" \]/);
   assert.match(code, /if \[ -z "\$alert_email" \]; then\n\s+echo "Refusing: CONNECTIONS_PRODUCTION_ALERT_EMAIL is unset/);
   assert.match(code, /\*\) echo "Refusing: unknown stage/);
+  // The AI provider and task lists are resolved by STAGE exactly like the AI organization id,
+  // trimmed, whitespace-refused, and handed to the CDK steps (empty = the app's default).
+  for (const [stage, prefix] of [['staging', 'STAGING'], ['production', 'PRODUCTION']] as const) {
+    for (const [name, local] of [['AI_PROVIDERS', 'ai_providers'], ['AI_TASKS', 'ai_tasks']] as const) {
+      assert.ok(code.includes(`      ${prefix}_${name}: \${{ vars.CONNECTIONS_${prefix}_${name} }}`), `${prefix}_${name} comes from its ${stage} variable`);
+      assert.ok(code.includes(`${local}="$(trim "$${prefix}_${name}")"`), `${stage} resolves ${local} from ${prefix}_${name}`);
+    }
+  }
+  assert.ok(code.includes('for v in "$role" "$alert_email" "$ai_org_id" "$ai_providers" "$ai_tasks"; do'));
+  assert.ok(code.includes('echo "AI_PROVIDERS=${ai_providers}"') && code.includes('echo "AI_TASKS=${ai_tasks}"'));
 
   // Credentials: the resolved role, first checked to be in the resolved account; the credentials
   // are bounded to that account and then checked again.
@@ -206,7 +220,7 @@ test('the deploy workflow: manual, one stage per run, environment and confirmati
 
   // synth runs before diff, diff before deploy; all three carry the same stage context; deploy is
   // gated on the stage's confirmation text.
-  const context = '-c "stage=$STAGE" -c "productionAccount=$PRODUCTION_ACCOUNT" -c "alertEmail=$ALERT_EMAIL" -c "aiOrganizationId=$AI_ORG_ID"';
+  const context = '-c "stage=$STAGE" -c "productionAccount=$PRODUCTION_ACCOUNT" -c "alertEmail=$ALERT_EMAIL" -c "aiOrganizationId=$AI_ORG_ID" -c "aiProviders=$AI_PROVIDERS" -c "aiTasks=$AI_TASKS"';
   for (const verb of ['synth --no-notices', 'diff --no-notices', 'deploy --no-notices --require-approval never']) {
     assert.ok(code.includes(`npx cdk ${verb} "$STACK_NAME" ${context}`), `cdk ${verb} carries the stage context`);
   }

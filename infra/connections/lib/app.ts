@@ -79,6 +79,58 @@ export function protectionFromContext(stage: ConnectionsStage, alertEmailRaw: un
   return { alertEmail: email, monthlyBudgetUsd };
 }
 
+/** The providers the worker can be given a key for. Listing one makes it callable, never approved. */
+export const AI_PROVIDERS = Object.freeze(['anthropic', 'openai'] as const);
+export type AiProvider = (typeof AI_PROVIDERS)[number];
+
+/** What `aiProviders` / `aiTasks` mean when unset or empty: the Anthropic primary, Telegram content triage. */
+export const DEFAULT_AI_PROVIDERS: readonly AiProvider[] = Object.freeze(['anthropic']);
+export const DEFAULT_AI_TASKS: readonly string[] = Object.freeze(['telegram.content.triage']);
+
+const AI_TASK_ID = /^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)+$/;
+
+/** A comma-separated context list: undefined when unset or blank (the caller's default applies). */
+function contextList(key: string, raw: unknown): string[] | undefined {
+  if (raw === undefined || raw === null || (typeof raw === 'string' && raw.trim() === '')) return undefined;
+  if (typeof raw !== 'string') throw new Error(`${key} must be a comma-separated string`);
+  const items = raw.split(',').map((s) => s.trim());
+  if (items.some((s) => s === '')) throw new Error(`${key}: "${raw}" has an empty entry`);
+  const seen = new Set<string>();
+  for (const item of items) {
+    if (seen.has(item)) throw new Error(`${key}: "${item}" is listed twice`);
+    seen.add(item);
+  }
+  return items;
+}
+
+/**
+ * CDK context `aiProviders`: the providers the worker is given a key for, in order (the order is the
+ * worker's preference). Only `anthropic` and `openai`; unset or blank means `anthropic`. An unknown
+ * or repeated provider fails synth rather than deploying a list the worker would half-honour.
+ * (This replaced the boolean `aiOpenAiFallback`, which no workflow ever passed.)
+ */
+export function aiProvidersFromContext(raw: unknown): readonly AiProvider[] {
+  const items = contextList('aiProviders', raw);
+  if (items === undefined) return DEFAULT_AI_PROVIDERS;
+  for (const item of items) {
+    if (!(AI_PROVIDERS as readonly string[]).includes(item)) throw new Error(`aiProviders: "${item}" is not one of ${AI_PROVIDERS.join(', ')}`);
+  }
+  return items as AiProvider[];
+}
+
+/**
+ * CDK context `aiTasks`: the task ids the worker runs (dotted lowercase, e.g. telegram.content.triage).
+ * Unset or blank means `telegram.content.triage`. A malformed or repeated id fails synth.
+ */
+export function aiTasksFromContext(raw: unknown): readonly string[] {
+  const items = contextList('aiTasks', raw);
+  if (items === undefined) return DEFAULT_AI_TASKS;
+  for (const item of items) {
+    if (!AI_TASK_ID.test(item)) throw new Error(`aiTasks: "${item}" is not a task id (dotted lowercase, e.g. telegram.content.triage)`);
+  }
+  return items;
+}
+
 export function buildConnectionsApp(options: ConnectionsAppOptions): { app: App; stack: ConnectionsStack } {
   // `-c key=value` from the CLI reaches the App through its environment, not through this props
   // object, so the stage and its account are read from the App after construction. Nothing is
@@ -92,13 +144,15 @@ export function buildConnectionsApp(options: ConnectionsAppOptions): { app: App;
   // AI content triage is operator-activated and fail-closed: it is wired ONLY when the operator
   // supplies a real organization id via CDK context `aiOrganizationId` (the deploy workflow passes
   // it from the CONNECTIONS_<STAGE>_AI_ORG_ID environment variable). No org id is ever read from
-  // cdk.json or hardcoded here. An empty/unset value leaves AI off. `aiOpenAiFallback` (context,
-  // default off) opts the OpenAI fallback in; without it only the Anthropic primary is activated.
+  // cdk.json or hardcoded here. An empty/unset value leaves AI off, whatever the lists below say.
+  // Which providers the worker may call and which tasks it runs come from `aiProviders` and
+  // `aiTasks` (CONNECTIONS_<STAGE>_AI_PROVIDERS / _AI_TASKS); unset or empty means the defaults.
   const aiOrganizationId = app.node.tryGetContext('aiOrganizationId');
-  const aiOpenAiFallback = app.node.tryGetContext('aiOpenAiFallback');
+  const aiProviders = aiProvidersFromContext(app.node.tryGetContext('aiProviders'));
+  const aiTasks = aiTasksFromContext(app.node.tryGetContext('aiTasks'));
   const aiActivation =
     typeof aiOrganizationId === 'string' && aiOrganizationId.trim() !== ''
-      ? { organizationId: aiOrganizationId, openAiFallback: aiOpenAiFallback === true || aiOpenAiFallback === 'true' }
+      ? { organizationId: aiOrganizationId, providers: aiProviders, tasks: aiTasks }
       : undefined;
 
   const stack = new ConnectionsStack(app, target.stackName, {

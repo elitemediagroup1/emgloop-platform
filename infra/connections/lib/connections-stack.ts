@@ -70,9 +70,14 @@ export interface ConnectionsStackProps extends StackProps {
    * Operator-activated AI content triage. Set ONLY when the operator supplies a real organization
    * id (via CDK context `aiOrganizationId`, wired in app.ts). When undefined, no AI secret is
    * referenced and no LOOP_AI_* env is set: the worker stays fail-closed (NOT_ACTIVATED) and the
-   * synthesized stack is byte-for-byte identical to the AI-off shape.
+   * synthesized stack is byte-for-byte identical to the AI-off shape. `providers` and `tasks` are
+   * already validated and defaulted by app.ts (aiProviders / aiTasks context).
    */
-  readonly aiActivation?: { readonly organizationId: string; readonly openAiFallback: boolean };
+  readonly aiActivation?: {
+    readonly organizationId: string;
+    readonly providers: readonly ('anthropic' | 'openai')[];
+    readonly tasks: readonly string[];
+  };
   /** The cost budget and availability alarm. Absent: neither exists, and synth warns. */
   readonly protection?: StackProtection;
 }
@@ -152,24 +157,30 @@ export class ConnectionsStack extends Stack {
     // LOOP_AI_PROVIDER_TERMS_CONFIRMED to whatever it listed, so listing implied approval. Approval is
     // now a RECORDED provider policy in the database (record-ai-provider-policy workflow); without one
     // the worker's gateway refuses every call as POLICY_DENIED and the content sweep holds.
+    // Listing a provider makes it CALLABLE, not approved: a listed provider with no recorded ACTIVE
+    // policy is refused as POLICY_DENIED all the same.
     // When absent: no ai secret reference, no LOOP_AI_* env, no key -- the stack is unchanged and the
     // worker refuses every invocation. The credential is injected from Secrets Manager JSON fields, never
-    // as plaintext env; OpenAI is opt-in, so a default activation never requires an OpenAI key.
+    // as plaintext env, and only for a listed provider: anthropic_api_key when `anthropic` is listed,
+    // openai_api_key when `openai` is, so the default (anthropic only) never requires an OpenAI key.
     const aiEnvironment: Record<string, string> = {};
     const aiSecrets: Record<string, ecs.Secret> = {};
     if (props.aiActivation) {
-      const providers = props.aiActivation.openAiFallback ? 'anthropic,openai' : 'anthropic';
+      const { providers, tasks } = props.aiActivation;
+      if (providers.length === 0 || tasks.length === 0) throw new Error('aiActivation needs at least one provider and one task');
       // Referenced, not created (like telegram/connection-key/database-url): the operator pre-creates
-      // `loop/connections/<stage>/ai` with the real key(s) before deploy. See the runbooks.
+      // `loop/connections/<stage>/ai` with the listed providers' key(s) before deploy. See the runbooks.
       const aiSecret = secretsmanager.Secret.fromSecretNameV2(this, 'AiSecret', names.ai);
-      aiSecrets.ANTHROPIC_API_KEY = ecs.Secret.fromSecretsManager(aiSecret, 'anthropic_api_key');
-      if (props.aiActivation.openAiFallback) {
+      if (providers.includes('anthropic')) {
+        aiSecrets.ANTHROPIC_API_KEY = ecs.Secret.fromSecretsManager(aiSecret, 'anthropic_api_key');
+      }
+      if (providers.includes('openai')) {
         aiSecrets.OPENAI_API_KEY = ecs.Secret.fromSecretsManager(aiSecret, 'openai_api_key');
       }
       aiEnvironment.LOOP_AI_ENABLED = 'true';
-      aiEnvironment.LOOP_AI_PROVIDERS = providers;
+      aiEnvironment.LOOP_AI_PROVIDERS = providers.join(',');
       aiEnvironment.LOOP_AI_ORGANIZATIONS = props.aiActivation.organizationId;
-      aiEnvironment.LOOP_AI_TASKS = 'telegram.content.triage';
+      aiEnvironment.LOOP_AI_TASKS = tasks.join(',');
     }
 
     // --- Compute: one small always-on Fargate task -------------------------------------------
