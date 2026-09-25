@@ -113,7 +113,9 @@ export function isWorkWithdrawalReason(reason: string | null | undefined): boole
 }
 
 /** The append-only log of what happened to an item. */
-export const WORK_OBSERVATION_TYPES = ['DETECTED', 'REDETECTED', 'SNOOZED', 'UNSNOOZED', 'RESOLVED', 'DISMISSED', 'REOPENED'] as const;
+// WORK_LINKED (Loop Intelligence Phase C): the person promoted this item to Work OS work. It changes no
+// state; the item's own lifecycle continues, and the work is Work OS's.
+export const WORK_OBSERVATION_TYPES = ['DETECTED', 'REDETECTED', 'SNOOZED', 'UNSNOOZED', 'RESOLVED', 'DISMISSED', 'REOPENED', 'WORK_LINKED'] as const;
 export type WorkObservationType = (typeof WORK_OBSERVATION_TYPES)[number];
 
 /** Who acted. There is no AI actor, because no model writes work state. */

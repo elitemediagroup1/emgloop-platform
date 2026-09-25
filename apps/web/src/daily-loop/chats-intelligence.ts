@@ -42,6 +42,7 @@ import {
   type DigestRelevance,
   type IntelligenceCoverage,
   type ProductLabel,
+  type PromoteOrigin,
 } from '@emgloop/shared';
 
 // --- Input ---------------------------------------------------------------------------------------
@@ -230,6 +231,8 @@ export interface ChatsEntry {
   readonly itemId: string | null;
   /** The evidence behind it, content-free: category / signal kind, and when it was raised or read. */
   readonly evidence: { readonly kind: string; readonly readAt: Date | null; readonly asCurrent: boolean };
+  /** Phase C: what Promote to Work would re-resolve (keyed, the viewer's own), or null when it cannot be promoted. */
+  readonly promote: PromoteOrigin | null;
 }
 
 export interface ChatsGroup {
@@ -656,6 +659,7 @@ function itemEntry(item: ChatsItem, label: string | null, now: Date): ChatsEntry
     at: item.at,
     itemId: item.id ?? null,
     evidence: { kind: item.category ?? 'OBLIGATION', readAt: item.at, asCurrent: true },
+    promote: item.id ? { kind: 'WORK_ITEM', itemId: item.id } : null,
   };
 }
 
@@ -701,6 +705,7 @@ function chatsGroups(items: readonly ChatsItem[], digests: readonly ChatsDigest[
       at: sig.occurredAt ? new Date(sig.occurredAt) : digest.lastEvidenceAt,
       itemId: null,
       evidence: { kind: sig.kind, readAt, asCurrent: card.asCurrent },
+      promote: card.asCurrent ? { kind: 'DIGEST_SIGNAL', scope: 'PRINCIPAL', domain: 'CHATS', subjectKind: 'CONVERSATION', subjectRef: digest.subjectRef, signalKey: sig.key } : null,
     });
     // The reading says the person should look now, and no item already says so.
     if (card.attention && !withItems.has(key)) {
@@ -719,6 +724,7 @@ function chatsGroups(items: readonly ChatsItem[], digests: readonly ChatsDigest[
         at: digest.lastEvidenceAt,
         itemId: null,
         evidence: { kind: 'ATTENTION', readAt, asCurrent: card.asCurrent },
+        promote: null,
       });
     }
     let open = false;
@@ -756,6 +762,7 @@ function chatsGroups(items: readonly ChatsItem[], digests: readonly ChatsDigest[
         at: last,
         itemId: null,
         evidence: { kind: 'QUIET', readAt, asCurrent: card.asCurrent },
+        promote: null,
       });
     }
   }

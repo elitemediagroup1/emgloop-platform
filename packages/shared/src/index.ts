@@ -205,6 +205,8 @@ export * from './entity-ref';
 export * from './intelligence-contract';
 export * from './intelligence-registry';
 export * from './intelligence-projection';
+// Loop Intelligence Phase C: Promote to Work, the one bridge from intelligence to Work OS.
+export * from './promote-to-work';
 // Representative product states for building and reviewing surfaces. Typed as the
 // real contracts, so a contract change breaks the fixtures rather than the design.
 export * from './product-states.fixture';

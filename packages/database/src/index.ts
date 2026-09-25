@@ -434,6 +434,9 @@ export { INTELLIGENCE_PRODUCER_CATALOG } from './services/intelligence-fabric/ca
 export type { IntelligenceProducerDescriptor } from './services/intelligence-fabric/catalog';
 export type { ProducerLoopDeps, ProducerLoopOptions, ProducerLoopReport } from './services/intelligence-fabric/producer-loop';
 export { DomainReadingService } from './services/ai-runtime/domain-reading.service';
+// Loop Intelligence Phase C: Promote to Work, the one bridge from intelligence to Work OS.
+export { PromoteToWorkService } from './services/work/promote-to-work.service';
+export type { PromoteActor, PromoteConfirmation, PromotePreview, PromoteResult } from './services/work/promote-to-work.service';
 export type { DomainReadingRequest, DomainReadingResult } from './services/ai-runtime/domain-reading.service';
 export {
   DOMAIN_READING_TEMPLATE_ID,

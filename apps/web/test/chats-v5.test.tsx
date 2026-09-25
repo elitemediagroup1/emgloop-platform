@@ -186,6 +186,9 @@ describe('the page: actions on items only, a content-free drill-down, and no inv
     assert.ok(html.includes('value="wi_1"') && html.includes('value="wi_2"'));
     assert.ok(html.includes('Why Loop shows this'));
     assert.ok(html.includes('Loop keeps no message text'));
+    // Phase C: every item and every current typed signal can be promoted -- through the confirmation, never directly.
+    assert.ok(html.includes('href="/app/chats?promote=item&amp;id=wi_1#promote"'));
+    assert.ok(/href="\/app\/chats\?promote=signal&amp;d=CHATS&amp;k=CONVERSATION&amp;s=telegram_conversation%3Ack_premier&amp;g=dp#promote"/.test(html));
   });
 
   it('the actions are the person\'s own, on their own items, through the WorkItem state machine -- and create no Work', () => {

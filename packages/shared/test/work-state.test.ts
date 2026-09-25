@@ -53,6 +53,12 @@ const MIGRATION = readFileSync(
 );
 // The item-outcome CHECK was restated in full by the migration that added REVOKED (2026-09-24);
 // that file is the constraint now in force for outcomes, so the outcome list is pinned against it.
+// Loop Intelligence Phase C restated the observation CHECK with WORK_LINKED added (nothing removed).
+const OBSERVATION_MIGRATION = readFileSync(
+  join(__dirname, '..', '..', 'database', 'prisma', 'migrations', '20261007000000_promote_to_work', 'migration.sql'),
+  'utf8',
+);
+
 const OUTCOME_MIGRATION = readFileSync(
   join(__dirname, '..', '..', 'database', 'prisma', 'migrations', '20261001000000_work_item_outcome_revoked', 'migration.sql'),
   'utf8',
@@ -116,11 +122,14 @@ test('every vocabulary the database also enforces appears in the DL-1 migration'
     actors: WORK_ACTOR_TYPES,
   };
   for (const [name, list] of Object.entries(lists)) {
-    const pinnedIn = name === 'outcomes' ? OUTCOME_MIGRATION : MIGRATION;
+    const pinnedIn = name === 'outcomes' ? OUTCOME_MIGRATION : name === 'observations' ? OBSERVATION_MIGRATION : MIGRATION;
     for (const word of list) {
       assert.match(pinnedIn, new RegExp(`'${word}'`), `${name}: ${word} is not pinned in the migration`);
     }
   }
+  // The observation CHECK is restated, not narrowed: every word DL-1 accepted, Phase C accepts.
+  const dl1Observations = /"observationType" IN \(([^)]*)\)/.exec(MIGRATION)?.[1] ?? '';
+  for (const quoted of dl1Observations.match(/'[A-Z_]+'/g) ?? []) assert.ok(OBSERVATION_MIGRATION.includes(quoted), `${quoted} still accepted`);
   // The outcome CHECK is restated, not narrowed: every word DL-1 accepted, the restatement accepts.
   // Inside the work_items CHECK block only: work_sync_runs has an outcome column of its own.
   const dl1ItemsCheck = /"work_items_shape_check" CHECK \(([\s\S]*?)\n\);/.exec(MIGRATION)?.[1] ?? '';

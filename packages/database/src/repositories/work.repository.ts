@@ -297,6 +297,20 @@ export interface CreateWorkItemInput {
   activeMemberIds?: ReadonlySet<string> | null;
   /** Creator Hub: what the requester asked for. Never an organization commitment. */
   requestedReturnAt?: Date | null;
+  /**
+   * Loop Intelligence Phase C (Promote to Work): where this work was promoted from. Written as a
+   * `work_origins` row in the SAME transaction as the work, so there is never work without its link, nor a
+   * link without its work. A second promotion of the same origin fails the whole transaction (unique).
+   */
+  origin?: {
+    readonly originKind: 'DIGEST_SIGNAL' | 'WORK_ITEM' | 'CASE';
+    readonly originScope: 'PRINCIPAL' | 'ORGANIZATION';
+    readonly originUserId: string | null;
+    readonly originRef: string;
+    readonly originFingerprint: string;
+    readonly sharedFields: readonly string[];
+    readonly promotedAt: Date;
+  } | null;
 }
 
 export interface CompleteWorkStepInput {
@@ -315,6 +329,13 @@ export interface CompleteWorkStepInput {
    * completed, and the log stays append-only.
    */
   appendSteps?: readonly WorkflowStepDef[];
+}
+
+/** A target instant from the builder's ISO string, or null when absent or unreadable (never a guessed date). */
+function targetInstant(iso: string | null | undefined): Date | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? null : d;
 }
 
 // Serialize a builder step's assignment/completion config into a stage's metadata
@@ -764,6 +785,13 @@ export class WorkRepository {
           status: 'active',
           createdByUserId: input.creatorUserId,
           requestedReturnAt: input.requestedReturnAt ?? null,
+          // THE TARGET IS THE ORGANIZATION'S COMMITMENT (Loop Intelligence Phase C fix). The form's
+          // "Target Completion" used to land only in metadata.targetAtUtc, which nothing read: every
+          // due/overdue/briefing reader reads `expectedReturnAt` (with the stage's dueAt), so a target set
+          // at creation never showed up anywhere. It is now the commitment, set by the creator, now.
+          ...(targetInstant(input.targetAtUtc)
+            ? { expectedReturnAt: targetInstant(input.targetAtUtc), expectedReturnSetByUserId: input.creatorUserId, expectedReturnSetAt: new Date() }
+            : {}),
           metadata: {
             kind: 'work_item',
             workTypeId: input.workTypeId,
@@ -809,6 +837,24 @@ export class WorkRepository {
         data: { currentStageId: first.id },
         include: { stages: { orderBy: { position: 'asc' } } },
       });
+
+      if (input.origin) {
+        await tx.workOrigin.create({
+          data: {
+            organizationId: input.organizationId,
+            workInstanceId: instance.id,
+            originKind: input.origin.originKind,
+            originScope: input.origin.originScope,
+            originUserId: input.origin.originUserId,
+            originRef: input.origin.originRef,
+            originFingerprint: input.origin.originFingerprint,
+            promotedByUserId: input.creatorUserId,
+            promotedAt: input.origin.promotedAt,
+            sharedFields: [...input.origin.sharedFields],
+          },
+          select: { id: true },
+        });
+      }
 
       if (first.ownerUserId) {
         await this.recordAssignment(tx, instance.id, first.id, first.ownerUserId, input.creatorUserId);

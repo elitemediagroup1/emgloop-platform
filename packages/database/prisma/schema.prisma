@@ -299,6 +299,7 @@ model Organization {
   intelligenceDigests         IntelligenceDigest[]
   entityLinks                 EntityLink[]
   intelligenceRefreshRequests IntelligenceRefreshRequest[]
+  workOrigins                 WorkOrigin[]
   /// Daily Loop (DL-1). Employee-private work state; always read with a userId as well.
   workSourceCursors           WorkSourceCursor[]
   workDrafts                  WorkDraft[]
@@ -1556,6 +1557,8 @@ model WorkInstance {
   expectedReturnSetByUserId String?
   expectedReturnSetAt       DateTime?
 
+  /// Loop Intelligence Phase C: where this work was promoted from (Promote to Work), if anywhere.
+  origins       WorkOrigin[]
   stages        WorkStage[]
   notifications WorkNotification[]
   comments      WorkComment[]
@@ -3471,6 +3474,12 @@ enum OperationalObservationType {
   /// given context is `evidenceId`, and the evidence doing it is
   /// `relatedEvidenceId`.
   EVIDENCE_CONTEXT_RECORDED
+
+  // --- Loop Intelligence Phase C (2026-09-26) ---
+  /// A person promoted this Case into Work OS work (Promote to Work). The work instance is named on
+  /// `destinationSystem`/`destinationType`/`destinationId`. Moves no lane and closes nothing: Work OS
+  /// owns the work from here; the Case keeps its own lifecycle.
+  WORK_LINKED
 }
 
 /// How a priority ended, and — where it can be measured — whether Loop's read of
@@ -7402,4 +7411,39 @@ model IntelligenceRefreshRequest {
   @@index([organizationId, scope, domain, state])
   @@index([organizationId, userId])
   @@map("intelligence_refresh_queue")
+}
+
+/// Loop Intelligence Phase C (2026-09-26): where a piece of Work OS work came from, when a person
+/// promoted it out of intelligence (Promote to Work). The ONE bridge from intelligence to work: an
+/// inferred obligation never becomes work by itself -- a person confirms, and from that moment Work OS
+/// owns the assignee, the dates, the state and the completion.
+///
+/// Keys only, never content: the kind of origin, its scope, a keyed reference to it, the fingerprint of
+/// what the person saw when they confirmed, and the NAMES of the fields they chose to share (the values
+/// are the work instance's own title and outcome). One promotion per origin (unique), so a signal cannot
+/// silently become two pieces of work.
+model WorkOrigin {
+  id                String   @id @default(cuid())
+  organizationId    String
+  workInstanceId    String
+  /// DIGEST_SIGNAL, WORK_ITEM or CASE.
+  originKind        String
+  /// PRINCIPAL (one person's private intelligence) or ORGANIZATION.
+  originScope       String
+  /// For a PRINCIPAL origin: whose it was (always the person who promoted it).
+  originUserId      String?
+  /// Keyed: digest id + signal key, a WorkItem id, a Case id. Never content.
+  originRef         String
+  originFingerprint String
+  promotedByUserId  String
+  promotedAt        DateTime
+  sharedFields      String[]
+  createdAt         DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workInstance WorkInstance @relation(fields: [workInstanceId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, originKind, originRef])
+  @@index([organizationId, workInstanceId])
+  @@map("work_origins")
 }

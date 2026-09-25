@@ -144,6 +144,8 @@ export const DECISION_EVENT_TYPE: Record<ObservationType, DecisionEventName> = {
   // re-read when a piece of it is contradicted or corrected, and giving context
   // its own event name would let exactly that subscriber miss it.
   EVIDENCE_CONTEXT_RECORDED: 'DecisionEvidenceAdded',
+  // Loop Intelligence Phase C: promoting a Case to work is progress recorded on it, not a close.
+  WORK_LINKED: 'DecisionProgressRecorded',
 };
 
 /** Which observation types announce a given event. Derived, never hand-listed. */

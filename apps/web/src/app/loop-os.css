@@ -4703,3 +4703,9 @@ a.xb__focuscard:hover { border-color: var(--loop-line-strong); transform: transl
 .loop-chats__evidence summary { cursor: pointer; font-size: 12px; color: var(--loop-text-2); }
 .loop-chats__actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
 .loop-chats__actions form { margin: 0; }
+
+/* Promote to Work (Loop Intelligence Phase C): the in-page confirmation. Tokens only. */
+.loop-promote { display: flex; flex-direction: column; gap: 10px; padding: 16px 18px; border: 1px solid var(--loop-line); border-radius: var(--loop-radius); background: var(--loop-surface); }
+.loop-promote__form { display: flex; flex-direction: column; gap: 10px; }
+.loop-promote__shared { margin: 0; font-size: 13px; color: var(--loop-text-2); }
+.loop-promote__confirm { display: flex; gap: 8px; align-items: center; font-size: 13px; }

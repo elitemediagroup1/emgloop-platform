@@ -417,7 +417,15 @@ describe('the Chats page and its loader', () => {
     const firstAwait = body.indexOf('await ');
     assert.equal(body.indexOf("await requirePermission('googleWorkspace', 'view')"), firstAwait, 'the guard is the first thing awaited');
     assert.match(body, /const principal = \{ organizationId: session\.organizationId, userId: session\.userId \};/);
-    assert.equal(/searchParams|params|formData|headers\(/.test(body), false, 'nothing from the request names a person');
+    // Phase C: the only request input is the Promote to Work origin (keyed, re-resolved in this person's
+    // own scope) and its result code. Nothing from the request names a person or an organization.
+    assert.equal(/formData|headers\(/.test(body), false);
+    // searchParams is read in exactly one place: the param() helper, by the key it is asked for.
+    assert.equal((body.match(/searchParams\[/g) ?? []).length, 1);
+    assert.match(body, /const v = searchParams\[k\];/);
+    assert.match(body, /const origin = promoteOriginFrom\(param\);/);
+    assert.match(body, /loadPromoteView\(session, origin\)/);
+    assert.doesNotMatch(body, /param\('(organizationId|userId|scope)'\)/);
     assert.match(read('../src/app/app/connections/page.tsx'), /requirePermission\('googleWorkspace', 'view'\)/);
   });
 

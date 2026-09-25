@@ -23,6 +23,7 @@
 // SERVER COMPONENT, pure over its props: every honest state is a different block with different words.
 
 import Link from 'next/link';
+import type { ReactNode } from 'react';
 import { DIGEST_FIELD_KNOWLEDGE, type DigestKnowledge, type TimeView } from '@emgloop/shared';
 
 import {
@@ -36,6 +37,7 @@ import {
   type ChatsIntelligence,
 } from '../../../../daily-loop/chats-intelligence';
 import { chatsDismissAction, chatsHandledAction, chatsSnoozeAction } from '../actions';
+import { promoteHref } from '../../../../work/promote-origin';
 import { LabelBadge } from '../../_loop-os/product-state';
 import { Facts, Panel, StateBlock } from '../../_loop-os/record';
 
@@ -186,6 +188,13 @@ function GroupEntry({ entry, time }: { entry: ChatsEntry; time: TimeView }) {
         <p className="loop-chats__meta">Loop keeps no message text. The conversation itself is in Telegram.</p>
       </details>
       <EntryActions entry={entry} />
+      {entry.promote ? (
+        <p className="loop-chats__meta">
+          <Link className="loop-link" href={promoteHref('/app/chats', entry.promote)} data-chats-promote>
+            Promote to Work
+          </Link>
+        </p>
+      ) : null}
     </li>
   );
 }
@@ -279,7 +288,7 @@ function ObligationRow({ conversation, time }: { conversation: ChatsConversation
   );
 }
 
-export function ChatsView({ intel, time }: { intel: ChatsIntelligence | 'UNAVAILABLE'; time: TimeView }) {
+export function ChatsView({ intel, time, promote = null }: { intel: ChatsIntelligence | 'UNAVAILABLE'; time: TimeView; promote?: ReactNode }) {
   if (intel === 'UNAVAILABLE') {
     return (
       <StateBlock
@@ -308,6 +317,8 @@ export function ChatsView({ intel, time }: { intel: ChatsIntelligence | 'UNAVAIL
       </section>
 
       <StateLine intel={intel} />
+
+      {promote}
 
       <Groups groups={intel.groups} time={time} />
 

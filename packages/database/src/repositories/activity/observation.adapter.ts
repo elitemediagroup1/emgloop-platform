@@ -89,6 +89,8 @@ const CATEGORY: Record<ObservationType, ActivityCategory> = {
   MONITORING_STARTED: 'DECISION',
   MONITORING_REVISED: 'DECISION',
   MONITORING_CONCLUDED: 'DECISION',
+  // Loop Intelligence Phase C: a person promoted the Case to Work OS work.
+  WORK_LINKED: 'WORK',
 };
 
 const INTERPRETIVE: readonly ActivityCategory[] = ['SIGNAL', 'FINDING', 'RECOMMENDATION'];

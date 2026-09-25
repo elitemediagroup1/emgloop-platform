@@ -51,6 +51,10 @@ import {
 } from '../case-sections';
 import { loadCase } from '../case-data';
 import { requireWorkspace } from '../../../../../workspaces/guard';
+import { loadPromoteView } from '../../../../../work/promote';
+import { StateBlock } from '../../../_loop-os/record';
+import { PromotePanel, promoteRefusalWords } from '../../../../../work/promote-panel';
+import { promoteHref } from '../../../../../work/promote-origin';
 import { caseExplanationAvailability } from '../../../../../ai/case-explanation';
 import { ExplanationPanel } from '../explanation-panel';
 
@@ -61,7 +65,7 @@ export default async function CaseWorkspacePage({
   searchParams,
 }: {
   params: { id: string };
-  searchParams?: { notice?: string; error?: string };
+  searchParams?: { notice?: string; error?: string; promote?: string; id?: string; promoteResult?: string };
 }) {
   await requireWorkspace('ADMIN');
   // READ is the broad grant. Every control below requires the narrower AUTHORING
@@ -106,11 +110,27 @@ export default async function CaseWorkspacePage({
   // re-decides everything when a person actually asks.
   const explanation = await caseExplanationAvailability({ organizationId: session.organizationId, userId: session.userId });
 
+  // PROMOTE TO WORK (Loop Intelligence Phase C): offered on an open Case; the confirmation renders here
+  // only when asked for, re-resolved for this person, and nothing is created until they confirm.
+  const promoteAsked = searchParams?.promote === 'case';
+  const promoteView = caseIsOpen && promoteAsked ? await loadPromoteView(session, { kind: 'CASE', caseId: params.id }) : null;
+  const promoteRefused = promoteRefusalWords(searchParams?.promoteResult);
+
   return (
     <div className="cw-page">
       <nav className="cw-back">
         <Link href="/app/admin/headlines">← Headlines</Link>
       </nav>
+
+      {promoteRefused ? <StateBlock kind="attention" compact title="Promote to Work" body={promoteRefused} /> : null}
+      {promoteView ? <PromotePanel view={promoteView} returnTo={'/app/admin/cases/' + params.id} /> : null}
+      {caseIsOpen && !promoteAsked ? (
+        <p className="cw-head__subject">
+          <Link className="loop-link" href={promoteHref('/app/admin/cases/' + params.id, { kind: 'CASE', caseId: params.id })} data-case-promote>
+            Promote to Work
+          </Link>
+        </p>
+      ) : null}
 
       <header className="cw-head">
         <p className="cw-head__eyebrow">Investigation</p>

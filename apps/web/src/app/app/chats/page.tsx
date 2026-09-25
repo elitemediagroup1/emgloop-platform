@@ -9,6 +9,10 @@ import WorkspaceShell from '../../../workspaces/WorkspaceShell';
 import { LoopPage, PageHead } from '../_loop-os/record';
 import { settle } from '../_home/settle';
 import { ChatsView } from './_chats/chats-view';
+import { loadPromoteView } from '../../../work/promote';
+import { PromotePanel, promoteRefusalWords } from '../../../work/promote-panel';
+import { promoteOriginFrom } from '../../../work/promote-origin';
+import { StateBlock } from '../_loop-os/record';
 
 // CHATS -- what Loop understands about the person's own chats. The canonical, read-only Chats
 // intelligence surface; a domain page, not configuration.
@@ -29,7 +33,7 @@ import { ChatsView } from './_chats/chats-view';
 
 export const dynamic = 'force-dynamic';
 
-export default async function ChatsPage() {
+export default async function ChatsPage({ searchParams = {} }: { searchParams?: Record<string, string | string[] | undefined> }) {
   const session = await requirePermission('googleWorkspace', 'view');
   const principal = { organizationId: session.organizationId, userId: session.userId };
   const zone = resolveDisplayTimeZone({ preference: null, device: readerTimeZone() });
@@ -39,6 +43,23 @@ export default async function ChatsPage() {
   const intel: ChatsIntelligence | 'UNAVAILABLE' = input.ok ? composeChatsIntelligence(input.value) : 'UNAVAILABLE';
   const time = createTimeView(zone, now);
 
+  // Promote to Work (Phase C): the confirmation renders HERE, for the origin the link named, re-resolved
+  // inside this person's own scope. A render never creates work; only the confirmed form does.
+  const param = (k: string) => {
+    const v = searchParams[k];
+    return typeof v === 'string' ? v : null;
+  };
+  const origin = promoteOriginFrom(param);
+  const promoteView = origin ? await settle(() => loadPromoteView(session, origin)) : null;
+  const refused = promoteRefusalWords(param('promoteResult'));
+  const promote = (
+    <>
+      {refused ? <StateBlock kind="attention" compact title="Promote to Work" body={refused} /> : null}
+      {promoteView?.ok ? <PromotePanel view={promoteView.value} returnTo="/app/chats" /> : null}
+      {promoteView && !promoteView.ok ? <StateBlock kind="error" compact title="Promote to Work" body="Loop could not prepare this just now. Nothing was created." /> : null}
+    </>
+  );
+
   return (
     <WorkspaceShell session={session}>
       <LoopPage label="Chats">
@@ -47,7 +68,7 @@ export default async function ChatsPage() {
           title="Chats"
           subtitle="What Loop understands about your own chats, and what you owe in them. Loop observes; you reply in Telegram."
         />
-        <ChatsView intel={intel} time={time} />
+        <ChatsView intel={intel} time={time} promote={promote} />
       </LoopPage>
     </WorkspaceShell>
   );
