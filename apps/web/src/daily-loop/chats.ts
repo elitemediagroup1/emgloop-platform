@@ -1,33 +1,40 @@
 // Chats, loaded for one signed-in person. SERVER ONLY.
 //
-// The reads behind `chatsIntelligence` (chats-intelligence.ts), and nothing else. Every one is a
-// read Loop already makes elsewhere, through the same authority:
+// The reads behind `composeChatsIntelligence` (chats-intelligence.ts), and nothing else. Every one is
+// a read Loop already makes elsewhere, through the same authority:
 //   - the viewer's own Telegram connection: `sourceConnections().status`, exactly as the Connections
 //     page reads it, and labelled in that page's own words (`connectionPresentation`);
-//   - content-free activity counts: `SourceObservationRepository.activitySince`, for the last day and
-//     the last week -- who/when metadata, never content;
+//   - the viewer's own current CHATS digests: `IntelligenceDigestRepository.forDomain(principal,
+//     'CHATS')` (`loadChatsDigests`) -- the principal-scoped read, which has no organization path and
+//     no role bypass. Nothing here reads anyone else's digests or any organization aggregate;
+//   - content-free activity: `SourceObservationRepository.activitySince` counts for the last day and
+//     the last week, and `recent` for when each conversation was last active (keys and instants only)
+//     -- who/when metadata, never content. It decides whether a digest is out of date, nothing more;
 //   - the flagged items: handed in by the caller from the `loadNeedsYou` it already made. This module
 //     never loads them itself, so a page loads them once and Home and Chats read the same list.
 //
 // EMPLOYEE-PRIVATE. The organization and the person are the signed session's (`principal`); every
 // read is scoped by both, and no role widens it.
 //
-// A FAILED ACTIVITY READ IS NULL, NEVER ZERO, and never throws. A failed STATUS read throws: the
-// caller settles it and says Chats could not be read, rather than drawing a disconnected account.
+// A FAILED ACTIVITY OR DIGEST READ IS NULL, NEVER ZERO OR "NONE", and never throws: each settles on
+// its own. A failed STATUS read throws: the caller settles it and says Chats could not be read,
+// rather than drawing a disconnected account.
 
 import 'server-only';
 
-import { SourceObservationRepository, prisma, type WorkPrincipal } from '@emgloop/database';
+import { IntelligenceDigestRepository, SourceObservationRepository, absentUntilMigrated, prisma, type WorkPrincipal } from '@emgloop/database';
 import { createTimeView, resolveDisplayTimeZone } from '@emgloop/shared';
 
 import type { AuthSession } from '../auth/auth';
 import { sourceConnections } from '../connections/source-connection-runtime';
 import { connectionPresentation } from '../app/app/_connections/source-connections-panel';
 import { readerTimeZone } from './reader-zone';
-import { CHATS_PROVIDER, type ChatsActivity, type ChatsConnection, type ChatsIntelligenceInput, type ChatsItem } from './chats-intelligence';
+import { CHATS_PROVIDER, type ChatsActivity, type ChatsConnection, type ChatsDigest, type ChatsIntelligenceInput, type ChatsItem } from './chats-intelligence';
 import type { NeedsYouItem } from './needs-you';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** How many of the newest observations are read to know when each conversation was last active. */
+const LATEST_ACTIVITY_WINDOW = 500;
 
 /** A flagged item as Chats reads it: the minimized fields, never a body, never a link. */
 export function chatsItemOf(item: NeedsYouItem): ChatsItem {
@@ -40,7 +47,29 @@ export function chatsItemOf(item: NeedsYouItem): ChatsItem {
     nextStep: item.nextStep,
     deadline: item.deadline,
     at: item.at,
+    conversationKey: item.conversationKey ?? null,
   };
+}
+
+/**
+ * The viewer's OWN current CHATS digests: the principal-scoped read, and only that. The principal is
+ * the one the page built from the signed session; the repository scopes at the data layer, so no
+ * caller here can name a wider scope. Before the digests migration reaches a database there are
+ * none, which is what this returns (never a failure dressed as an empty list: any other error throws).
+ */
+export async function loadChatsDigests(principal: WorkPrincipal, now: Date): Promise<ChatsDigest[]> {
+  const records = await absentUntilMigrated(new IntelligenceDigestRepository(prisma).forDomain(principal, 'CHATS', { now }));
+  return (records ?? []).map((d) => ({
+    subjectRef: d.subjectRef,
+    content: d.content,
+    coverage: d.coverage,
+    status: d.status,
+    windowEnd: d.windowEnd,
+    expiresAt: d.expiresAt,
+    generatedAt: d.generatedAt,
+    lastEvidenceAt: d.lastEvidenceAt,
+    evidenceCount: d.evidenceCount,
+  }));
 }
 
 export async function loadChatsInput(args: {
@@ -76,13 +105,32 @@ export async function loadChatsInput(args: {
       .then((a) => ({ since, messages: a.messages, conversations: a.conversations }))
       .catch(() => null);
   };
-  // Nothing to count for a person who cannot view connections: said as unknown, not as zero.
-  const [activity24h, activity7d] = connection ? await Promise.all([activity(DAY_MS), activity(7 * DAY_MS)]) : [null, null];
+  // When each conversation was last active: keys and instants only, newest first, first seen wins.
+  const latestActivity = (): Promise<ReadonlyMap<string, Date> | null> =>
+    observations
+      .recent(organizationId, principal.userId, CHATS_PROVIDER, LATEST_ACTIVITY_WINDOW)
+      .then((rows) => {
+        const latest = new Map<string, Date>();
+        for (const row of rows) if (!latest.has(row.conversationKey)) latest.set(row.conversationKey, row.occurredAt);
+        return latest;
+      })
+      .catch(() => null);
+  // Loop's own reading of the viewer's conversations. Settled on its own: a failed read is null
+  // (said as "could not read"), never an empty list.
+  const digests = (): Promise<ChatsDigest[] | null> => loadChatsDigests(principal, now).catch(() => null);
+
+  // Nothing to read for a person who cannot view connections: said as unknown, not as zero.
+  const [activity24h, activity7d, latest, read] = connection
+    ? await Promise.all([activity(DAY_MS), activity(7 * DAY_MS), latestActivity(), digests()])
+    : [null, null, null, null];
 
   return {
     connection,
+    digests: read,
     items: args.needsYou.filter((i) => i.provider === CHATS_PROVIDER).map(chatsItemOf),
     activity24h,
     activity7d,
+    latestActivity: latest,
+    now,
   };
 }

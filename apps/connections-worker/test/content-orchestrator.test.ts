@@ -26,9 +26,30 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { conversationKeyOf } from '@emgloop/shared';
-import type { DueContent, TelegramConversationTriageInput, TelegramConversationTriageResult, TelegramTriageObligation, TelegramTriageConversation, WorkItemDetection, WorkPrincipal } from '@emgloop/database';
+import type {
+  DueContent,
+  IntelligenceDigestInput,
+  TelegramConversationReading,
+  TelegramConversationTriageInput,
+  TelegramConversationTriageResult,
+  TelegramTriageObligation,
+  TelegramTriageConversation,
+  WorkItemDetection,
+  WorkPrincipal,
+} from '@emgloop/database';
+import { digestContentRefusals } from '@emgloop/shared';
 
-import { runContentSweep, type ContentSweepPorts, type ContentAdapter, type ContentObservationResult, type ContentWindowResult } from '../src/content-orchestrator';
+import {
+  buildConversationDigest,
+  conversationDigestCoverage,
+  conversationDigestFingerprint,
+  runContentSweep,
+  type ContentSweepPorts,
+  type ContentAdapter,
+  type ContentObservationResult,
+  type ContentWindowResult,
+  type ConversationIntelligenceWrite,
+} from '../src/content-orchestrator';
 import type { TelegramContentMessage, TelegramConversationWindow } from '../src/telegram/telegram-content';
 
 const SECRET = 'conv-secret';
@@ -109,8 +130,34 @@ const PROVENANCE = {
   recordedAt: '2026-09-21T10:00:00Z',
 };
 
-function triaged(items: readonly TelegramTriageObligation[], evaluatedFloor: string): TelegramConversationTriageResult {
-  return { outcome: 'TRIAGED', items, limitations: [], provenance: PROVENANCE, evaluatedFloorProviderEventId: evaluatedFloor };
+/** A v4 conversation reading, anchors already keyed (as the service returns it). No body, no quote. */
+function reading(over: Partial<TelegramConversationReading> = {}): TelegramConversationReading {
+  return {
+    relevance: 'BUSINESS',
+    summary: 'A client is waiting on a revised quote for the install.',
+    topics: ['Install quote'],
+    developments: [{ anchorProviderEventId: `${CONV_KEY}:10`, statement: 'The client asked for a revised quote' }],
+    decisions: [{ anchorProviderEventId: `${CONV_KEY}:10`, statement: 'The install moves to the second week' }],
+    commitments: [{ anchorProviderEventId: `${CONV_KEY}:10`, statement: 'The person promised numbers soon' }],
+    signals: [
+      { kind: 'OPPORTUNITY', anchorProviderEventId: `${CONV_KEY}:10`, statement: 'A signed quote would book the job' },
+      { kind: 'RISK', anchorProviderEventId: `${CONV_KEY}:10`, statement: 'The client may go elsewhere if it slips' },
+      { kind: 'OPERATIONAL', anchorProviderEventId: `${CONV_KEY}:10`, statement: 'The crew schedule depends on the date' },
+    ],
+    unresolved: 'The revised quote has not been sent',
+    attention: { needed: true, reason: 'The client is waiting on the quote' },
+    confidence: 'MEDIUM',
+    ...over,
+  };
+}
+
+function triaged(
+  items: readonly TelegramTriageObligation[],
+  evaluatedFloor: string,
+  conversation: TelegramConversationReading | null = reading(),
+  limitations: readonly string[] = [],
+): TelegramConversationTriageResult {
+  return { outcome: 'TRIAGED', items, conversation, limitations, provenance: PROVENANCE, evaluatedFloorProviderEventId: evaluatedFloor };
 }
 
 const obligation = (
@@ -134,6 +181,8 @@ interface Recorder {
   progress: { due: DueContent; contentCursor: string | null; failureClass: string | null; backoffUntil: Date | null }[];
   triageInputs: TelegramConversationTriageInput[];
   windows: string[]; // the raw chat ids a window was fetched for -- one entry per conversation reviewed
+  digests: { principal: WorkPrincipal; digest: IntelligenceDigestInput }[];
+  order: string[]; // the sink calls, in order: 'raise' | 'resolve' | 'digest' | 'progress'
 }
 
 function ports(opts: {
@@ -143,8 +192,9 @@ function ports(opts: {
   credential?: string | null;
   triage?: (input: TelegramConversationTriageInput) => TelegramConversationTriageResult;
   observeFlood?: number;
+  digest?: (digest: IntelligenceDigestInput, principal: WorkPrincipal) => ConversationIntelligenceWrite;
 }): { ports: ContentSweepPorts; rec: Recorder } {
-  const rec: Recorder = { raised: [], reconciled: [], progress: [], triageInputs: [], windows: [] };
+  const rec: Recorder = { raised: [], reconciled: [], progress: [], triageInputs: [], windows: [], digests: [], order: [] };
   const adapter: ContentAdapter = {
     provider: 'TELEGRAM',
     async resume() {
@@ -174,12 +224,21 @@ function ports(opts: {
         return (opts.triage ?? ((i) => triaged([obligation('10', 'paraphrase, no body')], i.evaluatedFloorProviderEventId)))(input);
       },
       raiseWorkItem: async (principal, detection) => {
+        rec.order.push('raise');
         rec.raised.push({ principal, detection });
       },
       resolveObligations: async (_principal, subjectRef, kept, evaluatedFloor) => {
+        rec.order.push('resolve');
         rec.reconciled.push({ subjectRef, kept, evaluatedFloor });
       },
+      recordConversationIntelligence: async (principal, digest) => {
+        rec.order.push('digest');
+        const outcome = (opts.digest ?? (() => ({ outcome: 'WRITTEN' as const })))(digest, principal);
+        rec.digests.push({ principal, digest });
+        return outcome;
+      },
       recordContentProgress: async (due, p) => {
+        rec.order.push('progress');
         rec.progress.push({ due, contentCursor: p.contentCursor, failureClass: p.failureClass, backoffUntil: p.backoffUntil });
       },
       contentPageSize: 50,
@@ -474,3 +533,187 @@ test('A-activity does not reread B: a new message in conversation A triages A on
   assert.equal(rec.triageInputs[0]!.conversationKey, CONV_KEY_A, 'the review is for A');
   assert.ok(!rec.triageInputs.some((i) => i.conversationKey === CONV_KEY_B), 'B (unchanged) is never reread');
 });
+
+// --- Chats Intelligence: the conversation reading becomes the person's private CHATS digest ------
+
+test('ONE CALL, BOTH OUTPUTS: one triage per conversation yields its obligations AND its digest, in that order, then the cursor', async () => {
+  const window = () => ({ window: windowOf(['8', '9', '10']) });
+  const { ports: p, rec } = ports({ due: [due('5')], messages: [newMsg('9'), newMsg('10')], window });
+  const summary = await runContentSweep(p);
+  assert.equal(rec.triageInputs.length, 1, 'exactly one governed invocation for the conversation');
+  assert.equal(rec.raised.length, 1, 'the obligation is still a WorkItem, exactly as before');
+  assert.equal(rec.digests.length, 1, 'and the same call produced the digest');
+  assert.deepEqual(rec.order, ['raise', 'resolve', 'digest', 'progress'], 'obligations, reconcile, digest -- and only then the cursor');
+  assert.equal(summary.digestsWritten, 1);
+  assert.equal(rec.progress[0]!.contentCursor, '10', 'the cursor advanced after the digest was stored');
+});
+
+test('the digest is the authorization principal\'s, keyed to the conversation, CONTENT_AUTHORIZATION, over the evaluated window', async () => {
+  const window = () => ({ window: windowOf(['8', '9', '10']) });
+  const { ports: p, rec } = ports({ due: [due('5')], messages: [newMsg('10')], window });
+  await runContentSweep(p);
+  const { principal, digest } = rec.digests[0]!;
+  assert.deepEqual(principal, { organizationId: ORG, userId: USER }, 'the authorization\'s own (org, user) -- nobody else');
+  assert.equal(digest.domain, 'CHATS');
+  assert.equal(digest.subjectKind, 'CONVERSATION');
+  assert.equal(digest.subjectRef, `telegram_conversation:${CONV_KEY}`, 'the same keyed subject the WorkItems use');
+  assert.equal(digest.subjectRef, rec.raised[0]!.detection.subjectRef);
+  assert.equal(digest.provider, 'TELEGRAM');
+  assert.equal(digest.consentBasis, 'CONTENT_AUTHORIZATION', 'the repository re-checks this consent inside the write');
+  assert.equal(digest.scope, undefined, 'PRINCIPAL by default; never ORGANIZATION');
+  assert.equal(digest.evidenceCount, 3, 'the messages in the evaluated window');
+  assert.equal(digest.windowStart.getTime(), (1_700_000_000 + 8) * 1000);
+  assert.equal(digest.windowEnd.getTime(), (1_700_000_000 + 10) * 1000);
+  assert.equal(digest.lastEvidenceAt!.getTime(), (1_700_000_000 + 10) * 1000, 'the newest message anchors the 30-day expiry');
+  assert.equal(digest.coverage, 'CONNECTED_SUFFICIENT');
+  assert.equal(digest.aiInvocationId, 'inv-777');
+  assert.deepEqual({ ...digest.provenance }, {
+    sourceRefs: [`telegram_conversation:${CONV_KEY}`],
+    anchorEventIds: [`${CONV_KEY}:10`],
+    aiInvocationId: 'inv-777',
+    taskId: 'telegram.content.triage',
+    taskVersion: '2.1.0',
+    schemaId: 'telegram-content-triage.v4',
+    producerVersion: 'telegram.content.triage@2.1.0',
+  });
+  assert.deepEqual(digestContentRefusals(digest.content), [], 'the content passes the digest contract');
+});
+
+test('MAPPING: v4 reading -> DigestContent (signals split by kind, decisions as developments, attention only when needed, limitations kept)', () => {
+  const w = windowOf(['10']);
+  const d = buildConversationDigest(w, triaged([], `${CONV_KEY}:10`, reading(), ['Older context not shown']) as any, false, new Date('2026-09-21T10:00:00Z'))!;
+  assert.deepEqual({ ...d.content }, {
+    relevance: 'BUSINESS',
+    synthesis: 'A client is waiting on a revised quote for the install.',
+    topics: ['Install quote'],
+    developments: ['The client asked for a revised quote', 'Decided: The install moves to the second week'],
+    commitments: ['The person promised numbers soon'],
+    opportunities: ['A signed quote would book the job'],
+    concerns: ['The client may go elsewhere if it slips'],
+    operational: ['The crew schedule depends on the date'],
+    unresolved: ['The revised quote has not been sent'],
+    attention: 'The client is waiting on the quote',
+    confidence: 'MEDIUM',
+    limitations: ['Older context not shown'],
+  });
+  const quiet = buildConversationDigest(w, triaged([], '', reading({ attention: { needed: false, reason: null }, unresolved: null, signals: [] })) as any, false, new Date())!;
+  assert.equal('attention' in quiet.content, false, 'no attention field when the reading found no reason');
+  assert.deepEqual(quiet.content.unresolved, [], 'nothing open is an honest empty list');
+  // Blank limitations never reach the digest (they would be refused as EMPTY_STRING).
+  const blanks = buildConversationDigest(w, triaged([], '', reading(), ['  ', 'real one']) as any, false, new Date())!;
+  assert.deepEqual(blanks.content.limitations, ['real one']);
+  assert.equal(buildConversationDigest({ conversationKey: CONV_KEY, messages: [] }, triaged([], '') as any, false, new Date()), null, 'no window, no digest');
+});
+
+test('MINIMIZATION: no body, no raw id, no per-message sender name reaches the digest', async () => {
+  const MARKER = 'BODYMARKER-digest-never-99';
+  const window = (): ContentWindowResult => ({ window: windowOf(['42'], 'NONE', { '42': MARKER }, { label: DISPLAY_NAME, kind: 'GROUP' }, GROUP_SENDER) });
+  const { ports: p, rec } = ports({ due: [due('5')], messages: [newMsg('42', { senderLabel: GROUP_SENDER })], window });
+  await runContentSweep(p);
+  const json = JSON.stringify(rec.digests[0]!.digest);
+  for (const never of [MARKER, RAW_CHAT, RAW_SENDER, GROUP_SENDER]) assert.ok(!json.includes(never), never);
+  for (const key of ['body', 'text', 'quote', 'message', 'messages', 'transcript']) assert.equal(key in rec.digests[0]!.digest.content, false, key);
+});
+
+test('COVERAGE: truncated -> PARTIAL; a null reading or an empty UNCLEAR/LOW one -> INSUFFICIENT; otherwise SUFFICIENT', () => {
+  assert.equal(conversationDigestCoverage(reading(), false), 'CONNECTED_SUFFICIENT');
+  assert.equal(conversationDigestCoverage(reading(), true), 'CONNECTED_PARTIAL');
+  assert.equal(conversationDigestCoverage(null, false), 'CONNECTED_INSUFFICIENT');
+  assert.equal(conversationDigestCoverage(null, true), 'CONNECTED_INSUFFICIENT', 'could-not-tell outranks truncation');
+  const empty = reading({ relevance: 'UNCLEAR', confidence: 'LOW', developments: [], decisions: [], commitments: [], signals: [], unresolved: null });
+  assert.equal(conversationDigestCoverage(empty, false), 'CONNECTED_INSUFFICIENT');
+  assert.equal(conversationDigestCoverage({ ...empty, confidence: 'MEDIUM' }, false), 'CONNECTED_SUFFICIENT', 'a confident UNCLEAR is a reading');
+  assert.equal(conversationDigestCoverage(reading({ relevance: 'NOT_BUSINESS', developments: [], decisions: [], commitments: [], signals: [], unresolved: null, confidence: 'HIGH' }), false), 'CONNECTED_SUFFICIENT', 'small talk, read fully, is sufficient');
+});
+
+test('a null reading is stored honestly: INSUFFICIENT, the model\'s limitations, nothing invented', async () => {
+  const triage = (i: TelegramConversationTriageInput) => triaged([], i.evaluatedFloorProviderEventId, null, ['Too little context to tell']);
+  const { ports: p, rec } = ports({ due: [due('5')], messages: [newMsg('10')], triage });
+  await runContentSweep(p);
+  const d = rec.digests[0]!.digest;
+  assert.equal(d.coverage, 'CONNECTED_INSUFFICIENT');
+  assert.deepEqual({ ...d.content }, { limitations: ['Too little context to tell'] });
+  assert.deepEqual([...d.provenance.anchorEventIds!], []);
+});
+
+test('FINGERPRINT: the same evidence fingerprints the same (UNCHANGED upstream); a new message changes it; keyed ids only', () => {
+  const ids = [`${CONV_KEY}:8`, `${CONV_KEY}:9`];
+  const a = conversationDigestFingerprint(CONV_KEY, ids, 'telegram-content-triage.v4');
+  assert.equal(a, conversationDigestFingerprint(CONV_KEY, [...ids], 'telegram-content-triage.v4'), 'stable across re-runs');
+  assert.notEqual(a, conversationDigestFingerprint(CONV_KEY, [...ids, `${CONV_KEY}:10`], 'telegram-content-triage.v4'), 'a new message moves it');
+  assert.notEqual(a, conversationDigestFingerprint(CONV_KEY, [...ids].reverse(), 'telegram-content-triage.v4'), 'order is part of the evidence');
+  assert.notEqual(a, conversationDigestFingerprint(CONV_KEY, ids, 'telegram-content-triage.v5'), 'a new contract re-reads');
+  assert.match(a, /^[A-Za-z0-9._:-]{1,128}$/, 'fits the repository fingerprint shape');
+  // The model's wording does NOT move it: a re-run over identical evidence is UNCHANGED, not a new version.
+  const w = windowOf(['8', '9']);
+  const one = buildConversationDigest(w, triaged([], '', reading({ summary: 'One wording.' })) as any, false, new Date())!;
+  const two = buildConversationDigest(w, triaged([], '', reading({ summary: 'Another wording.' })) as any, false, new Date())!;
+  assert.equal(one.fingerprint, two.fingerprint);
+});
+
+test('NO DIGEST without a TRIAGED answer: refused, failed, rejected or model-refused -> no digest, cursor semantics unchanged', async () => {
+  const cases: [TelegramConversationTriageResult, string][] = [
+    [{ outcome: 'NOT_AVAILABLE', refusals: ['BUDGET_TASK_EXHAUSTED' as any] }, '5'],
+    [{ outcome: 'FAILED', failure: 'TIMEOUT' }, '5'],
+    [{ outcome: 'REJECTED_OUTPUT', rejections: ['VERBATIM_CONTENT'] }, '10'],
+    [{ outcome: 'REFUSED_BY_MODEL' }, '10'],
+  ];
+  for (const [result, cursor] of cases) {
+    const { ports: p, rec } = ports({ due: [due('5')], messages: [newMsg('10')], triage: () => result });
+    await runContentSweep(p);
+    assert.equal(rec.digests.length, 0, `${result.outcome}: no digest`);
+    assert.equal(rec.raised.length, 0, `${result.outcome}: no WorkItem`);
+    assert.equal(rec.progress[0]!.contentCursor, cursor, `${result.outcome}: cursor ${cursor === '5' ? 'holds' : 'advances'} exactly as before`);
+  }
+});
+
+test('SINK BEFORE CURSOR: a digest write that THROWS holds the frontier (the sweep carries on with the next authorization)', async () => {
+  const other: DueContent = { organizationId: 'o2', userId: 'u2', provider: 'TELEGRAM', contentCursor: '5' };
+  const { ports: p, rec } = ports({
+    due: [due('5'), other],
+    messages: [newMsg('10')],
+    digest: (_d, principal) => {
+      if (principal.organizationId === ORG) throw new Error('database unavailable');
+      return { outcome: 'WRITTEN' };
+    },
+  });
+  const summary = await runContentSweep(p);
+  assert.equal(summary.held, 1, 'the failing authorization is held');
+  assert.equal(summary.swept, 1, 'the other one still runs');
+  assert.deepEqual(rec.progress.map((r) => [r.due.organizationId, r.contentCursor]), [['o2', '10']], 'no progress was recorded for the failing one: its cursor stays at 5');
+});
+
+test('CONSENT ENDED MID-SWEEP: CONSENT_NOT_IN_FORCE stops reading that authorization, holds its cursor, and the sweep continues', async () => {
+  const other: DueContent = { organizationId: 'o2', userId: 'u2', provider: 'TELEGRAM', contentCursor: '5' };
+  const { ports: p, rec } = ports({
+    due: [due('5'), other],
+    messages: [newMsg('10', { chatId: RAW_CHAT_A }), newMsg('11', { chatId: RAW_CHAT_B })],
+    window: (chatId) => ({ window: windowForChat(chatId, ['10']) }),
+    digest: (_d, principal) => (principal.organizationId === ORG ? { outcome: 'REFUSED', refusal: 'CONSENT_NOT_IN_FORCE' } : { outcome: 'WRITTEN' }),
+  });
+  const summary = await runContentSweep(p);
+  assert.deepEqual(rec.windows, [RAW_CHAT_A, RAW_CHAT_A, RAW_CHAT_B], 'o1 stopped after A (no further body read); o2 read A and B');
+  assert.equal(rec.windows.filter((c) => c === RAW_CHAT_B).length, 1, 'the refused authorization read ONE conversation, not two; o2 read its own B');
+  const held = rec.progress.find((r) => r.due.organizationId === ORG)!;
+  assert.equal(held.contentCursor, '5', 'held');
+  assert.equal(held.failureClass, 'CONSENT_NOT_IN_FORCE');
+  assert.equal(rec.progress.find((r) => r.due.organizationId === 'o2')!.contentCursor, '11', 'the next authorization advanced');
+  assert.equal(summary.digestsRefused, 1);
+  assert.equal(summary.digestsWritten, 2);
+});
+
+test('OTHER REFUSALS are counted and do not hold: an expired or contended digest never blocks the obligations', async () => {
+  for (const refusal of ['EXPIRED_AT_WRITE', 'CONTENDED', 'INVALID_CONTENT']) {
+    const { ports: p, rec } = ports({ due: [due('5')], messages: [newMsg('10')], digest: () => ({ outcome: 'REFUSED', refusal }) });
+    const summary = await runContentSweep(p);
+    assert.equal(summary.digestsRefused, 1, refusal);
+    assert.equal(rec.raised.length, 1, `${refusal}: the obligation was still raised`);
+    assert.equal(rec.progress[0]!.contentCursor, '10', `${refusal}: the cursor advances`);
+  }
+  // A worker deployed ahead of its migration: nothing written, nothing held, nothing re-spent.
+  const { ports: p, rec } = ports({ due: [due('5')], messages: [newMsg('10')], digest: () => ({ outcome: 'NOT_MIGRATED' }) });
+  const summary = await runContentSweep(p);
+  assert.equal(rec.progress[0]!.contentCursor, '10');
+  assert.deepEqual([summary.digestsWritten, summary.digestsUnchanged, summary.digestsRefused], [0, 0, 0]);
+});
+

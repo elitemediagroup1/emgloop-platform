@@ -14,13 +14,13 @@
 // never an empty tile of zeros.
 //
 // A TILE LEADS WHERE ITS DOMAIN LIVES. Mail, Chats and Calendar open their own pages. Only a source
-// that is NOT CONNECTED leads to Connections ("Connect in Connections"); otherwise Connections appears
-// nowhere on a tile.
+// that is NOT CONNECTED -- or, for Chats, whose content consent is off -- leads to Connections;
+// otherwise Connections appears nowhere on a tile.
 //
 // PURE. No loader, no clock beyond the TimeView handed in, no I/O.
 
 import { HEALTH_BAND_LABEL, counted, type CallGridBrief, type TimeView } from '@emgloop/shared';
-import type { ChatsIntelligence } from '../../../daily-loop/chats-intelligence';
+import { chatsNeedsConnections, type ChatsIntelligence } from '../../../daily-loop/chats-intelligence';
 import type { BriefingSourceState, BriefingToday, WorkPosture } from './briefing';
 import type { HomeKpiStrip } from './kpis';
 
@@ -164,9 +164,12 @@ function mailTile(input: TilesInput, item: TileNavItem): HomeTile | null {
 // --- Chats ---------------------------------------------------------------------------------------------
 
 /**
- * The Chats tile is the Chats domain's own reading of the viewer's conversations -- its figure, its
- * summary and its status, verbatim. Nothing here reads a message, another person's conversations, or
- * the connector; a conversation that needs the viewer is Chats intelligence, never a Headline.
+ * The Chats tile is the Chats domain's own composition (`composeChatsIntelligence`) at its shallowest
+ * depth: the same statement the Chats page leads with, its business-conversation figure, and how
+ * current Loop's reading is -- verbatim. Nothing here reads a message, another person's conversations,
+ * the digests or the connector; a conversation that needs the viewer is Chats intelligence, never a
+ * Headline. It leads to Chats whenever Telegram is connected, intelligence or not; to Connections only
+ * when setup or the content consent is actually required (`chatsNeedsConnections`).
  */
 function chatsTile(input: TilesInput, item: TileNavItem): HomeTile | null {
   const base = { key: 'chats' as const, href: item.href, label: item.label, icon: item.icon, linkLabel: `Open ${item.label}`, note: null, status: null };
@@ -174,21 +177,33 @@ function chatsTile(input: TilesInput, item: TileNavItem): HomeTile | null {
   if (read === null) return null;
   if (!read.ok) return { ...base, metric: null, lines: [], state: 'UNAVAILABLE', stateLine: 'Could not be read' };
   const c = read.value;
-  const lines = c.summary.slice(0, 2);
+  const status = [c.status, c.coverage.words].filter((x): x is string => x !== null).join(' · ') || null;
+  const setup = chatsNeedsConnections(c.state) && offered(input, TILE_PATHS.connections) !== null;
   switch (c.state) {
     case 'NOT_PERMITTED':
       return null;
     case 'NOT_AVAILABLE':
-      return { ...base, metric: null, lines: [], state: 'NOT_AVAILABLE', stateLine: lines[0] ?? 'Not available on this deployment yet.', status: c.status };
+      return { ...base, metric: null, lines: [], state: 'NOT_AVAILABLE', stateLine: c.statement, status };
     case 'NOT_CONNECTED':
-      return { ...base, ...connectWay(input, item), metric: null, lines: [], state: 'NOT_CONNECTED', stateLine: 'Not connected', status: c.status };
+      return { ...base, ...connectWay(input, item), metric: null, lines: [], state: 'NOT_CONNECTED', stateLine: 'Not connected', status };
+    case 'CONSENT_OFF':
+      return {
+        ...base,
+        ...(setup ? { href: TILE_PATHS.connections, linkLabel: 'Turn on AI triage in Connections' } : {}),
+        metric: c.metric,
+        lines: [],
+        state: 'NOT_READ',
+        stateLine: c.statement,
+        status,
+      };
     case 'UNAVAILABLE':
-      return { ...base, metric: null, lines: [], state: 'UNAVAILABLE', stateLine: lines[0] ?? 'Could not be read', status: c.status };
-    case 'QUIET':
-      return { ...base, metric: c.metric, lines, state: 'EMPTY', stateLine: null, status: c.status };
-    case 'ACTIVE':
+      return { ...base, metric: null, lines: [], state: 'UNAVAILABLE', stateLine: c.statement, status };
+    case 'NO_INTELLIGENCE_YET':
+      return { ...base, metric: c.metric, lines: [], state: 'NOT_READ', stateLine: c.statement, status };
+    case 'STALE':
+    case 'CURRENT':
     default:
-      return { ...base, metric: c.metric, lines, state: 'OK', stateLine: null, status: c.status };
+      return { ...base, metric: c.metric, lines: [c.statement], state: 'OK', stateLine: null, status };
   }
 }
 

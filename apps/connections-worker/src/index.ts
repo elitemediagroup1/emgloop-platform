@@ -6,6 +6,8 @@
 //   3. runs the retention sweeps every six hours -- content-free observations past the horizon, and
 //      the derived (model-produced) work of a connection disconnected past the §21.2 grace window --
 //      and
+//   (with AI on, the two content sweeps triage conversations and store each one's obligations as
+//   WorkItems and its minimized reading as the person's private CHATS digest -- one governed call each),
 //   4. serves the signed control endpoints the Loop web tier calls to drive an interactive
 //      Telegram login and to disconnect.
 //
@@ -17,6 +19,7 @@
 
 import {
   ConnectionSecretSealer,
+  IntelligenceDigestRepository,
   SourceConnectionRepository,
   SourceBaselineCheckpointRepository,
   SourceContentAuthorizationRepository,
@@ -36,6 +39,7 @@ import { createDbObservationSink } from './observation-sink';
 import { runObservationSweep, type SweepPorts } from './orchestrator';
 import { runBaselineSweep, type BaselinePorts } from './baseline-orchestrator';
 import { runContentSweep, type ContentSweepPorts } from './content-orchestrator';
+import { createConversationIntelligenceRecorder } from './conversation-intelligence-sink';
 import { runHistoricalContentSweep, type HistoricalContentSweepPorts } from './historical-content-orchestrator';
 import { runDerivedRetentionSweep, type DerivedRetentionPorts } from './derived-retention';
 import { createWorkerAiRuntime } from './ai-runtime';
@@ -58,6 +62,7 @@ async function main(): Promise<void> {
   const baselines = new SourceBaselineCheckpointRepository(prisma);
   const contentAuthorizations = new SourceContentAuthorizationRepository(prisma);
   const workItems = new WorkItemRepository(prisma);
+  const digests = new IntelligenceDigestRepository(prisma);
   const sealer = new ConnectionSecretSealer(config.connectionSecretKey);
   const sink = createDbObservationSink(prisma);
 
@@ -230,6 +235,12 @@ async function main(): Promise<void> {
   const contentRaise = consentedRaise('content');
   const historicalRaise = consentedRaise('historical_content');
 
+  // Store one conversation's reading as the person's private CHATS digest (Chats Intelligence): the
+  // repository re-checks consent and membership inside its write; refusals are counted per sweep and
+  // logged as counts only; a database failure throws so the sweep holds (conversation-intelligence-sink.ts).
+  const contentDigests = createConversationIntelligenceRecorder(digests, 'content', log);
+  const historicalDigests = createConversationIntelligenceRecorder(digests, 'historical_content', log);
+
   // --- The FORWARD CONTENT-triage sweep ports (INDEPENDENT of the live and baseline sweeps) ------
   // These share the credential opener but have NO port that could write the live observation cursor or
   // the baseline checkpoint -- they advance ONLY the content cursor. Bodies are read transiently, judged
@@ -242,6 +253,7 @@ async function main(): Promise<void> {
     triage: (principal, input) => aiRuntime.service.triage(principal, input),
     raiseWorkItem: contentRaise.raiseWorkItem,
     resolveObligations,
+    recordConversationIntelligence: contentDigests.record,
     async recordContentProgress(due, progress) {
       await contentAuthorizations.recordContentProgress(due.organizationId, due.userId, due.provider, {
         contentCursor: progress.contentCursor,
@@ -266,6 +278,7 @@ async function main(): Promise<void> {
       log('content_error', { name: (err as Error)?.name ?? 'error' });
     } finally {
       contentRaise.flush();
+      contentDigests.flush();
       contentSweeping = false;
     }
   }
@@ -282,6 +295,7 @@ async function main(): Promise<void> {
     triage: (principal, input) => aiRuntime.service.triage(principal, input),
     raiseWorkItem: historicalRaise.raiseWorkItem,
     resolveObligations,
+    recordConversationIntelligence: historicalDigests.record,
     async recordHistoricalProgress(due, progress) {
       await contentAuthorizations.recordHistoricalProgress(due.organizationId, due.userId, due.provider, {
         historicalCursor: progress.historicalCursor,
@@ -308,6 +322,7 @@ async function main(): Promise<void> {
       log('historical_content_error', { name: (err as Error)?.name ?? 'error' });
     } finally {
       historicalRaise.flush();
+      historicalDigests.flush();
       historicalContentSweeping = false;
     }
   }
@@ -320,6 +335,8 @@ async function main(): Promise<void> {
   //    also refuses a connection that is live again. Counts only are logged.
   // 3. Domain-intelligence digests past their own `expiresAt` (§21.3 INTELLIGENCE_DIGESTS, 30 days),
   //    platform-wide by time. Counts only.
+  // (The digest purge below uses its own repository instance on the same client; `digests` above is the
+  // content sweeps' writer.)
   const derivedRetentionPorts: DerivedRetentionPorts = {
     dueForDerivedExpiry: (now) => connections.dueForDerivedExpiry(now, 500),
     expireDerivedWork: (due, now) => connections.expireDerivedWork(due.organizationId, due.userId, due.provider, { now }),

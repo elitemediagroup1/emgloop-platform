@@ -9,7 +9,8 @@
 //   intelligence    the open Headlines and how many are under investigation, or the governed
 //                   attention statement when there are none (executive seat only);
 //   communications  the viewer's OWN mail (the Mail domain's counts) and chats (the Chats domain's
-//                   conversations that need them) -- always "you", never another person's;
+//                   count of the viewer's own obligations -- conversations that need them; no digest
+//                   content is fed into the briefing) -- always "you", never another person's;
 //   day             the next meeting and when, or that none are left; and the viewer's work from the
 //                   Work OS rows' own dates.
 //
@@ -174,12 +175,15 @@ function chatsClause(input: NarrativeInput): string | null {
     case 'NOT_CONNECTED':
       return 'Telegram isn’t connected';
     case 'UNAVAILABLE':
-      return 'Loop cannot use your Telegram connection right now';
+      if (c.unavailable === 'CONNECTION') return 'Loop cannot use your Telegram connection right now';
+      break;
     default:
-      return c.conversations.length > 0
-        ? `${counted(c.conversations.length, 'Telegram conversation needs', 'Telegram conversations need')} you`
-        : 'Loop flagged no Telegram conversation for you';
+      break;
   }
+  // The viewer's own obligations (Work OS), counted -- never a digest's words.
+  return c.obligations.length > 0
+    ? `${counted(c.obligations.length, 'Telegram conversation needs', 'Telegram conversations need')} you`
+    : 'Loop flagged no Telegram conversation for you';
 }
 
 function communicationsSentence(input: NarrativeInput): NarrativeSentence | null {

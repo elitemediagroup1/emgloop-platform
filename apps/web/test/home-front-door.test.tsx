@@ -26,7 +26,7 @@ import { kpiWords, HOME_KPI_KEYS, projectHomeKpis, type HomeKpiInput, type HomeK
 import { projectTiles, TILE_PATHS, type TilesInput } from '../src/app/app/_home/tiles';
 import { HeadlinesPanel, KpiStrip, ToolsGrid, HEADLINES_ON_HOME } from '../src/app/app/_home/front-door-view';
 import type { HeadlineStanding } from '../src/app/app/_home/front-door-data';
-import { chatsIntelligence, type ChatsIntelligenceInput, type ChatsItem } from '../src/daily-loop/chats-intelligence';
+import { composeChatsIntelligence, type ChatsIntelligenceInput, type ChatsItem } from '../src/daily-loop/chats-intelligence';
 import { HEALTH_BAND_LABEL, type CallGridBrief } from '@emgloop/shared';
 
 const NY = 'America/New_York';
@@ -149,11 +149,27 @@ const CHAT_ITEMS: ChatsItem[] = [
 ];
 const CHATS: ChatsIntelligenceInput = {
   connection: { configured: true, state: 'READY', label: 'Ready', contentAuthorized: true },
+  // The viewer's OWN current Chats digest: Loop's reading of one business conversation.
+  digests: [
+    {
+      subjectRef: 'telegram_conversation:ck_ops',
+      content: { relevance: 'BUSINESS', synthesis: 'The ops group is weighing another pest-control traffic source', developments: ['A new source was proposed'], confidence: 'MEDIUM' },
+      coverage: 'CONNECTED_SUFFICIENT',
+      status: 'CURRENT',
+      windowEnd: new Date(NOW.getTime() - 3600_000),
+      expiresAt: new Date(NOW.getTime() + 29 * 24 * 3600_000),
+      generatedAt: new Date(NOW.getTime() - 3600_000),
+      lastEvidenceAt: new Date(NOW.getTime() - 3600_000),
+      evidenceCount: 9,
+    },
+  ],
   items: CHAT_ITEMS,
   activity24h: { since: new Date(NOW.getTime() - 24 * 3600_000), messages: 14, conversations: 5 },
   activity7d: null,
+  latestActivity: new Map(),
+  now: NOW,
 };
-const chats = (over: Partial<ChatsIntelligenceInput> = {}) => ({ ok: true as const, value: chatsIntelligence({ ...CHATS, ...over }) });
+const chats = (over: Partial<ChatsIntelligenceInput> = {}) => ({ ok: true as const, value: composeChatsIntelligence({ ...CHATS, ...over }) });
 /** The Overview's own brief, as `executiveBrief` returns it: a band, its reason, what changed. */
 const BRIEF: CallGridBrief = {
   band: 'HEALTHY',
@@ -393,8 +409,12 @@ describe('Your tools & spaces: a tile only where the rail leads, each its domain
 
   it('Chats is the Chats domain’s reading and routes to Chats; Calendar says the day and routes to Calendar', () => {
     const c = tileByKey(tilesInput(), 'chats')!;
-    const reading = chatsIntelligence(CHATS);
-    assert.deepEqual([c.state, c.href, c.metric, c.lines, c.status], ['OK', '/app/chats', reading.metric, reading.summary.slice(0, 2), reading.status]);
+    const reading = composeChatsIntelligence(CHATS);
+    assert.deepEqual([c.state, c.href, c.metric, c.lines, c.status], ['OK', '/app/chats', reading.metric, [reading.statement], `${reading.status} · ${reading.coverage.words}`]);
+    assert.deepEqual(c.metric, { value: '1', label: 'business conversation' }, 'business is the digest’s relevance, never an activity count');
+    // Connected with no reading yet is still Chats, and says so -- never a summary built from counts.
+    const none = tileByKey(tilesInput({ chats: chats({ digests: [] }) }), 'chats')!;
+    assert.deepEqual([none.href, none.state, none.stateLine, none.lines], ['/app/chats', 'NOT_READ', 'Loop hasn’t generated Chats intelligence yet.', []]);
     assert.equal(c.linkLabel, 'Open Chats');
     const cal = tileByKey(tilesInput({ today: today({ events: [], inProgress: null, next: null }) }), 'calendar')!;
     assert.deepEqual([cal.href, cal.state, cal.stateLine, cal.metric], ['/app/calendar', 'EMPTY', 'No meetings on your calendar today.', { value: '0', label: 'meetings today' }]);

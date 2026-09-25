@@ -2408,6 +2408,13 @@ then `deploy`; confirm the SNS subscription (Part 7) → (6) Netlify production:
 production (Part 8), then `read-telegram-state` → (8) AI triage on (Part 9). Claude: after each step,
 run the probe and report; fixes as `fix/…` PRs.
 
+**Chats Intelligence (PR B, `feat/chats-intelligence`, 2026-09-25, producer half built, not committed at
+write time).** Triage task 3.0.0 / schema v4: the SAME one call now also returns a minimized conversation
+reading, stored as the person's CHATS digest (`intelligence_digests`, PR A). Routing `.8` raises the
+triage output ceiling 1000 -> 2000 (budget `.4-proposed`: per-call 2000, daily output 100k; invocations
+unchanged) -- needs Matt's approval with the PR. Digests arrive only on new messages or an armed backfill;
+no replay of completed history. Deploy order: PR A migration -> worker -> web.
+
 **Follow-ups recorded in #328.** DONE on `fix/detect-consent-recheck` (draft PR #331; the runbook's
 Part 9 gate, must merge before step 8): `WorkItemRepository.detect` re-checks content consent inside its
 own transaction, so an in-flight sweep can no longer write a derived item after a revoke or offboarding.
