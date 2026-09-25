@@ -42,7 +42,16 @@ import {
   type AiProviderClient,
   type AiProviderClientOptions,
 } from '@emgloop/providers/src/ai/adapters/sdk-clients';
-import { AI_ACTIVATION_OFF, AI_KILL_SWITCH_SCOPES, type AiActivation, type AiKillSwitch } from '@emgloop/shared';
+import {
+  AI_ACTIVATION_OFF,
+  AI_KILL_SWITCH_SCOPES,
+  AI_TASK_TELEGRAM_CONTENT_TRIAGE,
+  type AiActivation,
+  type AiBudgetPolicy,
+  type AiKillSwitch,
+  type AiRoutingPolicy,
+  type AiSpendSnapshot,
+} from '@emgloop/shared';
 import type { PrismaClient } from '@prisma/client';
 
 const LIST_ITEM = /^[A-Za-z0-9_.:@-]{1,200}$/;
@@ -91,6 +100,44 @@ export interface WorkerAiRuntime {
   readonly service: TelegramContentTriageService;
   /** True only when at least one provider on the triage route has a usable client AND is activated. */
   readonly enabled: boolean;
+  /**
+   * How many more `telegram.content.triage` invocations this organization could make NOW before the
+   * most binding daily invocation cap (task, organization or global window), read from the SAME durable
+   * ledger and windows the gateway admits against. Advisory: the gateway's own reservation remains
+   * authoritative. Used by the Chats Intelligence hydration to leave forward triage its reserve.
+   */
+  triageHeadroom(organizationId: string, at: Date): Promise<number>;
+}
+
+/**
+ * The telegram.content.triage invocation headroom in a spend snapshot: the smallest of (cap - used) over
+ * the task, organization and global windows. The task cap is read from the reviewed budget policy via the
+ * task's routing budget class -- never a literal. A missing route, class or unusable cap is 0 (fail closed).
+ */
+export function triageInvocationHeadroom(
+  spend: AiSpendSnapshot,
+  budget: AiBudgetPolicy = AI_BUDGET_POLICY,
+  routing: AiRoutingPolicy = AI_ROUTING_POLICY,
+): number {
+  const route = routing.tasks[AI_TASK_TELEGRAM_CONTENT_TRIAGE.taskId];
+  const cls = route ? budget.classes[route.budgetClass] : undefined;
+  if (!cls) return 0;
+  const room = (cap: number, used: number) => (Number.isFinite(cap) && cap > 0 ? cap - used : 0);
+  return Math.max(
+    0,
+    Math.min(
+      room(cls.taskDaily.maxInvocations, spend.task.invocations),
+      room(budget.organizationDaily.maxInvocations, spend.organization.invocations),
+      room(budget.globalDaily.maxInvocations, spend.global.invocations),
+    ),
+  );
+}
+
+/** The headroom reader over the durable ledger, for the organizations this activation names. */
+export function ledgerTriageHeadroom(prisma: PrismaClient, activeOrganizations: readonly string[]): (organizationId: string, at: Date) => Promise<number> {
+  const ledger = new DurableAiUsageLedger(prisma);
+  return async (organizationId, at) =>
+    triageInvocationHeadroom(await ledger.spend(organizationId, AI_TASK_TELEGRAM_CONTENT_TRIAGE.taskId, at, activeOrganizations));
 }
 
 /**
@@ -111,7 +158,11 @@ export function createWorkerAiRuntime(
   const now = options.now ?? (() => new Date());
 
   if (options.runtime) {
-    return { service: new TelegramContentTriageService({ runtime: options.runtime }), enabled: true };
+    return {
+      service: new TelegramContentTriageService({ runtime: options.runtime }),
+      enabled: true,
+      triageHeadroom: ledgerTriageHeadroom(prisma, parseList(env.LOOP_AI_ORGANIZATIONS)),
+    };
   }
 
   const listed = workerListedProviders(env);
@@ -177,5 +228,5 @@ function assemble(
     },
   );
   const enabled = activation.enabled && providers.length > 0 && Boolean(AI_ROUTING_POLICY.tasks['telegram.content.triage']);
-  return { service: new TelegramContentTriageService({ runtime: gateway }), enabled };
+  return { service: new TelegramContentTriageService({ runtime: gateway }), enabled, triageHeadroom: ledgerTriageHeadroom(prisma, activation.organizations) };
 }

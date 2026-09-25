@@ -432,3 +432,116 @@ test('a NOTHING_TO_DO revoke (no consent was ever given) withdraws nothing', { s
     await prisma.$disconnect();
   }
 });
+
+// --- Chats Intelligence hydration (2026-09-25) ------------------------------------------------------
+
+/** Authorize, arm the historical backfill on a COMPLETE baseline, and (optionally) complete it. */
+async function historicalComplete(prisma: PrismaClient, repo: SourceContentAuthorizationRepository, organizationId: string, userId: string, complete = true) {
+  await connection(prisma, organizationId, userId, 'LIVE-1');
+  await repo.authorize(organizationId, userId, 'TELEGRAM', { now: NOW, actor: actor(userId) });
+  await repo.enableHistoricalBackfill(organizationId, userId, 'TELEGRAM', { floorAt: FLOOR });
+  if (complete) await repo.recordHistoricalProgress(organizationId, userId, 'TELEGRAM', { historicalCursor: null, state: 'COMPLETE', now: NOW });
+}
+
+test('dueForChatsHydration: an already-authorized, backfill-COMPLETE person is due with NO re-authorization; routing-only; excludes revoked, backfill-armed, never-enabled, backed-off and COMPLETE', { skip }, async () => {
+  const prisma = new PrismaClient({ datasources: { db: { url: URL } } });
+  const repo = new SourceContentAuthorizationRepository(prisma);
+  try {
+    const { organizationId, users: [ready, revoked, armed, never, backed, done] } = await tenant(prisma, 'hydrdue', 6);
+    await historicalComplete(prisma, repo, organizationId, ready!);
+    await historicalComplete(prisma, repo, organizationId, revoked!);
+    await repo.revoke(organizationId, revoked!, 'TELEGRAM', { now: NOW, actor: actor(revoked!) });
+    await historicalComplete(prisma, repo, organizationId, armed!, false); // backfill still NOT_STARTED
+    await connection(prisma, organizationId, never!, 'LIVE-1');
+    await repo.authorize(organizationId, never!, 'TELEGRAM', { now: NOW, actor: actor(never!) }); // baseline never COMPLETE
+    await historicalComplete(prisma, repo, organizationId, backed!);
+    await repo.recordChatsHydrationProgress(organizationId, backed!, 'TELEGRAM', { cursor: 'D1', state: 'IN_PROGRESS', failureClass: 'FLOOD_WAIT', backoffUntil: new Date('2099-01-01T00:00:00Z'), now: NOW });
+    await historicalComplete(prisma, repo, organizationId, done!);
+    await repo.recordChatsHydrationProgress(organizationId, done!, 'TELEGRAM', { cursor: null, state: 'COMPLETE', schemaId: 'telegram-content-triage.v4', now: NOW });
+
+    // The migration default: an existing row is NOT_STARTED with nothing else set.
+    const fresh = await prisma.sourceContentAuthorization.findFirstOrThrow({ where: { organizationId, userId: ready! } });
+    assert.equal(fresh.intelligenceHydrationState, 'NOT_STARTED');
+    assert.equal(fresh.intelligenceHydrationCursor, null);
+    assert.equal(fresh.intelligenceHydrationFailedItems, 0);
+
+    const due = (await repo.dueForChatsHydration(500)).filter((d) => d.organizationId === organizationId);
+    assert.deepEqual(due.map((d) => d.userId), [ready], 'only the ready person');
+    assert.deepEqual(Object.keys(due[0]!).sort(), ['historicalWindowFloorAt', 'hydrationCursor', 'organizationId', 'provider', 'userId'], 'routing fields only');
+    assert.equal(due[0]!.historicalWindowFloorAt.toISOString(), FLOOR.toISOString());
+    assert.equal(due[0]!.hydrationCursor, null);
+
+    const doneRow = await prisma.sourceContentAuthorization.findFirstOrThrow({ where: { organizationId, userId: done! } });
+    assert.equal(doneRow.intelligenceHydrationSchemaId, 'telegram-content-triage.v4', 'COMPLETE records the schema it covered');
+  } finally {
+    await prisma.$disconnect();
+  }
+});
+
+test('recordChatsHydrationProgress advances ONLY the hydration columns (live, baseline, forward and historical cursors byte-identical); a revoke always wins; the CHECK refuses an unknown state', { skip }, async () => {
+  const prisma = new PrismaClient({ datasources: { db: { url: URL } } });
+  const repo = new SourceContentAuthorizationRepository(prisma);
+  try {
+    const { organizationId, users: [alice] } = await tenant(prisma, 'hydrimmut');
+    await baseline(prisma, organizationId, alice!, 'COMPLETE', 'BASELINE-CURSOR-IMMUTABLE');
+    await historicalComplete(prisma, repo, organizationId, alice!);
+    await repo.recordContentProgress(organizationId, alice!, 'TELEGRAM', { contentCursor: 'FORWARD-IMMUTABLE', now: NOW });
+    await repo.recordHistoricalProgress(organizationId, alice!, 'TELEGRAM', { historicalCursor: 'HIST-IMMUTABLE', state: 'COMPLETE', failedItemsDelta: 3, now: NOW });
+    const before = await prisma.sourceContentAuthorization.findFirstOrThrow({ where: { organizationId, userId: alice! } });
+
+    assert.equal(await repo.recordChatsHydrationProgress(organizationId, alice!, 'TELEGRAM', { cursor: 'D-7', state: 'IN_PROGRESS', failedItemsDelta: 2, schemaId: 'ignored-unless-complete', now: NOW }), true);
+    const row = await prisma.sourceContentAuthorization.findFirstOrThrow({ where: { organizationId, userId: alice! } });
+    assert.equal((await prisma.sourceConnection.findFirstOrThrow({ where: { organizationId, userId: alice! } })).cursor, 'LIVE-1');
+    assert.equal((await prisma.sourceBaselineCheckpoint.findFirstOrThrow({ where: { organizationId, userId: alice! } })).checkpointCursor, 'BASELINE-CURSOR-IMMUTABLE');
+    for (const k of ['contentCursor', 'historicalCursor', 'historicalState', 'historicalFailedItems', 'historicalLastRunAt', 'lastRunAt', 'lastFailureClass'] as const) {
+      assert.deepEqual(row[k], before[k], `${k} is byte-identical`);
+    }
+    assert.equal(row.intelligenceHydrationCursor, 'D-7');
+    assert.equal(row.intelligenceHydrationState, 'IN_PROGRESS');
+    assert.equal(row.intelligenceHydrationFailedItems, 2);
+    assert.equal(row.intelligenceHydrationSchemaId, null, 'the schema id is written only on COMPLETE');
+
+    await assert.rejects(
+      prisma.sourceContentAuthorization.update({ where: { id: row.id }, data: { intelligenceHydrationState: 'REVOKED' } }),
+      'the CHECK refuses a state outside NOT_STARTED | IN_PROGRESS | COMPLETE',
+    );
+
+    await repo.revoke(organizationId, alice!, 'TELEGRAM', { now: NOW, actor: actor(alice!) });
+    assert.equal(await repo.recordChatsHydrationProgress(organizationId, alice!, 'TELEGRAM', { cursor: 'D-8', state: 'COMPLETE', now: NOW }), false, 'a revoke wins');
+    const revoked = await prisma.sourceContentAuthorization.findFirstOrThrow({ where: { organizationId, userId: alice! } });
+    assert.equal(revoked.intelligenceHydrationCursor, 'D-7', 'the revoke left the columns as they were');
+    assert.equal(revoked.intelligenceHydrationState, 'IN_PROGRESS');
+  } finally {
+    await prisma.$disconnect();
+  }
+});
+
+test('re-authorizing AFTER a revoke resets hydration to NOT_STARTED (fresh consent, fresh initialization); re-affirming a LIVE authorization does not', { skip }, async () => {
+  const prisma = new PrismaClient({ datasources: { db: { url: URL } } });
+  const repo = new SourceContentAuthorizationRepository(prisma);
+  try {
+    const { organizationId, users: [alice] } = await tenant(prisma, 'hydrreauth');
+    await historicalComplete(prisma, repo, organizationId, alice!);
+    await repo.recordChatsHydrationProgress(organizationId, alice!, 'TELEGRAM', { cursor: null, state: 'COMPLETE', failedItemsDelta: 1, schemaId: 'telegram-content-triage.v4', now: NOW });
+
+    // Re-affirm while live: untouched.
+    await repo.authorize(organizationId, alice!, 'TELEGRAM', { now: NOW, actor: actor(alice!) });
+    let row = await prisma.sourceContentAuthorization.findFirstOrThrow({ where: { organizationId, userId: alice! } });
+    assert.equal(row.intelligenceHydrationState, 'COMPLETE');
+    assert.equal(row.intelligenceHydrationFailedItems, 1);
+
+    // Revoke, then re-authorize: reset, and due again.
+    await repo.revoke(organizationId, alice!, 'TELEGRAM', { now: NOW, actor: actor(alice!) });
+    assert.equal((await repo.dueForChatsHydration(500)).some((d) => d.userId === alice), false, 'revoked: never due');
+    await repo.authorize(organizationId, alice!, 'TELEGRAM', { now: NOW, actor: actor(alice!) });
+    row = await prisma.sourceContentAuthorization.findFirstOrThrow({ where: { organizationId, userId: alice! } });
+    assert.equal(row.intelligenceHydrationState, 'NOT_STARTED');
+    assert.equal(row.intelligenceHydrationCursor, null);
+    assert.equal(row.intelligenceHydrationFailedItems, 0);
+    assert.equal(row.intelligenceHydrationSchemaId, null);
+    assert.equal(row.historicalState, 'COMPLETE', 'the historical backfill is NOT re-armed');
+    assert.ok((await repo.dueForChatsHydration(500)).some((d) => d.userId === alice), 'eligible again');
+  } finally {
+    await prisma.$disconnect();
+  }
+});

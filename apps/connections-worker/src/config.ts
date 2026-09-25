@@ -66,9 +66,21 @@ export interface WorkerConfig {
   readonly historicalContentIntervalMs: number;
   /** How many conversations one historical backfill sweep pages per authorization (bounded). */
   readonly historicalConversationsPerSweep: number;
+  /** How often to run the Chats Intelligence HYDRATION sweep (digest-only initialization; min 60 s). */
+  readonly hydrationIntervalMs: number;
+  /** At most this many triage calls per authorization per hydration sweep (default 5, hard max 10). */
+  readonly hydrationConversationsPerSweep: number;
+  /**
+   * Triage invocations LEFT for forward triage: hydration stops for the day once the organization's
+   * telegram.content.triage headroom (daily cap minus used, the tightest window) is at or below this.
+   */
+  readonly hydrationBudgetReserve: number;
   /** Control server port. */
   readonly port: number;
 }
+
+/** The hard ceiling on hydration triage calls per authorization per sweep, whatever the environment says. */
+export const HYDRATION_CONVERSATIONS_PER_SWEEP_MAX = 10;
 
 export function readWorkerConfig(): WorkerConfig {
   const apiId = Number(required('TELEGRAM_API_ID'));
@@ -88,6 +100,12 @@ export function readWorkerConfig(): WorkerConfig {
     contentWindowDays: Math.min(365, Math.max(1, Number(process.env.LOOP_CONNECTION_CONTENT_WINDOW_DAYS ?? '30') || 30)),
     historicalContentIntervalMs: Math.max(15_000, Number(process.env.LOOP_CONNECTION_HISTORICAL_CONTENT_INTERVAL_MS ?? '120000') || 120_000),
     historicalConversationsPerSweep: Math.min(50, Math.max(1, Number(process.env.LOOP_CONNECTION_HISTORICAL_CONVERSATIONS_PER_SWEEP ?? '10') || 10)),
+    hydrationIntervalMs: Math.max(60_000, Number(process.env.LOOP_CONNECTION_CHATS_HYDRATION_INTERVAL_MS ?? '300000') || 300_000),
+    hydrationConversationsPerSweep: Math.min(
+      HYDRATION_CONVERSATIONS_PER_SWEEP_MAX,
+      Math.max(1, Math.floor(Number(process.env.LOOP_CONNECTION_CHATS_HYDRATION_CONVERSATIONS_PER_SWEEP ?? '5') || 5)),
+    ),
+    hydrationBudgetReserve: Math.min(1000, Math.max(1, Math.floor(Number(process.env.LOOP_CONNECTION_CHATS_HYDRATION_BUDGET_RESERVE ?? '20') || 20))),
     port: Math.max(1, Number(process.env.PORT ?? '8080') || 8080),
   };
 }

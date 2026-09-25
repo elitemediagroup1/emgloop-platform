@@ -6106,6 +6106,29 @@ model SourceContentAuthorization {
   /// Conversations the backfill advanced past on a PERMANENT triage failure -- counted, never silently lost.
   historicalFailedItems      Int       @default(0)
 
+  /// CHATS INTELLIGENCE INITIALIZATION ("hydration", 2026-09-25). A DIGEST-ONLY, one-off, resumable pass
+  /// that gives an already-authorized person a CHATS digest per recent conversation without waiting for a
+  /// new message. It writes ONLY digests -- never a WorkItem, never a reconciliation -- and is advanced ONLY
+  /// by the hydration sweep: PROVABLY INDEPENDENT of the live cursor, the baseline checkpoint, the forward
+  /// contentCursor and the historicalCursor. NOT_STARTED | IN_PROGRESS | COMPLETE (DB CHECK). Existing rows
+  /// default to NOT_STARTED, so every authorized person is eligible with no re-authorization. A revoke stops
+  /// it via revokedAt; a re-authorization after a revoke resets it to NOT_STARTED.
+  intelligenceHydrationState            String    @default("NOT_STARTED")
+  /// Opaque DIALOG-pagination frontier the hydration sweep resumes from. Distinct from every other cursor.
+  intelligenceHydrationCursor           String?
+  intelligenceHydrationLastRunAt        DateTime?
+  /// Last hydration failure class (AUTH | TRANSIENT | FLOOD_WAIT | HYDRATION_BUDGET_RESERVE |
+  /// REFUSED_BY_LOOP[:refusals] | CONSENT_NOT_IN_FORCE | NOT_AN_ACTIVE_MEMBER | NOT_MIGRATED). A class, never text.
+  intelligenceHydrationLastFailureClass String?
+  /// Set when the provider asked Loop to wait (FLOOD_WAIT): the hydration sweep holds until then.
+  intelligenceHydrationBackoffUntil     DateTime?
+  /// Conversations passed over on a PERMANENT triage failure -- counted, never silently lost (forward
+  /// triage still reads them when a new message arrives).
+  intelligenceHydrationFailedItems      Int       @default(0)
+  /// The triage output schema a COMPLETED hydration covered (e.g. telegram-content-triage.v4). Recorded so a
+  /// future schema bump can decide to re-arm by comparison; nothing re-arms on it today.
+  intelligenceHydrationSchemaId         String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -6115,6 +6138,7 @@ model SourceContentAuthorization {
   @@unique([organizationId, userId, provider])
   @@index([revokedAt, lastRunAt])
   @@index([historicalState, historicalLastRunAt])
+  @@index([intelligenceHydrationState, intelligenceHydrationLastRunAt], map: "source_content_authorizations_hydration_due_idx")
   @@map("source_content_authorizations")
 }
 
@@ -6129,7 +6153,7 @@ model SourceContentAuthorization {
 // ---------------------------------------------------------------------------
 
 model IntelligenceDigest {
-  id             String  @id @default(cuid())
+  id             String    @id @default(cuid())
   organizationId String
   /// PRINCIPAL (one person's) or ORGANIZATION (RESERVED -- refused until a separate decision).
   scope          String
@@ -6156,14 +6180,14 @@ model IntelligenceDigest {
   aiInvocationId String?
   /// Changes only when the digest's meaning changes; an unchanged fingerprint writes nothing.
   fingerprint    String
-  version        Int      @default(1)
+  version        Int       @default(1)
   /// CURRENT, STALE or WITHDRAWN.
   status         String
   generatedAt    DateTime
   /// Stamped at write from the retention policy; the worker's sweep deletes past it.
   expiresAt      DateTime
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   organization Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   membership   OrganizationMembership? @relation("IntelligenceDigestMember", fields: [userId, organizationId], references: [userId, organizationId], onDelete: Cascade)

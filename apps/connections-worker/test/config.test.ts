@@ -92,3 +92,20 @@ test('the fatal line carries the setting name for a configuration refusal, and o
   assert.deepEqual(fatalLogFields(null), { name: 'error' });
   assert.deepEqual(fatalLogFields({ name: '' }), { name: 'error' });
 });
+
+test('Chats Intelligence hydration bounds: defaults 5 calls / 5 min / reserve 20; the per-sweep hard max is 10 and the interval floor 60 s', () => {
+  const d = withEnv({}, () => readWorkerConfig());
+  assert.equal(d.hydrationConversationsPerSweep, 5);
+  assert.equal(d.hydrationIntervalMs, 300_000);
+  assert.equal(d.hydrationBudgetReserve, 20);
+  const high = withEnv(
+    { LOOP_CONNECTION_CHATS_HYDRATION_CONVERSATIONS_PER_SWEEP: '500', LOOP_CONNECTION_CHATS_HYDRATION_INTERVAL_MS: '1000', LOOP_CONNECTION_CHATS_HYDRATION_BUDGET_RESERVE: '30' },
+    () => readWorkerConfig(),
+  );
+  assert.equal(high.hydrationConversationsPerSweep, 10, 'hard max');
+  assert.equal(high.hydrationIntervalMs, 60_000, 'interval floor');
+  assert.equal(high.hydrationBudgetReserve, 30);
+  const junk = withEnv({ LOOP_CONNECTION_CHATS_HYDRATION_CONVERSATIONS_PER_SWEEP: 'lots', LOOP_CONNECTION_CHATS_HYDRATION_BUDGET_RESERVE: '0' }, () => readWorkerConfig());
+  assert.equal(junk.hydrationConversationsPerSweep, 5, 'unreadable -> default');
+  assert.equal(junk.hydrationBudgetReserve, 20, 'zero is not a reserve -> default');
+});

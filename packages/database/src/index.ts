@@ -810,7 +810,13 @@ export type { SourceObservationRow } from './repositories/source-observation.rep
 // observation cursor -- the baseline path never writes source_connections.
 export { SourceBaselineCheckpointRepository } from './repositories/source-baseline.repository';
 export type { BaselineCheckpointRecord, DueBaseline, BaselineProgress, BaselineWriteOutcome } from './repositories/source-baseline.repository';
-export { SourceContentAuthorizationRepository, contentAuthorizedInTx, revokeContentAuthorizationsInTx } from './repositories/source-content-authorization.repository';
+export {
+  SourceContentAuthorizationRepository,
+  CONTENT_AUTHORIZATION_COLUMNS,
+  chatsHydrationColumnsPresent,
+  contentAuthorizedInTx,
+  revokeContentAuthorizationsInTx,
+} from './repositories/source-content-authorization.repository';
 export type {
   ContentAuthorizationRecord,
   DueContent,
@@ -819,6 +825,9 @@ export type {
   DueHistoricalContent,
   HistoricalContentProgress,
   HistoricalContentState,
+  ChatsHydrationState,
+  ChatsHydrationProgress,
+  DueChatsHydration,
 } from './repositories/source-content-authorization.repository';
 export { SourceConnectionService } from './services/connections/source-connection.service';
 export type {

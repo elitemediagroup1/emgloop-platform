@@ -39,7 +39,9 @@
 // says the person's consent or membership has ENDED (CONSENT_NOT_IN_FORCE, NOT_AN_ACTIVE_MEMBER) the rest
 // of this authorization's conversations are not read at all (no more bodies after the write layer said
 // no) and its cursor holds. Digests are produced ONLY when triage runs: a new text message past the
-// frontier, or a still-armed historical backfill -- there is no replay of already-read history.
+// frontier, a still-armed historical backfill, or the one-off DIGEST-ONLY Chats Intelligence hydration
+// (chats-hydration-orchestrator.ts: conversations with no current digest, no WorkItem written) -- there
+// is no other replay of already-read history.
 
 import { createHash } from 'node:crypto';
 
