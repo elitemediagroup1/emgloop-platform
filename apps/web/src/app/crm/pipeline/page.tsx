@@ -5,6 +5,7 @@ import { requirePermission } from '../../../auth/guard';
 import { PIPELINE_STATUSES } from '@emgloop/database';
 import { movePipelineAction } from '../../../crm/actions';
 import { viewerTime } from '../../../time/viewer-time';
+import { OrganizationReadingSection } from '../../../intelligence/domain-reading-section';
 
 // Intake Board — customer intake statuses (Customer.attributes.pipelineStatus),
 // not the canonical Opportunity pipeline.
@@ -60,6 +61,7 @@ export default async function PipelinePage() {
           </Link>
         </span>
       </div>
+      <OrganizationReadingSection domain="PIPELINE" title="Intake reading" />
 
       {totalPeople === 0 ? (
         <div className="crm-panel crm-empty" style={{ marginTop: '1rem' }}>

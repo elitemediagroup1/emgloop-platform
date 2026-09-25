@@ -63,7 +63,10 @@ export interface IntelligenceDomainEntry {
   readonly surfaces: readonly string[];
   readonly home: IntelligenceHomeDecision;
   readonly readAuthority: IntelligenceReadAuthority;
-  /** The governed AI task that writes this domain's reading today, or null when none is commissioned. */
+  /**
+   * The governed AI task that writes this domain's model reading, when that task is ACTIVATED. Defined is
+   * not commissioned: every task but Chats' is inactive until the deployment lists it (LOOP_AI_TASKS).
+   */
   readonly readingTask: string | null;
   /** Whether this domain's readings may later feed a synthesis (within the eligibility its scope gives). */
   readonly synthesis: 'CONTRIBUTES' | 'EXCLUDED';
@@ -94,7 +97,7 @@ export const INTELLIGENCE_DOMAIN_REGISTRY: readonly IntelligenceDomainEntry[] = 
     surfaces: ['/app/mail'],
     home: { tile: 'mail' },
     readAuthority: SELF,
-    readingTask: null,
+    readingTask: 'mail.domain.reading',
     synthesis: 'CONTRIBUTES',
     evidenceFamilies: ['COMMUNICATION'],
   },
@@ -106,7 +109,7 @@ export const INTELLIGENCE_DOMAIN_REGISTRY: readonly IntelligenceDomainEntry[] = 
     surfaces: ['/app/calendar'],
     home: { tile: 'calendar' },
     readAuthority: SELF,
-    readingTask: null,
+    readingTask: 'calendar.domain.reading',
     synthesis: 'CONTRIBUTES',
     evidenceFamilies: ['SCHEDULE'],
   },
@@ -118,7 +121,7 @@ export const INTELLIGENCE_DOMAIN_REGISTRY: readonly IntelligenceDomainEntry[] = 
     surfaces: ['/app/admin/marketplace'],
     home: { tile: 'callgrid' },
     readAuthority: { permission: 'intelligence:view', workspace: 'ADMIN' },
-    readingTask: null,
+    readingTask: 'callgrid.domain.reading',
     synthesis: 'CONTRIBUTES',
     evidenceFamilies: ['CALL_ECONOMICS'],
   },
@@ -130,7 +133,7 @@ export const INTELLIGENCE_DOMAIN_REGISTRY: readonly IntelligenceDomainEntry[] = 
     surfaces: ['/app/admin/marketplace/campaigns'],
     home: { tile: 'campaigns' },
     readAuthority: { permission: 'intelligence:view', workspace: 'ADMIN' },
-    readingTask: null,
+    readingTask: 'campaigns.domain.reading',
     synthesis: 'CONTRIBUTES',
     evidenceFamilies: ['CALL_ECONOMICS'],
   },
@@ -142,7 +145,7 @@ export const INTELLIGENCE_DOMAIN_REGISTRY: readonly IntelligenceDomainEntry[] = 
     surfaces: ['/crm/pipeline'],
     home: { tile: 'intake' },
     readAuthority: { permission: 'pipeline:view', workspace: null },
-    readingTask: null,
+    readingTask: 'pipeline.domain.reading',
     synthesis: 'CONTRIBUTES',
     evidenceFamilies: ['LEAD_INTAKE', 'WEB_ACTIVITY'],
   },
@@ -154,7 +157,7 @@ export const INTELLIGENCE_DOMAIN_REGISTRY: readonly IntelligenceDomainEntry[] = 
     surfaces: ['/app/crm/people'],
     home: { tile: null, reason: 'People is a record surface; Home leads with the domains that change daily, and CRM readings reach Home only through a future synthesis.' },
     readAuthority: { permission: 'identityResolution:view', workspace: null },
-    readingTask: null,
+    readingTask: 'crm.domain.reading',
     synthesis: 'CONTRIBUTES',
     evidenceFamilies: ['CUSTOMER_RECORDS'],
   },
@@ -166,7 +169,7 @@ export const INTELLIGENCE_DOMAIN_REGISTRY: readonly IntelligenceDomainEntry[] = 
     surfaces: ['/app/admin/creator-hub'],
     home: { tile: 'creators' },
     readAuthority: { permission: null, workspace: 'ADMIN' },
-    readingTask: null,
+    readingTask: 'creators.domain.reading',
     synthesis: 'CONTRIBUTES',
     evidenceFamilies: ['CREATOR_RECORDS'],
   },
@@ -179,7 +182,7 @@ export const INTELLIGENCE_DOMAIN_REGISTRY: readonly IntelligenceDomainEntry[] = 
     surfaces: ['/app/admin/work'],
     home: { tile: 'work' },
     readAuthority: { permission: null, workspace: 'ADMIN' },
-    readingTask: null,
+    readingTask: 'work.domain.reading',
     synthesis: 'CONTRIBUTES',
     evidenceFamilies: ['WORK_RECORDS'],
   },
@@ -188,10 +191,11 @@ export const INTELLIGENCE_DOMAIN_REGISTRY: readonly IntelligenceDomainEntry[] = 
     label: 'Website',
     aka: ['Traffic', 'Analytics', 'website intelligence'],
     scopes: ['ORGANIZATION'],
-    surfaces: ['/crm/traffic', '/crm/analytics'],
-    home: { tile: null, reason: 'No Home tile is approved for website traffic; it is read on Traffic and Analytics, and reaches Home only as Intake when it produces a lead.' },
+    // /crm/analytics holds website events; /crm/traffic is CALL traffic (CallGrid), not website traffic.
+    surfaces: ['/crm/analytics'],
+    home: { tile: null, reason: 'No Home tile is approved for website traffic; it is read on Analytics, and reaches Home only as Intake when it produces a lead.' },
     readAuthority: { permission: 'analytics:view', workspace: null },
-    readingTask: null,
+    readingTask: 'website.domain.reading',
     synthesis: 'CONTRIBUTES',
     evidenceFamilies: ['WEB_ACTIVITY'],
   },

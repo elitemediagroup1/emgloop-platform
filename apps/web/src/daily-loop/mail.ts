@@ -74,7 +74,8 @@ export interface MailView {
   readonly knows: boolean;
 }
 
-const GMAIL_CONFIG = () => {
+/** The Gmail read configuration this server holds (also the Mail intelligence pass's read-through). */
+export const GMAIL_CONFIG = () => {
   const env = readGoogleEnvironment();
   return { prisma, google: env.state === 'CONFIGURED' ? env : null, signingKeys: googleSigningKeys() };
 };

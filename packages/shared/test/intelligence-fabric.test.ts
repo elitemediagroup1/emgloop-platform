@@ -238,10 +238,13 @@ test('the source registry: every source feeds registered domains in a scope thos
   for (const d of INTELLIGENCE_DOMAIN_REGISTRY) assert.doesNotMatch(d.domain, /TELEGRAM|GMAIL|GOOGLE|ANTHROPIC|OPENAI/);
 });
 
-test('reading tasks: only Chats has one today, and it is the existing triage task (no new production task in PR 2)', () => {
-  const withTask = INTELLIGENCE_DOMAIN_REGISTRY.filter((d) => d.readingTask !== null);
-  assert.deepEqual(withTask.map((d) => [d.domain, d.readingTask]), [['CHATS', 'telegram.content.triage']]);
-  assert.ok(AI_TASKS.some((t) => t.taskId === 'telegram.content.triage'));
+test('reading tasks: every domain names a defined task (Phase E); only Chats names the existing production task', () => {
+  for (const d of INTELLIGENCE_DOMAIN_REGISTRY) {
+    assert.ok(d.readingTask, `${d.domain} names its reading task`);
+    assert.ok(AI_TASKS.some((t) => t.taskId === d.readingTask), `${d.readingTask} is a defined task`);
+  }
+  assert.equal(INTELLIGENCE_DOMAIN_REGISTRY.find((d) => d.domain === 'CHATS')!.readingTask, 'telegram.content.triage');
+  assert.equal(new Set(INTELLIGENCE_DOMAIN_REGISTRY.map((d) => d.readingTask)).size, INTELLIGENCE_DOMAIN_REGISTRY.length, 'one task per domain, so each is activated and killed on its own');
 });
 
 // --- domain-reading.v1 ----------------------------------------------------------------------------

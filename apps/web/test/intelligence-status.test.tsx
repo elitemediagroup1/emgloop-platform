@@ -403,9 +403,13 @@ describe('page render never enqueues or runs intelligence (Loop Intelligence PR 
         const p = join(dir, f);
         return statSync(p).isDirectory() ? walk(p) : /\.(ts|tsx)$/.test(f) ? [p] : [];
       });
+    // The ONE exception (Phase E): the scheduled Mail pass ROUTE, which hosts the Mail producers because
+    // only this server holds each person's Gmail read-through. A route a scheduler POSTs to; never a render.
+    const MAIL_PASS = join(SRC, 'app', 'api', 'internal', 'intelligence', 'mail', 'route.ts');
     for (const file of walk(SRC)) {
+      if (file === MAIL_PASS) continue;
       const src = code(readFileSync(file, 'utf8'));
-      for (const forbidden of ['.enqueue(', 'runIntelligenceProducerCycle', '.claim(', 'upsertOrganization(', 'DomainReadingService']) {
+      for (const forbidden of ['.enqueue(', 'runIntelligenceProducerCycle', 'runIntelligencePass', 'loopProducers', '.claim(', 'upsertOrganization(', 'DomainReadingService']) {
         assert.equal(src.includes(forbidden), false, `${file} must not call ${forbidden}`);
       }
     }

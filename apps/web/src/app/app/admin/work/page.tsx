@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { loadWorkDashboard, type QueueRow } from './work-data';
 import { requireWorkspace } from '../../../../workspaces/guard';
 import { viewerTime } from '../../../../time/viewer-time';
+import { OrganizationReadingSection } from '../../../../intelligence/domain-reading-section';
 
 // Work OS — the operating surface for getting work done.
 //
@@ -85,6 +86,7 @@ export default async function WorkOSPage() {
           <Link href={startHref} className="adm-btn adm-btn--primary cmd-head__cta">Start Work</Link>
         </header>
 
+        <OrganizationReadingSection domain="WORK" title="Work reading" />
         <div className="tiles">
 
           {/* ── Row 1 ─────────────────────────────── */}

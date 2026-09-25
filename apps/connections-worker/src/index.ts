@@ -47,6 +47,7 @@ import { runHistoricalContentSweep, type HistoricalContentSweepPorts } from './h
 import { runChatsHydrationSweep, type ChatsHydrationSweepPorts } from './chats-hydration-orchestrator';
 import { runDerivedRetentionSweep, type DerivedRetentionPorts } from './derived-retention';
 import { createWorkerAiRuntime } from './ai-runtime';
+import { createIntelligenceHost, readIntelligenceHostConfig } from './intelligence-host';
 import { TelegramAdapter } from './telegram/telegram-adapter';
 import { createTelegramClientPort, createTelegramLoginPort } from './telegram/telegram-client';
 import { TelegramLoginCoordinator, type TelegramLoginBinding } from './telegram/telegram-login';
@@ -464,6 +465,12 @@ async function main(): Promise<void> {
   // The Chats Intelligence HYDRATION sweep, likewise ONLY with the governed AI runtime enabled.
   const hydrationTimer = aiRuntime.enabled ? setInterval(() => void hydration(), config.hydrationIntervalMs) : null;
   log('ai_runtime', { contentTriage: aiRuntime.enabled ? 'enabled' : 'off' });
+  // Loop Intelligence producers: scheduled ONLY when LOOP_INTELLIGENCE_PRODUCERS names one (unset everywhere).
+  const intelligenceConfig = readIntelligenceHostConfig(process.env);
+  const intelligence = await createIntelligenceHost(prisma, intelligenceConfig, aiRuntime, log);
+  const intelligenceTimer = intelligence.scheduled ? setInterval(() => void intelligence.pass(), intelligenceConfig.intervalMs) : null;
+  log('intelligence_producers', { scheduled: intelligence.scheduled, active: intelligenceConfig.producers.length - intelligence.unknownProducers.length, unknown: intelligence.unknownProducers.length });
+  if (intelligence.scheduled) void intelligence.pass();
   void sweep();
   void purge();
   void baseline();
@@ -478,6 +485,7 @@ async function main(): Promise<void> {
     if (contentTimer) clearInterval(contentTimer);
     if (historicalContentTimer) clearInterval(historicalContentTimer);
     if (hydrationTimer) clearInterval(hydrationTimer);
+    if (intelligenceTimer) clearInterval(intelligenceTimer);
     server.close();
     void prisma.$disconnect();
     log('worker_stopping');

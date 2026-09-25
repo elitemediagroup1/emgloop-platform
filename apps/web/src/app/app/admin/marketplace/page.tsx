@@ -9,6 +9,7 @@ import { loadExecutiveAnalysis, topPriorities, executiveBrief } from "./executiv
 import { TodaysBrief, TopPriorities } from "./executive-ui";
 import { loadOrFallback } from "../../../../demo/db-health";
 import { requireWorkspacePermission } from "../../../../workspaces/guard";
+import { OrganizationReadingSection } from '../../../../intelligence/domain-reading-section';
 
 export const dynamic = "force-dynamic";
 
@@ -84,6 +85,7 @@ export default async function CallGridOverviewPage({ searchParams }: { searchPar
 
   return (
     <CommandShell ctx={ctx} active="overview" path={BASE} executive={executive}>
+      <OrganizationReadingSection domain="CALLGRID" title="CallGrid reading" />
       <div className="cgx-grid">
         <Card title="Call volume" action={{ label: "Money", href: withQuery(`${BASE}/money`, query) }}>
           {facts ? (

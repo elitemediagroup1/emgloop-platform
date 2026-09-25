@@ -9,6 +9,7 @@ import { readerTimeZone } from '../../../daily-loop/reader-zone';
 import WorkspaceShell from '../../../workspaces/WorkspaceShell';
 import { LoopPage, PageHead } from '../_loop-os/record';
 import { CalendarView } from './_calendar/calendar-view';
+import { PrincipalReadingSection } from '../../../intelligence/domain-reading-section';
 
 // CALENDAR -- the viewer's own day. A domain page, not configuration.
 //
@@ -56,6 +57,7 @@ export default async function CalendarPage() {
           subtitle="Your own day: what is on now, what is next, and what is clear."
         />
         <CalendarView day={day} time={time} />
+        <PrincipalReadingSection domain="CALENDAR" title="Your day, read" connectionLive={day !== null && day !== 'UNAVAILABLE'} />
       </LoopPage>
     </WorkspaceShell>
   );

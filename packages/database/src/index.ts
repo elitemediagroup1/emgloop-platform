@@ -436,6 +436,15 @@ export type { KeyedConversationReading, ConversationDigestOptions } from './serv
 export type { IntelligenceProducerDescriptor } from './services/intelligence-fabric/catalog';
 export type { ProducerLoopDeps, ProducerLoopOptions, ProducerLoopReport } from './services/intelligence-fabric/producer-loop';
 export { DomainReadingService } from './services/ai-runtime/domain-reading.service';
+// Loop Intelligence Phase E: every domain producer, assembled (never activated) from its ports.
+export { loopProducers, parseActingUsers, principalResolver } from './services/intelligence-fabric/loop-producers';
+export type { LoopProducerPorts } from './services/intelligence-fabric/loop-producers';
+export { runIntelligencePass } from './services/intelligence-fabric/intelligence-pass';
+export { gmailMailReadThrough, trimQuotedHistory } from './services/intelligence-fabric/domains/mail-read-through';
+export { MailContentTriageService } from './services/ai-runtime/mail-content-triage.service';
+export type { IntelligencePassDeps, IntelligencePassReport } from './services/intelligence-fabric/intelligence-pass';
+export type { WebsiteEvidenceReader, WebsiteFacts } from './services/intelligence-fabric/domains/records';
+export { DomainFactsRepository } from './repositories/intelligence/domain-facts.repository';
 // Loop Intelligence Phase C: Promote to Work, the one bridge from intelligence to Work OS.
 export { PromoteToWorkService } from './services/work/promote-to-work.service';
 export type { PromoteActor, PromoteConfirmation, PromotePreview, PromoteResult } from './services/work/promote-to-work.service';

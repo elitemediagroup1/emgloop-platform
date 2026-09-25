@@ -1,0 +1,78 @@
+# Run the Mail intelligence pass on a schedule (Loop Intelligence Phase E).
+#
+# THE DUMBEST POSSIBLE TRIGGER, like detect-callgrid-intelligence.yml: it holds a secret and makes one
+# POST. Who is read, how, and what is kept all live in the route
+# (apps/web/src/app/api/internal/intelligence/mail/route.ts), which hosts the Mail producers because
+# only the web server holds each person's governed Gmail read-through.
+#
+# OFF UNTIL SWITCHED ON -- AND OFF BEHIND THAT. Nothing runs unless the repository variable
+# INTELLIGENCE_MAIL_ENABLED is exactly `true`. Even then the route does nothing unless the deployment
+# names the Mail producers (LOOP_INTELLIGENCE_MAIL_PRODUCERS), records the counterparty-consent
+# governance decision (LOOP_MAIL_CONTENT_GOVERNANCE_DECISION -- UNRESOLVED today), activates the mail
+# tasks, and records a provider policy for COMMUNICATION_CONTENT; and each person must have authorized
+# their own mail content. See docs/runbooks/loop-intelligence-commissioning.md, section D.
+#
+# Secrets, named here and never printed:
+#   INTELLIGENCE_MAIL_URL      https://<host>/api/internal/intelligence/mail
+#   INTELLIGENCE_MAIL_SECRET   the same value as the Netlify environment variable of that name
+
+name: Run Mail Intelligence
+
+on:
+  schedule:
+    - cron: '23 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: run-mail-intelligence
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Stop unless the Mail intelligence pass has been switched on
+        id: gate
+        env:
+          ENABLED: ${{ vars.INTELLIGENCE_MAIL_ENABLED }}
+        run: |
+          set -euo pipefail
+          if [ "${ENABLED:-}" != "true" ]; then
+            echo "INTELLIGENCE_MAIL_ENABLED is not 'true'. The Mail intelligence pass is OFF and nothing was called."
+            {
+              echo "### The Mail intelligence pass is not enabled"
+              echo ""
+              echo "Nothing was called."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+
+      - name: POST the Mail intelligence endpoint
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          MAIL_URL: ${{ secrets.INTELLIGENCE_MAIL_URL }}
+          MAIL_SECRET: ${{ secrets.INTELLIGENCE_MAIL_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "${MAIL_URL:-}" ] || [ -z "${MAIL_SECRET:-}" ]; then
+            echo "::error::INTELLIGENCE_MAIL_URL and INTELLIGENCE_MAIL_SECRET must both be set while the pass is switched on."
+            exit 1
+          fi
+          response=$(curl --silent --show-error --fail-with-body \
+            --max-time 60 \
+            --request POST "${MAIL_URL}" \
+            --header "authorization: Bearer ${MAIL_SECRET}" \
+            --header 'content-type: application/json')
+          echo "$response"
+          {
+            echo "### Mail intelligence pass"
+            echo '```json'
+            echo "$response"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -4,6 +4,7 @@ import { absentUntilMigrated } from '@emgloop/database';
 import { creatorDomain, EMG_HREFS } from '../../../../creator/creator-runtime';
 import { LoopPage, PageHead, StateBlock } from '../../_loop-os/record';
 import { RefusedBlock, RosterView, TRAIL } from './_shared';
+import { OrganizationReadingSection } from '../../../../intelligence/domain-reading-section';
 
 // EMG Creator Operations — the roster (design pass §10: Operations → Creators).
 //
@@ -31,6 +32,7 @@ export default async function CreatorRosterPage({ searchParams }: { searchParams
         }
       />
       <RefusedBlock refused={searchParams?.refused} />
+      <OrganizationReadingSection domain="CREATORS" title="Creator Hub reading" />
       {rows === null ? (
         <StateBlock kind="unavailable" title="The Creator Hub is not available on this deployment yet." body="Its database migration has not been applied here. Nothing is wrong with the existing records." />
       ) : (

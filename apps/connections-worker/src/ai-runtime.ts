@@ -163,6 +163,12 @@ export interface WorkerAiRuntime {
    * authoritative. Used by the Chats Intelligence hydration to leave forward triage its reserve.
    */
   triageHeadroom(organizationId: string, at: Date): Promise<number>;
+  /**
+   * Loop Intelligence: the SAME governed gateway, for the domain producers the worker hosts, and the
+   * task ids this deployment activated. A task not listed is never called (the domain kit checks first).
+   */
+  readonly runtime: TelegramContentTriageRuntime;
+  readonly activatedTasks: readonly string[];
 }
 
 /**
@@ -247,6 +253,8 @@ export function createWorkerAiRuntime(
       service: new TelegramContentTriageService({ runtime: options.runtime }),
       enabled: true,
       triageHeadroom: ledgerTriageHeadroom(prisma, parseList(env.LOOP_AI_ORGANIZATIONS)),
+      runtime: options.runtime,
+      activatedTasks: parseList(env.LOOP_AI_TASKS),
     };
   }
 
@@ -325,6 +333,8 @@ function assemble(
   const enabled = providers.length > 0 && workerTriageRunnable(activation);
   return {
     service: new TelegramContentTriageService({ runtime: gateway }),
+    runtime: gateway,
+    activatedTasks: activation.enabled ? activation.tasks : [],
     enabled,
     triageHeadroom: ledgerTriageHeadroom(prisma, activation.organizations, controls),
   };
