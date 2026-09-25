@@ -15,7 +15,16 @@ import assert from 'node:assert/strict';
 
 import { AI_TRIAGE_LIMITS, conversationKeyOf } from '@emgloop/shared';
 import { estimateTelegramTriageContextTokens } from '@emgloop/database';
-import type { DueHistoricalContent, TelegramConversationTriageInput, TelegramConversationTriageResult, TelegramTriageObligation, WorkItemDetection, WorkPrincipal } from '@emgloop/database';
+import type {
+  DueHistoricalContent,
+  IntelligenceDigestInput,
+  TelegramConversationTriageInput,
+  TelegramConversationTriageResult,
+  TelegramTriageObligation,
+  WorkItemDetection,
+  WorkPrincipal,
+} from '@emgloop/database';
+import type { ConversationIntelligenceWrite } from '../src/content-orchestrator';
 
 import { gatherConversationWindow, minimizeDisplayLabel, type TelegramContentMessage, type TelegramConversationWindow } from '../src/telegram/telegram-content';
 import { runHistoricalContentSweep, type HistoricalContentSweepPorts, type HistoricalContentAdapter, type HistoricalConversationsResult } from '../src/historical-content-orchestrator';
@@ -145,7 +154,20 @@ function windowOf(key: string, ids: number[], bodyOver: Record<number, string> =
 }
 
 function triaged(items: readonly TelegramTriageObligation[], evaluatedFloor: string): TelegramConversationTriageResult {
-  return { outcome: 'TRIAGED', items, limitations: [], provenance: PROVENANCE, evaluatedFloorProviderEventId: evaluatedFloor };
+  const key = evaluatedFloor.split(':')[0] ?? CONV_KEY;
+  const conversation = {
+    relevance: 'BUSINESS' as const,
+    summary: 'A client is chasing an answer.',
+    topics: ['Answer'],
+    developments: [{ anchorProviderEventId: evaluatedFloor || `${key}:10`, statement: 'The client asked for an answer' }],
+    decisions: [],
+    commitments: [],
+    signals: [],
+    unresolved: null,
+    attention: { needed: false, reason: null },
+    confidence: 'MEDIUM' as const,
+  };
+  return { outcome: 'TRIAGED', items, conversation, limitations: [], provenance: PROVENANCE, evaluatedFloorProviderEventId: evaluatedFloor };
 }
 
 interface Recorder {
@@ -153,6 +175,8 @@ interface Recorder {
   reconciled: { subjectRef: string; kept: readonly string[]; evaluatedFloor: string }[];
   progress: { historicalCursor: string | null; state: string; failureClass: string | null; backoffUntil: Date | null; failedItemsDelta: number }[];
   observeCalls: { cursor: string | null; maxConversations: number; floorAt: Date }[];
+  digests: { principal: WorkPrincipal; digest: IntelligenceDigestInput }[];
+  triaged: string[]; // the conversation keys a triage ran for
 }
 
 function ports(opts: {
@@ -160,8 +184,9 @@ function ports(opts: {
   page?: HistoricalConversationsResult;
   triage?: (input: TelegramConversationTriageInput) => TelegramConversationTriageResult;
   conversationsPerSweep?: number;
+  digest?: (digest: IntelligenceDigestInput, principal: WorkPrincipal) => ConversationIntelligenceWrite;
 }): { ports: HistoricalContentSweepPorts; rec: Recorder } {
-  const rec: Recorder = { raised: [], reconciled: [], progress: [], observeCalls: [] };
+  const rec: Recorder = { raised: [], reconciled: [], progress: [], observeCalls: [], digests: [], triaged: [] };
   const adapter: HistoricalContentAdapter = {
     provider: 'TELEGRAM',
     async resume() {
@@ -181,12 +206,17 @@ function ports(opts: {
       openCredential: async () => 'session',
       conversationSecret: SECRET,
       triage: async (_principal, input) =>
-        (opts.triage ?? ((i) => triaged([{ anchorProviderEventId: `${input.conversationKey}:10`, category: 'REQUEST', oneLineMeaning: 'do the thing', topic: '', nextStep: 'Do it', deadline: null }], i.evaluatedFloorProviderEventId)))(input),
+        (rec.triaged.push(input.conversationKey), opts.triage ?? ((i) => triaged([{ anchorProviderEventId: `${input.conversationKey}:10`, category: 'REQUEST', oneLineMeaning: 'do the thing', topic: '', nextStep: 'Do it', deadline: null }], i.evaluatedFloorProviderEventId)))(input),
       raiseWorkItem: async (_principal: WorkPrincipal, detection) => {
         rec.raised.push(detection);
       },
       resolveObligations: async (_principal, subjectRef, kept, evaluatedFloor) => {
         rec.reconciled.push({ subjectRef, kept, evaluatedFloor });
+      },
+      recordConversationIntelligence: async (principal, digest) => {
+        const outcome = (opts.digest ?? (() => ({ outcome: 'WRITTEN' as const })))(digest, principal);
+        rec.digests.push({ principal, digest });
+        return outcome;
       },
       recordHistoricalProgress: async (_due, p) => {
         rec.progress.push({ historicalCursor: p.historicalCursor, state: p.state, failureClass: p.failureClass, backoffUntil: p.backoffUntil, failedItemsDelta: p.failedItemsDelta });
@@ -262,3 +292,61 @@ test('historical: no raw body reaches the WorkItem, Telegram\'s label does, and 
   assert.ok(!keys.includes('recordContentProgress'), 'no forward content-cursor writer');
   assert.ok(!keys.includes('sink'), 'no observation sink');
 });
+
+// --- Chats Intelligence in the historical backfill -----------------------------------------------
+
+test('historical: each TRIAGED conversation also yields its digest from the SAME call -- principal-private, keyed, v4', async () => {
+  const { ports: p, rec } = ports({});
+  const summary = await runHistoricalContentSweep(p);
+  assert.equal(rec.triaged.length, 1, 'one invocation for the conversation');
+  assert.equal(rec.raised.length, 1, 'its obligation');
+  assert.equal(rec.digests.length, 1, 'and its digest');
+  const { principal, digest } = rec.digests[0]!;
+  assert.deepEqual(principal, { organizationId: ORG, userId: USER });
+  assert.equal(digest.subjectRef, `telegram_conversation:${CONV_KEY}`);
+  assert.equal(digest.consentBasis, 'CONTENT_AUTHORIZATION');
+  assert.equal(digest.evidenceCount, 2);
+  assert.equal(digest.provenance.schemaId, 'telegram-content-triage.v4');
+  assert.equal(summary.digestsWritten, 1);
+  assert.equal(rec.progress[0]!.state, 'COMPLETE');
+});
+
+test('historical: a failed or rejected triage writes no digest (and the page semantics are unchanged)', async () => {
+  const page: HistoricalConversationsResult = { conversations: [windowOf(CONV_KEY, [10])], nextCursor: 'C-next', reachedEnd: false };
+  const failed = ports({ page, triage: () => ({ outcome: 'FAILED', failure: 'timeout' }) });
+  await runHistoricalContentSweep(failed.ports);
+  assert.equal(failed.rec.digests.length, 0);
+  assert.equal(failed.rec.progress[0]!.historicalCursor, 'C0', 'held');
+  const rejected = ports({ page, triage: () => ({ outcome: 'REJECTED_OUTPUT', rejections: ['VERBATIM_CONTENT'] }) });
+  await runHistoricalContentSweep(rejected.ports);
+  assert.equal(rejected.rec.digests.length, 0);
+  assert.equal(rejected.rec.progress[0]!.historicalCursor, 'C-next', 'permanent: advanced and counted');
+  assert.equal(rejected.rec.progress[0]!.failedItemsDelta, 1);
+});
+
+test('historical: CONSENT_NOT_IN_FORCE on a digest stops the page (no further body is read) and HOLDS the frontier', async () => {
+  const KEY_B = conversationKeyOf('conversation', 'rawchat-other', SECRET);
+  const page: HistoricalConversationsResult = { conversations: [windowOf(CONV_KEY, [10]), windowOf(KEY_B, [20])], nextCursor: 'C-next', reachedEnd: true };
+  const { ports: p, rec } = ports({ page, digest: () => ({ outcome: 'REFUSED', refusal: 'CONSENT_NOT_IN_FORCE' }) });
+  const summary = await runHistoricalContentSweep(p);
+  assert.deepEqual(rec.triaged, [CONV_KEY], 'the second conversation was never sent to the model');
+  assert.equal(rec.progress[0]!.historicalCursor, 'C0', 'held');
+  assert.equal(rec.progress[0]!.failureClass, 'CONSENT_NOT_IN_FORCE');
+  assert.equal(summary.digestsRefused, 1);
+});
+
+test('historical: EXPIRED_AT_WRITE (a conversation older than digest retention) is counted, and the backfill still advances', async () => {
+  const { ports: p, rec } = ports({ digest: () => ({ outcome: 'REFUSED', refusal: 'EXPIRED_AT_WRITE' }) });
+  const summary = await runHistoricalContentSweep(p);
+  assert.equal(rec.raised.length, 1, 'the obligation stands');
+  assert.equal(rec.progress[0]!.state, 'COMPLETE');
+  assert.equal(summary.digestsRefused, 1);
+});
+
+test('historical: a digest write that THROWS holds the backfill (sink before frontier)', async () => {
+  const { ports: p, rec } = ports({ digest: () => { throw new Error('database unavailable'); } });
+  const summary = await runHistoricalContentSweep(p);
+  assert.equal(summary.held, 1);
+  assert.equal(rec.progress.length, 0, 'no progress recorded: the frontier stays where it was');
+});
+
