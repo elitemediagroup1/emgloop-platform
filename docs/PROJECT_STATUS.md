@@ -2408,25 +2408,11 @@ then `deploy`; confirm the SNS subscription (Part 7) → (6) Netlify production:
 production (Part 8), then `read-telegram-state` → (8) AI triage on (Part 9). Claude: after each step,
 run the probe and report; fixes as `fix/…` PRs.
 
-**Chats Intelligence (PR B, `feat/chats-intelligence`, 2026-09-25, producer half built, not committed at
-write time).** Triage task 3.0.0 / schema v4: the SAME one call now also returns a minimized conversation
-reading, stored as the person's CHATS digest (`intelligence_digests`, PR A). Routing `.8` raises the
-triage output ceiling 1000 -> 2000 (budget `.4-proposed`: per-call 2000, daily output 100k; invocations
-unchanged) -- needs Matt's approval with the PR. Digests arrive only on new messages or an armed backfill;
-no replay of completed history. Deploy order: PR A migration -> worker -> web.
-
-**Chats Intelligence initialization (PR C, `feat/chats-intelligence-hydration`, 2026-09-25, built, not
-committed at write time).** PR B's digests only arrive on a new message or an armed backfill, so people
-whose backfill COMPLETED before #338 had none. A DIGEST-ONLY hydration sweep in the worker
-(`chats-hydration-orchestrator.ts`) initializes them once, with no re-authorization: it reuses the
-historical pager, the same `telegram.content.triage` call and the same digest write (consent re-checked),
-skips conversations older than 30 days / the baseline floor or already digested (no model call), writes
-**no WorkItem and no reconciliation**, runs at most 5 calls per person per sweep (hard max 10) and stops
-at a budget reserve of 20 of the 50 daily triage invocations (read from the ledger). State on
-`source_content_authorizations.intelligenceHydration*` -- **migration
-`20261004000000_chats_intelligence_hydration`** (additive; existing rows NOT_STARTED). Merge-safe ahead
-of the migration (web reads/writes name only pre-existing columns; tested against a simulated unmigrated
-schema). Deploy order: merge (web) -> migration -> worker. Watch `chats_hydration` logs and `read-telegram-state` `hydrationState`.
+**Chats Intelligence (PR B #338 + PR C #339) -- MERGED; PRODUCTION COMMISSIONED 2026-09-25.** Triage task
+3.0.0 / schema v4 returns obligations AND a minimized conversation reading (the person's CHATS digest) in
+one call; the digest-only hydration sweep initializes people whose backfill completed earlier (migration
+`20261004000000` applied in production). Production Connections AI runs `telegram.content.triage` on
+Anthropic for `demo-org-0001`. Watch `chats_hydration` logs and `read-telegram-state`.
 
 **Follow-ups recorded in #328.** DONE on `fix/detect-consent-recheck` (draft PR #331; the runbook's
 Part 9 gate, must merge before step 8): `WorkItemRepository.detect` re-checks content consent inside its
@@ -2436,6 +2422,33 @@ not revoked at offboarding; a REVOKED item re-detected after fresh consent does 
 refreshes its title/evidence and appends REDETECTED without reopening — pinned by
 `work-item-detect-consent.postgres.test.ts`); `/app/connections` shows only `contentAuthorized` (stuck
 cursors visible only via the probe and worker logs).
+
+## Loop Intelligence -- PR 1 AI runtime (peer providers, capacity, validator registry) -- IN REVIEW (draft PR, branch `feat/ai-runtime-peer-providers`, off main `97816a5`)
+
+Blueprint: https://claude.ai/artifact/VZuKzXAmCpc2WZsQR32gDS (architecture approved 2026-09-26; budget figures
+are initial controls to be recalibrated from telemetry). PR 1 builds the runtime only; no domain change.
+
+**Built.** Output-contract registry (gateway looks up `outputSchemaId`, no branch); portable-schema check over
+every task schema (one named exemption: triage v4 `const`, until triage v5); Mail Reply Draft 1.1.0 / schema v2
+(v1 would have failed on both providers; never served); lanes + cost reserved at ceiling and recorded at
+reconcile (`ai_invocations.lane`, `costMicros`); the recorded OPERATING budget (`ai_controls` scope `BUDGET`,
+`record-ai-budget` workflow, code maximums $100/$125, recoverable when unreadable); always-on $25 emergency
+ceiling; stored KILLED controls honoured by the gateway (grants are not read); `OTHER_THAN_SUBJECT`
+independent-provider routing; specialization version on every call; worker/web read all controls through
+`aiRuntimeControlsReader`; hydration and history run in BACKGROUND; connections stack takes provider/task
+LISTS (`CONNECTIONS_<STAGE>_AI_PROVIDERS`, `_AI_TASKS`); status page shows spend by lane.
+**Migration `20261005000000_ai_runtime_capacity`** (additive; code is safe before it -- tested on a database
+at main's migrations).
+
+**Production triage is unchanged**: task, schema, template, route targets, budget and every provider request
+hash-identical to main 97816a5 (pinned in `ai-runtime-capacity.test.ts`); the deploy template is byte-identical
+with the new variables unset.
+
+**Next (Matt):** review/merge -> Deploy Prisma Migrations (production) -> redeploy the worker (optional; the
+web deploys on merge) -> OPTIONAL: `record-ai-budget` preset `initial` to switch on the $20/day operating
+budget (without it production behaves exactly as today). **OpenAI is NOT commissioned**: that needs the terms
+decision, `record-ai-provider-policy` openai, `openai_api_key` in the stage AI secret, then
+`CONNECTIONS_<STAGE>_AI_PROVIDERS=anthropic,openai`. Then PR 2 (intelligence fabric).
 
 ## Working agreement
 **One branch per work batch.** After a PR merges, cut a fresh branch off freshly-merged
