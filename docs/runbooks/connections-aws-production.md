@@ -206,7 +206,7 @@ histories, not this line, for what has actually run.
     | Variable `CONNECTIONS_PRODUCTION_DEPLOY_ROLE_ARN` | the `DeployRoleArn` output (step 8) |
     | Variable `CONNECTIONS_PRODUCTION_ALERT_EMAIL` | **required:** the address the cost budget and the worker-down alarm notify |
     | Variable `CONNECTIONS_PRODUCTION_AI_ORG_ID` | leave unset until Part 9 |
-    | Variable `CONNECTIONS_PRODUCTION_AI_PROVIDERS` | optional; unset means `anthropic` (Part 9). Listing a provider never approves it |
+    | Variable `CONNECTIONS_PRODUCTION_AI_PROVIDERS` | optional; unset means `anthropic` (Part 9). Listing a provider never approves it; `openai` is refused beside Telegram triage until triage v5 |
     | Variable `CONNECTIONS_PRODUCTION_AI_TASKS` | optional; unset means `telegram.content.triage` (Part 9) |
     | Variable `CONNECTIONS_PRODUCTION_MIGRATE_ROLE_ARN` | the `MigrateRoleArn` output (step 8); read by **Deploy Prisma Migrations** (step 11) |
     | Environment secrets | **none** |
@@ -363,6 +363,13 @@ production needs (1) a recorded `openai` provider policy through Record AI Provi
 data-terms decision, and (2) the `openai_api_key` field in `loop/connections/production/ai` BEFORE the
 variable lists `openai`; without the field the task cannot start and the deploy rolls back. OpenAI
 has not been commissioned in production.
+
+**OpenAI beside Telegram triage is REFUSED until triage v5 (PR 3)** -- even with a recorded `openai`
+policy at `COMMUNICATION_CONTENT`. Triage's current schema (`telegram-content-triage.v4`) carries a named
+portability exemption and is verified against Anthropic only, so OpenAI must not become its fallback:
+listing `openai` while `telegram.content.triage` is activated (the default task) fails the synth, and a
+worker started with that environment anyway refuses to start (`worker_fatal`,
+`NotConfigured: LOOP_AI_PROVIDERS`). Both guards are removed together with the exemption in triage v5.
 
 **Then record the provider policy (G2) -- nothing is sent without it.** Since 2026-09-24 the stack no
 longer sets `LOOP_AI_PROVIDER_TERMS_CONFIRMED` and nothing reads it; the approval is a stored control.

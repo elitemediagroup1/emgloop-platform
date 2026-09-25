@@ -272,6 +272,8 @@ export {
 // Provider specialization by capability route (B2): which provider each route prefers,
 // as versioned data the routing policy must conform to.
 export { AI_PROVIDER_SPECIALIZATION_POLICY, AI_PROVIDER_SPECIALIZATION_POLICY_VERSION } from './ai/policy/provider-specialization';
+// PR 1: which providers an exempt output schema has been verified against (triage v4: anthropic).
+export { AI_SCHEMA_VERIFIED_PROVIDERS, aiSchemaUnverifiedProviders } from './ai/policy/schema-verification';
 // Google Workspace connection: the OAuth 2.0 web-server flow, and ID-token verification
 // (signature against Google's published keys first, then claims).
 // Protocol only -- no environment, no key, no storage; the network is injected.

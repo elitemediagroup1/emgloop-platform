@@ -416,3 +416,4 @@ test('lanes are a closed vocabulary', () => {
   assert.equal(isAiLane('FORWARD'), true);
   assert.equal(isAiLane('forward'), false);
 });
+

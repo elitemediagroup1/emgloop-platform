@@ -131,6 +131,28 @@ export function aiTasksFromContext(raw: unknown): readonly string[] {
   return items;
 }
 
+/**
+ * Telegram content triage's CURRENT output schema (telegram-content-triage.v4) carries a named portability
+ * exemption and has been verified against Anthropic only (AI_SCHEMA_VERIFIED_PROVIDERS in @emgloop/providers,
+ * which this stack cannot import). Listing any other provider beside that task would make it an eligible
+ * fallback that may reject the schema, so synth refuses the combination -- as the worker refuses it at
+ * startup. Remove this guard together with the exemption, in triage v5 (PR 3); an infra test checks the
+ * two stay in step.
+ */
+export const TRIAGE_V4_VERIFIED_PROVIDERS: readonly AiProvider[] = Object.freeze(['anthropic']);
+export const TRIAGE_TASK_ID = 'telegram.content.triage';
+
+export function assertAiProvidersVerified(providers: readonly AiProvider[], tasks: readonly string[]): void {
+  if (!tasks.includes(TRIAGE_TASK_ID)) return;
+  const unverified = providers.filter((p) => !TRIAGE_V4_VERIFIED_PROVIDERS.includes(p));
+  if (unverified.length > 0) {
+    throw new Error(
+      `aiProviders: ${unverified.join(', ')} is not verified against telegram-content-triage.v4, which ${TRIAGE_TASK_ID} sends; ` +
+        `remove it from aiProviders or ${TRIAGE_TASK_ID} from aiTasks until triage v5`,
+    );
+  }
+}
+
 export function buildConnectionsApp(options: ConnectionsAppOptions): { app: App; stack: ConnectionsStack } {
   // `-c key=value` from the CLI reaches the App through its environment, not through this props
   // object, so the stage and its account are read from the App after construction. Nothing is
@@ -150,6 +172,8 @@ export function buildConnectionsApp(options: ConnectionsAppOptions): { app: App;
   const aiOrganizationId = app.node.tryGetContext('aiOrganizationId');
   const aiProviders = aiProvidersFromContext(app.node.tryGetContext('aiProviders'));
   const aiTasks = aiTasksFromContext(app.node.tryGetContext('aiTasks'));
+  // Checked whether or not AI is switched on, so a refused combination fails before it could ever deploy.
+  assertAiProvidersVerified(aiProviders, aiTasks);
   const aiActivation =
     typeof aiOrganizationId === 'string' && aiOrganizationId.trim() !== ''
       ? { organizationId: aiOrganizationId, providers: aiProviders, tasks: aiTasks }

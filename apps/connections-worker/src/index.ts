@@ -70,9 +70,11 @@ async function main(): Promise<void> {
   const sealer = new ConnectionSecretSealer(config.connectionSecretKey);
   const sink = createDbObservationSink(prisma);
 
-  // The governed AI runtime, assembled from THIS deployment's own env. OFF by default: with
-  // LOOP_AI_ENABLED anything but exactly "true", or no listed+confirmed+credentialled provider, it is
-  // not enabled and the content sweep never runs -- so no message body is ever read.
+  // The governed AI runtime, assembled from THIS deployment's own env. OFF by default: unless
+  // LOOP_AI_ENABLED is exactly "true", telegram.content.triage is in LOOP_AI_TASKS, and a credentialled
+  // provider on that task's own route is listed, it is not enabled and the forward, historical and
+  // hydration sweeps never start -- so no message body is ever read for AI triage. A provider listed for
+  // a task whose schema it is not verified against refuses startup here (worker_fatal, NotConfigured).
   const aiRuntime = createWorkerAiRuntime(prisma);
 
   const clientPort = createTelegramClientPort(config.telegram);

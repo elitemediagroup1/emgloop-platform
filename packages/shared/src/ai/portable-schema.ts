@@ -17,7 +17,9 @@
 //
 // A NAMED EXEMPTION IS NOT A SILENT ONE. A schema that is live in production and may not change in a
 // given pull request is listed in AI_PORTABLE_SCHEMA_EXEMPTIONS with the exact violation and why. The
-// exemption lists what is tolerated; anything else in that schema still fails.
+// exemption lists what is tolerated; anything else in that schema still fails. Which providers an exempt
+// schema HAS been verified against is provider policy, so it lives in @emgloop/providers
+// (`AI_SCHEMA_VERIFIED_PROVIDERS`), where provider ids may be named.
 //
 // PURE.
 

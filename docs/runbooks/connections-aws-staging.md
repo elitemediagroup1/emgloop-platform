@@ -140,7 +140,7 @@ lives ONLY in the GitHub variable; it is never committed to source.
 
    | Variable | Default | Meaning |
    |---|---|---|
-   | `CONNECTIONS_STAGING_AI_PROVIDERS` | `anthropic` | comma-separated, no spaces, from `anthropic` and `openai`, in preference order (e.g. `anthropic,openai`) |
+   | `CONNECTIONS_STAGING_AI_PROVIDERS` | `anthropic` | comma-separated, no spaces, from `anthropic` and `openai`, in preference order. **`openai` is refused while `telegram.content.triage` is in the task list** (below) |
    | `CONNECTIONS_STAGING_AI_TASKS` | `telegram.content.triage` | comma-separated task ids the worker runs |
 
    An unknown provider, a malformed task id or a repeated entry fails the synth, before anything is
@@ -149,6 +149,14 @@ lives ONLY in the GitHub variable; it is never committed to source.
    Record AI Provider Policy workflow after the data-terms decision (step 4), and (2) the
    `openai_api_key` field exists in `loop/connections/staging/ai` -- add it BEFORE the variable lists
    `openai`, or the task cannot start and the deploy rolls back.
+
+   **OpenAI beside Telegram triage is REFUSED until triage v5 (PR 3).** Triage's current output schema
+   (`telegram-content-triage.v4`) carries a named portability exemption and has been verified against
+   Anthropic only, so OpenAI must not become its fallback. Listing `openai` while
+   `telegram.content.triage` is in `CONNECTIONS_STAGING_AI_TASKS` (its default) fails the synth
+   (`aiProviders: openai is not verified against telegram-content-triage.v4`), and a worker started
+   with that environment anyway refuses to start (`worker_fatal`, `NotConfigured: LOOP_AI_PROVIDERS`).
+   Recording an `openai` policy does not change this. Both guards are removed with the exemption.
 
 3. **Re-run the connections-infra-deploy workflow** (Actions → connections-infra-deploy → Run
    workflow → `action: deploy` + `confirm: deploy loop-connections-staging`). The deploy reads the
@@ -174,9 +182,9 @@ lives ONLY in the GitHub variable; it is never committed to source.
    | confirm | `record ai-provider-policy staging` |
 
    The job prints `event=TASK_POLICY task=telegram.content.triage needs=COMMUNICATION_CONTENT
-   admittedBy=anthropic` when it is in place. With `openai` listed in `CONNECTIONS_STAGING_AI_PROVIDERS`,
-   record `openai` the same way (after its terms decision) or it is refused (`PROVIDER_POLICY_MISSING`)
-   while any other listed provider serves. A running worker picks the
+   admittedBy=anthropic` when it is in place. An `openai` policy, once its terms decision exists, is
+   recorded the same way -- but it does NOT make OpenAI eligible for Telegram triage before triage v5
+   (step 2): the deploy and the worker refuse that combination. A running worker picks the
    policy up within 60 seconds; no redeploy is needed. To stop sending to a provider, run the same
    workflow with `state: KILLED`.
 

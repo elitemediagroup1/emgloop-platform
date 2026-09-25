@@ -530,6 +530,10 @@ No vague global AI memory. Each kind maps to an existing or proposed authority:
 - **Activation is configuration**: the connections stack takes provider and task LISTS
   (`CONNECTIONS_<STAGE>_AI_PROVIDERS`, `_AI_TASKS`; defaults `anthropic`, `telegram.content.triage`).
   Listing a provider never approves it: the recorded provider policy (G2) does.
+- **An exempt schema is served only by the providers it was verified against** (`AI_SCHEMA_VERIFIED_PROVIDERS`):
+  triage v4 by Anthropic alone. Listing OpenAI beside `telegram.content.triage` is refused at synth and at
+  worker startup until triage v5 removes the exemption. The worker's AI sweeps start only when triage
+  itself is activated and a configured provider is on its route.
 
 ## 13. F12 — Evaluation
 

@@ -13,7 +13,9 @@ import assert from 'node:assert/strict';
 import { Annotations, Template, Match } from 'aws-cdk-lib/assertions';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
 
-import { aiProvidersFromContext, aiTasksFromContext, buildConnectionsApp, DEFAULT_MEDIA_ORIGINS, mediaOriginsFromContext } from '../lib/app';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { aiProvidersFromContext, aiTasksFromContext, buildConnectionsApp, DEFAULT_MEDIA_ORIGINS, mediaOriginsFromContext, TRIAGE_V4_VERIFIED_PROVIDERS } from '../lib/app';
 import { connectionSecretNames, MEDIA_KEY_PREFIX, MEDIA_SIGN_PATH } from '../lib/connections-stack';
 import { assertTargetCredentials, CONNECTIONS_STAGING_TARGET, WrongTargetError } from '../lib/target';
 import { stubAssets } from './assets';
@@ -515,8 +517,9 @@ test('AI-ON: the ai secret is REFERENCED not created; ANTHROPIC_API_KEY is a Sec
 });
 
 test('aiProviders=anthropic,openai: OPENAI_API_KEY referenced from openai_api_key and nothing else added; still no plaintext key', () => {
-  const base = synthWith({ aiOrganizationId: PLACEHOLDER_ORG_ID });
-  const t = synthWith({ aiOrganizationId: PLACEHOLDER_ORG_ID, aiProviders: 'anthropic,openai' });
+  // A task other than telegram.content.triage: beside triage v4, openai is refused (see the guard test).
+  const base = synthWith({ aiOrganizationId: PLACEHOLDER_ORG_ID, aiTasks: 'chats.digest.v2' });
+  const t = synthWith({ aiOrganizationId: PLACEHOLDER_ORG_ID, aiProviders: 'anthropic,openai', aiTasks: 'chats.digest.v2' });
   const c = workerContainer(t);
 
   const openai = (c.Secrets ?? []).find((s) => s.Name === 'OPENAI_API_KEY');
@@ -529,7 +532,7 @@ test('aiProviders=anthropic,openai: OPENAI_API_KEY referenced from openai_api_ke
 
   const env = Object.fromEntries((c.Environment ?? []).map((e) => [e.Name, e.Value]));
   assert.equal(env.LOOP_AI_PROVIDERS, 'anthropic,openai');
-  assert.equal(env.LOOP_AI_TASKS, 'telegram.content.triage');
+  assert.equal(env.LOOP_AI_TASKS, 'chats.digest.v2');
   assert.equal('LOOP_AI_PROVIDER_TERMS_CONFIRMED' in env, false, 'listing openai does not approve it either');
 
   for (const e of c.Environment ?? []) {
@@ -552,14 +555,14 @@ test('the AI defaults are exactly today: unset aiProviders/aiTasks synthesize th
 });
 
 test('aiProviders=openai alone: only the openai_api_key field is referenced', () => {
-  const c = workerContainer(synthWith({ aiOrganizationId: PLACEHOLDER_ORG_ID, aiProviders: 'openai' }));
+  const c = workerContainer(synthWith({ aiOrganizationId: PLACEHOLDER_ORG_ID, aiProviders: 'openai', aiTasks: 'chats.digest.v2' }));
   const ai = (c.Secrets ?? []).filter((s) => String(s.ValueFrom).includes(AI_SECRET_NAME));
   assert.deepEqual(ai.map((s) => s.Name), ['OPENAI_API_KEY']);
   assert.ok((ai[0]!.ValueFrom as string).endsWith(':openai_api_key::'));
   const env = Object.fromEntries((c.Environment ?? []).map((e) => [e.Name, e.Value]));
   assert.equal(env.LOOP_AI_PROVIDERS, 'openai');
   // Order is the operator's, preserved.
-  const reversed = workerContainer(synthWith({ aiOrganizationId: PLACEHOLDER_ORG_ID, aiProviders: ' openai , anthropic ' }));
+  const reversed = workerContainer(synthWith({ aiOrganizationId: PLACEHOLDER_ORG_ID, aiProviders: ' openai , anthropic ', aiTasks: 'chats.digest.v2' }));
   assert.equal(Object.fromEntries((reversed.Environment ?? []).map((e) => [e.Name, e.Value])).LOOP_AI_PROVIDERS, 'openai,anthropic');
 });
 
@@ -575,7 +578,7 @@ test('an invalid aiProviders or aiTasks value fails synth loudly, naming the con
   refuses({ aiProviders: 'gemini' }, /^Error: aiProviders: "gemini" is not one of anthropic, openai/);
   refuses({ aiProviders: 'Anthropic' }, /aiProviders/);
   refuses({ aiProviders: 'anthropic,anthropic' }, /aiProviders: "anthropic" is listed twice/);
-  refuses({ aiProviders: 'anthropic,,openai' }, /aiProviders: .* has an empty entry/);
+  refuses({ aiProviders: 'anthropic,,openai', aiTasks: 'chats.digest.v2' }, /aiProviders: .* has an empty entry/);
   refuses({ aiProviders: true }, /aiProviders must be a comma-separated string/);
   refuses({ aiTasks: 'triage' }, /aiTasks: "triage" is not a task id/);
   refuses({ aiTasks: 'Telegram.content.triage' }, /aiTasks/);
@@ -586,8 +589,32 @@ test('an invalid aiProviders or aiTasks value fails synth loudly, naming the con
 });
 
 test('without aiOrganizationId nothing AI-related appears, whatever the lists say', () => {
-  const t = synthWith({ aiProviders: 'anthropic,openai', aiTasks: 'telegram.content.triage,chats.digest.v2' });
+  const t = synthWith({ aiProviders: 'anthropic,openai', aiTasks: 'chats.digest.v2,case.explanation' });
   assert.deepEqual(t.toJSON(), template.toJSON());
   const json = JSON.stringify(t.toJSON());
   assert.ok(!json.includes(AI_SECRET_NAME) && !/LOOP_AI_|ANTHROPIC_API_KEY|OPENAI_API_KEY/.test(json));
+});
+
+test('PR 1 guard: a provider not verified against triage v4 is refused beside telegram.content.triage -- at synth, AI on or off', () => {
+  const refused = /aiProviders: openai is not verified against telegram-content-triage\.v4/;
+  // Listed with the default task (triage), in either order, alone or with anthropic.
+  assert.throws(() => synthStack({ aiOrganizationId: PLACEHOLDER_ORG_ID, aiProviders: 'anthropic,openai' }), refused);
+  assert.throws(() => synthStack({ aiOrganizationId: PLACEHOLDER_ORG_ID, aiProviders: 'openai' }), refused);
+  assert.throws(() => synthStack({ aiOrganizationId: PLACEHOLDER_ORG_ID, aiProviders: 'openai,anthropic', aiTasks: 'chats.digest.v2,telegram.content.triage' }), refused);
+  // Refused before AI is even switched on, so it can never reach a deploy.
+  assert.throws(() => synthStack({ aiProviders: 'anthropic,openai' }), refused);
+  // Anthropic beside triage, and openai beside other tasks, are allowed.
+  assert.doesNotThrow(() => synthStack({ aiOrganizationId: PLACEHOLDER_ORG_ID, aiProviders: 'anthropic' }));
+  assert.doesNotThrow(() => synthStack({ aiOrganizationId: PLACEHOLDER_ORG_ID, aiProviders: 'anthropic,openai', aiTasks: 'case.explanation' }));
+  assert.deepEqual([...TRIAGE_V4_VERIFIED_PROVIDERS], ['anthropic']);
+});
+
+test('PR 1 guard stays in step with the shared portability exemption: remove both together (triage v5, PR 3)', () => {
+  const repo = join(__dirname, '..', '..', '..');
+  const shared = readFileSync(join(repo, 'packages', 'shared', 'src', 'ai', 'portable-schema.ts'), 'utf8');
+  const policy = readFileSync(join(repo, 'packages', 'providers', 'src', 'ai', 'policy', 'schema-verification.ts'), 'utf8');
+  const exempt = /'telegram-content-triage\.v4': Object\.freeze\(\['\$\.properties\.schemaId:const'\]\)/.test(shared);
+  const verifiedOnly = /'telegram-content-triage\.v4': Object\.freeze\(\['anthropic'\]\)/.test(policy);
+  assert.equal(exempt, true, 'while triage v4 is exempt, this synth guard must stay');
+  assert.equal(verifiedOnly, true, 'the providers verified-provider policy names anthropic only, as this guard does');
 });
