@@ -32,6 +32,8 @@ import {
   SITUATION_VERIFICATION_SCHEMA,
   aiNumbersInText,
   clusterSituationSignals,
+  digestSynthesisEligibility,
+  type SynthesisSourceState,
   type AiContextItem,
   type AiSituationSynthesis,
   type IntelligenceDomain,
@@ -41,6 +43,7 @@ import {
   type SituationVerificationState,
 } from '@emgloop/shared';
 
+import { DigestSourceStateRepository } from '../../repositories/intelligence/digest-source-state.repository';
 import { EntityLinkRepository, type EntityLinkOwner } from '../../repositories/intelligence/entity-link.repository';
 import { IntelligenceDigestRepository, type IntelligenceDigestRecord } from '../../repositories/intelligence/intelligence-digest.repository';
 import { SituationRepository, SITUATION_RECORD_SCHEMA, type SituationOwner, type SituationRecord, type SituationView } from '../../repositories/intelligence/situation.repository';
@@ -89,13 +92,19 @@ function signalTime(signal: { occurredAt?: string; dueAt?: string; asOf?: string
   return fallback.getTime();
 }
 
-/** One digest's signals as clusterable inputs. */
-export function situationInputsOf(digests: readonly IntelligenceDigestRecord[]): SituationSignalInput[] {
+/**
+ * The ELIGIBLE digests' signals as clusterable inputs. A digest that is not legitimately current for
+ * synthesis (digestSynthesisEligibility: status CURRENT, valid content, freshness SUFFICIENT or PARTIAL)
+ * contributes nothing. A PARTIAL digest's signals carry its coverage and limitations.
+ */
+export function situationInputsOf(digests: readonly IntelligenceDigestRecord[], sources: ReadonlyMap<string, SynthesisSourceState>, now: Date): SituationSignalInput[] {
   const out: SituationSignalInput[] = [];
   for (const d of digests) {
+    const eligibility = digestSynthesisEligibility(d, sources.get(d.id) ?? { connectionLive: false, sourceLastEvidenceAt: null }, now);
+    if (!eligibility.eligible) continue;
     for (const s of d.content.signals ?? []) {
       const key = String(s.key).replace(/[^A-Za-z0-9_.-]/g, '_');
-      out.push({ ref: `digest:${d.id}/${key}`, domain: d.domain, signal: s, at: signalTime(s, d.generatedAt) });
+      out.push({ ref: `digest:${d.id}/${key}`, domain: d.domain, signal: s, at: signalTime(s, d.generatedAt), coverage: eligibility.coverage, limitations: eligibility.limitations });
     }
   }
   return out;
@@ -117,6 +126,9 @@ export function situationContext(cluster: SituationClusterCandidate, open: reado
       metric: item.signal.metric ?? null,
       records: item.signal.entities ?? [],
       when: new Date(item.at).toISOString().slice(0, 10),
+      // The reading's coverage and what it could not see: synthesis must know a PARTIAL reading is partial.
+      coverage: item.coverage ?? null,
+      limitations: item.limitations ?? [],
     }),
     sensitivity: audience === 'PRINCIPAL' ? 'COMMUNICATION_CONTENT' : 'OPERATIONAL',
     readUnder,
@@ -172,7 +184,8 @@ export class SituationService {
     const tally = (m: Record<string, number>, k: string) => (m[k] = (m[k] ?? 0) + 1);
     if (!(await situations.present())) return { state: 'NOT_MIGRATED', ...report };
     const now = this.ports.now();
-    const inputs = situationInputsOf(await this.gather(owner, now));
+    const digests = await this.gather(owner, now);
+    const inputs = situationInputsOf(digests, await new DigestSourceStateRepository(this.ports.prisma).resolve(digests), now);
     const linkOwner: EntityLinkOwner = owner.scope === 'ORGANIZATION' ? { scope: 'ORGANIZATION', organizationId: owner.organizationId } : { scope: 'PRINCIPAL', principal: { organizationId: owner.organizationId, userId: owner.userId } };
     const entities = [...new Set(inputs.flatMap((i) => i.signal.entities ?? []))];
     const links = entities.length ? await new EntityLinkRepository(this.ports.prisma).linksFor(linkOwner, entities) : [];
@@ -266,7 +279,8 @@ export class SituationService {
         citations: [...new Set(s.claims.flatMap((c) => c.citations))],
         domains: cluster.domains,
         claims: s.claims.map((c, i) => ({ kind: c.kind, statement: c.statement, citations: c.citations, verdict: verdicts.find((v) => v.claimIndex === i)?.verdict ?? null })),
-        limitations: s.limitations,
+        // The model's own limitations AND every partial reading's: a limitation is never lost on the way up.
+        limitations: [...new Set([...s.limitations, ...cluster.items.flatMap((i) => i.limitations ?? [])])].slice(0, 8),
         verification: { state, providerId: verifier },
         synthesis: { invocationId: synth.provenance.invocationId, providerId: subjectProvider, taskId: synthTask.taskId, taskVersion: synth.provenance.taskVersion },
         windowStart: new Date(cluster.windowStart).toISOString(),

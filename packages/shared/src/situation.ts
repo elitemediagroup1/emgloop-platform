@@ -55,6 +55,12 @@ export interface SituationSignalInput {
   readonly signal: IntelligenceSignal;
   /** When the signal happened (occurredAt, dueAt, asOf, else its digest's generation), epoch ms. */
   readonly at: number;
+  /**
+   * The digest's coverage NOW, from the synthesis-eligibility decision (only SUFFICIENT or PARTIAL reach
+   * here), and the limitations it carries -- which synthesis must see and keep.
+   */
+  readonly coverage?: 'CONNECTED_SUFFICIENT' | 'CONNECTED_PARTIAL';
+  readonly limitations?: readonly string[];
 }
 
 export interface SituationClusterCandidate {
@@ -130,7 +136,7 @@ export function clusterSituationSignals(inputs: readonly SituationSignalInput[],
     const refs = [...new Set(kept.flatMap((g) => g.signal.entities!))].sort();
     out.push({
       clusterBasis: roots.join('|'),
-      fingerprintBasis: JSON.stringify(kept.map((g) => [g.ref, g.signal.kind, g.signal.statement, g.signal.severity ?? null, g.signal.metric?.value ?? null])),
+      fingerprintBasis: JSON.stringify(kept.map((g) => [g.ref, g.signal.kind, g.signal.statement, g.signal.severity ?? null, g.signal.metric?.value ?? null, g.coverage ?? null])),
       items: kept,
       refs,
       domains,

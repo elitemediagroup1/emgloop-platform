@@ -12,7 +12,7 @@ import { SITUATION_LIMITS, SITUATION_SYNTHESIS_SCHEMA_ID, SITUATION_TEMPORAL_WIN
 
 export const SITUATION_SYNTHESIS_TEMPLATE_ID = 'situation-synthesis';
 export const SITUATION_VERIFICATION_TEMPLATE_ID = 'situation-verification';
-export const SITUATION_TEMPLATE_VERSION = '1';
+export const SITUATION_TEMPLATE_VERSION = '2';
 
 const clean = (ref: string) => String(ref).replace(/[^A-Za-z0-9_.:@\/-]/g, '');
 
@@ -42,7 +42,8 @@ export function renderSituationSynthesisInstructions(audience: 'ORGANIZATION' | 
     '   happening together to the same records, never why. Say "at the same time", "alongside", "while".',
     `6. A claim may not join evidence more than ${SITUATION_TEMPORAL_WINDOW_DAYS} days apart.`,
     '7. Paraphrase. No quotation marks, no copied sentences, no names beyond the labels the sources use. Do not tell anyone what to do.',
-    '8. If the evidence is thin, say so in `limitations`.',
+    '8. If the evidence is thin, say so in `limitations`. A source whose `coverage` is CONNECTED_PARTIAL was read only in part:',
+    '   its claims hold for what was read, never conclude from it that something did NOT happen, and repeat its limitation.',
   ].join('\n');
 }
 

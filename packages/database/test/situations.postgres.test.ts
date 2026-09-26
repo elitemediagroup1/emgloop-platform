@@ -11,7 +11,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { PrismaClient } from '@prisma/client';
-import { aiOutputContract, PRIVATE_SITUATION_SOURCE, SITUATION_SOURCE, type AiTaskOutput } from '@emgloop/shared';
+import { aiOutputContract, PARTIAL_COVERAGE_LIMITATION, PRIVATE_SITUATION_SOURCE, SITUATION_SOURCE, type AiTaskOutput } from '@emgloop/shared';
 
 import { forgetIntelligenceFabricPresence } from '../src/repositories/intelligence/intelligence-fabric-presence';
 import { IntelligenceDigestRepository, type IntelligenceDigestInput } from '../src/repositories/intelligence/intelligence-digest.repository';
@@ -162,6 +162,8 @@ test('a PRIVATE situation is its owner’s alone: no organization Case path retu
     const t = await tenant(prisma, 'priv');
     const digests = new IntelligenceDigestRepository(prisma);
     const me = { organizationId: t.organizationId, userId: t.a };
+    // A live Google connection: a calendar reading is current only while its source is.
+    await prisma.googleConnection.create({ data: { organizationId: t.organizationId, userId: t.a, googleSubject: `g_${t.a}`, activeGoogleSubject: `g_${t.a}`, emailAtLink: 'person@example.test', status: 'CONNECTED', connectedAt: at(-30), refreshTokenSealed: Buffer.alloc(40, 1), sealVersion: 'v1', keyRef: 'test-key' } as never });
     assert.equal((await digests.upsert(me, digest('WORK', 'overdue', 'A piece of work is overdue.', 'work_instance:w1', { scope: 'PRINCIPAL' }))).outcome, 'WRITTEN');
     assert.equal((await digests.upsert(me, digest('CALENDAR', 'prep.w1', 'A meeting ahead concerns the same work.', 'work_instance:w1', { scope: 'PRINCIPAL', provider: 'GOOGLE_CALENDAR', consentBasis: 'SOURCE_CONNECTION_GRANT', provenance: { sourceRefs: ['work_events:day'], producerVersion: 'calendar.domain@1#1', producerKind: 'RULE', sources: [{ sourceId: 'GOOGLE_CALENDAR', asOf: at(-1).toISOString(), coverage: 'CONNECTED_SUFFICIENT' }] } }))).outcome, 'WRITTEN');
     const calls: { taskId: string }[] = [];
@@ -248,6 +250,119 @@ test('PRE-MIGRATION: nothing is written, candidates and private reads are empty,
     assert.ok(await cases.findById(organizationId, opened.priority.id));
     assert.equal((await cases.listObservations(organizationId, opened.priority.id)).length, 1);
     assert.equal(Object.values(await cases.countsByState(organizationId)).reduce((a, b) => a + b, 0), 1);
+  } finally {
+    await prisma.$disconnect();
+  }
+});
+
+// --- Synthesis eligibility (review blocker 1): only legitimately current intelligence synthesizes ----------
+
+async function authorizeTelegram(prisma: PrismaClient, organizationId: string, userId: string, state = 'READY') {
+  await prisma.sourceConnection.create({ data: { organizationId, userId, provider: 'TELEGRAM', state, backgroundObservation: 'UNAVAILABLE', connectedAt: at(-90) } });
+  await prisma.sourceContentAuthorization.create({ data: { organizationId, userId, provider: 'TELEGRAM', authorizedAt: at(-60) } });
+}
+
+function capturingRuntime(requests: any[]) {
+  const inner = fakeRuntime({ 'situation.synthesis': NEW_ANSWER, 'situation.synthesis.private': NEW_ANSWER }, []) as unknown as { run: (p: unknown, r: any) => Promise<unknown> };
+  return { run: async (p: unknown, req: any) => (requests.push(req), inner.run(p, req)) } as never;
+}
+
+test('ELIGIBILITY: INSUFFICIENT, STALE-marked and ERROR digests never synthesize -- no candidate, no call', { skip }, async () => {
+  const prisma = new PrismaClient({ datasources: { db: { url: URL } } });
+  forgetIntelligenceFabricPresence();
+  try {
+    for (const variant of ['INSUFFICIENT', 'STALE', 'ERROR'] as const) {
+      const t = await tenant(prisma, `inel_${variant.toLowerCase()}`);
+      const digests = new IntelligenceDigestRepository(prisma);
+      await digests.upsertOrganization(t.organizationId, digest('CALLGRID', 'k1', 'Calls are down on one campaign.', 'provider_member:callgrid:campaign:e1'));
+      const second = digest('CAMPAIGNS', 'k2', 'A campaign went quiet.', 'provider_member:callgrid:campaign:e1', variant === 'INSUFFICIENT' ? { coverage: 'CONNECTED_INSUFFICIENT' } : {});
+      assert.equal((await digests.upsertOrganization(t.organizationId, second)).outcome, 'WRITTEN');
+      if (variant === 'STALE') await prisma.intelligenceDigest.updateMany({ where: { organizationId: t.organizationId, domain: 'CAMPAIGNS' }, data: { status: 'STALE' } });
+      // The database refuses an unknown coverage value outright (CHECK); an unreadable row is ERROR by content.
+      if (variant === 'ERROR') await prisma.intelligenceDigest.updateMany({ where: { organizationId: t.organizationId, domain: 'CAMPAIGNS' }, data: { content: { bogus: true } } });
+      const calls: { taskId: string }[] = [];
+      const report = await new SituationService({ prisma, runtime: fakeRuntime({ 'situation.synthesis': NEW_ANSWER }, calls), modelEnabled: (id) => id === 'situation.synthesis', principalFor: async () => ({ organizationId: t.organizationId, userId: t.owner }), now: () => NOW }).pass({ scope: 'ORGANIZATION', organizationId: t.organizationId });
+      assert.equal(report.candidates, 0, variant);
+      assert.equal(calls.length, 0, `${variant}: no call`);
+    }
+  } finally {
+    await prisma.$disconnect();
+  }
+});
+
+test('ELIGIBILITY: evidence newer than a private digest makes it STALE, and a source that is not live makes it DISCONNECTED -- neither synthesizes', { skip }, async () => {
+  const prisma = new PrismaClient({ datasources: { db: { url: URL } } });
+  forgetIntelligenceFabricPresence();
+  try {
+    const chats = (patch: Partial<IntelligenceDigestInput> = {}): IntelligenceDigestInput =>
+      digest('CHATS', 'owed', 'Premier is waiting on the allocation.', 'work_instance:w1', {
+        scope: 'PRINCIPAL', subjectKind: 'CONVERSATION', subjectRef: 'telegram_conversation:ck_eligibility_1', provider: 'TELEGRAM', consentBasis: 'CONTENT_AUTHORIZATION',
+        windowEnd: at(-1), lastEvidenceAt: at(-1), coverage: 'CONNECTED_PARTIAL', aiInvocationId: 'inv_c',
+        provenance: { sourceRefs: ['telegram_conversation:ck_eligibility_1'], producerVersion: 'telegram.content.triage#4.0.0', producerKind: 'MODEL' },
+        ...patch,
+      });
+    const setup = async (label: string, state: string) => {
+      const t = await tenant(prisma, label);
+      const me = { organizationId: t.organizationId, userId: t.a };
+      await authorizeTelegram(prisma, t.organizationId, t.a, state);
+      const digests = new IntelligenceDigestRepository(prisma);
+      assert.equal((await digests.upsert(me, chats())).outcome, 'WRITTEN');
+      assert.equal((await digests.upsert(me, digest('WORK', 'overdue', 'A piece of work is overdue.', 'work_instance:w1', { scope: 'PRINCIPAL' }))).outcome, 'WRITTEN');
+      return { t, me };
+    };
+    const run = async (me: { organizationId: string; userId: string }) => {
+      const calls: { taskId: string }[] = [];
+      const report = await new SituationService({ prisma, runtime: fakeRuntime({ 'situation.synthesis.private': NEW_ANSWER }, calls), modelEnabled: (id) => id === 'situation.synthesis.private', principalFor: async (o) => (o.scope === 'PRINCIPAL' ? { organizationId: o.organizationId, userId: o.userId } : null), now: () => NOW }).pass({ scope: 'PRINCIPAL', ...me });
+      return { report, calls };
+    };
+    // Baseline: both current -> one candidate (PARTIAL chats is permitted).
+    const base = await setup('elig_base', 'READY');
+    assert.equal((await run(base.me)).report.candidates, 1);
+    // Newer evidence in the conversation than the digest read: STALE.
+    const newer = await setup('elig_newer', 'READY');
+    await prisma.sourceObservation.create({ data: { organizationId: newer.t.organizationId, userId: newer.t.a, provider: 'TELEGRAM', providerEventId: 'e1', conversationKey: 'ck_eligibility_1', direction: 'INBOUND', hadText: true, occurredAt: at(-0.5), observedAt: at(-0.5) } });
+    const n = await run(newer.me);
+    assert.equal(n.report.candidates, 0, 'a stale conversation reading does not connect anything');
+    assert.equal(n.calls.length, 0);
+    // The connection needs reconnecting: DISCONNECTED.
+    const gone = await setup('elig_gone', 'RECONNECT_REQUIRED');
+    const g = await run(gone.me);
+    assert.equal(g.report.candidates, 0);
+    assert.equal(g.calls.length, 0);
+  } finally {
+    await prisma.$disconnect();
+  }
+});
+
+test('ELIGIBILITY: PARTIAL is permitted explicitly -- synthesis sees its coverage and limitation, and the situation keeps it; an existing Case is NOT updated once its signals go ineligible', { skip }, async () => {
+  const prisma = new PrismaClient({ datasources: { db: { url: URL } } });
+  forgetIntelligenceFabricPresence();
+  try {
+    const t = await tenant(prisma, 'elig_partial');
+    const digests = new IntelligenceDigestRepository(prisma);
+    const partial = digest('CALLGRID', 'calls-change', 'Calls are down on one campaign.', 'provider_member:callgrid:campaign:p1', { coverage: 'CONNECTED_PARTIAL' });
+    const withLimit = { ...partial, content: { ...partial.content, limitations: ['Only some calls reported revenue.'] } };
+    assert.equal((await digests.upsertOrganization(t.organizationId, withLimit)).outcome, 'WRITTEN');
+    assert.equal((await digests.upsertOrganization(t.organizationId, digest('CAMPAIGNS', 'campaign.p1', 'A campaign carried calls nobody bought.', 'provider_member:callgrid:campaign:p1'))).outcome, 'WRITTEN');
+    const requests: any[] = [];
+    const service = new SituationService({ prisma, runtime: capturingRuntime(requests), modelEnabled: (id) => id === 'situation.synthesis', principalFor: async () => ({ organizationId: t.organizationId, userId: t.owner }), now: () => NOW });
+    const first = await service.pass({ scope: 'ORGANIZATION', organizationId: t.organizationId });
+    assert.deepEqual(first.decisions, { NEW: 1 });
+    const items = requests[0].context.items.map((i: { content: string }) => JSON.parse(i.content));
+    const partialItem = items.find((i: { part: string }) => i.part === 'CALLGRID');
+    assert.equal(partialItem.coverage, 'CONNECTED_PARTIAL', 'the model is told the reading is partial');
+    assert.ok(partialItem.limitations.includes(PARTIAL_COVERAGE_LIMITATION) && partialItem.limitations.includes('Only some calls reported revenue.'));
+    assert.match(requests[0].instructions, /CONNECTED_PARTIAL was read only in part/);
+    const open = await new SituationRepository(prisma).open({ scope: 'ORGANIZATION', organizationId: t.organizationId });
+    assert.ok(open[0]!.record!.limitations.includes(PARTIAL_COVERAGE_LIMITATION), 'the situation keeps the partial reading’s limitation');
+    const before = await prisma.operationalPriority.findFirst({ where: { id: open[0]!.id }, select: { observationCount: true, lastDetectedAt: true } });
+    // The campaign reading changes AND goes stale: the changed-but-stale signal must not update the Case.
+    await prisma.intelligenceDigest.updateMany({ where: { organizationId: t.organizationId, domain: 'CAMPAIGNS' }, data: { status: 'STALE' } });
+    const second = await service.pass({ scope: 'ORGANIZATION', organizationId: t.organizationId });
+    assert.equal(second.candidates, 0);
+    assert.equal(requests.length, 1, 'no second call');
+    const after = await prisma.operationalPriority.findFirst({ where: { id: open[0]!.id }, select: { observationCount: true, lastDetectedAt: true } });
+    assert.deepEqual(after, before, 'the existing Case was not touched');
   } finally {
     await prisma.$disconnect();
   }
