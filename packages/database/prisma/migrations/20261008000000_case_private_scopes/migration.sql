@@ -19,7 +19,8 @@
 -- (by value, so it holds before this migration too); the private read requires a scope row naming the
 -- reader. A private Case with no scope row is visible to nobody.
 --
--- ADDITIVE. No row is rewritten. Code deployed before this migration writes no private situation
+-- ADDITIVE ONLY: two new tables and their indexes; nothing existing is dropped, altered or rewritten.
+-- Code deployed before this migration writes no private situation
 -- (NOT_MIGRATED) and every existing Case surface behaves exactly as before.
 --
 -- ASCII only.

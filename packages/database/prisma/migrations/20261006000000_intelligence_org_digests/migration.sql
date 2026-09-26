@@ -20,9 +20,12 @@
 --      default empty so every existing row is valid and readable unchanged.
 --   6. The content bound rises from 16384 to 32768 bytes for typed signals.
 --
--- ADDITIVE IN EFFECT. No row is rewritten; every existing row (all PRINCIPAL, all Chats) satisfies every
--- new constraint. Code deployed before this migration never writes ORGANIZATION rows or entityRefs (it
--- probes for the column), and code deployed after it reads both.
+-- NOT PURELY ADDITIVE: it DROPS one unique index and three CHECK constraints and REPLACES them (the
+-- per-scope partial unique indexes are created BEFORE the old unique index is dropped). It is
+-- BACKWARD-COMPATIBLE AND REWRITES NO ROW: every existing row (all PRINCIPAL, all Chats) satisfies every
+-- replacement constraint, and the new "entityRefs" column has a database default. Code deployed before
+-- this migration never writes ORGANIZATION rows or entityRefs (it probes for the column), and code deployed
+-- after it reads both.
 --
 -- ASCII only.
 

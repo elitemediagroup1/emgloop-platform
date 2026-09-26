@@ -38,15 +38,16 @@ Merging deploys the web tier. Nothing new becomes visible until data exists:
 
 Use the `Deploy Prisma Migrations` workflow, on staging, then on production. The migrations are:
 
-| # | Migration | What it adds |
-|---|---|---|
-| 1 | `20261006000000_intelligence_org_digests` | ORGANIZATION digests (per-scope partial uniqueness) and `entityRefs` |
-| 2 | `20261006000001_entity_links` | Explicit entity links (never MODEL) |
-| 3 | `20261006000002_intelligence_refresh_queue` | The durable refresh queue |
-| 4 | `20261007000000_promote_to_work` | `work_origins`, and `WORK_LINKED` on Case and work-item logs |
-| 5 | `20261008000000_case_private_scopes` | `case_private_scopes` and `situation_candidates` |
+| # | Migration | What it does | Guarantee |
+|---|---|---|---|
+| 1 | `20261006000000_intelligence_org_digests` | ORGANIZATION digests (per-scope partial uniqueness) and `entityRefs` | **Drops and replaces** one unique index and three CHECKs; backward-compatible, no row rewritten |
+| 2 | `20261006000001_entity_links` | Explicit entity links (never MODEL) | Additive only (one new table) |
+| 3 | `20261006000002_intelligence_refresh_queue` | The durable refresh queue | Additive only (one new table) |
+| 4 | `20261007000000_promote_to_work` | `work_origins` (many links per origin, one per confirmed submission), and `WORK_LINKED` on Case and work-item logs | **Drops and replaces** the `work_item_observations` CHECK (same list plus one value); backward-compatible, no row rewritten |
+| 5 | `20261008000000_case_private_scopes` | `case_private_scopes` and `situation_candidates` | Additive only (two new tables) |
 
-All five are additive: no existing column or row changes.
+None of them rewrites a row, and every existing row satisfies every replacement constraint. The code runs
+safely before each one is applied; this is tested against a database at `d70f737`.
 
 **Read back:** `read-intelligence-state`, or the Intelligence status page. The fabric section should say the
 queue is migrated.
@@ -156,10 +157,33 @@ replaces the rule version on the next pass, and is reused while its inputs are u
 **Read back:** `work_briefs` gets a new version with a `headline` and `coverage.composer`, and Home says
 who composed it.
 
+What a Briefing may use: only readings that are legitimately current (see "What synthesis may use" below).
+A reading that is stale, disconnected, in error or insufficient is not stated; it is listed as not current.
+A partial reading is labelled partial. "Nothing pressing" is written only when every reading used was
+read in full and nothing was left out, whoever composes the Briefing.
+
+**Retention:** a Loop Briefing is kept **90 days** from its local date (the approved decision; the
+`BRIEFS` category, work-retention `.3`, not overridable). The worker's retention sweep deletes older ones.
+
+### What synthesis may use (situations and the Briefing)
+
+A stored reading contributes only when it is current at that moment:
+
+- its status is CURRENT;
+- its source is live (Loop's own records always are; a connected source is read from the connection);
+- the source holds no evidence newer than what the reading read, and the reading is not about to expire;
+- its coverage is SUFFICIENT or PARTIAL.
+
+A PARTIAL reading carries its limitation into the model's context and into what is stored. STALE,
+DISCONNECTED, ERROR and INSUFFICIENT readings contribute nothing.
+
 ### B5. Always live once merged and migrated (no switch)
 
 - **Chats v5 groups, handled / snooze / dismiss.** These follow the triage task already running.
 - **Promote to Work.** A person's confirmed action. No AI.
+  - A Case may be promoted to several pieces of work. A retried submission returns the same work.
+  - A person's own private situation is promoted from Home's Situations panel, by them alone. Only what
+    they confirm is shared.
 
 ---
 

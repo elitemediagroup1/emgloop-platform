@@ -132,8 +132,26 @@ Details:
 - The link is recorded in `work_origins`, and a `WORK_LINKED` observation goes on the Case or Daily Loop
   item.
 - A target date becomes the work's committed return date (`expectedReturnAt`).
+- **An origin may become several pieces of work.** One confirmed *submission* creates exactly one: its key
+  (the actor, the origin, the confirmed fingerprint and a nonce minted at preview, hashed) is unique per
+  organization, so a retried submit returns the work it already created.
+- **A Case origin is re-resolved by who may see it.** An organization Case needs the Cases authority (and,
+  for a situation, every cited domain's). A private situation is found only through `SituationRepository`
+  as its owner, is a PRINCIPAL origin that shares only what they confirm, and records `WORK_LINKED` through
+  the situation door rather than an organization Case read.
 
 ## 5. Situations (Phase F)
+
+**What may be synthesized.** Situations and the Briefing use one decision, `digestSynthesisEligibility`
+(`@emgloop/shared` `intelligence-eligibility.ts`), over the shared freshness contract (`digestFreshness`).
+A digest contributes only when its status is CURRENT, its content is valid, and its freshness at that
+moment is SUFFICIENT or PARTIAL. The inputs come from `DigestSourceStateRepository`: whether the source is
+live, and its newest evidence.
+
+- A PARTIAL digest's limitation travels with every signal into the model's context and into the stored
+  situation or Briefing.
+- An absence ("nothing pressing") is concluded only when every contributing reading is SUFFICIENT and none
+  was left out.
 
 **A situation is a Case.** There is no parallel situation object. The measured `headlines` table remains
 evidence of measured movement.
@@ -182,8 +200,10 @@ The possible states:
 1. **Gathers** their own readings, the organization readings their role and permissions admit, and the
    situations visible to them.
 2. **Reuses** the stored Briefing when the artifacts' fingerprint is unchanged.
-3. **Composes** with `loop.briefing.compose` when it is activated. Every line cites supplied artifacts.
-   Otherwise it writes Loop's **deterministic** Briefing.
+3. **Composes** with `loop.briefing.compose` when it is activated. Every line cites supplied artifacts,
+   and each artifact tells the model its coverage and limitations. A composed absence claim that coverage
+   cannot justify is refused, and Loop's deterministic Briefing is written instead. Otherwise it writes the
+   **deterministic** Briefing, which also never claims an absence that coverage does not justify.
 4. **Stores** a new version of today's `work_briefs` row in the person's own zone. Nothing is overwritten.
 
 Home reads the stored Briefing and never composes one during a render. It says who composed it, and each
@@ -210,7 +230,7 @@ line's chip links only where the viewer's navigation goes.
 | Refresh requests | 7 days if HELD |
 | Private situations and a person's candidates | Tied to the membership (`PRIVATE_SITUATIONS`, work-retention `.2`) |
 | Organization candidates | Purged after 90 days undecided |
-| Briefs | 365 days (the existing `BRIEFS` category) |
+| Loop Briefings (`work_briefs`) | 90 days from the local date: the approved decision (`INTELLIGENCE_BRIEFING_RETENTION_DAYS_DECIDED`), the `BRIEFS` category (work-retention `.3`, not overridable), purged by the worker |
 
 Offboarding erases a person's digests, links, requests, private situations and candidates.
 

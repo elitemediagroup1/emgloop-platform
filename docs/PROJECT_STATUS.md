@@ -2456,7 +2456,8 @@ Blueprint: https://claude.ai/artifact/VZuKzXAmCpc2WZsQR32gDS
   off.
 - **Plus** connections-infra plumbing for the worker's intelligence settings, unset by default.
 
-**Migrations, all additive, not applied anywhere:**
+**Migrations, not applied anywhere.** None rewrites a row. Numbers 1 and 4 drop and replace constraints
+(backward-compatible); 2, 3 and 5 are additive only:
 
 1. `20261006000000_intelligence_org_digests`
 2. `20261006000001_entity_links`
@@ -2465,7 +2466,16 @@ Blueprint: https://claude.ai/artifact/VZuKzXAmCpc2WZsQR32gDS
 5. `20261008000000_case_private_scopes`
 
 **Routing and budget:** routing `routing.2026-09-26.12`, budget `budget.2026-09-26.6`. Work retention is
-`.2`.
+`.3`: a Loop Briefing is kept 90 days (the approved decision), and the worker purges older ones.
+
+**Review fixes (2026-09-26, same PR):**
+
+- Situations and the Briefing use only legitimately current intelligence (`digestSynthesisEligibility`).
+  Partial readings keep their limitation, and no absence is claimed without full coverage.
+- Briefing retention is 90 days.
+- Promote to Work allows many links per origin with idempotent submissions, and private situations are
+  promotable by their owner.
+- Migration wording is exact.
 
 **New tasks, all inactive:** mail.content.triage; eight `*.domain.reading` tasks (mail, calendar, callgrid,
 campaigns, pipeline, crm, creators, work, website); situation.synthesis[.private];
