@@ -390,6 +390,7 @@ async function main(): Promise<void> {
   //    also refuses a connection that is live again. Counts only are logged.
   // 3. Domain-intelligence digests past their own `expiresAt` (§21.3 INTELLIGENCE_DIGESTS, 30 days),
   //    platform-wide by time. Counts only.
+  // 4. Loop Briefings older than 90 days (BRIEFS, the approved Briefing retention). Counts only.
   // (The digest purge below uses its own repository instance on the same client; `digests` above is the
   // content sweeps' writer.)
   const derivedRetentionPorts: DerivedRetentionPorts = {
@@ -419,6 +420,14 @@ async function main(): Promise<void> {
       if (purged > 0) log('digest_purge', { purged });
     } catch (err) {
       log('digest_purge_error', { name: (err as Error)?.name ?? 'error' });
+    }
+    // 4. Loop Briefings past the approved 90-day retention (work_briefs, BRIEFS). Platform-wide by time.
+    try {
+      const { WorkBriefRepository } = await import('@emgloop/database');
+      const { purged } = await new WorkBriefRepository(prisma).purgeExpired(new Date());
+      if (purged > 0) log('brief_purge', { purged });
+    } catch (err) {
+      log('brief_purge_error', { name: (err as Error)?.name ?? 'error' });
     }
   }
 

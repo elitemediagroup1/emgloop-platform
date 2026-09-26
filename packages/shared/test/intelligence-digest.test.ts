@@ -220,7 +220,7 @@ test('the retention policy has an INTELLIGENCE_DIGESTS category governing intell
   assert.equal(category!.days, 30);
   assert.deepEqual(category!.tables, ['intelligence_digests']);
   assert.ok(WORK_STATE_TABLES.includes('intelligence_digests'), 'covered by the every-table-in-one-category test');
-  assert.deepEqual([...WORK_RETENTION_NOT_OVERRIDABLE], ['INTELLIGENCE_DIGESTS', 'INTELLIGENCE_REFRESH_REQUESTS']);
+  assert.deepEqual([...WORK_RETENTION_NOT_OVERRIDABLE], ['INTELLIGENCE_DIGESTS', 'INTELLIGENCE_REFRESH_REQUESTS', 'BRIEFS']);
 });
 
 // --- Freshness -------------------------------------------------------------------------------

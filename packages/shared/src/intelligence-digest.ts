@@ -246,13 +246,14 @@ export function digestContentRefusals(
  *                                 for a month has no current reading worth keeping.
  *   DOMAIN rollup                 30 days from generation: it is rebuilt from the conversations
  *                                 it rolls up, and never outlives them by much.
- *   Briefing (PR C, decided, NOT BUILT): 90 days. Documented here so the decision has one home;
- *                                 nothing in PR A writes or reads a briefing.
+ *   Briefing (decided 2026-09-24, APPLIED in Loop Intelligence Phase G): 90 days from the brief's local
+ *                                 date. It is the work_briefs BRIEFS category (work-state.ts, not
+ *                                 overridable) and `WorkBriefRepository.purgeExpired` deletes past it.
  */
 export const INTELLIGENCE_DIGEST_RETENTION_POLICY_VERSION = 'intelligence-digest-retention.2026-09-24.1';
 export const INTELLIGENCE_DIGEST_SUBJECT_RETENTION_DAYS = 30;
 export const INTELLIGENCE_DIGEST_DOMAIN_RETENTION_DAYS = 30;
-/** Decided for PR C (Briefing). Not used by anything in PR A. */
+/** The Loop Briefing's retention (work_briefs, BRIEFS). The one number: work-state.ts's BRIEFS equals it (tested). */
 export const INTELLIGENCE_BRIEFING_RETENTION_DAYS_DECIDED = 90;
 /** A digest within this long of its expiry reads as STALE: it is about to be deleted. */
 export const INTELLIGENCE_DIGEST_STALE_GRACE_DAYS = 1;

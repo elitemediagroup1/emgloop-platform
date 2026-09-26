@@ -275,6 +275,8 @@ test('every employee-private repository method takes the principal, and a new on
   // The ONE documented exception: the retention policy is about categories, not people, and
   // carries no employee data. Anything else that names an organization without a user fails.
   const ORGANIZATION_ONLY_ALLOWED = new Set(['effectiveRetention', 'setRetentionOverride']);
+  // The second: a retention sweep by TIME (the approved Briefing window), which reads no row and returns counts.
+  const TIME_RETENTION_ALLOWED = new Set(['purgeExpired']);
 
   const offenders: string[] = [];
   for (const file of files) {
@@ -283,6 +285,10 @@ test('every employee-private repository method takes the principal, and a new on
     for (const match of source.matchAll(/^ {2}(?:async )?([a-zA-Z][A-Za-z0-9]*)\(\s*([^),]*)/gm)) {
       const [, name, firstParam] = match;
       if (!name || name === 'constructor' || name === 'if' || name === 'for' || name === 'catch') continue;
+      if (TIME_RETENTION_ALLOWED.has(name)) {
+        assert.match(firstParam ?? '', /^now: Date$/, `${file}: ${name} is the documented retention sweep`);
+        continue;
+      }
       if (ORGANIZATION_ONLY_ALLOWED.has(name)) {
         assert.match(firstParam ?? '', /organizationId: string/, `${file}: ${name} is the documented policy exception`);
         continue;
@@ -627,8 +633,9 @@ test('retention is a window per category, with an organization’s override appl
   const overridden = after.find((c) => c.category === 'GMAIL_METADATA')!;
   assert.equal(overridden.days, 14);
   assert.equal(overridden.overridden, true);
-  assert.equal(overridden.overridePolicyVersion, 'work-retention.2026-09-26.2');
-  assert.equal(after.find((c) => c.category === 'BRIEFS')!.days, 365, 'one category at a time');
+  assert.equal(overridden.overridePolicyVersion, 'work-retention.2026-09-26.3');
+  assert.equal(after.find((c) => c.category === 'BRIEFS')!.days, 90, 'one category at a time');
+  await assert.rejects(() => w.preferences.setRetentionOverride(ORG_A, 'BRIEFS', { days: 365 }), /not overridable/, 'the Briefing retention is a decision, not a default');
 
   // Only a day-counted category can be a duration.
   await assert.rejects(() => w.preferences.setRetentionOverride(ORG_A, 'SECURITY_AUDIT', { days: 30 }), /only a day-counted/);

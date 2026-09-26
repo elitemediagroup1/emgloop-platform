@@ -15,6 +15,7 @@
 // brief with counts and references and no headline is still honest.
 
 import type { PrismaClient } from '@prisma/client';
+import { INTELLIGENCE_BRIEFING_RETENTION_DAYS_DECIDED, workRetentionCategory } from '@emgloop/shared';
 
 import { workScope, type WorkPrincipal } from './work-principal';
 
@@ -77,6 +78,17 @@ export class WorkBriefRepository {
       take: 1,
     });
     return rows[0] ?? null;
+  }
+
+  /**
+   * Delete every brief older than the Briefing retention (BRIEFS: 90 days from its local date, the
+   * approved Loop Intelligence decision). Platform-wide by time; counts only. Not overridable.
+   */
+  async purgeExpired(now: Date): Promise<{ readonly purged: number }> {
+    const days = workRetentionCategory('BRIEFS')?.days ?? INTELLIGENCE_BRIEFING_RETENTION_DAYS_DECIDED;
+    const cutoff = new Date(`${new Date(now.getTime() - days * 86_400_000).toISOString().slice(0, 10)}T00:00:00.000Z`);
+    const { count } = await this.prisma.workBrief.deleteMany({ where: { localDate: { lt: cutoff } } });
+    return { purged: count };
   }
 
   /** Recent briefs, newest first: the history surface. */

@@ -273,7 +273,11 @@ export const WORK_EVIDENCE_QUOTE_MAX_CHARS = 240;
 // .2026-09-26.1: adds INTELLIGENCE_LINKS and INTELLIGENCE_REFRESH_REQUESTS (Loop Intelligence PR 2, the
 // fabric) for a person's own entity links and refresh requests. Every earlier window is unchanged.
 // .2026-09-26.2: adds PRIVATE_SITUATIONS (Loop Intelligence Phase F): a person's private situations.
-export const WORK_RETENTION_POLICY_VERSION = 'work-retention.2026-09-26.2';
+// .2026-09-26.3: BRIEFS 365 -> 90 days. The approved Loop Intelligence decision for the Briefing
+// (INTELLIGENCE_BRIEFING_RETENTION_DAYS_DECIDED, 2026-09-24) is later than the DL-era 365 and governs:
+// work_briefs holds exactly the Loop Briefing. It is a decision, not an organization default, so it is
+// not overridable, and `WorkBriefRepository.purgeExpired` enforces it.
+export const WORK_RETENTION_POLICY_VERSION = 'work-retention.2026-09-26.3';
 
 /**
  * How long each category is kept, and why.
@@ -310,7 +314,7 @@ export const WORK_RETENTION_CATEGORIES: readonly WorkRetentionCategory[] = Objec
   Object.freeze({ category: 'CALENDAR_STATE', rule: 'DAYS', days: 90, anchor: 'the end of the event', tables: Object.freeze(['work_events']), why: 'Meeting briefs need past meetings with the same people.' }),
   Object.freeze({ category: 'DERIVED_WORK_FACTS', rule: 'DAYS', days: 365, anchor: 'the item last changing state', tables: Object.freeze(['work_items', 'work_item_observations', 'work_feedback']), why: 'The accuracy signal needs a year to mean anything.' }),
   Object.freeze({ category: 'MAIL_DRAFTS', rule: 'DAYS', days: 30, anchor: 'the draft last changing, and cleared of its body on send', tables: Object.freeze(['work_drafts']), why: 'An unsent reply is worth keeping while the conversation is live, and worth nothing after.' }),
-  Object.freeze({ category: 'BRIEFS', rule: 'DAYS', days: 365, anchor: 'the brief\'s local date', tables: Object.freeze(['work_briefs']), why: '"What happened last week" is the product.' }),
+  Object.freeze({ category: 'BRIEFS', rule: 'DAYS', days: 90, anchor: 'the brief\'s local date', tables: Object.freeze(['work_briefs']), why: 'The Loop Briefing is a daily record of what Loop read for a person; the approved Loop Intelligence decision keeps it 90 days (INTELLIGENCE_BRIEFING_RETENTION_DAYS_DECIDED).' }),
   Object.freeze({ category: 'EVIDENCE_QUOTES', rule: 'TIED_TO_PARENT', days: null, anchor: 'the item that cites it', tables: Object.freeze([]), why: 'An explanation lives exactly as long as the claim it explains.' }),
   Object.freeze({ category: 'PROVENANCE_REFERENCES', rule: 'TIED_TO_PARENT', days: null, anchor: 'the conclusion it supports', tables: Object.freeze([]), why: 'Evidence outliving its conclusion is the rule; the reverse is uninterpretable.' }),
   Object.freeze({ category: 'PROCESSING_CACHE', rule: 'DAYS', days: 1, anchor: 'successful processing, whichever is sooner', tables: Object.freeze([]), why: 'Stage 2 only: deleted on success, with a 24-hour ceiling as a backstop.' }),
@@ -445,4 +449,4 @@ export const WORK_STATE_TABLES: readonly string[] = Object.freeze([
 ]);
 
 /** Categories whose window is stamped on the row at write time, so an organization override cannot apply. */
-export const WORK_RETENTION_NOT_OVERRIDABLE: readonly string[] = Object.freeze(['INTELLIGENCE_DIGESTS', 'INTELLIGENCE_REFRESH_REQUESTS']);
+export const WORK_RETENTION_NOT_OVERRIDABLE: readonly string[] = Object.freeze(['INTELLIGENCE_DIGESTS', 'INTELLIGENCE_REFRESH_REQUESTS', 'BRIEFS']);
