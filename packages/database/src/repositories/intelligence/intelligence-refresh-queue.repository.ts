@@ -344,9 +344,37 @@ export class IntelligenceRefreshQueueRepository {
   }
 
   /** Maintenance, across tenants: delete HELD requests last touched before `before`. A count only. */
-  async purgeHeld(before: Date): Promise<{ readonly purged: number }> {
+  async purgeHeld(before: Date, opts: { readonly organizationIds?: readonly string[] } = {}): Promise<{ readonly purged: number }> {
     if (!(await refreshQueuePresent(this.db))) return { purged: 0 };
-    const { count } = await this.db.intelligenceRefreshRequest.deleteMany({ where: { state: 'HELD', updatedAt: { lte: before } } });
-    return { purged: count };
+    // A HELD row is a FRESHNESS BARRIER: while it exists its target's stored reading is not current for
+    // synthesis. It may be removed only together with moving that reading out of CURRENT -- in ONE
+    // transaction per row, so a failure leaves both as they were (barrier still up), never the row gone
+    // and the reading still CURRENT. Paged by id until exhausted; no cap decides anything.
+    let purged = 0;
+    let after: string | undefined;
+    for (;;) {
+      const page = await this.db.intelligenceRefreshRequest.findMany({
+        where: { state: 'HELD', updatedAt: { lte: before }, ...(opts.organizationIds ? { organizationId: { in: [...opts.organizationIds] } } : {}), ...(after ? { id: { gt: after } } : {}) },
+        orderBy: { id: 'asc' },
+        take: 200,
+        select: { id: true, organizationId: true, scope: true, userId: true, domain: true, subjectKind: true, subjectRef: true },
+      });
+      if (page.length === 0) break;
+      for (const row of page) {
+        const target = { organizationId: row.organizationId, scope: row.scope, userId: row.userId, domain: row.domain, subjectKind: row.subjectKind, subjectRef: row.subjectRef };
+        try {
+          const deleted = await this.db.$transaction(async (tx) => {
+            await tx.intelligenceDigest.updateMany({ where: { ...target, status: 'CURRENT' }, data: { status: 'STALE' } });
+            const { count } = await tx.intelligenceRefreshRequest.deleteMany({ where: { id: row.id, state: 'HELD' } });
+            return count;
+          });
+          purged += deleted;
+        } catch {
+          // The barrier stays; the next sweep tries again.
+        }
+      }
+      after = page[page.length - 1]!.id;
+    }
+    return { purged };
   }
 }

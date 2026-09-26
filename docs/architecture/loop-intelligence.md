@@ -156,6 +156,13 @@ records each verdict on the stored reading:
 - An unchanged successful refresh re-affirms a STALE reading without a read (`reaffirmTarget`).
 - A changed refresh writes the new current reading.
 
+This fails closed. The queue row is the freshness barrier, and it is removed only after the reading has left
+CURRENT:
+- If the stale write fails on NO_EVIDENCE, the request is retried rather than completed.
+- A terminal failure is held whatever the stale write did.
+- `purgeHeld` moves the reading out of CURRENT and deletes the HELD row in one transaction.
+- The unresolved-refresh lookup asks about exactly the supplied digests' targets, with no result cap.
+
 - A PARTIAL digest's limitation travels with every signal into the model's context and into the stored
   situation or Briefing.
 - An absence ("nothing pressing") is concluded only when every contributing reading is SUFFICIENT and none

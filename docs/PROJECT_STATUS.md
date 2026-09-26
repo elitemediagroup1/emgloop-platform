@@ -2480,6 +2480,10 @@ Blueprint: https://claude.ai/artifact/VZuKzXAmCpc2WZsQR32gDS
   - Loop-record readings are out of synthesis while refresh work is unresolved. NO_EVIDENCE or HELD marks
     them STALE; an unchanged refresh re-affirms them.
   - The Briefing has an explicit expected-coverage set: a missing reading is a gap, never quiet.
+- **Third review:**
+  - The stale transition fails closed: the barrier is removed only after it succeeds.
+  - HELD cleanup is transactional.
+  - The refresh lookup queries exact targets, with no cap.
 
 **New tasks, all inactive:** mail.content.triage; eight `*.domain.reading` tasks (mail, calendar, callgrid,
 campaigns, pipeline, crm, creators, work, website); situation.synthesis[.private];

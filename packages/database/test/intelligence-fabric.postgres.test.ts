@@ -348,8 +348,10 @@ test('refresh queue: coalescing under concurrency, principal and org never colla
     );
     // Two claimers at once: each request is owned by exactly one.
     const [c1, c2] = await Promise.all([
-      queue.claim({ leaseOwner: 'w1', now: NOW, leaseMs: 60_000, limit: 5 }),
-      queue.claim({ leaseOwner: 'w2', now: NOW, leaseMs: 60_000, limit: 5 }),
+      // Claims are platform-wide; restricted to this test's domain so a concurrently running test file's
+      // requests (in other domains) are never taken.
+      queue.claim({ leaseOwner: 'w1', now: NOW, leaseMs: 60_000, limit: 5, domains: ['WORK'] }),
+      queue.claim({ leaseOwner: 'w2', now: NOW, leaseMs: 60_000, limit: 5, domains: ['WORK'] }),
     ]);
     const ids = [...c1!, ...c2!].map((c) => c.id);
     assert.equal(ids.length, 2);

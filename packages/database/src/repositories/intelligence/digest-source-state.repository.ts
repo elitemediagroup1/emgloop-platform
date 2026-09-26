@@ -27,6 +27,8 @@ import type { IntelligenceDigestRecord } from './intelligence-digest.repository'
 import { refreshQueuePresent } from './intelligence-fabric-presence';
 
 const TELEGRAM_LIVE = ['READY', 'CONNECTED_LIMITED'];
+/** Exact targets per refresh-queue query. Each target matches at most a handful of rows (one per state). */
+const CHUNK = 100;
 const targetKey = (scope: string, organizationId: string, userId: string | null, domain: string, subjectKind: string, subjectRef: string) => [scope, organizationId, userId ?? '', domain, subjectKind, subjectRef].join('\n');
 const TELEGRAM_PREFIX = 'telegram_conversation:';
 const THREAD_PREFIX = 'work_thread:';
@@ -45,16 +47,25 @@ export class DigestSourceStateRepository {
     return out;
   }
 
-  /** Targets with a refresh request in any state (every queue row is unresolved work). */
+  /**
+   * The supplied digests' targets that have a refresh request in any state (every queue row is unresolved
+   * work). A TRUTH DECISION, so it asks about EXACTLY those targets -- one OR clause per digest, in chunks --
+   * and reads every matching row: no result cap, so unrelated rows can never crowd out an answer.
+   */
   private async unresolvedTargets(digests: readonly IntelligenceDigestRecord[]): Promise<Set<string>> {
-    const orgs = [...new Set(digests.map((d) => d.organizationId))];
-    if (orgs.length === 0 || !(await refreshQueuePresent(this.prisma))) return new Set();
-    const rows = await this.prisma.intelligenceRefreshRequest.findMany({
-      where: { organizationId: { in: orgs }, domain: { in: [...new Set(digests.map((d) => d.domain))] } },
-      select: { scope: true, organizationId: true, userId: true, domain: true, subjectKind: true, subjectRef: true },
-      take: 5000,
-    });
-    return new Set(rows.map((r) => targetKey(r.scope, r.organizationId, r.userId, r.domain, r.subjectKind, r.subjectRef)));
+    if (digests.length === 0 || !(await refreshQueuePresent(this.prisma))) return new Set();
+    const targets = new Map<string, { organizationId: string; scope: string; userId: string | null; domain: string; subjectKind: string; subjectRef: string }>();
+    for (const d of digests) targets.set(targetKey(d.scope, d.organizationId, d.userId, d.domain, d.subjectKind, d.subjectRef), { organizationId: d.organizationId, scope: d.scope, userId: d.userId, domain: d.domain, subjectKind: d.subjectKind, subjectRef: d.subjectRef });
+    const all = [...targets.values()];
+    const found = new Set<string>();
+    for (let i = 0; i < all.length; i += CHUNK) {
+      const rows = await this.prisma.intelligenceRefreshRequest.findMany({
+        where: { OR: all.slice(i, i + CHUNK) },
+        select: { scope: true, organizationId: true, userId: true, domain: true, subjectKind: true, subjectRef: true },
+      });
+      for (const r of rows) found.add(targetKey(r.scope, r.organizationId, r.userId, r.domain, r.subjectKind, r.subjectRef));
+    }
+    return found;
   }
 
   private async resolveSources(digests: readonly IntelligenceDigestRecord[]): Promise<Map<string, SynthesisSourceState>> {
@@ -80,16 +91,14 @@ export class DigestSourceStateRepository {
         const [connection, authorization, latest] = await Promise.all([
           once(`tg-conn:${who}`, () => this.prisma.sourceConnection.findFirst({ where: { ...principal, provider: 'TELEGRAM' }, select: { state: true } })),
           once(`tg-auth:${who}`, () => this.prisma.sourceContentAuthorization.findFirst({ where: { ...principal, provider: 'TELEGRAM', revokedAt: null }, select: { authorizedAt: true } })),
-          once(`tg-latest:${who}`, async () => {
-            const rows = await this.prisma.sourceObservation.findMany({ where: { ...principal, provider: 'TELEGRAM' }, orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }], take: 500, select: { conversationKey: true, occurredAt: true } });
-            const byKey = new Map<string, Date>();
-            for (const r of rows) if (!byKey.has(r.conversationKey)) byKey.set(r.conversationKey, r.occurredAt);
-            return { byKey, newest: rows[0]?.occurredAt ?? null };
-          }),
+          // Newer evidence is a truth input too: the EXACT conversation's latest activity (or, for the
+          // domain rollup, the person's newest), never a capped scan that could miss it.
+          d.subjectRef.startsWith(TELEGRAM_PREFIX)
+            ? this.prisma.sourceObservation.aggregate({ where: { ...principal, provider: 'TELEGRAM', conversationKey: d.subjectRef.slice(TELEGRAM_PREFIX.length) }, _max: { occurredAt: true } })
+            : once(`tg-newest:${who}`, () => this.prisma.sourceObservation.aggregate({ where: { ...principal, provider: 'TELEGRAM' }, _max: { occurredAt: true } })),
         ]);
         const live = !!connection && TELEGRAM_LIVE.includes((connection as { state: string }).state) && !!authorization;
-        const l = latest as { byKey: Map<string, Date>; newest: Date | null };
-        const last = d.subjectRef.startsWith(TELEGRAM_PREFIX) ? (l.byKey.get(d.subjectRef.slice(TELEGRAM_PREFIX.length)) ?? null) : l.newest;
+        const last = (latest as { _max: { occurredAt: Date | null } })._max.occurredAt ?? null;
         out.set(d.id, { connectionLive: live, sourceLastEvidenceAt: last });
         continue;
       }

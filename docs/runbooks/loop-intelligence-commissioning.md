@@ -180,7 +180,8 @@ DISCONNECTED, ERROR and INSUFFICIENT readings contribute nothing.
 
 For Loop's own records (every organization reading), the refresh is the freshness signal:
 
-- A refresh that ends with NO_EVIDENCE or HELD marks the prior reading STALE.
+- A refresh that ends with NO_EVIDENCE or HELD marks the prior reading STALE. Its queue row, the barrier,
+  is removed only once that succeeds: a failed stale write leaves the request retrying or held.
 - An unchanged successful refresh re-affirms it without a read.
 - A changed one replaces it.
 

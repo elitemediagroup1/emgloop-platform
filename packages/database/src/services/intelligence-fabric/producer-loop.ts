@@ -79,23 +79,34 @@ export async function runIntelligenceProducerCycle(deps: ProducerLoopDeps, optio
   const ownerOf = (t: IntelligenceRefreshClaim['target']) =>
     t.scope === 'PRINCIPAL' ? ({ scope: 'PRINCIPAL', principal: { organizationId: t.organizationId, userId: t.userId } } as const) : ({ scope: 'ORGANIZATION', organizationId: t.organizationId } as const);
   // A refresh that ends without a reading (NO_EVIDENCE, HELD) means the prior one no longer stands: it
-  // is STALE from now on, whatever later happens to the queue row. (While a refresh is still pending or
-  // retrying, the queue row itself keeps the reading out of synthesis -- DigestSourceStateRepository.)
-  const staleTarget = (claim: IntelligenceRefreshClaim) => deps.digests.markTargetStale(ownerOf(claim.target), claim.target).catch(() => undefined);
+  // must be STALE from now on. FAIL CLOSED: the queue row is the freshness barrier while it exists, so it
+  // is removed only AFTER the stale transition succeeded. A failed transition is never swallowed --
+  //   NO_EVIDENCE  the request is retried (it stays PENDING, still blocking), never completed;
+  //   HELD         the row is held regardless (still blocking), and purgeHeld moves the reading and
+  //                deletes the row in one transaction, so cleanup can never expose a CURRENT reading.
+  const staleTarget = async (claim: IntelligenceRefreshClaim): Promise<boolean> => {
+    try {
+      await deps.digests.markTargetStale(ownerOf(claim.target), claim.target);
+      return true;
+    } catch {
+      note('STALE_TRANSITION_FAILED');
+      return false;
+    }
+  };
   const hold = async (claim: IntelligenceRefreshClaim, code: string) => {
     note(code);
-    if (await deps.queue.hold(claim, code)) tally.held += 1;
+    // Stale first; the HELD row keeps blocking whether or not that succeeded.
     await staleTarget(claim);
+    if (await deps.queue.hold(claim, code)) tally.held += 1;
   };
   const retry = async (claim: IntelligenceRefreshClaim, code: string) => {
     note(code);
     const now = deps.now();
+    // If this retry would exhaust the attempts (HELD), the reading is marked stale first.
+    if (claim.attempts >= options.maxAttempts) await staleTarget(claim);
     const r = await deps.queue.retry(claim, { outcome: code, retryAt: new Date(now.getTime() + backoff(claim.attempts)), maxAttempts: options.maxAttempts });
     if (r === 'RETRYING') tally.retried += 1;
-    else if (r === 'HELD') {
-      tally.held += 1;
-      await staleTarget(claim);
-    }
+    else if (r === 'HELD') tally.held += 1;
   };
 
   for (const claim of claims) {
@@ -109,8 +120,12 @@ export async function runIntelligenceProducerCycle(deps: ProducerLoopDeps, optio
       if (gathered.status === 'NO_EVIDENCE') {
         tally.noEvidence += 1;
         note('NO_EVIDENCE');
-        // The evidence behind any prior reading is gone: that reading no longer stands.
-        await staleTarget(claim);
+        // The evidence behind any prior reading is gone: that reading no longer stands. Complete the request
+        // (remove the barrier) only once the reading is out of CURRENT; otherwise retry, still blocking.
+        if (!(await staleTarget(claim))) {
+          await retry(claim, 'STALE_TRANSITION_FAILED');
+          continue;
+        }
         await deps.queue.complete(claim);
         continue;
       }

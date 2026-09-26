@@ -50,7 +50,7 @@ function claimFor(patch: Partial<IntelligenceRefreshClaim> = {}): IntelligenceRe
   };
 }
 
-function world(claims: IntelligenceRefreshClaim[], opts: { stored?: string | null; storedStatus?: 'CURRENT' | 'STALE'; write?: string } = {}) {
+function world(claims: IntelligenceRefreshClaim[], opts: { stored?: string | null; storedStatus?: 'CURRENT' | 'STALE'; write?: string; staleFails?: boolean } = {}) {
   const log: string[] = [];
   const deps = (registry: IntelligenceProducerRegistry): ProducerLoopDeps => ({
     registry,
@@ -79,6 +79,10 @@ function world(claims: IntelligenceRefreshClaim[], opts: { stored?: string | nul
         return opts.stored ? { fingerprint: opts.stored, status: opts.storedStatus ?? 'CURRENT', version: 1 } : null;
       },
       async markTargetStale() {
+        if (opts.staleFails) {
+          log.push('stale:FAILED');
+          throw new Error('transient');
+        }
         log.push('stale');
         return { moved: 1 };
       },
@@ -143,19 +147,19 @@ test('every failure path: hold what will not change, retry what may, never leak 
   };
   // NO_EVIDENCE and every HOLD end the refresh without a reading: the prior reading is marked STALE.
   assert.deepEqual((await run(producer({ async gather() { return { status: 'NO_EVIDENCE' }; } }))).log, ['claim:WORK', 'stale', 'complete:q1']);
-  assert.deepEqual((await run(producer({ async gather() { return { status: 'NOT_PERMITTED', reason: 'x' }; } }))).log, ['claim:WORK', 'hold:q1:NOT_PERMITTED', 'stale']);
+  assert.deepEqual((await run(producer({ async gather() { return { status: 'NOT_PERMITTED', reason: 'x' }; } }))).log, ['claim:WORK', 'stale', 'hold:q1:NOT_PERMITTED']);
   assert.deepEqual((await run(producer({ async gather() { return { status: 'UNAVAILABLE', reason: 'x' }; } }))).log, ['claim:WORK', 'retry:q1:GATHER_UNAVAILABLE']);
-  assert.deepEqual((await run(producer({ async read() { return { status: 'NOT_READ', reason: 'AI_NOT_ACTIVATED', retryable: false }; } }))).log, ['claim:WORK', 'hold:q1:AI_NOT_ACTIVATED', 'stale']);
+  assert.deepEqual((await run(producer({ async read() { return { status: 'NOT_READ', reason: 'AI_NOT_ACTIVATED', retryable: false }; } }))).log, ['claim:WORK', 'stale', 'hold:q1:AI_NOT_ACTIVATED']);
   assert.deepEqual((await run(producer({ async read() { return { status: 'NOT_READ', reason: 'AI_FAILED', retryable: true }; } }))).log, ['claim:WORK', 'retry:q1:AI_FAILED']);
   assert.deepEqual(
     (await run(producer({ async read() { return { status: 'READ', digest: { domain: 'WORK', subjectKind: 'DOMAIN', fingerprint: 'other' } as IntelligenceDigestInput }; } }))).log,
-    ['claim:WORK', 'hold:q1:FINGERPRINT_MISMATCH', 'stale'],
+    ['claim:WORK', 'stale', 'hold:q1:FINGERPRINT_MISMATCH'],
   );
   assert.deepEqual(
     (await run(producer({ async read(_t, _c, fp) { return { status: 'READ', digest: { domain: 'CRM', subjectKind: 'DOMAIN', fingerprint: fp } as IntelligenceDigestInput }; } }))).log,
-    ['claim:WORK', 'hold:q1:TARGET_MISMATCH', 'stale'],
+    ['claim:WORK', 'stale', 'hold:q1:TARGET_MISMATCH'],
   );
-  assert.deepEqual((await run(producer(), 'PRIVATE_EVIDENCE')).log, ['claim:WORK', 'upsertOrganization', 'hold:q1:PRIVATE_EVIDENCE', 'stale']);
+  assert.deepEqual((await run(producer(), 'PRIVATE_EVIDENCE')).log, ['claim:WORK', 'upsertOrganization', 'stale', 'hold:q1:PRIVATE_EVIDENCE']);
   assert.deepEqual((await run(producer(), 'CONTENDED')).log, ['claim:WORK', 'upsertOrganization', 'retry:q1:CONTENDED']);
   const thrown = await run(producer({ async gather() { throw new Error('secret content in a message'); } }));
   assert.deepEqual(thrown.log, ['claim:WORK', 'retry:q1:PRODUCER_ERROR']);
@@ -165,7 +169,7 @@ test('every failure path: hold what will not change, retry what may, never leak 
 test('a claimed request whose producer is no longer active is held, never guessed at', async () => {
   const w = world([claimFor({ target: { scope: 'ORGANIZATION', organizationId: 'o', domain: 'CRM', subjectKind: 'DOMAIN', subjectRef: 'domain' } })]);
   await runIntelligenceProducerCycle(w.deps(new IntelligenceProducerRegistry([producer()], ['test.work@1'])), LOOP);
-  assert.deepEqual(w.log, ['claim:WORK', 'hold:q1:NO_ACTIVE_PRODUCER', 'stale']);
+  assert.deepEqual(w.log, ['claim:WORK', 'stale', 'hold:q1:NO_ACTIVE_PRODUCER']);
 });
 
 test('an unchanged refresh of a reading marked STALE re-affirms it without a read; a retry that is not yet HELD leaves it as it is', async () => {
@@ -257,4 +261,20 @@ test('every read authority the domain registry names is a real resource:action a
     const [resource, action] = d.readAuthority.permission.split(':');
     assert.equal(matrixAllows('OWNER', resource as never, action as never), true, `${d.domain}: ${d.readAuthority.permission}`);
   }
+});
+
+test('FAIL CLOSED: a failed stale transition never removes the barrier -- NO_EVIDENCE retries instead of completing, and a terminal failure is still held', async () => {
+  const run = async (p: IntelligenceProducer<unknown>, claim = claimFor()) => {
+    const w = world([claim], { staleFails: true });
+    const report = await runIntelligenceProducerCycle(w.deps(new IntelligenceProducerRegistry([p], [p.id])), LOOP);
+    return { log: w.log, report };
+  };
+  const noEvidence = await run(producer({ async gather() { return { status: 'NO_EVIDENCE' }; } }));
+  assert.deepEqual(noEvidence.log, ['claim:WORK', 'stale:FAILED', 'retry:q1:STALE_TRANSITION_FAILED'], 'never complete:q1 -- the request stays, blocking');
+  assert.equal(noEvidence.report.outcomes.STALE_TRANSITION_FAILED, 2, 'the failure is recorded, not swallowed');
+  const terminal = await run(producer({ async read() { return { status: 'NOT_READ', reason: 'AI_NOT_ACTIVATED', retryable: false }; } }));
+  assert.deepEqual(terminal.log, ['claim:WORK', 'stale:FAILED', 'hold:q1:AI_NOT_ACTIVATED'], 'held regardless: the HELD row keeps blocking');
+  // Retries exhausting into HELD attempt the stale transition first, and hold whatever it did.
+  const exhausted = await run(producer({ async gather() { return { status: 'UNAVAILABLE', reason: 'x' }; } }), claimFor({ attempts: 3 }));
+  assert.deepEqual(exhausted.log, ['claim:WORK', 'stale:FAILED', 'retry:q1:GATHER_UNAVAILABLE']);
 });
