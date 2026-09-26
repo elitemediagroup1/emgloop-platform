@@ -8,8 +8,19 @@
 //   promote(actor, origin, c) re-resolves the origin AGAIN, refuses when it changed since the preview
 //                             (STALE_CONFIRMATION), checks the confirmation, the work type, and the
 //                             assignee's authority, then creates ONE single-step work item with its
-//                             `work_origins` link in the same transaction (a second promotion of the
-//                             same origin fails whole). Then it records WORK_LINKED on the origin's log.
+//                             `work_origins` link in the same transaction. Then it records WORK_LINKED on
+//                             the origin's log.
+//
+// MANY PROMOTIONS, ONE PER SUBMISSION. An origin (a Case especially) may become several pieces of work.
+// What must not repeat is one confirmed SUBMISSION: its key -- the actor, the origin, the confirmed
+// fingerprint and the nonce minted at preview, hashed -- is unique per organization, so a retried submit
+// returns the work it already created instead of creating a second.
+//
+// A CASE IS RE-RESOLVED BY WHO MAY SEE IT. An organization Case needs the Cases authority (and, for a
+// situation, the read authority of every domain it cites). A PRIVATE situation is found only through
+// SituationRepository as the signed principal -- its owner -- and is NOT_FOUND to everyone else, whatever
+// their role; its promotion is a PRINCIPAL origin that shares only what the person confirms, and its
+// WORK_LINKED is written through the situation door, never an organization Case read.
 //
 // SCOPE IS RE-RESOLVED, NEVER TRUSTED. A private origin is found only through the actor's own principal
 // read (their digest, their Daily Loop item): somebody else's is NOT_FOUND. An organization origin needs
@@ -19,11 +30,12 @@
 // AI NEVER CALLS THIS. There is no path from a producer, a model or a sweep to `promote`; a source-scan
 // test pins that nothing outside the web's confirmed action calls it.
 
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
 import {
   PROMOTE_OUTCOME_MAX_CHARS,
   PROMOTE_TITLE_MAX_CHARS,
+  SITUATION_SOURCE,
   promoteConfirmationRefusal,
   type IntelligenceDomain,
   type IntelligenceSubjectKind,
@@ -35,6 +47,7 @@ import {
 
 import { absentUntilMigrated } from '../../creator/until-migrated';
 import { IntelligenceDigestRepository } from '../../repositories/intelligence/intelligence-digest.repository';
+import { SituationRepository } from '../../repositories/intelligence/situation.repository';
 import { OperationalPriorityRepository } from '../../repositories/operational-priority.repository';
 import { WorkRepository } from '../../repositories/work.repository';
 import { WorkItemRepository } from '../../repositories/work-state/work-item.repository';
@@ -60,6 +73,13 @@ export interface PromoteConfirmation {
   /** The proposal's fingerprint the person confirmed. */
   readonly fingerprint: string;
   readonly confirmed: boolean;
+  /** The nonce the preview minted, carried by the form: one submission, one piece of work. */
+  readonly submissionNonce: string;
+}
+
+/** One confirmed submission's key: who, what origin, what they confirmed, and which preview. */
+function submissionKeyOf(actor: PromoteActor, r: { originKind: string; originRef: string; fingerprint: string }, c: PromoteConfirmation): string {
+  return `sub:${createHash('sha256').update([actor.organizationId, actor.userId, r.originKind, r.originRef, c.fingerprint, c.submissionNonce].join('\n')).digest('hex').slice(0, 64)}`;
 }
 
 export type PromotePreview = { readonly outcome: 'READY'; readonly proposal: PromoteProposal } | { readonly outcome: 'REFUSED'; readonly refusal: PromoteRefusal; readonly workInstanceId?: string };
@@ -75,7 +95,7 @@ interface Resolved {
   readonly targetAt: Date | null;
   readonly fingerprint: string;
   /** For the WORK_LINKED observation afterwards. */
-  readonly link: { readonly kind: 'WORK_ITEM'; readonly itemId: string } | { readonly kind: 'CASE'; readonly caseId: string } | null;
+  readonly link: { readonly kind: 'WORK_ITEM'; readonly itemId: string } | { readonly kind: 'CASE' | 'PRIVATE_SITUATION'; readonly caseId: string } | null;
 }
 
 const DOMAIN_LABEL: Readonly<Record<string, string>> = Object.freeze({
@@ -120,9 +140,8 @@ export class PromoteToWorkService {
   async preview(actor: PromoteActor, origin: PromoteOrigin): Promise<PromotePreview> {
     const resolved = await this.resolve(actor, origin);
     if ('refusal' in resolved) return { outcome: 'REFUSED', refusal: resolved.refusal };
-    const existing = await this.existing(actor.organizationId, resolved);
-    if (existing === 'NOT_MIGRATED') return { outcome: 'REFUSED', refusal: 'NOT_MIGRATED' };
-    if (existing) return { outcome: 'REFUSED', refusal: 'ALREADY_PROMOTED', workInstanceId: existing };
+    const linked = await this.linkedCount(actor.organizationId, resolved);
+    if (linked === 'NOT_MIGRATED') return { outcome: 'REFUSED', refusal: 'NOT_MIGRATED' };
     const shared: PromoteSharedField[] = ['title', 'outcome', 'assignee', ...(resolved.targetAt ? (['targetDate'] as const) : [])];
     return {
       outcome: 'READY',
@@ -136,6 +155,8 @@ export class PromoteToWorkService {
         targetAt: resolved.targetAt,
         sharedFields: shared,
         fingerprint: resolved.fingerprint,
+        submissionNonce: randomBytes(18).toString('base64url'),
+        alreadyLinkedCount: linked,
       },
     };
   }
@@ -147,9 +168,11 @@ export class PromoteToWorkService {
     if ('refusal' in resolved) return { outcome: 'REFUSED', refusal: resolved.refusal };
     // What the person confirmed must still be what the origin says.
     if (resolved.fingerprint !== confirmation.fingerprint) return { outcome: 'REFUSED', refusal: 'STALE_CONFIRMATION' };
-    const existing = await this.existing(actor.organizationId, resolved);
-    if (existing === 'NOT_MIGRATED') return { outcome: 'REFUSED', refusal: 'NOT_MIGRATED' };
-    if (existing) return { outcome: 'REFUSED', refusal: 'ALREADY_PROMOTED', workInstanceId: existing };
+    const submissionKey = submissionKeyOf(actor, resolved, confirmation);
+    // A retried submission returns the work it already created: idempotent, never a second piece of work.
+    const already = await this.bySubmission(actor.organizationId, submissionKey);
+    if (already === 'NOT_MIGRATED') return { outcome: 'REFUSED', refusal: 'NOT_MIGRATED' };
+    if (already) return { outcome: 'PROMOTED', workInstanceId: already };
 
     const work = new WorkRepository(this.prisma);
     const workType = await work.getWorkType(actor.organizationId, confirmation.workTypeId);
@@ -199,13 +222,15 @@ export class PromoteToWorkService {
           originFingerprint: resolved.fingerprint,
           sharedFields: shared,
           promotedAt: now,
+          submissionKey,
         },
       });
       workInstanceId = created.id;
     } catch (err) {
       if (isUniqueViolation(err)) {
-        const winner = await this.existing(actor.organizationId, resolved);
-        return { outcome: 'REFUSED', refusal: 'ALREADY_PROMOTED', ...(typeof winner === 'string' ? { workInstanceId: winner } : {}) };
+        // The same submission, concurrently: the one that won is this submission's work.
+        const winner = await this.bySubmission(actor.organizationId, submissionKey);
+        if (typeof winner === 'string') return { outcome: 'PROMOTED', workInstanceId: winner };
       }
       throw err;
     }
@@ -213,6 +238,9 @@ export class PromoteToWorkService {
     // The origin's own log records the promotion. The link above is the authority; this is its history.
     if (resolved.link?.kind === 'WORK_ITEM') {
       await new WorkItemRepository(this.prisma).linkToWork({ organizationId: actor.organizationId, userId: actor.userId }, resolved.link.itemId, { workInstanceId, occurredAt: now });
+    } else if (resolved.link?.kind === 'PRIVATE_SITUATION') {
+      // Through the situation door, as its owner: never an organization-visible Case read.
+      await new SituationRepository(this.prisma).linkWork({ scope: 'PRINCIPAL', organizationId: actor.organizationId, userId: actor.userId }, resolved.link.caseId, { workInstanceId, actorUserId: actor.userId, at: now });
     } else if (resolved.link?.kind === 'CASE') {
       await new OperationalPriorityRepository(this.prisma).recordObservation(actor.organizationId, resolved.link.caseId, {
         observationType: 'WORK_LINKED',
@@ -226,11 +254,15 @@ export class PromoteToWorkService {
     return { outcome: 'PROMOTED', workInstanceId };
   }
 
-  /** The work an origin was already promoted to; NOT_MIGRATED before 20261007000000. */
-  private async existing(organizationId: string, r: Resolved): Promise<string | null | 'NOT_MIGRATED'> {
-    const row = await absentUntilMigrated(
-      this.prisma.workOrigin.findFirst({ where: { organizationId, originKind: r.originKind, originRef: r.originRef }, select: { workInstanceId: true } }).then((x) => x ?? false),
-    );
+  /** How many pieces of work this origin already links to; NOT_MIGRATED before 20261007000000. */
+  private async linkedCount(organizationId: string, r: Resolved): Promise<number | 'NOT_MIGRATED'> {
+    const n = await absentUntilMigrated(this.prisma.workOrigin.count({ where: { organizationId, originKind: r.originKind, originRef: r.originRef } }));
+    return n === null ? 'NOT_MIGRATED' : n;
+  }
+
+  /** The work one confirmed submission created, if it already did. */
+  private async bySubmission(organizationId: string, submissionKey: string): Promise<string | null | 'NOT_MIGRATED'> {
+    const row = await absentUntilMigrated(this.prisma.workOrigin.findFirst({ where: { organizationId, submissionKey }, select: { workInstanceId: true } }).then((x) => x ?? false));
     if (row === null) return 'NOT_MIGRATED';
     return row === false ? null : row.workInstanceId;
   }
@@ -289,10 +321,34 @@ export class PromoteToWorkService {
         };
       }
       case 'CASE': {
-        if (!actor.mayReadCases) return { refusal: 'NOT_PERMITTED' };
         if (!origin.caseId) return { refusal: 'INVALID_INPUT' };
+        const situations = new SituationRepository(this.prisma);
+        // 1. The actor's OWN private situation: through the private door, as the signed principal.
+        const mine = await situations.get({ scope: 'PRINCIPAL', organizationId: actor.organizationId, userId: actor.userId }, origin.caseId);
+        if (mine) {
+          if (mine.state === 'RESOLVED' || mine.state === 'DISMISSED') return { refusal: 'STALE' };
+          return {
+            originKind: 'CASE',
+            originScope: 'PRINCIPAL',
+            originRef: mine.id,
+            originLabel: 'Your situation',
+            title: clip(mine.title, PROMOTE_TITLE_MAX_CHARS),
+            outcome: clip(mine.summary ?? mine.title, PROMOTE_OUTCOME_MAX_CHARS),
+            targetAt: null,
+            fingerprint: fingerprintOf(mine.id, mine.title, mine.state, mine.lastDetectedAt.toISOString()),
+            link: { kind: 'PRIVATE_SITUATION', caseId: mine.id },
+          };
+        }
+        // 2. An organization Case, under organization authority. (A private situation is excluded here by value.)
+        if (!actor.mayReadCases) return { refusal: 'NOT_FOUND' };
         const kase = await new OperationalPriorityRepository(this.prisma).findById(actor.organizationId, origin.caseId);
         if (!kase) return { refusal: 'NOT_FOUND' };
+        if (kase.sourceSystem === SITUATION_SOURCE) {
+          // An organization situation: only for someone who may read every domain it cites.
+          const view = await situations.get({ scope: 'ORGANIZATION', organizationId: actor.organizationId }, kase.id);
+          const domains = view?.record?.domains ?? [];
+          if (domains.length === 0 || !domains.every((d) => actor.mayReadOrganizationDomain(d))) return { refusal: 'NOT_FOUND' };
+        }
         if (kase.state === 'RESOLVED' || kase.state === 'DISMISSED') return { refusal: 'STALE' };
         return {
           originKind: 'CASE',

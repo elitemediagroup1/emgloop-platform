@@ -439,11 +439,19 @@ export class OperationalPriorityRepository {
    * no lane. False when nothing matched (no observation is written).
    */
   async appendSituationEvidence(organizationId: string, caseId: string, sourceSystem: string, at: Date, evidence: Record<string, unknown>): Promise<boolean> {
+    return this.appendToSituation(organizationId, caseId, sourceSystem, { observationType: 'EVIDENCE_ADDED', occurredAt: at, actorType: 'SYSTEM', actorUserId: null, source: sourceSystem, evidence });
+  }
+
+  /**
+   * Append one observation to a SITUATION Case, resolved by (id, organization, THAT situation source) --
+   * never any other producer's Case. The private door's writer: SituationRepository resolves the owner
+   * first, so a private situation's log is written without an organization-visible Case read.
+   */
+  async appendToSituation(organizationId: string, caseId: string, sourceSystem: string, input: RecordObservationInput): Promise<boolean> {
     if (sourceSystem !== SITUATION_SOURCE && sourceSystem !== PRIVATE_SITUATION_SOURCE) return false;
     const priority = await this.prisma.operationalPriority.findFirst({ where: { id: caseId, organizationId, sourceSystem } });
     if (!priority) return false;
-    const updated = await this.append(organizationId, priority, { observationType: 'EVIDENCE_ADDED', occurredAt: at, actorType: 'SYSTEM', actorUserId: null, source: sourceSystem, evidence });
-    return updated !== null;
+    return (await this.append(organizationId, priority, input)) !== null;
   }
 
   // --- Operator actions ----------------------------------------------------

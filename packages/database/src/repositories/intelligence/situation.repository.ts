@@ -204,6 +204,25 @@ export class SituationRepository {
       });
   }
 
+  /**
+   * Record on the owner's situation that a person promoted it to work (WORK_LINKED). Resolved WITHIN the
+   * owner's scope first -- a private situation only for its owner -- then appended through the situation
+   * door. False when it is not the owner's (nothing is written).
+   */
+  async linkWork(owner: SituationOwner, caseId: string, link: { readonly workInstanceId: string; readonly actorUserId: string; readonly at: Date }): Promise<boolean> {
+    if (!(await this.present())) return false;
+    const row = await this.prisma.operationalPriority.findFirst({ where: { id: caseId, ...this.where(owner) }, select: { id: true, sourceSystem: true } });
+    if (!row) return false;
+    return new OperationalPriorityRepository(this.prisma).appendToSituation(owner.organizationId, row.id, row.sourceSystem, {
+      observationType: 'WORK_LINKED',
+      occurredAt: link.at,
+      actorType: 'HUMAN',
+      actorUserId: link.actorUserId,
+      source: 'promote-to-work',
+      evidence: { destination: { system: 'work-os', type: 'work_instance', id: link.workInstanceId } },
+    });
+  }
+
   /** Organization candidates not decided for 90 days (a private one lives with its owner's membership). */
   async purgeStaleCandidates(now: Date): Promise<{ purged: number }> {
     if (!(await this.present())) return { purged: 0 };

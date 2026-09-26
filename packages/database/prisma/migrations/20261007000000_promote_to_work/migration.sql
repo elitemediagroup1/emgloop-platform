@@ -1,17 +1,20 @@
 -- Loop Intelligence Phase C (2026-09-26): Promote to Work -- the ONE bridge from intelligence to Work OS.
 --
 -- WHAT CHANGES
---   1. work_origins: where a piece of work was promoted from (a digest signal, a Daily Loop item, a Case),
---      keys only -- the kind, the scope, a keyed reference, the fingerprint of what the person confirmed,
---      the NAMES of the fields they chose to share. One promotion per origin (unique). Cascades with the
---      work instance and the organization.
+--   1. work_origins: where a piece of work was promoted from (a digest signal, a Daily Loop item, a Case --
+--      including a person's PRIVATE situation), keys only -- the kind, the scope, a keyed reference, the
+--      fingerprint of what the person confirmed, the NAMES of the fields they chose to share. An origin may
+--      be promoted to MANY pieces of work; one confirmed SUBMISSION creates exactly one (unique
+--      submissionKey, so a retried submission returns the same work). Cascades with the work and the org.
 --   2. OperationalObservationType gains WORK_LINKED: a Case records that a person promoted it to work.
 --      It moves no lane and closes nothing (Work OS owns the work from there).
 --   3. work_item_observations may record WORK_LINKED: a person's own Daily Loop item records that they
 --      promoted it. The CHECK is replaced with the same list plus that one value; nothing else moves.
 --
--- ADDITIVE. No row is rewritten, and every existing row satisfies the new CHECKs. Code deployed before
--- this migration refuses to promote (NOT_MIGRATED) rather than creating work it cannot link.
+-- BACKWARD-COMPATIBLE, NO ROW REWRITTEN. A new table and an enum value are added; the
+-- work_item_observations CHECK is DROPPED AND REPLACED with the same list plus one value, so every existing
+-- row still satisfies it. Code deployed before this migration refuses to promote (NOT_MIGRATED) rather than
+-- creating work it cannot link.
 --
 -- ASCII only.
 
@@ -31,6 +34,7 @@ CREATE TABLE "work_origins" (
     "promotedByUserId" TEXT NOT NULL,
     "promotedAt" TIMESTAMP(3) NOT NULL,
     "sharedFields" TEXT[],
+    "submissionKey" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "work_origins_pkey" PRIMARY KEY ("id")
@@ -40,7 +44,10 @@ CREATE TABLE "work_origins" (
 CREATE INDEX "work_origins_organizationId_workInstanceId_idx" ON "work_origins"("organizationId", "workInstanceId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "work_origins_organizationId_originKind_originRef_key" ON "work_origins"("organizationId", "originKind", "originRef");
+CREATE INDEX "work_origins_organizationId_originKind_originRef_idx" ON "work_origins"("organizationId", "originKind", "originRef");
+
+-- One confirmed submission creates one piece of work: a retried submission finds its own row.
+CREATE UNIQUE INDEX "work_origins_organizationId_submissionKey_key" ON "work_origins"("organizationId", "submissionKey");
 
 -- AddForeignKey
 ALTER TABLE "work_origins" ADD CONSTRAINT "work_origins_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -54,11 +61,12 @@ ALTER TABLE "work_origins" ADD CONSTRAINT "work_origins_shape_check" CHECK (
   -- A private origin is the promoter's own, and only theirs.
   AND (("originScope" = 'PRINCIPAL') = ("originUserId" IS NOT NULL))
   AND ("originUserId" IS NULL OR "originUserId" = "promotedByUserId")
-  -- A Daily Loop item is always private; a Case is always the organization's.
+  -- A Daily Loop item is always private. A Case is the organization's, or -- a private situation -- the
+  -- promoter's own (the scope/user rule above binds it to them).
   AND ("originKind" <> 'WORK_ITEM' OR "originScope" = 'PRINCIPAL')
-  AND ("originKind" <> 'CASE' OR "originScope" = 'ORGANIZATION')
   AND length("originRef") BETWEEN 1 AND 256
   AND length("originFingerprint") BETWEEN 1 AND 128
+  AND length("submissionKey") BETWEEN 1 AND 128
   AND cardinality(COALESCE("sharedFields", ARRAY[]::TEXT[])) <= 8
 );
 

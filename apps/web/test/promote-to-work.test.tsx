@@ -97,6 +97,8 @@ describe('the confirmation says what becomes shared', () => {
         targetAt: new Date('2026-09-30T17:00:00Z'),
         sharedFields: ['title', 'outcome', 'assignee', 'targetDate'],
         fingerprint: 'promote:abc',
+        submissionNonce: 'nonce_abcdefghijklmnop',
+        alreadyLinkedCount: 0,
       },
     },
     workTypes: [{ id: 'bp_1', name: 'Follow-up' }],
@@ -114,6 +116,24 @@ describe('the confirmation says what becomes shared', () => {
     assert.match(html, /name="promote" value="item"/);
     assert.equal((html.match(/<option /g) ?? []).length, 2, 'one work type and one assignee: yourself');
     assert.match(html, /value="2026-09-30"/);
+    // One submission, one piece of work: the preview's nonce travels with the form.
+    assert.match(html, /name="submission" value="nonce_abcdefghijklmnop"/);
+    assert.doesNotMatch(html, /data-promote-linked/, 'nothing linked yet: nothing said');
+  });
+
+  it('an origin already linked says so, and that promoting again creates another piece of work', () => {
+    const v = view();
+    const linked = { ...v, preview: { outcome: 'READY' as const, proposal: { ...(v.preview as { proposal: object }).proposal, alreadyLinkedCount: 2 } } } as PromoteView;
+    const html = renderToStaticMarkup(<PromotePanel view={linked} returnTo="/app" />);
+    assert.match(html, /already linked to 2 pieces of work\. Promoting it again creates another\./);
+  });
+
+  it('Home hosts the confirmation for a person’s own private situation; the action carries the nonce', () => {
+    const home = read('apps/web/src/app/app/page.tsx');
+    assert.match(home, /promoteOriginFrom\(param\)/);
+    assert.match(home, /<PromotePanel view=\{promoteView\} returnTo="\/app" \/>/);
+    assert.match(read('apps/web/src/intelligence/situations-view.tsx'), /s\.visibility === 'PRINCIPAL' \? \([\s\S]*promoteHref\('\/app', \{ kind: 'CASE', caseId: s\.id \}\)/);
+    assert.match(read('apps/web/src/work/promote-actions.ts'), /submissionNonce: String\(form\.get\('submission'\) \?\? ''\)/);
   });
 
   it('a refusal is words, and nothing is offered to submit', () => {

@@ -6,6 +6,7 @@
 import type { SituationView } from '@emgloop/database';
 import type { TimeView } from '@emgloop/shared';
 
+import { promoteHref } from '../work/promote-origin';
 import type { SituationsRead } from './situations';
 
 const VERIFICATION_WORDS: Readonly<Record<string, string>> = Object.freeze({
@@ -26,6 +27,12 @@ function SituationEntry({ s, time, href }: { s: SituationView; time: TimeView; h
         <span className="loop-chats__label">{href ? <a href={href}>{s.title}</a> : s.title}</span>
         {s.visibility === 'PRINCIPAL' ? <span className="loop-pill">Only you</span> : null}
         {s.severity === 'HIGH' ? <span className="loop-pill loop-pill--attention">Pressing</span> : null}
+        {s.visibility === 'PRINCIPAL' ? (
+          // Your own situation, promoted on Home: nothing is shared until you confirm what is.
+          <a className="loop-link" href={promoteHref('/app', { kind: 'CASE', caseId: s.id })} data-situation-promote>
+            Promote to Work
+          </a>
+        ) : null}
       </div>
       {s.summary ? <p className="loop-chats__title">{s.summary}</p> : null}
       <p className="loop-chats__meta">

@@ -5,7 +5,11 @@
 // WHAT IT PROVES
 //   - A private origin is re-resolved inside the promoter's own scope: someone else's is NOT_FOUND,
 //     whatever their role. An organization origin needs the read authority the caller proved.
-//   - Nothing is created without a confirmation, with a changed origin (STALE_CONFIRMATION), or twice.
+//   - Nothing is created without a confirmation or with a changed origin (STALE_CONFIRMATION). One
+//     confirmed SUBMISSION creates one piece of work (a retry returns it); a new confirmed promotion of the
+//     same origin -- a Case especially -- creates another.
+//   - A private situation is promoted by its owner only (through SituationRepository), as a PRINCIPAL
+//     origin, and its WORK_LINKED is written without an organization Case read.
 //   - Self-assignment is always allowed; assigning a coworker needs work:manage, and only to an active member.
 //   - The work and its origin link land in ONE transaction; the origin's own log records WORK_LINKED and
 //     its state/lane does not move.
@@ -20,6 +24,8 @@ import { PrismaClient } from '@prisma/client';
 import { IntelligenceDigestRepository } from '../src/repositories/intelligence/intelligence-digest.repository';
 import { WorkItemRepository } from '../src/repositories/work-state/work-item.repository';
 import { WorkRepository } from '../src/repositories/work.repository';
+import { OperationalPriorityRepository } from '../src/repositories/operational-priority.repository';
+import { SituationRepository, SITUATION_RECORD_SCHEMA } from '../src/repositories/intelligence/situation.repository';
 import { PromoteToWorkService, type PromoteActor } from '../src/services/work/promote-to-work.service';
 
 const LOCAL = (url: string) => /^postgres(ql)?:\/\/[^@]*@(localhost|127\.0\.0\.1)(:\d+)?\//.test(url);
@@ -77,7 +83,7 @@ async function chatsDigestWithObligation(prisma: PrismaClient, organizationId: s
 
 const SIGNAL = { kind: 'DIGEST_SIGNAL', scope: 'PRINCIPAL', domain: 'CHATS', subjectKind: 'CONVERSATION', subjectRef: 'telegram_conversation:ck_premier', signalKey: 'obligation.a1' } as const;
 
-test('a private signal is promoted only by its owner, only once, only when confirmed and unchanged -- and the target becomes the commitment', { skip }, async () => {
+test('a private signal is promoted only by its owner, only when confirmed and unchanged; a retried submission is idempotent -- and the target becomes the commitment', { skip }, async () => {
   const prisma = new PrismaClient({ datasources: { db: { url: URL } } });
   const w = await world(prisma, 'signal');
   const [owner, matt, lexi] = w.users;
@@ -96,7 +102,8 @@ test('a private signal is promoted only by its owner, only once, only when confi
     for (const other of [actorOf(w.organizationId, owner!, { mayAssignOthers: true, mayReadCases: true, mayReadOrganizationDomain: () => true }), actorOf(w.organizationId, lexi!)]) {
       assert.deepEqual(await service.preview(other, SIGNAL), { outcome: 'REFUSED', refusal: 'NOT_FOUND' });
     }
-    const confirm = { title: 'Send Premier the revised allocation', outcome: 'Premier has the revised allocation', workTypeId: w.workTypeId, assigneeUserId: matt!, targetAt: at(4), fingerprint: preview.proposal.fingerprint, confirmed: true };
+    const confirm = { title: 'Send Premier the revised allocation', outcome: 'Premier has the revised allocation', workTypeId: w.workTypeId, assigneeUserId: matt!, targetAt: at(4), fingerprint: preview.proposal.fingerprint, confirmed: true, submissionNonce: preview.proposal.submissionNonce };
+    assert.deepEqual(await service.promote(mattActor, SIGNAL, { ...confirm, submissionNonce: 'short' }), { outcome: 'REFUSED', refusal: 'INVALID_INPUT' }, 'a submission names its preview');
     assert.deepEqual(await service.promote(mattActor, SIGNAL, { ...confirm, confirmed: false }), { outcome: 'REFUSED', refusal: 'NOT_CONFIRMED' });
     assert.deepEqual(await service.promote(mattActor, SIGNAL, { ...confirm, fingerprint: 'promote:old' }), { outcome: 'REFUSED', refusal: 'STALE_CONFIRMATION' });
     assert.deepEqual(await service.promote(mattActor, SIGNAL, { ...confirm, title: '  ' }), { outcome: 'REFUSED', refusal: 'INVALID_INPUT' });
@@ -119,9 +126,15 @@ test('a private signal is promoted only by its owner, only once, only when confi
     assert.deepEqual([origin.originKind, origin.originScope, origin.originUserId, origin.promotedByUserId], ['DIGEST_SIGNAL', 'PRINCIPAL', matt, matt]);
     assert.match(origin.originRef, /#obligation\.a1$/);
     assert.equal(JSON.stringify(origin).includes('Premier'), false, 'the link carries keys, never the content');
-    // Once.
-    assert.deepEqual(await service.promote(mattActor, SIGNAL, confirm), { outcome: 'REFUSED', refusal: 'ALREADY_PROMOTED', workInstanceId: promoted.workInstanceId });
-    assert.deepEqual(await service.preview(mattActor, SIGNAL), { outcome: 'REFUSED', refusal: 'ALREADY_PROMOTED', workInstanceId: promoted.workInstanceId });
+    // A RETRIED SUBMISSION is idempotent: the same work, nothing new.
+    assert.deepEqual(await service.promote(mattActor, SIGNAL, confirm), { outcome: 'PROMOTED', workInstanceId: promoted.workInstanceId });
+    assert.equal(await prisma.workInstance.count({ where: { organizationId: w.organizationId } }), 1);
+    // A later preview says it is already linked, with a NEW nonce.
+    const again = await service.preview(mattActor, SIGNAL);
+    assert.equal(again.outcome, 'READY');
+    if (again.outcome !== 'READY') return;
+    assert.equal(again.proposal.alreadyLinkedCount, 1);
+    assert.notEqual(again.proposal.submissionNonce, preview.proposal.submissionNonce);
   } finally {
     await prisma.workInstance.deleteMany({ where: { organizationId: w.organizationId } }).catch(() => undefined);
     await prisma.blueprint.deleteMany({ where: { organizationId: w.organizationId } }).catch(() => undefined);
@@ -150,7 +163,7 @@ test('assigning a coworker needs work:manage and an active member; a Daily Loop 
     if (preview.outcome !== 'READY') return;
     assert.deepEqual(preview.proposal.targetAt, new Date('2026-10-02T17:00:00Z'), 'a deadline written as a date becomes a target');
     assert.deepEqual(await service.preview(actorOf(w.organizationId, matt!), origin), { outcome: 'REFUSED', refusal: 'NOT_FOUND' }, 'nobody promotes another person\'s item');
-    const confirm = { title: item.title!, outcome: 'Cap confirmed', workTypeId: w.workTypeId, assigneeUserId: lexi!, targetAt: null, fingerprint: preview.proposal.fingerprint, confirmed: true };
+    const confirm = { title: item.title!, outcome: 'Cap confirmed', workTypeId: w.workTypeId, assigneeUserId: lexi!, targetAt: null, fingerprint: preview.proposal.fingerprint, confirmed: true, submissionNonce: preview.proposal.submissionNonce };
     assert.deepEqual(await service.promote(ownerActor, origin, { ...confirm, assigneeUserId: 'user_not_here' }), { outcome: 'REFUSED', refusal: 'ASSIGNEE_NOT_A_MEMBER' });
     const promoted = await service.promote(ownerActor, origin, confirm);
     assert.equal(promoted.outcome, 'PROMOTED');
@@ -170,7 +183,7 @@ test('assigning a coworker needs work:manage and an active member; a Daily Loop 
   }
 });
 
-test('a Case needs the Cases read authority; promoting it records WORK_LINKED and moves no lane', { skip }, async () => {
+test('an organization Case needs the Cases read authority, may become TWO distinct pieces of work, records WORK_LINKED each time and moves no lane; another organization cannot reach it', { skip }, async () => {
   const prisma = new PrismaClient({ datasources: { db: { url: URL } } });
   const w = await world(prisma, 'case');
   const [owner] = w.users;
@@ -180,14 +193,26 @@ test('a Case needs the Cases read authority; promoting it records WORK_LINKED an
     });
     const service = new PromoteToWorkService(prisma, { now: () => NOW });
     const origin = { kind: 'CASE', caseId: kase.id } as const;
-    assert.deepEqual(await service.preview(actorOf(w.organizationId, owner!), origin), { outcome: 'REFUSED', refusal: 'NOT_PERMITTED' });
+    // Without the Cases authority an organization Case is simply not there for this person.
+    assert.deepEqual(await service.preview(actorOf(w.organizationId, owner!), origin), { outcome: 'REFUSED', refusal: 'NOT_FOUND' });
     const actor = actorOf(w.organizationId, owner!, { mayReadCases: true });
     const preview = await service.preview(actor, origin);
     assert.equal(preview.outcome, 'READY');
     if (preview.outcome !== 'READY') return;
-    const promoted = await service.promote(actor, origin, { title: 'Investigate Premier conversion', outcome: 'Know why conversion fell', workTypeId: w.workTypeId, assigneeUserId: owner!, targetAt: null, fingerprint: preview.proposal.fingerprint, confirmed: true });
+    const promoted = await service.promote(actor, origin, { title: 'Investigate Premier conversion', outcome: 'Know why conversion fell', workTypeId: w.workTypeId, assigneeUserId: owner!, targetAt: null, fingerprint: preview.proposal.fingerprint, confirmed: true, submissionNonce: preview.proposal.submissionNonce });
     assert.equal(promoted.outcome, 'PROMOTED');
+    // A SECOND legitimate piece of work from the same Case: a new preview, a new confirmed submission.
+    const second = await service.preview(actor, origin);
+    assert.equal(second.outcome, 'READY');
+    if (second.outcome !== 'READY' || promoted.outcome !== 'PROMOTED') return;
+    assert.equal(second.proposal.alreadyLinkedCount, 1);
+    const promotedAgain = await service.promote(actor, origin, { title: 'Call Premier about conversion', outcome: 'Premier explains the drop', workTypeId: w.workTypeId, assigneeUserId: owner!, targetAt: null, fingerprint: second.proposal.fingerprint, confirmed: true, submissionNonce: second.proposal.submissionNonce });
+    assert.equal(promotedAgain.outcome, 'PROMOTED');
+    if (promotedAgain.outcome !== 'PROMOTED') return;
+    assert.notEqual(promotedAgain.workInstanceId, promoted.workInstanceId);
+    assert.equal(await prisma.workOrigin.count({ where: { organizationId: w.organizationId, originKind: 'CASE', originRef: kase.id } }), 2);
     const log = await prisma.operationalObservation.findMany({ where: { organizationId: w.organizationId, priorityId: kase.id } });
+    assert.equal(log.filter((o) => o.observationType === 'WORK_LINKED').length, 2);
     const linked = log.find((o) => o.observationType === 'WORK_LINKED');
     assert.ok(linked);
     assert.equal((linked!.evidence as any).destination.system, 'work-os');
@@ -248,11 +273,71 @@ test('PRE-MIGRATION: nothing is promoted and nothing is created (NOT_MIGRATED)',
     const actor = actorOf(w.organizationId, owner!);
     assert.deepEqual(await service.preview(actor, { kind: 'WORK_ITEM', itemId: item.id }), { outcome: 'REFUSED', refusal: 'NOT_MIGRATED' });
     assert.deepEqual(
-      await service.promote(actor, { kind: 'WORK_ITEM', itemId: item.id }, { title: 'x', outcome: 'y', workTypeId: w.workTypeId, assigneeUserId: owner!, targetAt: null, fingerprint: 'f', confirmed: true }),
+      await service.promote(actor, { kind: 'WORK_ITEM', itemId: item.id }, { title: 'x', outcome: 'y', workTypeId: w.workTypeId, assigneeUserId: owner!, targetAt: null, fingerprint: 'f', confirmed: true, submissionNonce: 'nonce_premigration_0001' }),
       { outcome: 'REFUSED', refusal: 'STALE_CONFIRMATION' },
     );
     assert.equal(await prisma.workInstance.count({ where: { organizationId: w.organizationId } }), 0);
   } finally {
+    await prisma.blueprint.deleteMany({ where: { organizationId: w.organizationId } }).catch(() => undefined);
+    await prisma.organization.delete({ where: { id: w.organizationId } }).catch(() => undefined);
+    await prisma.$disconnect();
+  }
+});
+
+test('a PRIVATE situation is promoted by its owner only: a PRINCIPAL origin sharing what they confirm, WORK_LINKED written without an organization Case read; the OWNER and a coworker cannot preview or promote it', { skip }, async () => {
+  const prisma = new PrismaClient({ datasources: { db: { url: URL } } });
+  const w = await world(prisma, 'private');
+  const [owner, matt, lexi] = w.users;
+  try {
+    const opened = await new SituationRepository(prisma).record({ scope: 'PRINCIPAL', organizationId: w.organizationId, userId: matt! }, {
+      decision: 'NEW', caseId: null, title: 'Premier renewal and the October cap', narrative: 'Your chats and your work name Premier in the same week.', severity: 'HIGH', at: NOW,
+      record: { schema: SITUATION_RECORD_SCHEMA, clusterKey: 'sc_p', fingerprint: 'situation:p', narrative: 'n', refs: ['work_instance:w1'], citations: ['digest:a/b'], domains: ['CHATS', 'WORK'], claims: [], limitations: [], verification: { state: 'UNAVAILABLE', providerId: null }, synthesis: { invocationId: 'i', providerId: 'anthropic', taskId: 'situation.synthesis.private', taskVersion: '1.0.0' }, windowStart: NOW.toISOString(), windowEnd: NOW.toISOString() },
+    });
+    assert.equal(opened.outcome, 'OPENED');
+    const caseId = (opened as { caseId: string }).caseId;
+    const origin = { kind: 'CASE', caseId } as const;
+    const service = new PromoteToWorkService(prisma, { now: () => NOW });
+    // Nobody else: not the OWNER with every authority, not a coworker.
+    const admin = actorOf(w.organizationId, owner!, { mayAssignOthers: true, mayReadCases: true, mayReadOrganizationDomain: () => true });
+    for (const other of [admin, actorOf(w.organizationId, lexi!, { mayReadCases: true })]) {
+      assert.deepEqual(await service.preview(other, origin), { outcome: 'REFUSED', refusal: 'NOT_FOUND' });
+      assert.deepEqual(await service.promote(other, origin, { title: 't', outcome: 'o', workTypeId: w.workTypeId, assigneeUserId: other.userId, targetAt: null, fingerprint: 'promote:x', confirmed: true, submissionNonce: 'nonce_somebody_else_01' }), { outcome: 'REFUSED', refusal: 'NOT_FOUND' });
+    }
+    // The owner -- who need not hold the Cases authority for their own situation.
+    const mattActor = actorOf(w.organizationId, matt!);
+    const preview = await service.preview(mattActor, origin);
+    assert.equal(preview.outcome, 'READY');
+    if (preview.outcome !== 'READY') return;
+    assert.equal(preview.proposal.originScope, 'PRINCIPAL', 'private until confirmed');
+    assert.equal(preview.proposal.originLabel, 'Your situation');
+    const confirm = { title: 'Settle the Premier renewal', outcome: 'Premier renewed', workTypeId: w.workTypeId, assigneeUserId: matt!, targetAt: null, fingerprint: preview.proposal.fingerprint, confirmed: true, submissionNonce: preview.proposal.submissionNonce };
+    const promoted = await service.promote(mattActor, origin, confirm);
+    assert.equal(promoted.outcome, 'PROMOTED');
+    if (promoted.outcome !== 'PROMOTED') return;
+    const work = await prisma.workInstance.findFirst({ where: { id: promoted.workInstanceId }, include: { origins: true } });
+    assert.equal(work!.title, 'Settle the Premier renewal', 'only what the person confirmed is the work');
+    assert.equal(JSON.stringify(work).includes('same week'), false, 'the situation narrative is not shared unless confirmed');
+    const o = work!.origins[0]!;
+    assert.deepEqual([o.originKind, o.originScope, o.originUserId, o.promotedByUserId, o.originRef], ['CASE', 'PRINCIPAL', matt, matt, caseId]);
+    // WORK_LINKED on the private situation's own log.
+    const log = await prisma.operationalObservation.findMany({ where: { organizationId: w.organizationId, priorityId: caseId } });
+    assert.ok(log.some((x) => x.observationType === 'WORK_LINKED' && x.actorUserId === matt));
+    // Still private: no organization Case path sees it, even after the link.
+    assert.equal(await new OperationalPriorityRepository(prisma).findById(w.organizationId, caseId), null);
+    // A retried submission is idempotent.
+    assert.deepEqual(await service.promote(mattActor, origin, confirm), promoted);
+    // Another organization cannot reach it at all.
+    const other = await world(prisma, 'private_other');
+    try {
+      assert.deepEqual(await service.preview(actorOf(other.organizationId, other.users[0]!, { mayReadCases: true }), origin), { outcome: 'REFUSED', refusal: 'NOT_FOUND' });
+    } finally {
+      await prisma.blueprint.deleteMany({ where: { organizationId: other.organizationId } }).catch(() => undefined);
+      await prisma.organization.delete({ where: { id: other.organizationId } }).catch(() => undefined);
+    }
+  } finally {
+    await prisma.workInstance.deleteMany({ where: { organizationId: w.organizationId } }).catch(() => undefined);
+    await prisma.operationalObservation.deleteMany({ where: { organizationId: w.organizationId } }).catch(() => undefined);
+    await prisma.operationalPriority.deleteMany({ where: { organizationId: w.organizationId } }).catch(() => undefined);
     await prisma.blueprint.deleteMany({ where: { organizationId: w.organizationId } }).catch(() => undefined);
     await prisma.organization.delete({ where: { id: w.organizationId } }).catch(() => undefined);
     await prisma.$disconnect();

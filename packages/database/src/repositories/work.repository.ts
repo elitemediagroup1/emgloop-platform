@@ -300,7 +300,8 @@ export interface CreateWorkItemInput {
   /**
    * Loop Intelligence Phase C (Promote to Work): where this work was promoted from. Written as a
    * `work_origins` row in the SAME transaction as the work, so there is never work without its link, nor a
-   * link without its work. A second promotion of the same origin fails the whole transaction (unique).
+   * link without its work. A retried SUBMISSION fails the whole transaction (unique submissionKey); a new
+   * confirmed promotion of the same origin is a new row.
    */
   origin?: {
     readonly originKind: 'DIGEST_SIGNAL' | 'WORK_ITEM' | 'CASE';
@@ -310,6 +311,8 @@ export interface CreateWorkItemInput {
     readonly originFingerprint: string;
     readonly sharedFields: readonly string[];
     readonly promotedAt: Date;
+    /** One confirmed submission, hashed (unique per organization): a retry finds its own row. */
+    readonly submissionKey: string;
   } | null;
 }
 
@@ -851,6 +854,7 @@ export class WorkRepository {
             promotedByUserId: input.creatorUserId,
             promotedAt: input.origin.promotedAt,
             sharedFields: [...input.origin.sharedFields],
+            submissionKey: input.origin.submissionKey,
           },
           select: { id: true },
         });

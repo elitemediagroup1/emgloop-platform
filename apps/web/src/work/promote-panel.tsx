@@ -20,7 +20,6 @@ const REFUSAL_WORDS: Readonly<Record<PromoteRefusal, string>> = Object.freeze({
   STALE: 'This is no longer current, so it cannot be promoted as it stood.',
   STALE_CONFIRMATION: 'It changed after you looked at it. Review it again below before promoting.',
   NOT_CONFIRMED: 'Nothing was created: tick the confirmation to promote it.',
-  ALREADY_PROMOTED: 'This was already promoted to work.',
   INVALID_INPUT: 'Nothing was created: give the work a title and an outcome.',
   WORK_TYPE_NOT_FOUND: 'Choose a work type that is still active.',
   ASSIGNEE_NOT_PERMITTED: 'You can take this yourself; giving it to someone else needs permission to assign work.',
@@ -55,11 +54,18 @@ export function PromotePanel({ view, returnTo }: { view: PromoteView; returnTo: 
           ? `From ${p.originLabel.toLowerCase()}. This stays private until you confirm. When you do, the title and outcome below — as you leave them — become visible to everyone who can see the organization’s work. Nothing else from the conversation is shared.`
           : `From ${p.originLabel}. The title and outcome below become the work item; the ${p.originLabel.toLowerCase()} records that it was promoted.`}
       </p>
+      {p.alreadyLinkedCount > 0 ? (
+        <p className="loop-panel__lead" data-promote-linked={p.alreadyLinkedCount}>
+          This is already linked to {p.alreadyLinkedCount === 1 ? 'one piece of work' : `${p.alreadyLinkedCount} pieces of work`}. Promoting it again creates another.
+        </p>
+      ) : null}
       <form action={promoteToWorkAction} className="loop-promote__form">
         {Object.entries(promoteParams(p.origin)).map(([k, v]) => (
           <input key={k} type="hidden" name={k} value={v} />
         ))}
         <input type="hidden" name="fingerprint" value={p.fingerprint} />
+        {/* One submission, one piece of work: a retried submit returns the work it already created. */}
+        <input type="hidden" name="submission" value={p.submissionNonce} />
         <input type="hidden" name="returnTo" value={returnTo} />
         <label className="loop-field">
           <span>Title (shared)</span>

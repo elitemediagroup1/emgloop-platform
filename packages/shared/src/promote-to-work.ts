@@ -55,7 +55,18 @@ export interface PromoteProposal {
   readonly sharedFields: readonly PromoteSharedField[];
   /** What the person is looking at; the promotion refuses when the origin no longer matches it. */
   readonly fingerprint: string;
+  /**
+   * Minted at preview and carried by the confirmation form: one confirmed SUBMISSION creates exactly one
+   * piece of work, so a retried submission returns the same work, while a new preview (a new nonce) may
+   * promote the same origin again. Not a secret and not an authority -- the actor is re-resolved.
+   */
+  readonly submissionNonce: string;
+  /** How many pieces of work this origin is already linked to (a count, never whose work it is). */
+  readonly alreadyLinkedCount: number;
 }
+
+/** A submission nonce: URL-safe, 16-64 characters. */
+export const PROMOTE_SUBMISSION_NONCE = /^[A-Za-z0-9_-]{16,64}$/;
 
 export const PROMOTE_REFUSALS = [
   'NOT_FOUND',
@@ -63,7 +74,6 @@ export const PROMOTE_REFUSALS = [
   'STALE',
   'STALE_CONFIRMATION',
   'NOT_CONFIRMED',
-  'ALREADY_PROMOTED',
   'INVALID_INPUT',
   'WORK_TYPE_NOT_FOUND',
   'ASSIGNEE_NOT_PERMITTED',
@@ -73,8 +83,9 @@ export const PROMOTE_REFUSALS = [
 export type PromoteRefusal = (typeof PROMOTE_REFUSALS)[number];
 
 /** Everything wrong with what a person confirmed, before anything is read. */
-export function promoteConfirmationRefusal(c: { readonly title: string; readonly outcome: string; readonly confirmed: boolean; readonly targetAt: Date | null }): PromoteRefusal | null {
+export function promoteConfirmationRefusal(c: { readonly title: string; readonly outcome: string; readonly confirmed: boolean; readonly targetAt: Date | null; readonly submissionNonce?: string }): PromoteRefusal | null {
   if (c.confirmed !== true) return 'NOT_CONFIRMED';
+  if (typeof c.submissionNonce !== 'string' || !PROMOTE_SUBMISSION_NONCE.test(c.submissionNonce)) return 'INVALID_INPUT';
   const title = c.title.trim();
   const outcome = c.outcome.trim();
   if (title === '' || [...title].length > PROMOTE_TITLE_MAX_CHARS) return 'INVALID_INPUT';

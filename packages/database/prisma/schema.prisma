@@ -7445,12 +7445,16 @@ model WorkOrigin {
   promotedByUserId  String
   promotedAt        DateTime
   sharedFields      String[]
+  /// One confirmed submission (actor, origin, confirmed fingerprint, the preview's nonce), hashed. A
+  /// retried submission finds its own row; a new confirmed promotion of the same origin is a new row.
+  submissionKey     String
   createdAt         DateTime @default(now())
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   workInstance WorkInstance @relation(fields: [workInstanceId], references: [id], onDelete: Cascade)
 
-  @@unique([organizationId, originKind, originRef])
+  @@unique([organizationId, submissionKey])
+  @@index([organizationId, originKind, originRef])
   @@index([organizationId, workInstanceId])
   @@map("work_origins")
 }

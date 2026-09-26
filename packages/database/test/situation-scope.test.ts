@@ -16,6 +16,7 @@ const ALLOWED: Readonly<Record<string, string>> = Object.freeze({
   // Detection by (sourceSystem, recurrenceKey): the writer's own identity; a private key carries its owner.
   'repositories/operational-priority.repository.ts#findByRecurrenceKey': 'detect() identity lookup',
   'repositories/operational-priority.repository.ts#appendSituationEvidence': 'resolved by (id, org, THAT situation source)',
+  'repositories/operational-priority.repository.ts#appendToSituation': 'resolved by (id, org, THAT situation source)',
 });
 
 test('every Case read in the database package excludes private situations or is an allowed private door', () => {

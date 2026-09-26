@@ -40,6 +40,7 @@ export async function promoteToWorkAction(form: FormData): Promise<void> {
     targetAt,
     fingerprint: String(form.get('fingerprint') ?? ''),
     confirmed: form.get('confirm') === 'yes',
+    submissionNonce: String(form.get('submission') ?? ''),
   });
   revalidatePath(back);
   if (result.outcome !== 'PROMOTED') redirect(`${back}?promoteResult=${result.refusal}`);
