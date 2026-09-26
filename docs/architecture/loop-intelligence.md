@@ -145,8 +145,16 @@ Details:
 **What may be synthesized.** Situations and the Briefing use one decision, `digestSynthesisEligibility`
 (`@emgloop/shared` `intelligence-eligibility.ts`), over the shared freshness contract (`digestFreshness`).
 A digest contributes only when its status is CURRENT, its content is valid, and its freshness at that
-moment is SUFFICIENT or PARTIAL. The inputs come from `DigestSourceStateRepository`: whether the source is
-live, and its newest evidence.
+moment is SUFFICIENT or PARTIAL, **and its target has no unresolved refresh work** in the refresh queue
+(any row there is queued, claimed, retrying or HELD). The inputs come from `DigestSourceStateRepository`:
+whether the source is live, its newest evidence, and whether refresh work is unresolved.
+
+For Loop-record readings (every ORGANIZATION digest) the refresh is the freshness signal. The producer loop
+records each verdict on the stored reading:
+
+- NO_EVIDENCE or a hold marks it STALE (`markTargetStale`), so it stays out even after the queue row goes.
+- An unchanged successful refresh re-affirms a STALE reading without a read (`reaffirmTarget`).
+- A changed refresh writes the new current reading.
 
 - A PARTIAL digest's limitation travels with every signal into the model's context and into the stored
   situation or Briefing.
@@ -199,12 +207,19 @@ The possible states:
 
 1. **Gathers** their own readings, the organization readings their role and permissions admit, and the
    situations visible to them.
-2. **Reuses** the stored Briefing when the artifacts' fingerprint is unchanged.
-3. **Composes** with `loop.briefing.compose` when it is activated. Every line cites supplied artifacts,
+2. **Checks its expected coverage** (`expectedBriefingCoverage`): every domain Loop is supposed to observe
+   for the person. That means their connected Telegram and Google sources, plus the domains the
+   deployment's active producers observe (a conservative default when it is not told), limited to the
+   organization domains they may read. An expected domain with no current reading is a gap ("no current
+   reading", or "not connected"), never omitted. One rule (`briefingAbsenceJustified`) then decides for both
+   the deterministic and the model Briefing: "nothing pressing" only when the whole expected set is present
+   and SUFFICIENT.
+3. **Reuses** the stored Briefing when the artifacts' fingerprint is unchanged.
+4. **Composes** with `loop.briefing.compose` when it is activated. Every line cites supplied artifacts,
    and each artifact tells the model its coverage and limitations. A composed absence claim that coverage
    cannot justify is refused, and Loop's deterministic Briefing is written instead. Otherwise it writes the
    **deterministic** Briefing, which also never claims an absence that coverage does not justify.
-4. **Stores** a new version of today's `work_briefs` row in the person's own zone. Nothing is overwritten.
+5. **Stores** a new version of today's `work_briefs` row in the person's own zone. Nothing is overwritten.
 
 Home reads the stored Briefing and never composes one during a render. It says who composed it, and each
 line's chip links only where the viewer's navigation goes.

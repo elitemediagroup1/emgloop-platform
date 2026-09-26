@@ -75,7 +75,6 @@ export async function createIntelligenceHost(
     now,
   });
   const situationOwners = new db.SituationRepository(prisma);
-  const briefings = new db.BriefingComposer({ prisma, runtime: ai.runtime ? (ai.runtime as ConstructorParameters<typeof db.DomainReadingService>[0]) : null, modelEnabled, now });
   const producers = db.loopProducers({
     prisma,
     work: db.repositories.work,
@@ -86,6 +85,14 @@ export async function createIntelligenceHost(
     now,
   });
   const registry = new db.IntelligenceProducerRegistry(producers, config.producers);
+  // What this deployment observes, from its ACTIVE producers: the Briefing's expected coverage. A domain
+  // observed with no current reading is a gap in the Briefing, never quiet.
+  const active = registry.knownProducers().filter((p) => registry.isActive(p.id));
+  const observed = {
+    principal: [...new Set(active.filter((p) => p.scope === 'PRINCIPAL').map((p) => p.domain))],
+    organization: [...new Set(active.filter((p) => p.scope === 'ORGANIZATION').map((p) => p.domain))],
+  };
+  const briefings = new db.BriefingComposer({ prisma, runtime: ai.runtime ? (ai.runtime as ConstructorParameters<typeof db.DomainReadingService>[0]) : null, modelEnabled, now, observed });
   const queue = new db.IntelligenceRefreshQueueRepository(prisma);
   const digests = new db.IntelligenceDigestRepository(prisma);
   let running = false;

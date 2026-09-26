@@ -450,7 +450,8 @@ export { SituationService, situationInputsOf, situationContext } from './service
 export type { SituationPorts, SituationPassReport } from './services/intelligence-fabric/situations';
 // Loop Intelligence Phase G: the Loop Briefing, stored in the person's own work_briefs.
 export { BriefingComposer, BRIEFING_RECORD_SCHEMA, BRIEFING_RULE_VERSION, readableOrganizationDomains, ruleBriefing } from './services/intelligence-fabric/briefing';
-export type { BriefingArtifact, BriefingLine, BriefingOutcome, BriefingPorts } from './services/intelligence-fabric/briefing';
+export { expectedBriefingCoverage } from './services/intelligence-fabric/briefing';
+export type { BriefingArtifact, BriefingGap, BriefingLine, BriefingOutcome, BriefingPorts, ObservedDomains } from './services/intelligence-fabric/briefing';
 export type { IntelligencePassDeps, IntelligencePassReport } from './services/intelligence-fabric/intelligence-pass';
 export type { WebsiteEvidenceReader, WebsiteFacts } from './services/intelligence-fabric/domains/records';
 export { DomainFactsRepository } from './repositories/intelligence/domain-facts.repository';

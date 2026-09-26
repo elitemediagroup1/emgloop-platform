@@ -170,12 +170,28 @@ read in full and nothing was left out, whoever composes the Briefing.
 A stored reading contributes only when it is current at that moment:
 
 - its status is CURRENT;
-- its source is live (Loop's own records always are; a connected source is read from the connection);
+- its target has no unresolved refresh work (queued, claimed, retrying or HELD in the refresh queue);
+- its source is live (a connected source is read from the connection);
 - the source holds no evidence newer than what the reading read, and the reading is not about to expire;
 - its coverage is SUFFICIENT or PARTIAL.
 
 A PARTIAL reading carries its limitation into the model's context and into what is stored. STALE,
 DISCONNECTED, ERROR and INSUFFICIENT readings contribute nothing.
+
+For Loop's own records (every organization reading), the refresh is the freshness signal:
+
+- A refresh that ends with NO_EVIDENCE or HELD marks the prior reading STALE.
+- An unchanged successful refresh re-affirms it without a read.
+- A changed one replaces it.
+
+**The Briefing's expected coverage.** Every domain Loop is supposed to observe for the person must be
+present and current before "nothing pressing" can appear. That set is:
+
+- their connected Telegram and Google sources;
+- the domains this deployment's active producers observe;
+- limited to the organization domains the person may read.
+
+A missing reading is a gap ("no current reading of …", or "… is not connected"), never quiet.
 
 ### B5. Always live once merged and migrated (no switch)
 

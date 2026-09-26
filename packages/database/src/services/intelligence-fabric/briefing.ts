@@ -70,6 +70,22 @@ export interface BriefingArtifact {
 export interface BriefingGap {
   readonly domain: string;
   readonly coverage: IntelligenceCoverage;
+  /**
+   * Why Loop has no current reading to state. NOT_CURRENT: a reading exists but is not current (stale,
+   * disconnected, error, insufficient, unresolved refresh). NO_CURRENT_READING: Loop is expected to observe
+   * this domain for the person and holds no reading at all. NOT_CONNECTED: the source it would come from is
+   * not connected (or needs reconnecting). None of them is quiet.
+   */
+  readonly reason?: 'NOT_CURRENT' | 'NO_CURRENT_READING' | 'NOT_CONNECTED';
+}
+
+/**
+ * The domains this deployment actually observes (its ACTIVE producers), by scope. Absent: assume every
+ * domain may be observed -- a conservative default that can only add gaps, never remove one.
+ */
+export interface ObservedDomains {
+  readonly principal: readonly IntelligenceDomain[];
+  readonly organization: readonly IntelligenceDomain[];
 }
 
 export interface BriefingLine {
@@ -83,6 +99,8 @@ export interface BriefingPorts {
   readonly runtime: Pick<AiRuntimeGateway, 'run'> | null;
   readonly modelEnabled: (taskId: string) => boolean;
   readonly now: () => Date;
+  /** What this deployment observes (its active producers). Absent: the conservative default (see ObservedDomains). */
+  readonly observed?: ObservedDomains;
 }
 
 export type BriefingOutcome = { readonly outcome: 'REUSED' | 'COMPOSED' | 'RULE' | 'NOTHING_TO_SAY'; readonly version?: number; readonly reason?: string };
@@ -152,7 +170,50 @@ const GAP_WORDS: Readonly<Record<string, string>> = Object.freeze({
 
 /** The words a Briefing carries for readings Loop could not use today. Loop's own words, no source text. */
 export function gapLimitations(gaps: readonly BriefingGap[]): string[] {
-  return [...new Set(gaps.map((g) => `${g.domain === 'SITUATION' ? 'A situation' : (INTELLIGENCE_DOMAIN_REGISTRY.find((r) => r.domain === g.domain)?.label ?? g.domain)} ${GAP_WORDS[g.coverage] ?? 'is not current'}, so it is not in today’s Briefing.`))];
+  return [
+    ...new Set(
+      gaps.map((g) => {
+        const label = g.domain === 'SITUATION' ? 'A situation' : (INTELLIGENCE_DOMAIN_REGISTRY.find((r) => r.domain === g.domain)?.label ?? g.domain);
+        if (g.reason === 'NOT_CONNECTED') return `${label} is not connected, so Loop cannot see it and cannot say it is quiet.`;
+        if (g.reason === 'NO_CURRENT_READING') return `Loop has no current reading of ${label}, so it cannot say ${label} is quiet.`;
+        return `${label} ${GAP_WORDS[g.coverage] ?? 'is not current'}, so it is not in today’s Briefing.`;
+      }),
+    ),
+  ];
+}
+
+const TELEGRAM_LIVE = ['READY', 'CONNECTED_LIMITED'];
+
+/**
+ * THE EXPECTED-COVERAGE SET: every domain Loop is supposed to be observing for this person, and whether its
+ * source is live. A domain in this set with no current reading is a GAP (never omitted), so "nothing
+ * pressing" can only follow from a complete, SUFFICIENT set.
+ *
+ *   CHATS     the person has a Telegram connection: live when it is READY/CONNECTED_LIMITED and they
+ *             authorized content reading.
+ *   MAIL      the person has a Google connection: live when CONNECTED.
+ *   CALENDAR  the person has a Google connection, or the deployment observes calendars: live when CONNECTED.
+ *   WORK      the deployment observes a person's own work.
+ *   org       every organization domain the person may read AND the deployment observes.
+ *
+ * A source the person never connected and the deployment does not observe is not in the set: Loop is not
+ * looking there, and the Briefing's claims are always scoped to what Loop can read.
+ */
+export async function expectedBriefingCoverage(prisma: PrismaClient, principal: AiPrincipal, readableOrg: readonly IntelligenceDomain[], observed: ObservedDomains | undefined): Promise<{ domain: IntelligenceDomain; live: boolean }[]> {
+  const obsPrincipal = observed?.principal ?? ['WORK', 'CALENDAR'];
+  const obsOrg = observed?.organization ?? readableOrg;
+  const [google, telegram, telegramAuth] = await Promise.all([
+    prisma.googleConnection.findFirst({ where: principal, select: { status: true } }),
+    prisma.sourceConnection.findFirst({ where: { ...principal, provider: 'TELEGRAM' }, select: { state: true } }),
+    prisma.sourceContentAuthorization.findFirst({ where: { ...principal, provider: 'TELEGRAM', revokedAt: null }, select: { authorizedAt: true } }),
+  ]);
+  const out: { domain: IntelligenceDomain; live: boolean }[] = [];
+  if (telegram) out.push({ domain: 'CHATS', live: TELEGRAM_LIVE.includes(telegram.state) && !!telegramAuth });
+  if (google) out.push({ domain: 'MAIL', live: google.status === 'CONNECTED' });
+  if (google || obsPrincipal.includes('CALENDAR')) out.push({ domain: 'CALENDAR', live: google?.status === 'CONNECTED' });
+  if (obsPrincipal.includes('WORK')) out.push({ domain: 'WORK', live: true });
+  for (const d of readableOrg) if (obsOrg.includes(d)) out.push({ domain: d, live: true });
+  return out;
 }
 
 /** Whether today's inputs justify an ABSENCE conclusion ("nothing pressing"): all SUFFICIENT, no gaps. */
@@ -237,7 +298,7 @@ export class BriefingComposer {
     for (const d of rows) {
       const eligibility = digestSynthesisEligibility(d, sources.get(d.id) ?? { connectionLive: false, sourceLastEvidenceAt: null }, now);
       if (!eligibility.eligible) {
-        gaps.push({ domain: d.domain, coverage: eligibility.coverage });
+        gaps.push({ domain: d.domain, coverage: eligibility.coverage, reason: 'NOT_CURRENT' });
         continue;
       }
       const a = artifactOfDigest(d, eligibility);
@@ -246,6 +307,11 @@ export class BriefingComposer {
     const situations = new SituationRepository(this.ports.prisma);
     const mine = await situations.open({ scope: 'PRINCIPAL', ...principal }, 3);
     const shared = (await situations.open({ scope: 'ORGANIZATION', organizationId: principal.organizationId }, 5)).filter((s) => (s.record?.domains ?? []).length > 0 && s.record!.domains.every((d) => orgDomains.includes(d as IntelligenceDomain)));
+    // Every expected domain with no current reading is a gap -- never silently omitted.
+    for (const e of await expectedBriefingCoverage(this.ports.prisma, principal, orgDomains, this.ports.observed)) {
+      if (artifacts.some((a) => a.domain === e.domain) || gaps.some((g) => g.domain === e.domain)) continue;
+      gaps.push(e.live ? { domain: e.domain, coverage: 'CONNECTED_INSUFFICIENT', reason: 'NO_CURRENT_READING' } : { domain: e.domain, coverage: 'DISCONNECTED', reason: 'NOT_CONNECTED' });
+    }
     return { artifacts: [...artifacts, ...[...mine, ...shared].slice(0, 5).map(artifactOfSituation)].slice(0, 24), gaps };
   }
 
@@ -256,7 +322,7 @@ export class BriefingComposer {
     const localDate = new Date(`${localDay}T00:00:00.000Z`);
     const dayStart = startOfZonedDay(now, timeZone);
     const { artifacts, gaps } = await this.gather(principal, now);
-    const fingerprint = `briefing:${createHash('sha256').update(JSON.stringify([localDay, artifacts.map((a) => [a.ref, a.basis]), gaps.map((g) => [g.domain, g.coverage])])).digest('hex')}`;
+    const fingerprint = `briefing:${createHash('sha256').update(JSON.stringify([localDay, artifacts.map((a) => [a.ref, a.basis]), gaps.map((g) => [g.domain, g.coverage, g.reason ?? null])])).digest('hex')}`;
     const absenceOk = briefingAbsenceJustified(artifacts, gaps);
     const carried = [...new Set([...artifacts.flatMap((a) => a.limitations), ...gapLimitations(gaps)])];
     const briefs = new WorkBriefRepository(this.ports.prisma);
@@ -301,7 +367,7 @@ export class BriefingComposer {
         read: [...new Set(artifacts.map((a) => a.domain))].sort(),
         // What was used, how completely, and what could not be used today.
         coverages: Object.fromEntries(artifacts.map((a) => [a.ref, a.coverage])),
-        notCurrent: gaps.map((g) => ({ domain: g.domain, coverage: g.coverage })),
+        notCurrent: gaps.map((g) => ({ domain: g.domain, coverage: g.coverage, reason: g.reason ?? 'NOT_CURRENT' })),
         absenceJustified: absenceOk,
         // Which part of Loop each cited artifact is from, so a surface can link a line to where it lives.
         refs: Object.fromEntries(artifacts.map((a) => [a.ref, a.domain])),

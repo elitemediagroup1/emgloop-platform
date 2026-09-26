@@ -95,7 +95,7 @@ test('a Briefing always exists; it is reused unchanged; the composed one replace
     await new SituationRepository(prisma).record({ scope: 'PRINCIPAL', organizationId: t.organizationId, userId: t.owner }, { decision: 'NEW', caseId: null, title: 'Owner private', narrative: 'x', severity: 'HIGH', record: { schema: SITUATION_RECORD_SCHEMA, clusterKey: 'k', fingerprint: 'situation:k', narrative: 'x', refs: [], citations: [], domains: ['WORK', 'MAIL'], claims: [], limitations: [], verification: { state: 'UNAVAILABLE', providerId: null }, synthesis: { invocationId: 'i', providerId: 'anthropic', taskId: 'situation.synthesis.private', taskVersion: '1.0.0' }, windowStart: NOW.toISOString(), windowEnd: NOW.toISOString() }, at: NOW });
 
     const calls: string[][] = [];
-    const composer = (on: boolean) => new BriefingComposer({ prisma, runtime: fakeRuntime(calls), modelEnabled: () => on, now: () => NOW });
+    const composer = (on: boolean) => new BriefingComposer({ prisma, runtime: fakeRuntime(calls), modelEnabled: () => on, now: () => NOW, observed: { principal: ['WORK'], organization: ['CALLGRID'] } });
     const off = await composer(false).compose(me, 'America/New_York');
     assert.equal(off.outcome, 'RULE');
     assert.equal(calls.length, 0);
@@ -130,7 +130,8 @@ test('TRUTHFULNESS: stale and insufficient readings are gaps, not statements; "n
     const t = await tenant(prisma);
     const owner = { organizationId: t.organizationId, userId: t.owner };
     const digests = new IntelligenceDigestRepository(prisma);
-    const composer = new BriefingComposer({ prisma, runtime: null, modelEnabled: () => false, now: () => NOW });
+    // This deployment observes a person's own work only, so a calm, sufficient Work reading is the complete set.
+    const composer = new BriefingComposer({ prisma, runtime: null, modelEnabled: () => false, now: () => NOW, observed: { principal: ['WORK'], organization: [] } });
     // All SUFFICIENT and calm: the absence is justified.
     assert.equal((await digests.upsert(owner, digest('WORK', 'Your work is on track.', 'CALM', { scope: 'PRINCIPAL' }))).outcome, 'WRITTEN');
     assert.equal((await composer.compose(owner, 'UTC')).outcome, 'RULE');
@@ -139,7 +140,7 @@ test('TRUTHFULNESS: stale and insufficient readings are gaps, not statements; "n
     // An INSUFFICIENT organization reading the owner may read: a gap, and no absence claim.
     assert.equal((await digests.upsertOrganization(t.organizationId, digest('CALLGRID', 'Too few calls to read.', 'CALM', { coverage: 'CONNECTED_INSUFFICIENT' }))).outcome, 'WRITTEN');
     const g1 = await composer.gather(owner, NOW);
-    assert.deepEqual(g1.gaps, [{ domain: 'CALLGRID', coverage: 'CONNECTED_INSUFFICIENT' }]);
+    assert.deepEqual(g1.gaps, [{ domain: 'CALLGRID', coverage: 'CONNECTED_INSUFFICIENT', reason: 'NOT_CURRENT' }]);
     assert.ok(!g1.artifacts.some((a) => a.domain === 'CALLGRID'), 'no statement from an insufficient reading');
     await composer.compose(owner, 'UTC');
     const insufficient = (await new WorkBriefRepository(prisma).recent(owner, 1))[0]!;
@@ -178,7 +179,7 @@ test('TRUTHFULNESS: a PARTIAL reading reaches the model WITH its coverage and li
         return { outcome: 'ANSWERED', output: c.parse(answer), provenance: { invocationId: 'inv_p', taskVersion: '1.0.0', templateVersion: '2', requestedModel: { providerId: 'anthropic', modelId: 'm' } } };
       },
     } as never;
-    const out = await new BriefingComposer({ prisma, runtime, modelEnabled: () => true, now: () => NOW }).compose(me, 'UTC');
+    const out = await new BriefingComposer({ prisma, runtime, modelEnabled: () => true, now: () => NOW, observed: { principal: ['WORK'], organization: [] } }).compose(me, 'UTC');
     assert.deepEqual(out, { outcome: 'RULE', version: 1, reason: 'UNJUSTIFIED_ABSENCE' });
     const item = JSON.parse(requests[0].context.items[0].content);
     assert.equal(item.coverage, 'CONNECTED_PARTIAL', 'the model knows the reading is partial');
@@ -210,6 +211,105 @@ test('RETENTION: a Loop Briefing older than the approved 90 days is purged; a ne
     assert.ok(purged >= 1);
     const left = (await briefs.recent(me, 10)).map((b) => b.headline);
     assert.deepEqual(left, ['d89']);
+  } finally {
+    await prisma.$disconnect();
+  }
+});
+
+// --- Expected coverage (review blocker 2): a missing reading is unknown, never quiet ---------------------
+
+async function connectGoogle(prisma: PrismaClient, organizationId: string, userId: string) {
+  await prisma.googleConnection.create({ data: { organizationId, userId, googleSubject: `g_${userId}`, activeGoogleSubject: `g_${userId}`, emailAtLink: 'person@example.test', status: 'CONNECTED', connectedAt: new Date(NOW.getTime() - 30 * 864e5), refreshTokenSealed: Buffer.alloc(40, 1), sealVersion: 'v1', keyRef: 'test-key' } as never });
+}
+
+test('EXPECTED COVERAGE: calm Work + a connected Google account with NO Mail or Calendar reading => both are gaps, and no absence is claimed', { skip }, async () => {
+  const prisma = new PrismaClient({ datasources: { db: { url: URL } } });
+  forgetIntelligenceFabricPresence();
+  try {
+    const t = await tenant(prisma);
+    const me = { organizationId: t.organizationId, userId: t.employee };
+    assert.equal((await new IntelligenceDigestRepository(prisma).upsert(me, digest('WORK', 'Your work is on track.', 'CALM', { scope: 'PRINCIPAL' }))).outcome, 'WRITTEN');
+    await connectGoogle(prisma, t.organizationId, t.employee);
+    const composer = new BriefingComposer({ prisma, runtime: null, modelEnabled: () => false, now: () => NOW, observed: { principal: ['WORK'], organization: [] } });
+    const { artifacts, gaps } = await composer.gather(me, NOW);
+    assert.deepEqual(artifacts.map((a) => [a.domain, a.coverage]), [['WORK', 'CONNECTED_SUFFICIENT']]);
+    assert.deepEqual(gaps.map((g) => `${g.domain}:${g.reason}`).sort(), ['CALENDAR:NO_CURRENT_READING', 'MAIL:NO_CURRENT_READING']);
+    await composer.compose(me, 'UTC');
+    const brief = (await new WorkBriefRepository(prisma).recent(me, 1))[0]!;
+    assert.doesNotMatch(brief.headline!, /nothing pressing/i);
+    const limits = (brief.coverage as { limitations: string[] }).limitations;
+    assert.ok(limits.includes('Loop has no current reading of Mail, so it cannot say Mail is quiet.'));
+    assert.ok(limits.includes('Loop has no current reading of Calendar, so it cannot say Calendar is quiet.'));
+  } finally {
+    await prisma.$disconnect();
+  }
+});
+
+test('EXPECTED COVERAGE: an observed Calendar with no connection, and a Telegram connection needing reconnect, are said as not connected -- never quiet', { skip }, async () => {
+  const prisma = new PrismaClient({ datasources: { db: { url: URL } } });
+  forgetIntelligenceFabricPresence();
+  try {
+    const t = await tenant(prisma);
+    const me = { organizationId: t.organizationId, userId: t.employee };
+    await new IntelligenceDigestRepository(prisma).upsert(me, digest('WORK', 'Your work is on track.', 'CALM', { scope: 'PRINCIPAL' }));
+    await prisma.sourceConnection.create({ data: { organizationId: t.organizationId, userId: t.employee, provider: 'TELEGRAM', state: 'RECONNECT_REQUIRED', backgroundObservation: 'UNAVAILABLE', connectedAt: new Date(NOW.getTime() - 90 * 864e5) } });
+    const composer = new BriefingComposer({ prisma, runtime: null, modelEnabled: () => false, now: () => NOW, observed: { principal: ['WORK', 'CALENDAR'], organization: [] } });
+    const { gaps } = await composer.gather(me, NOW);
+    assert.deepEqual(gaps.map((g) => `${g.domain}:${g.coverage}:${g.reason}`).sort(), ['CALENDAR:DISCONNECTED:NOT_CONNECTED', 'CHATS:DISCONNECTED:NOT_CONNECTED']);
+    await composer.compose(me, 'UTC');
+    const brief = (await new WorkBriefRepository(prisma).recent(me, 1))[0]!;
+    assert.doesNotMatch(brief.headline!, /nothing pressing/i);
+    const limits = (brief.coverage as { limitations: string[] }).limitations;
+    assert.ok(limits.includes('Calendar is not connected, so Loop cannot see it and cannot say it is quiet.'));
+    assert.ok(limits.includes('Chats is not connected, so Loop cannot see it and cannot say it is quiet.'));
+  } finally {
+    await prisma.$disconnect();
+  }
+});
+
+test('EXPECTED COVERAGE: an observed organization domain the person may read with no current reading is a disclosed gap; only the complete SUFFICIENT set says "nothing pressing"', { skip }, async () => {
+  const prisma = new PrismaClient({ datasources: { db: { url: URL } } });
+  forgetIntelligenceFabricPresence();
+  try {
+    const t = await tenant(prisma);
+    const owner = { organizationId: t.organizationId, userId: t.owner };
+    const digests = new IntelligenceDigestRepository(prisma);
+    await digests.upsert(owner, digest('WORK', 'Your work is on track.', 'CALM', { scope: 'PRINCIPAL' }));
+    const composer = new BriefingComposer({ prisma, runtime: null, modelEnabled: () => false, now: () => NOW, observed: { principal: ['WORK'], organization: ['CALLGRID'] } });
+    const missing = await composer.gather(owner, NOW);
+    assert.deepEqual(missing.gaps, [{ domain: 'CALLGRID', coverage: 'CONNECTED_INSUFFICIENT', reason: 'NO_CURRENT_READING' }]);
+    await composer.compose(owner, 'UTC');
+    const first = (await new WorkBriefRepository(prisma).recent(owner, 1))[0]!;
+    assert.doesNotMatch(first.headline!, /nothing pressing/i);
+    assert.ok((first.coverage as { limitations: string[] }).limitations.includes('Loop has no current reading of CallGrid, so it cannot say CallGrid is quiet.'));
+    // The expected set is now complete and SUFFICIENT: the absence is justified.
+    await digests.upsertOrganization(t.organizationId, digest('CALLGRID', 'Calls are steady.', 'CALM'));
+    const complete = await composer.gather(owner, NOW);
+    assert.deepEqual(complete.gaps, []);
+    await composer.compose(owner, 'UTC');
+    const second = (await new WorkBriefRepository(prisma).recent(owner, 1))[0]!;
+    assert.equal(second.headline, 'Nothing pressing in what Loop can read for you today.');
+    // A domain the person may NOT read is never expected of them (an EMPLOYEE and CallGrid).
+    const employee = { organizationId: t.organizationId, userId: t.employee };
+    await digests.upsert(employee, digest('WORK', 'Your work is on track.', 'CALM', { scope: 'PRINCIPAL' }));
+    assert.deepEqual((await composer.gather(employee, NOW)).gaps, []);
+  } finally {
+    await prisma.$disconnect();
+  }
+});
+
+test('EXPECTED COVERAGE: with nothing said about what is observed, the default is conservative -- it can only add gaps', { skip }, async () => {
+  const prisma = new PrismaClient({ datasources: { db: { url: URL } } });
+  forgetIntelligenceFabricPresence();
+  try {
+    const t = await tenant(prisma);
+    const me = { organizationId: t.organizationId, userId: t.employee };
+    await new IntelligenceDigestRepository(prisma).upsert(me, digest('WORK', 'Your work is on track.', 'CALM', { scope: 'PRINCIPAL' }));
+    const composer = new BriefingComposer({ prisma, runtime: null, modelEnabled: () => false, now: () => NOW });
+    const { gaps } = await composer.gather(me, NOW);
+    assert.ok(gaps.some((g) => g.domain === 'CALENDAR'), 'calendars are assumed observed: an unconnected one is a gap');
+    await composer.compose(me, 'UTC');
+    assert.doesNotMatch((await new WorkBriefRepository(prisma).recent(me, 1))[0]!.headline!, /nothing pressing/i);
   } finally {
     await prisma.$disconnect();
   }
