@@ -249,7 +249,7 @@ line's chip links only where the viewer's navigation goes.
 | Principal digests | 30 days (stamped on the row) |
 | ORGANIZATION digests | Their own expiry |
 | Entity links | Tied to the membership |
-| Refresh requests | 7 days if HELD |
+| Refresh requests | Deleted on completion; a HELD one 7 days after it last changed (the `INTELLIGENCE_REFRESH_REQUESTS` policy), purged by the worker's retention sweep through `purgeHeld`, which moves its reading out of CURRENT in the same transaction |
 | Private situations and a person's candidates | Tied to the membership (`PRIVATE_SITUATIONS`, work-retention `.2`) |
 | Organization candidates | Purged after 90 days undecided |
 | Loop Briefings (`work_briefs`) | 90 days from the local date: the approved decision (`INTELLIGENCE_BRIEFING_RETENTION_DAYS_DECIDED`), the `BRIEFS` category (work-retention `.3`, not overridable), purged by the worker |

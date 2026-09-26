@@ -2484,6 +2484,9 @@ Blueprint: https://claude.ai/artifact/VZuKzXAmCpc2WZsQR32gDS
   - The stale transition fails closed: the barrier is removed only after it succeeds.
   - HELD cleanup is transactional.
   - The refresh lookup queries exact targets, with no cap.
+- **Fourth review:** HELD refresh requests are purged by the worker's existing 6-hourly retention sweep after
+  the governed 7-day window. This runs without any intelligence feature switched on, and does nothing before
+  the queue's migration.
 
 **New tasks, all inactive:** mail.content.triage; eight `*.domain.reading` tasks (mail, calendar, callgrid,
 campaigns, pipeline, crm, creators, work, website); situation.synthesis[.private];

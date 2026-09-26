@@ -48,6 +48,7 @@ import { runChatsHydrationSweep, type ChatsHydrationSweepPorts } from './chats-h
 import { runDerivedRetentionSweep, type DerivedRetentionPorts } from './derived-retention';
 import { createWorkerAiRuntime } from './ai-runtime';
 import { createIntelligenceHost, readIntelligenceHostConfig } from './intelligence-host';
+import { runHeldRefreshRetention } from './refresh-retention';
 import { TelegramAdapter } from './telegram/telegram-adapter';
 import { createTelegramClientPort, createTelegramLoginPort } from './telegram/telegram-client';
 import { TelegramLoginCoordinator, type TelegramLoginBinding } from './telegram/telegram-login';
@@ -391,6 +392,8 @@ async function main(): Promise<void> {
   // 3. Domain-intelligence digests past their own `expiresAt` (§21.3 INTELLIGENCE_DIGESTS, 30 days),
   //    platform-wide by time. Counts only.
   // 4. Loop Briefings older than 90 days (BRIEFS, the approved Briefing retention). Counts only.
+  // 5. HELD intelligence refresh requests past INTELLIGENCE_REFRESH_REQUESTS (7 days), each removed only
+  //    together with moving its reading out of CURRENT. Counts only.
   // (The digest purge below uses its own repository instance on the same client; `digests` above is the
   // content sweeps' writer.)
   const derivedRetentionPorts: DerivedRetentionPorts = {
@@ -428,6 +431,16 @@ async function main(): Promise<void> {
       if (purged > 0) log('brief_purge', { purged });
     } catch (err) {
       log('brief_purge_error', { name: (err as Error)?.name ?? 'error' });
+    }
+    // 5. HELD intelligence refresh requests past the governed INTELLIGENCE_REFRESH_REQUESTS window (7 days
+    //    from last change). Each row leaves together with moving its target's reading out of CURRENT, in one
+    //    transaction (purgeHeld); a no-op before the queue's migration. Counts only; never throws.
+    try {
+      const { IntelligenceRefreshQueueRepository } = await import('@emgloop/database');
+      const queue = new IntelligenceRefreshQueueRepository(prisma);
+      await runHeldRefreshRetention({ purgeHeld: (cutoff) => queue.purgeHeld(cutoff), now: () => new Date(), log });
+    } catch (err) {
+      log('refresh_purge_error', { name: (err as Error)?.name ?? 'error' });
     }
   }
 

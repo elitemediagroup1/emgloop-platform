@@ -12,6 +12,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { PrismaClient } from '@prisma/client';
+import { workRetentionCategory } from '@emgloop/shared';
 
 import { forgetIntelligenceFabricPresence } from '../src/repositories/intelligence/intelligence-fabric-presence';
 import { IntelligenceDigestRepository, type IntelligenceDigestInput } from '../src/repositories/intelligence/intelligence-digest.repository';
@@ -294,6 +295,59 @@ test('the unresolved-refresh lookup asks for EXACT targets: 5,100 unrelated queu
     assert.equal(await w.usable(), null, 'the exact target is found, whatever else is queued');
   } finally {
     for (const organizationId of cleanup) await prisma.intelligenceRefreshRequest.deleteMany({ where: { organizationId } }).catch(() => undefined);
+    await prisma.$disconnect();
+  }
+});
+
+// --- HELD retention (the worker's retention sweep calls purgeHeld with the governed cutoff) ---------------
+
+test('HELD retention: newer HELD stays; older HELD is purged with its CURRENT reading moved STALE; a failed transaction leaves both; PENDING and CLAIMED are never removed', { skip }, async () => {
+  const prisma = new PrismaClient({ datasources: { db: { url: URL } } });
+  forgetIntelligenceFabricPresence();
+  const orgs: string[] = [];
+  try {
+    const DAY = 864e5;
+    const policyDays = 7; // asserted against the governed policy below
+    assert.equal(workRetentionCategory('INTELLIGENCE_REFRESH_REQUESTS')!.days, policyDays);
+    const cutoff = new Date(Date.now() - policyDays * DAY);
+    const old = new Date(cutoff.getTime() - DAY);
+    const held = async (fresh: boolean) => {
+      const w = await world(prisma);
+      orgs.push(w.organizationId);
+      const row = await prisma.intelligenceRefreshRequest.create({ data: { organizationId: w.organizationId, scope: 'ORGANIZATION', userId: null, domain: 'CAMPAIGNS', subjectKind: 'DOMAIN', subjectRef: 'domain', reason: 'SCHEDULED', firstRequestedAt: old, lastRequestedAt: old, notBefore: old, state: 'HELD', lastOutcome: 'NOT_PERMITTED' } });
+      if (!fresh) await prisma.intelligenceRefreshRequest.updateMany({ where: { id: row.id }, data: { updatedAt: old } });
+      return w;
+    };
+    const recent = await held(true);
+    const expired = await held(false);
+    const failing = await held(false);
+    // Unresolved work that is not HELD, older than the window: never the retention sweep's to remove.
+    const other = await world(prisma);
+    orgs.push(other.organizationId);
+    const base = { organizationId: other.organizationId, scope: 'ORGANIZATION', userId: null, domain: 'WEBSITE', reason: 'SCHEDULED', firstRequestedAt: old, lastRequestedAt: old, notBefore: new Date(Date.now() + 365 * DAY) };
+    await prisma.intelligenceRefreshRequest.create({ data: { ...base, subjectKind: 'ENTITY', subjectRef: 'web_property:pending', state: 'PENDING' } });
+    await prisma.intelligenceRefreshRequest.create({ data: { ...base, subjectKind: 'ENTITY', subjectRef: 'web_property:claimed', state: 'CLAIMED', leaseOwner: 'someone', leaseExpiresAt: new Date(Date.now() + 365 * DAY) } });
+    await prisma.intelligenceRefreshRequest.updateMany({ where: { organizationId: other.organizationId }, data: { updatedAt: old } });
+
+    // A transaction that fails: both the HELD barrier and the CURRENT reading remain.
+    const broken = new Proxy(prisma, { get: (t, k) => (k === '$transaction' ? async () => { throw new Error('transaction failed'); } : Reflect.get(t, k)) }) as PrismaClient;
+    assert.deepEqual(await new IntelligenceRefreshQueueRepository(broken).purgeHeld(cutoff, { organizationIds: [failing.organizationId] }), { purged: 0 });
+    assert.deepEqual((await failing.rows()).map((r) => r.state), ['HELD']);
+    assert.equal(await failing.status(), 'CURRENT');
+    assert.equal(await failing.usable(), null, 'still blocked');
+
+    const { purged } = await new IntelligenceRefreshQueueRepository(prisma).purgeHeld(cutoff, { organizationIds: orgs });
+    assert.equal(purged, 2, 'the two HELD rows past the window, nothing else');
+    assert.deepEqual((await recent.rows()).map((r) => r.state), ['HELD'], 'a HELD request inside the window remains');
+    assert.equal(await recent.status(), 'CURRENT', 'and its reading is untouched (the row still blocks it)');
+    for (const x of [expired, failing]) {
+      assert.deepEqual(await x.rows(), []);
+      assert.equal(await x.status(), 'STALE', 'moved out of CURRENT with the row, never after');
+      assert.equal(await x.usable(), null);
+    }
+    assert.deepEqual((await prisma.intelligenceRefreshRequest.findMany({ where: { organizationId: other.organizationId }, select: { state: true }, orderBy: { state: 'asc' } })).map((r) => r.state), ['CLAIMED', 'PENDING']);
+  } finally {
+    for (const organizationId of orgs) await prisma.intelligenceRefreshRequest.deleteMany({ where: { organizationId } }).catch(() => undefined);
     await prisma.$disconnect();
   }
 });
