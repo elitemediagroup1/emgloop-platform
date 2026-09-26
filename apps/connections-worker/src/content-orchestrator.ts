@@ -46,6 +46,7 @@
 import { createHash } from 'node:crypto';
 
 import {
+  conversationDigestContent,
   TELEGRAM_CONTENT_TRIAGE_SCHEMA_ID,
   type AdapterSession,
   type DueContent,
@@ -56,10 +57,9 @@ import {
 import {
   AI_TASK_TELEGRAM_CONTENT_TRIAGE,
   AI_TRIAGE_LIMITS,
-  DIGEST_LIST_MAX_ITEMS,
+  entityRefRefusal,
   telegramConversationSubjectRef,
   type ConnectionProvider,
-  type DigestContent,
   type IntelligenceGeneratedCoverage,
 } from '@emgloop/shared';
 
@@ -412,15 +412,27 @@ export function buildObligationDetection(
     readonly topic: string;
     readonly nextStep: string;
     readonly deadline: string | null;
+    /** Chats v5. Absent on a v4-era caller: read as VIEWER (the only reading v4 had). */
+    readonly owedBy?: 'VIEWER' | 'OTHER' | 'UNKNOWN';
+    readonly who?: string | null;
   },
   provenance: { readonly invocationId: string; readonly taskVersion: string },
   truncated: boolean,
   detectedAt: Date,
+  /** Chats v5: the window's messages, for Loop's own "has the person written since?" arithmetic. */
+  messages: readonly { readonly providerEventId: string; readonly direction: 'INBOUND' | 'OUTBOUND' }[] = [],
 ): WorkItemDetection {
   const { conversationKey, conversation } = window;
+  const owedBy = obligation.owedBy ?? 'VIEWER';
+  // Loop's own arithmetic, not the model's: did the person write anything after the message that
+  // originated this? (null when the anchor is not in the window handed in.)
+  const at = messages.findIndex((m) => m.providerEventId === obligation.anchorProviderEventId);
+  const repliedAfter = at < 0 ? null : messages.slice(at + 1).some((m) => m.direction === 'OUTBOUND');
   return {
     recurrenceKey: `${PRODUCER_ID}:${conversationKey}:${obligation.anchorProviderEventId}`,
-    class: 'NEEDS_YOU',
+    // WHO OWES IT decides the lane: the person's own obligations need them; one someone else owes is
+    // something they are waiting on. UNKNOWN stays with the person -- never silently dropped.
+    class: owedBy === 'OTHER' ? 'WAITING_ON_THEM' : 'NEEDS_YOU',
     subjectKind: 'THREAD',
     // The shared prefix is what a withdrawal (a revoked content authorization, a disconnect past its
     // grace window) uses to find every item this producer wrote -- so it is built here from the same
@@ -448,6 +460,11 @@ export function buildObligationDetection(
       topic: obligation.topic,
       nextStep: obligation.nextStep,
       deadline: obligation.deadline,
+      // Chats v5: who appears to owe it, the label the conversation showed for them (never an identity,
+      // never an assignment), and whether the person has written since it was raised.
+      owedBy,
+      who: owedBy === 'OTHER' ? (obligation.who ?? null) : null,
+      repliedAfter,
     },
     detectedAt,
   };
@@ -482,30 +499,31 @@ export function conversationDigestCoverage(
   truncated: boolean,
 ): IntelligenceGeneratedCoverage {
   if (reading === null) return 'CONNECTED_INSUFFICIENT';
-  const saysNothing =
-    reading.developments.length + reading.decisions.length + reading.commitments.length + reading.signals.length === 0 && reading.unresolved === null;
+  const saysNothing = reading.signals.length === 0;
   if (reading.relevance === 'UNCLEAR' && reading.confidence === 'LOW' && saysNothing) return 'CONNECTED_INSUFFICIENT';
   return truncated ? 'CONNECTED_PARTIAL' : 'CONNECTED_SUFFICIENT';
 }
 
 /**
  * The MINIMIZED, principal-private CHATS digest of one conversation, from the SAME triage result that
- * produced its obligations. Shared by the forward and historical sweeps so both write byte-identical rows.
+ * produced its obligations. Shared by the forward, historical and hydration sweeps so all write
+ * byte-identical rows.
  *
- * MAPPING (triage v4 -> DigestContent): relevance -> relevance; summary -> synthesis; topics -> topics;
- * developments, then decisions (as "Decided: ...") -> developments; commitments -> commitments; signals
- * OPPORTUNITY -> opportunities, RISK / CONCERN -> concerns, OPERATIONAL -> operational; unresolved ->
- * unresolved[0]; attention (when needed) -> attention; confidence -> confidence; the model's limitations
- * -> limitations (no longer dropped). `stateChange` is not produced: this producer does not compare with
- * the previous digest. NO body, NO quote (the gateway refused any), NO identity field.
+ * MAPPING (triage v5 -> DigestContent). The TYPED reading and signals (participation contract) are the
+ * record: each signal anchored (`telegram_message:<keyed id>`), with its kind, severity, knowledge
+ * (CHANGE / DECIDED / OBLIGATION observed; the rest inferred), owedBy + party for an obligation, and the
+ * anchor's instant. The PR A fields are derived from the same signals so existing readers keep working:
+ * developments (CHANGE, then DECIDED as "Decided: ..."), commitments (OBLIGATION), opportunities,
+ * concerns (RISK), operational, unresolved (UNRESOLVED, DECISION_PENDING, STALLED); plus relevance,
+ * synthesis (summary), topics, stateChange, attention, confidence, limitations -- and `label`, Telegram's
+ * OWN minimized label for the conversation, recorded from the provider, never from the model.
+ * NO body, NO quote (the gateway refused any).
  *
  * Window = the messages actually evaluated; evidenceCount = how many; lastEvidenceAt = the newest one's
- * instant, which also anchors the 30-day expiry. Provenance: the keyed conversation ref, the keyed anchor
- * of every statement, the invocation, the task version and the output schema. Null when the window is
- * empty (nothing was evaluated, so there is nothing to record).
+ * instant, which also anchors the 30-day expiry. Null when the window is empty.
  */
 export function buildConversationDigest(
-  window: Pick<TelegramConversationWindow, 'conversationKey' | 'messages'>,
+  window: Pick<TelegramConversationWindow, 'conversationKey' | 'messages'> & Partial<Pick<TelegramConversationWindow, 'conversation'>>,
   result: Extract<TelegramConversationTriageResult, { outcome: 'TRIAGED' }>,
   truncated: boolean,
   now: Date,
@@ -514,35 +532,24 @@ export function buildConversationDigest(
   const instants = window.messages.map((m) => m.occurredAt.getTime());
   const windowStart = new Date(Math.min(...instants));
   const newest = new Date(Math.max(...instants));
-  const limitations = result.limitations.map((l) => l.trim()).filter((l) => l !== '').slice(0, DIGEST_LIST_MAX_ITEMS);
   const reading = result.conversation;
-  let content: DigestContent;
-  const anchors: string[] = [];
-  if (reading === null) {
-    content = { limitations };
-  } else {
-    const statements = (list: readonly { readonly anchorProviderEventId: string; readonly statement: string }[], prefix = '') =>
-      list.map((s) => {
-        if (!anchors.includes(s.anchorProviderEventId)) anchors.push(s.anchorProviderEventId);
-        return `${prefix}${s.statement}`;
-      });
-    const signals = (kinds: readonly string[]) => statements(reading.signals.filter((s) => kinds.includes(s.kind)));
-    content = {
-      relevance: reading.relevance,
-      synthesis: reading.summary,
-      topics: [...reading.topics],
-      developments: [...statements(reading.developments), ...statements(reading.decisions, 'Decided: ')],
-      commitments: statements(reading.commitments),
-      opportunities: signals(['OPPORTUNITY']),
-      concerns: signals(['RISK', 'CONCERN']),
-      operational: signals(['OPERATIONAL']),
-      unresolved: reading.unresolved === null ? [] : [reading.unresolved],
-      ...(reading.attention.needed && reading.attention.reason ? { attention: reading.attention.reason } : {}),
-      confidence: reading.confidence,
-      limitations,
-    };
-  }
   const subjectRef = telegramConversationSubjectRef(window.conversationKey);
+  const entityRefs = entityRefRefusal(subjectRef, 'PRINCIPAL') === null ? [subjectRef] : [];
+  const coverage = conversationDigestCoverage(reading, truncated);
+  const occurred = new Map(window.messages.map((m) => [m.providerEventId, m.occurredAt] as const));
+  const { content, anchors } = conversationDigestContent(
+    reading === null
+      ? null
+      : { ...reading, signals: reading.signals.map((s) => ({ kind: s.kind, anchorRef: s.anchorProviderEventId, statement: s.statement, severity: s.severity, owedBy: s.owedBy, who: s.who })) },
+    result.limitations,
+    {
+      evidenceRef: (id) => `telegram_message:${id}`,
+      occurredAt: (id) => occurred.get(id) ?? null,
+      label: window.conversation?.label ?? null,
+      kind: window.conversation?.kind ?? null,
+      entityRefs,
+    },
+  );
   return {
     domain: 'CHATS',
     subjectKind: 'CONVERSATION',
@@ -550,21 +557,24 @@ export function buildConversationDigest(
     provider: 'TELEGRAM',
     consentBasis: 'CONTENT_AUTHORIZATION',
     content,
-    coverage: conversationDigestCoverage(reading, truncated),
+    coverage,
     windowStart,
     windowEnd: newest,
     evidenceCount: window.messages.length,
     lastEvidenceAt: newest,
     provenance: {
       sourceRefs: [subjectRef],
-      anchorEventIds: anchors,
+      anchorEventIds: [...anchors],
       aiInvocationId: result.provenance.invocationId,
       taskId: result.provenance.taskId,
       taskVersion: result.provenance.taskVersion,
       schemaId: TELEGRAM_CONTENT_TRIAGE_SCHEMA_ID,
       producerVersion: digestProducerVersion(result.provenance.taskVersion),
+      producerKind: 'MODEL',
+      sources: [{ sourceId: 'TELEGRAM', asOf: newest.toISOString(), coverage }],
     },
     aiInvocationId: result.provenance.invocationId,
+    entityRefs,
     fingerprint: conversationDigestFingerprint(
       window.conversationKey,
       window.messages.map((m) => m.providerEventId),
@@ -585,7 +595,7 @@ async function raiseObligations(
 ): Promise<number> {
   let raised = 0;
   for (const obligation of result.items) {
-    await ports.raiseWorkItem(principal, buildObligationDetection(window, obligation, result.provenance, truncated, now));
+    await ports.raiseWorkItem(principal, buildObligationDetection(window, obligation, result.provenance, truncated, now, window.messages));
     raised += 1;
   }
   return raised;

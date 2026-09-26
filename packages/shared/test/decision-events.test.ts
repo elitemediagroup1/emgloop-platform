@@ -80,6 +80,8 @@ test('deliberate collapses are contract, not accident', () => {
     'CONTACT_COMPLETED',
     'AWAITING_RESPONSE',
     'RESPONSE_RECEIVED',
+    // Loop Intelligence Phase C: promoting a Case to work is progress on it, never a close.
+    'WORK_LINKED',
   ]);
 });
 

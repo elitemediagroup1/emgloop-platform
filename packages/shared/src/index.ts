@@ -199,6 +199,20 @@ export * from './coverage-health';
 // carries, and the contract of `intelligence_digests` (principal-private, minimized, bounded).
 export * from './intelligence-coverage';
 export * from './intelligence-digest';
+// Loop Intelligence PR 2 (the fabric): canonical entity references, the participation contract every
+// domain reading follows, and the domain + source registries.
+export * from './entity-ref';
+export * from './intelligence-contract';
+export * from './intelligence-registry';
+export * from './intelligence-projection';
+// Loop Intelligence Phase C: Promote to Work, the one bridge from intelligence to Work OS.
+export * from './promote-to-work';
+// Loop Intelligence Phase F: situations are Cases; private ones are one person's alone.
+export * from './situation';
+// Whether a stored digest may feed synthesis (situations, the Briefing): the shared freshness contract.
+export * from './intelligence-eligibility';
+// Loop Intelligence Phase D: the Mail content governance gate (counterparty consent: UNRESOLVED).
+export * from './mail-content-governance';
 // Representative product states for building and reviewing surfaces. Typed as the
 // real contracts, so a contract change breaks the fixtures rather than the design.
 export * from './product-states.fixture';

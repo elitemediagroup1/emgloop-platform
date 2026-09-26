@@ -47,6 +47,8 @@ import { runHistoricalContentSweep, type HistoricalContentSweepPorts } from './h
 import { runChatsHydrationSweep, type ChatsHydrationSweepPorts } from './chats-hydration-orchestrator';
 import { runDerivedRetentionSweep, type DerivedRetentionPorts } from './derived-retention';
 import { createWorkerAiRuntime } from './ai-runtime';
+import { createIntelligenceHost, readIntelligenceHostConfig } from './intelligence-host';
+import { runHeldRefreshRetention } from './refresh-retention';
 import { TelegramAdapter } from './telegram/telegram-adapter';
 import { createTelegramClientPort, createTelegramLoginPort } from './telegram/telegram-client';
 import { TelegramLoginCoordinator, type TelegramLoginBinding } from './telegram/telegram-login';
@@ -389,6 +391,9 @@ async function main(): Promise<void> {
   //    also refuses a connection that is live again. Counts only are logged.
   // 3. Domain-intelligence digests past their own `expiresAt` (§21.3 INTELLIGENCE_DIGESTS, 30 days),
   //    platform-wide by time. Counts only.
+  // 4. Loop Briefings older than 90 days (BRIEFS, the approved Briefing retention). Counts only.
+  // 5. HELD intelligence refresh requests past INTELLIGENCE_REFRESH_REQUESTS (7 days), each removed only
+  //    together with moving its reading out of CURRENT. Counts only.
   // (The digest purge below uses its own repository instance on the same client; `digests` above is the
   // content sweeps' writer.)
   const derivedRetentionPorts: DerivedRetentionPorts = {
@@ -418,6 +423,24 @@ async function main(): Promise<void> {
       if (purged > 0) log('digest_purge', { purged });
     } catch (err) {
       log('digest_purge_error', { name: (err as Error)?.name ?? 'error' });
+    }
+    // 4. Loop Briefings past the approved 90-day retention (work_briefs, BRIEFS). Platform-wide by time.
+    try {
+      const { WorkBriefRepository } = await import('@emgloop/database');
+      const { purged } = await new WorkBriefRepository(prisma).purgeExpired(new Date());
+      if (purged > 0) log('brief_purge', { purged });
+    } catch (err) {
+      log('brief_purge_error', { name: (err as Error)?.name ?? 'error' });
+    }
+    // 5. HELD intelligence refresh requests past the governed INTELLIGENCE_REFRESH_REQUESTS window (7 days
+    //    from last change). Each row leaves together with moving its target's reading out of CURRENT, in one
+    //    transaction (purgeHeld); a no-op before the queue's migration. Counts only; never throws.
+    try {
+      const { IntelligenceRefreshQueueRepository } = await import('@emgloop/database');
+      const queue = new IntelligenceRefreshQueueRepository(prisma);
+      await runHeldRefreshRetention({ purgeHeld: (cutoff) => queue.purgeHeld(cutoff), now: () => new Date(), log });
+    } catch (err) {
+      log('refresh_purge_error', { name: (err as Error)?.name ?? 'error' });
     }
   }
 
@@ -464,6 +487,12 @@ async function main(): Promise<void> {
   // The Chats Intelligence HYDRATION sweep, likewise ONLY with the governed AI runtime enabled.
   const hydrationTimer = aiRuntime.enabled ? setInterval(() => void hydration(), config.hydrationIntervalMs) : null;
   log('ai_runtime', { contentTriage: aiRuntime.enabled ? 'enabled' : 'off' });
+  // Loop Intelligence producers: scheduled ONLY when LOOP_INTELLIGENCE_PRODUCERS names one (unset everywhere).
+  const intelligenceConfig = readIntelligenceHostConfig(process.env);
+  const intelligence = await createIntelligenceHost(prisma, intelligenceConfig, aiRuntime, log);
+  const intelligenceTimer = intelligence.scheduled ? setInterval(() => void intelligence.pass(), intelligenceConfig.intervalMs) : null;
+  log('intelligence_producers', { scheduled: intelligence.scheduled, active: intelligenceConfig.producers.length - intelligence.unknownProducers.length, unknown: intelligence.unknownProducers.length });
+  if (intelligence.scheduled) void intelligence.pass();
   void sweep();
   void purge();
   void baseline();
@@ -478,6 +507,7 @@ async function main(): Promise<void> {
     if (contentTimer) clearInterval(contentTimer);
     if (historicalContentTimer) clearInterval(historicalContentTimer);
     if (hydrationTimer) clearInterval(hydrationTimer);
+    if (intelligenceTimer) clearInterval(intelligenceTimer);
     server.close();
     void prisma.$disconnect();
     log('worker_stopping');

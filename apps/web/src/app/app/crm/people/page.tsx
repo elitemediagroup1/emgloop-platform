@@ -4,6 +4,7 @@ import { crmSubjectReads, personHref, PEOPLE_HREF } from '../../../../crm/crm-sl
 import { readPeopleDirectory } from '../../../../crm/crm-subject-reads';
 import { ActionButton, LoopPage, PageHead, ReadFailed, StateBlock, StatePill, type ActionSpec } from '../../_loop-os/record';
 import { SubjectCard } from '../../_loop-os/subject-card';
+import { OrganizationReadingSection } from '../../../../intelligence/domain-reading-section';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,6 +40,7 @@ export default async function PeoplePage({ searchParams }: { searchParams?: { af
         actions={directory.outcome === 'OK' ? <ActionButton action={establish} /> : undefined}
       />
 
+      <OrganizationReadingSection domain="CRM" title="People reading" />
       {directory.outcome === 'FAILED' ? <ReadFailed what="people" /> : null}
       {directory.outcome === 'NOT_AUTHORIZED' ? (
         <StateBlock

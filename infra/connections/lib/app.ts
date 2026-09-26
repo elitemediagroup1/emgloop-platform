@@ -132,25 +132,52 @@ export function aiTasksFromContext(raw: unknown): readonly string[] {
 }
 
 /**
- * Telegram content triage's CURRENT output schema (telegram-content-triage.v4) carries a named portability
- * exemption and has been verified against Anthropic only (AI_SCHEMA_VERIFIED_PROVIDERS in @emgloop/providers,
- * which this stack cannot import). Listing any other provider beside that task would make it an eligible
- * fallback that may reject the schema, so synth refuses the combination -- as the worker refuses it at
- * startup. Remove this guard together with the exemption, in triage v5 (PR 3); an infra test checks the
- * two stay in step.
+ * The PR 1 synth guard (a provider not verified against triage schema v4 refused beside
+ * telegram.content.triage) RETIRED with that schema in Chats v5 (Loop Intelligence Phase B, 2026-09-26):
+ * triage schema v5 is portable, so no provider is ineligible for it. Which providers may actually serve
+ * a task is still decided at run time by the recorded provider policy, the worker's activation and the
+ * routing policy -- listing a provider here does not commission it. An infra test checks the shared
+ * exemption list and the providers' verified-provider policy are both empty, so a new exemption cannot
+ * appear without a guard coming back.
  */
-export const TRIAGE_V4_VERIFIED_PROVIDERS: readonly AiProvider[] = Object.freeze(['anthropic']);
-export const TRIAGE_TASK_ID = 'telegram.content.triage';
 
-export function assertAiProvidersVerified(providers: readonly AiProvider[], tasks: readonly string[]): void {
-  if (!tasks.includes(TRIAGE_TASK_ID)) return;
-  const unverified = providers.filter((p) => !TRIAGE_V4_VERIFIED_PROVIDERS.includes(p));
-  if (unverified.length > 0) {
-    throw new Error(
-      `aiProviders: ${unverified.join(', ')} is not verified against telegram-content-triage.v4, which ${TRIAGE_TASK_ID} sends; ` +
-        `remove it from aiProviders or ${TRIAGE_TASK_ID} from aiTasks until triage v5`,
-    );
+const PRODUCER_ID = /^[a-z][a-z0-9._-]{0,62}@[0-9]{1,4}$/;
+const RECORD_ID = /^[A-Za-z0-9_-]{1,64}$/;
+
+/**
+ * Loop Intelligence (2026-09-26): the worker's intelligence settings, from CDK context
+ * `intelligenceProducers` (producer ids), `intelligenceSituations` (organization,private),
+ * `intelligenceBriefings` (exactly `on`) and `intelligenceActingUsers` (orgId=userId pairs). Each maps to
+ * its LOOP_INTELLIGENCE_* variable. All unset: no variable is set and the template is unchanged -- the
+ * worker schedules nothing. A malformed value fails synth rather than half-configuring the worker.
+ * Setting these activates RULE readings only; a model reading also needs its task in `aiTasks`.
+ */
+export function intelligenceFromContext(ctx: { producers?: unknown; situations?: unknown; briefings?: unknown; actingUsers?: unknown }): Readonly<Record<string, string>> {
+  const env: Record<string, string> = {};
+  const producers = contextList('intelligenceProducers', ctx.producers);
+  if (producers) {
+    for (const p of producers) if (!PRODUCER_ID.test(p)) throw new Error(`intelligenceProducers: "${p}" is not a producer id (e.g. callgrid.domain@1)`);
+    env.LOOP_INTELLIGENCE_PRODUCERS = producers.join(',');
   }
+  const situations = contextList('intelligenceSituations', ctx.situations);
+  if (situations) {
+    for (const s of situations) if (s !== 'organization' && s !== 'private') throw new Error(`intelligenceSituations: "${s}" is not organization or private`);
+    env.LOOP_INTELLIGENCE_SITUATIONS = situations.join(',');
+  }
+  const briefings = typeof ctx.briefings === 'string' ? ctx.briefings.trim() : ctx.briefings;
+  if (briefings !== undefined && briefings !== null && briefings !== '') {
+    if (briefings !== 'on') throw new Error('intelligenceBriefings must be exactly "on" or unset');
+    env.LOOP_INTELLIGENCE_BRIEFINGS = 'on';
+  }
+  const acting = contextList('intelligenceActingUsers', ctx.actingUsers);
+  if (acting) {
+    for (const pair of acting) {
+      const [org, user, extra] = pair.split('=');
+      if (!org || !user || extra !== undefined || !RECORD_ID.test(org) || !RECORD_ID.test(user)) throw new Error(`intelligenceActingUsers: "${pair}" is not orgId=userId`);
+    }
+    env.LOOP_INTELLIGENCE_ACTING_USERS = acting.join(',');
+  }
+  return env;
 }
 
 export function buildConnectionsApp(options: ConnectionsAppOptions): { app: App; stack: ConnectionsStack } {
@@ -172,12 +199,16 @@ export function buildConnectionsApp(options: ConnectionsAppOptions): { app: App;
   const aiOrganizationId = app.node.tryGetContext('aiOrganizationId');
   const aiProviders = aiProvidersFromContext(app.node.tryGetContext('aiProviders'));
   const aiTasks = aiTasksFromContext(app.node.tryGetContext('aiTasks'));
-  // Checked whether or not AI is switched on, so a refused combination fails before it could ever deploy.
-  assertAiProvidersVerified(aiProviders, aiTasks);
   const aiActivation =
     typeof aiOrganizationId === 'string' && aiOrganizationId.trim() !== ''
       ? { organizationId: aiOrganizationId, providers: aiProviders, tasks: aiTasks }
       : undefined;
+  const intelligence = intelligenceFromContext({
+    producers: app.node.tryGetContext('intelligenceProducers'),
+    situations: app.node.tryGetContext('intelligenceSituations'),
+    briefings: app.node.tryGetContext('intelligenceBriefings'),
+    actingUsers: app.node.tryGetContext('intelligenceActingUsers'),
+  });
 
   const stack = new ConnectionsStack(app, target.stackName, {
     stage: target.stage,
@@ -192,6 +223,7 @@ export function buildConnectionsApp(options: ConnectionsAppOptions): { app: App;
     description: `Loop connections worker (${target.stage}): Teams/Telegram durable observation worker`,
     ...(protection ? { protection } : {}),
     ...(aiActivation ? { aiActivation } : {}),
+    ...(Object.keys(intelligence).length > 0 ? { intelligence } : {}),
   });
   return { app, stack };
 }

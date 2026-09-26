@@ -383,8 +383,8 @@ export type { AiProviderPolicySource } from './services/ai-runtime/provider-poli
 export { aiRuntimeControlsReader, cachedAiRuntimeControls } from './services/ai-runtime/controls-reader';
 export type { AiRuntimeControls, AiRuntimeControlSource } from './services/ai-runtime/controls-reader';
 export type { AiOperatingBudgetReading } from './services/ai-runtime/gateway';
-// Loop Intelligence PR A (2026-09-24): principal-private domain intelligence digests. Every
-// method takes a principal from the signed session; there is no organization-wide read.
+// Loop Intelligence PR A (2026-09-24): domain intelligence digests. Every principal method takes a
+// principal from the signed session; there is no read that returns every digest in an organization.
 export {
   IntelligenceDigestRepository,
   intelligenceDigestsPresent,
@@ -404,6 +404,67 @@ export type {
   IntelligenceDigestWriteRefusal,
   IntelligenceDigestWriteOutcome,
 } from './repositories/intelligence/intelligence-digest.repository';
+// Loop Intelligence PR 2 (the fabric, 2026-09-26): ORGANIZATION digests over governed Loop records
+// (upsertOrganization / organization* reads on the repository above), explicit entity links, the
+// durable refresh queue, the generic producer loop and the governed domain-reading path.
+export { DIGEST_BASE_SELECT } from './repositories/intelligence/intelligence-digest.repository';
+export {
+  digestEntityRefsPresent,
+  entityLinksPresent,
+  refreshQueuePresent,
+  privateSituationsPresent,
+  intelligenceFabricPresent,
+  forgetIntelligenceFabricPresence,
+} from './repositories/intelligence/intelligence-fabric-presence';
+export type { IntelligenceFabricPresence } from './repositories/intelligence/intelligence-fabric-presence';
+export { EntityLinkRepository, ENTITY_LINK_RELATIONS, ENTITY_LINK_BASES, ENTITY_LINK_REFUSALS, entityLinkDeclarationRefusal } from './repositories/intelligence/entity-link.repository';
+export type { EntityLinkOwner, EntityLinkDeclaration, EntityLinkRecord, EntityLinkRefusal, EntityLinkOutcome, EntityLinkRelation, EntityLinkBasis } from './repositories/intelligence/entity-link.repository';
+export { IntelligenceRefreshQueueRepository, INTELLIGENCE_REFRESH_STATES, refreshTargetRefusal } from './repositories/intelligence/intelligence-refresh-queue.repository';
+export type {
+  IntelligenceRefreshTarget,
+  IntelligenceRefreshRequestInput,
+  IntelligenceRefreshClaim,
+  IntelligenceRefreshState,
+  IntelligenceEnqueueOutcome,
+  IntelligenceRefreshCount,
+} from './repositories/intelligence/intelligence-refresh-queue.repository';
+export { IntelligenceProducerRegistry, parseProducerActivation } from './services/intelligence-fabric/producer';
+export type { IntelligenceProducer, IntelligenceGatherResult, IntelligenceReadResult } from './services/intelligence-fabric/producer';
+export { runIntelligenceProducerCycle } from './services/intelligence-fabric/producer-loop';
+export { INTELLIGENCE_PRODUCER_CATALOG } from './services/intelligence-fabric/catalog';
+export { conversationDigestContent } from './services/intelligence-fabric/conversation-digest';
+export type { KeyedConversationReading, ConversationDigestOptions } from './services/intelligence-fabric/conversation-digest';
+export type { IntelligenceProducerDescriptor } from './services/intelligence-fabric/catalog';
+export type { ProducerLoopDeps, ProducerLoopOptions, ProducerLoopReport } from './services/intelligence-fabric/producer-loop';
+export { DomainReadingService } from './services/ai-runtime/domain-reading.service';
+// Loop Intelligence Phase E: every domain producer, assembled (never activated) from its ports.
+export { loopProducers, parseActingUsers, principalResolver } from './services/intelligence-fabric/loop-producers';
+export type { LoopProducerPorts } from './services/intelligence-fabric/loop-producers';
+export { runIntelligencePass } from './services/intelligence-fabric/intelligence-pass';
+export { gmailMailReadThrough, trimQuotedHistory } from './services/intelligence-fabric/domains/mail-read-through';
+export { MailContentTriageService } from './services/ai-runtime/mail-content-triage.service';
+// Loop Intelligence Phase F: connected situations, held as Cases; private ones are one person's alone.
+export { SituationRepository, SITUATION_RECORD_SCHEMA, situationRecurrenceKey } from './repositories/intelligence/situation.repository';
+export type { SituationOwner, SituationRecord, SituationView } from './repositories/intelligence/situation.repository';
+export { SituationService, situationInputsOf, situationContext } from './services/intelligence-fabric/situations';
+export type { SituationPorts, SituationPassReport } from './services/intelligence-fabric/situations';
+// Loop Intelligence Phase G: the Loop Briefing, stored in the person's own work_briefs.
+export { BriefingComposer, BRIEFING_RECORD_SCHEMA, BRIEFING_RULE_VERSION, readableOrganizationDomains, ruleBriefing } from './services/intelligence-fabric/briefing';
+export { expectedBriefingCoverage } from './services/intelligence-fabric/briefing';
+export type { BriefingArtifact, BriefingGap, BriefingLine, BriefingOutcome, BriefingPorts, ObservedDomains } from './services/intelligence-fabric/briefing';
+export type { IntelligencePassDeps, IntelligencePassReport } from './services/intelligence-fabric/intelligence-pass';
+export type { WebsiteEvidenceReader, WebsiteFacts } from './services/intelligence-fabric/domains/records';
+export { DomainFactsRepository } from './repositories/intelligence/domain-facts.repository';
+// Loop Intelligence Phase C: Promote to Work, the one bridge from intelligence to Work OS.
+export { PromoteToWorkService } from './services/work/promote-to-work.service';
+export type { PromoteActor, PromoteConfirmation, PromotePreview, PromoteResult } from './services/work/promote-to-work.service';
+export type { DomainReadingRequest, DomainReadingResult } from './services/ai-runtime/domain-reading.service';
+export {
+  DOMAIN_READING_TEMPLATE_ID,
+  DOMAIN_READING_TEMPLATE_VERSION,
+  renderDomainReadingInstructions,
+} from './services/ai-runtime/templates/domain-reading';
+export type { DomainReadingFraming } from './services/ai-runtime/templates/domain-reading';
 export type {
   AiProviderPort,
   AiUsageLedger,
@@ -705,6 +766,7 @@ export {
   type GmailSyncOutcome,
 } from './services/work-state';
 export { WorkDraftRepository, type DraftContent, type SendAttempt } from './repositories/work-state';
+export { WorkBriefRepository, type BriefComposition } from './repositories/work-state';
 export { createGoogleOAuthPort, googleFetch } from './services/google/google-oauth-port';
 export type { GoogleClientConfig, GoogleFetch } from './services/google/google-oauth-port';
 
@@ -749,7 +811,7 @@ export {
   type TelegramConversationTriageResult,
   type TelegramTriageObligation,
   type TelegramConversationReading,
-  type TelegramConversationStatement,
+  type TelegramConversationSignal,
 } from './services/ai-runtime/telegram-content-triage.service';
 export {
   buildTelegramTriageContext,

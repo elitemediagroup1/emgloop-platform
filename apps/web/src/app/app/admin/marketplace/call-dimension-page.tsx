@@ -31,6 +31,7 @@ import {
   BusinessHealthSection, OpportunitiesSection, DecisionSupportSection,
   ReasoningSection, IntelligenceTimeline, StabilitySection, BusinessStorySection,
 } from './intelligence-ui';
+import { OrganizationReadingSection } from '../../../../intelligence/domain-reading-section';
 
 export interface CallDimensionConfig {
   dim: Dimension;
@@ -116,6 +117,7 @@ export async function CallDimensionPage({ config, session, searchParams }: { con
 
   return (
     <CommandShell ctx={ctx} active={config.navKey} path={path}>
+      {config.navKey === 'campaigns' ? <OrganizationReadingSection domain="CAMPAIGNS" title="Campaigns reading" /> : null}
       {!report.ok ? (
         <p className="cgx-note">CallGrid data could not be loaded. Reload to try again.</p>
       ) : (

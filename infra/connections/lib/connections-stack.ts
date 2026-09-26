@@ -80,6 +80,11 @@ export interface ConnectionsStackProps extends StackProps {
   };
   /** The cost budget and availability alarm. Absent: neither exists, and synth warns. */
   readonly protection?: StackProtection;
+  /**
+   * Loop Intelligence: the LOOP_INTELLIGENCE_* variables, already validated by app.ts
+   * (intelligenceFromContext). Absent: none is set and the worker schedules no intelligence pass.
+   */
+  readonly intelligence?: Readonly<Record<string, string>>;
 }
 
 /** The Secrets Manager names a stage's stack references or creates: `loop/connections/<stage>/…`. */
@@ -201,6 +206,7 @@ export class ConnectionsStack extends Stack {
         LOOP_CONNECTION_OBSERVATION_RETENTION_DAYS: String(props.observationRetentionDays ?? 30),
         LOOP_CONNECTION_SWEEP_INTERVAL_MS: '60000',
         ...aiEnvironment,
+        ...(props.intelligence ?? {}),
       },
       secrets: {
         TELEGRAM_API_ID: ecs.Secret.fromSecretsManager(telegram, 'api_id'),

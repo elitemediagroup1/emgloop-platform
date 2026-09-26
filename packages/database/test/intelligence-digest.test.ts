@@ -52,10 +52,10 @@ async function world() {
 
 function mail(patch: Partial<IntelligenceDigestInput> = {}): IntelligenceDigestInput {
   return {
-    domain: 'MAIL',
-    subjectKind: 'THREAD',
-    subjectRef: 'mail_thread:k_1',
-    provider: 'GMAIL',
+    domain: 'CALENDAR',
+    subjectKind: 'EVENT',
+    subjectRef: 'calendar_event:k_1',
+    provider: 'GOOGLE_CALENDAR',
     consentBasis: 'SOURCE_CONNECTION_GRANT',
     content: { relevance: 'BUSINESS', topics: ['Renewal pricing'], synthesis: 'Waiting on your quote.', limitations: [] },
     coverage: 'CONNECTED_SUFFICIENT',
@@ -63,7 +63,7 @@ function mail(patch: Partial<IntelligenceDigestInput> = {}): IntelligenceDigestI
     windowEnd: at(0),
     evidenceCount: 4,
     lastEvidenceAt: at(-1),
-    provenance: { sourceRefs: ['mail_thread:k_1'], anchorEventIds: ['mail_message:k_9'], producerVersion: 'test.1' },
+    provenance: { sourceRefs: ['calendar_event:k_1'], anchorEventIds: ['calendar_attendee:k_9'], producerVersion: 'test.1' },
     aiInvocationId: null,
     fingerprint: 'fp-1',
     generatedAt: NOW,
@@ -93,43 +93,75 @@ test('principal A cannot read principal B; another organization reads nothing; a
   const A = { organizationId: ORG_A, userId: alice };
   assert.equal((await w.digests.upsert(A, mail())).outcome, 'WRITTEN');
 
-  assert.ok(await w.digests.current(A, 'MAIL', { subjectKind: 'THREAD', subjectRef: 'mail_thread:k_1', now: NOW }));
-  assert.equal((await w.digests.forDomain(A, 'MAIL', { now: NOW })).length, 1);
+  assert.ok(await w.digests.current(A, 'CALENDAR', { subjectKind: 'EVENT', subjectRef: 'calendar_event:k_1', now: NOW }));
+  assert.equal((await w.digests.forDomain(A, 'CALENDAR', { now: NOW })).length, 1);
 
   // Same organization, higher role: not found. There is no argument that widens the read.
-  assert.equal(await w.digests.current({ organizationId: ORG_A, userId: owner }, 'MAIL', { subjectKind: 'THREAD', subjectRef: 'mail_thread:k_1', now: NOW }), null);
-  assert.deepEqual(await w.digests.forDomain({ organizationId: ORG_A, userId: owner }, 'MAIL', { now: NOW }), []);
+  assert.equal(await w.digests.current({ organizationId: ORG_A, userId: owner }, 'CALENDAR', { subjectKind: 'EVENT', subjectRef: 'calendar_event:k_1', now: NOW }), null);
+  assert.deepEqual(await w.digests.forDomain({ organizationId: ORG_A, userId: owner }, 'CALENDAR', { now: NOW }), []);
   // Another organization, even naming the right user id: not found.
-  assert.deepEqual(await w.digests.forDomain({ organizationId: ORG_B, userId: alice }, 'MAIL', { now: NOW }), []);
-  assert.deepEqual(await w.digests.forDomain({ organizationId: ORG_B, userId: outsider }, 'MAIL', { now: NOW }), []);
+  assert.deepEqual(await w.digests.forDomain({ organizationId: ORG_B, userId: alice }, 'CALENDAR', { now: NOW }), []);
+  assert.deepEqual(await w.digests.forDomain({ organizationId: ORG_B, userId: outsider }, 'CALENDAR', { now: NOW }), []);
   // And a write through someone else's principal cannot touch Alice's row.
-  assert.equal(await w.digests.markStale({ organizationId: ORG_A, userId: owner }, { domain: 'MAIL' }), 0);
-  assert.deepEqual(await w.digests.withdrawForProvider({ organizationId: ORG_A, userId: owner }, 'GMAIL'), { deleted: 0 });
+  assert.equal(await w.digests.markStale({ organizationId: ORG_A, userId: owner }, { domain: 'CALENDAR' }), 0);
+  assert.deepEqual(await w.digests.withdrawForProvider({ organizationId: ORG_A, userId: owner }, 'GOOGLE_CALENDAR'), { deleted: 0 });
   assert.equal(w.fake.intelligenceDigest.__rows.length, 1);
   // A half-built principal is an error, never an unscoped query.
-  await assert.rejects(() => w.digests.forDomain({ organizationId: ORG_A, userId: '' }, 'MAIL'), /requires both/);
+  await assert.rejects(() => w.digests.forDomain({ organizationId: ORG_A, userId: '' }, 'CALENDAR'), /requires both/);
 });
 
 test('the repository has no organization-wide read of digests and no role bypass (source scan)', () => {
   const src = readFileSync(join(__dirname, '..', 'src', 'repositories', 'intelligence', 'intelligence-digest.repository.ts'), 'utf8');
   const code = src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
   const methods = [...code.matchAll(/^  async (\w+)\(/gm)].map((m) => m[1]);
-  assert.deepEqual(methods.sort(), ['current', 'deleteForPrincipal', 'forDomain', 'markStale', 'metadataFor', 'organizationCounts', 'purgeExpired', 'upsert', 'withdrawForProvider'].sort());
-  // Every tenant method resolves its scope from the principal. Two named exceptions: the
-  // organization-level COUNTS (no content, no identity) and the time-based purge.
-  for (const name of methods.filter((m) => m !== 'purgeExpired' && m !== 'organizationCounts')) {
-    const body = code.slice(code.indexOf(`  async ${name}(`), code.indexOf('\n  }\n', code.indexOf(`  async ${name}(`)));
+  const principalMethods = ['current', 'deleteForPrincipal', 'forDomain', 'markStale', 'metadataFor', 'upsert', 'withdrawForProvider'];
+  const organizationMethods = ['organizationCurrent', 'organizationForDomain', 'upsertOrganization'];
+  assert.deepEqual(methods.sort(), [...principalMethods, ...organizationMethods, 'organizationCounts', 'purgeExpired', 'storedFingerprint', 'markTargetStale', 'reaffirmTarget'].sort());
+  // The producer loop's verdicts on ONE target (review blocker 1): owner-scoped exactly like storedFingerprint,
+  // one exact target, and a move only between CURRENT and STALE -- never WITHDRAWN, never another row.
+  const verdictBody = (name: string) => code.slice(code.indexOf(`  async ${name}(`), code.indexOf('\n  }\n', code.indexOf(`  async ${name}(`)));
+  for (const name of ['markTargetStale', 'reaffirmTarget']) {
+    const body = verdictBody(name);
+    assert.match(body, /owner\.scope === 'PRINCIPAL' \? \{ \.\.\.workScope\(owner\.principal\), scope: 'PRINCIPAL' \} : \{ organizationId: owner\.organizationId, scope: 'ORGANIZATION', userId: null \}/, `${name} is owner-scoped`);
+    assert.match(body, /domain: target\.domain, subjectKind: target\.subjectKind, subjectRef: target\.subjectRef/, `${name} touches one target`);
+  }
+  assert.match(verdictBody('markTargetStale'), /status: 'CURRENT' \}, data: \{ status: 'STALE' \}/);
+  assert.match(verdictBody('reaffirmTarget'), /status: 'STALE', fingerprint \}, data: \{ status: 'CURRENT' \}/);
+  const bodyOf = (name: string) => code.slice(code.indexOf(`  async ${name}(`), code.indexOf('\n  }\n', code.indexOf(`  async ${name}(`)));
+  // Every PRINCIPAL method resolves its scope from the principal, and every one that reads or writes
+  // rows beyond a delete names scope PRINCIPAL, so it can never touch an organization row.
+  for (const name of principalMethods) {
+    const body = bodyOf(name);
     assert.match(body, /workScope\(principal\)/, `${name} scopes by the principal`);
     assert.match(body, /^  async \w+\(\s*principal: IntelligencePrincipal,/, `${name} takes a principal first`);
+    assert.doesNotMatch(body, /'ORGANIZATION'\s*[,}]/, `${name} never names organization scope as a filter`);
   }
+  for (const name of ['current', 'forDomain', 'metadataFor', 'markStale', 'upsert']) assert.match(bodyOf(name), /scope: 'PRINCIPAL'/, `${name} names PRINCIPAL scope`);
+  // Every ORGANIZATION method takes the organization first, names scope ORGANIZATION with userId null,
+  // and refuses a private domain before the database is asked.
+  for (const name of organizationMethods) {
+    const body = bodyOf(name);
+    assert.match(body, /^  async \w+\(\s*organizationId: string,/, `${name} takes the organization first`);
+    assert.match(body, /scope: 'ORGANIZATION', userId: null/, `${name} is confined to ORGANIZATION rows`);
+    assert.match(body, /PRIVATE_INTELLIGENCE_DOMAINS\.includes/, `${name} refuses a private domain`);
+    assert.doesNotMatch(body, /workScope|principal/, `${name} never reads a principal`);
+  }
+  // The organization reads are per domain: there is no method without a domain parameter that reads rows.
+  assert.match(bodyOf('organizationForDomain'), /domain: IntelligenceDomain/);
   assert.doesNotMatch(code, /role|OWNER|ADMIN|SUPER|systemRole|can\(/, 'no role enters this repository');
   assert.doesNotMatch(code, /forOrganization|listForOrganization|countByOrganization|allFor/i);
   const purge = code.slice(code.indexOf('  async purgeExpired('));
   assert.match(purge, /return \{ purged: count \}/, 'the cross-tenant sweep returns a count, nothing else');
-  // The one organization-level read groups by three vocabularies and counts; it selects nothing else.
-  const counts = code.slice(code.indexOf('  async organizationCounts('), code.indexOf('\n  }\n', code.indexOf('  async organizationCounts(')));
-  assert.match(counts, /groupBy\(\{\s*by: \['domain', 'status', 'coverage'\]/);
+  // The one organization-wide read groups by four vocabularies and counts; it selects nothing else.
+  const counts = bodyOf('organizationCounts');
+  assert.match(counts, /groupBy\(\{\s*by: \['scope', 'domain', 'status', 'coverage'\]/);
   assert.doesNotMatch(counts, /userId|content|subjectRef|provenance|findMany|findFirst|select:/, 'no identity, no content, no row read');
+  // The fingerprint lookup selects three columns and nothing else.
+  assert.match(bodyOf('storedFingerprint'), /select: \{ fingerprint: true, status: true, version: true \}/);
+  // Merge-safe: no read or write in this file returns a whole row.
+  for (const call of code.matchAll(/intelligenceDigest\.(findFirst|findMany|create|update)\(\{[\s\S]*?\}\);/g)) {
+    assert.match(call[0], /select/, `${call[1]} names its columns`);
+  }
 });
 
 // --- The two metadata reads (for the web surfaces) --------------------------------------------------
@@ -165,29 +197,29 @@ test('metadataFor, against rows: this person\'s live digests across domains, nob
   await w.digests.upsert({ organizationId: ORG_A, userId: alice }, mail({ domain: 'WORK', subjectRef: 'work:k', provider: null, consentBasis: 'LOOP_RECORDS' }));
   await w.digests.upsert({ organizationId: ORG_A, userId: bob }, mail());
   const mine = await w.digests.metadataFor({ organizationId: ORG_A, userId: alice }, { now: NOW });
-  assert.deepEqual(mine.map((m) => m.domain).sort(), ['MAIL', 'WORK']);
+  assert.deepEqual(mine.map((m) => m.domain).sort(), ['CALENDAR', 'WORK']);
   assert.equal(JSON.stringify(mine).includes('Waiting on your quote'), false, 'no content');
   assert.equal(JSON.stringify(mine).includes('mail_thread'), false, 'no subject reference');
 });
 
-test('organizationCounts: counts per (domain, status, coverage) for ONE organization, and no user id in the output', async () => {
+test('organizationCounts: counts per (scope, domain, status, coverage) for ONE organization, and no user id in the output', async () => {
   const { calls, repo } = tracing([
-    { domain: 'CHATS', status: 'CURRENT', coverage: 'CONNECTED_PARTIAL', _count: { _all: 3 } },
-    { domain: 'MAIL', status: 'STALE', coverage: 'CONNECTED_SUFFICIENT', _count: { _all: 1 } },
+    { scope: 'PRINCIPAL', domain: 'CHATS', status: 'CURRENT', coverage: 'CONNECTED_PARTIAL', _count: { _all: 3 } },
+    { scope: 'PRINCIPAL', domain: 'CALENDAR', status: 'STALE', coverage: 'CONNECTED_SUFFICIENT', _count: { _all: 1 } },
   ]);
   const out = await repo.organizationCounts(ORG_A, { now: NOW });
   assert.deepEqual(out, [
-    { domain: 'CHATS', status: 'CURRENT', coverage: 'CONNECTED_PARTIAL', count: 3 },
-    { domain: 'MAIL', status: 'STALE', coverage: 'CONNECTED_SUFFICIENT', count: 1 },
+    { scope: 'PRINCIPAL', domain: 'CHATS', status: 'CURRENT', coverage: 'CONNECTED_PARTIAL', count: 3 },
+    { scope: 'PRINCIPAL', domain: 'CALENDAR', status: 'STALE', coverage: 'CONNECTED_SUFFICIENT', count: 1 },
   ]);
   const { method, args } = calls[0]!;
   assert.equal(method, 'groupBy');
-  assert.deepEqual(args.by, ['domain', 'status', 'coverage']);
+  assert.deepEqual(args.by, ['scope', 'domain', 'status', 'coverage']);
   assert.deepEqual(args._count, { _all: true });
   assert.equal(args.select, undefined);
   assert.deepEqual(Object.keys(args.where).sort(), ['expiresAt', 'organizationId', 'status'], 'the organization, and nothing that names a person');
   assert.equal(args.where.organizationId, ORG_A);
-  for (const row of out) assert.deepEqual(Object.keys(row).sort(), ['count', 'coverage', 'domain', 'status']);
+  for (const row of out) assert.deepEqual(Object.keys(row).sort(), ['count', 'coverage', 'domain', 'scope', 'status']);
   assert.deepEqual(await repo.organizationCounts('', { now: NOW }), [], 'no organization, no read');
   assert.equal(calls.length, 1);
 });
@@ -207,7 +239,7 @@ test('ORGANIZATION scope is refused, and so is content that carries evidence or 
   // A raw-looking subject, a coverage decided at read time, a domain rollup under another ref: refused.
   assert.equal((await w.digests.upsert(P, mail({ subjectRef: 'has spaces' }))).outcome, 'REFUSED');
   assert.equal((await w.digests.upsert(P, mail({ coverage: 'STALE' as never }))).outcome, 'REFUSED');
-  assert.equal((await w.digests.upsert(P, mail({ subjectKind: 'DOMAIN', subjectRef: 'mail_thread:k_1' }))).outcome, 'REFUSED');
+  assert.equal((await w.digests.upsert(P, mail({ subjectKind: 'DOMAIN', subjectRef: 'calendar_event:k_1' }))).outcome, 'REFUSED');
   assert.equal((await w.digests.upsert(P, mail({ evidenceCount: 3, lastEvidenceAt: null }))).outcome, 'REFUSED');
   assert.equal(w.fake.intelligenceDigest.__rows.length, 0, 'nothing was written');
 });
@@ -215,7 +247,7 @@ test('ORGANIZATION scope is refused, and so is content that carries evidence or 
 test('provenance keeps only its allowlisted keys, and the stored content only the contract\'s', async () => {
   const w = await world();
   const P = { organizationId: ORG_A, userId: await w.hire('EMPLOYEE') };
-  await w.digests.upsert(P, mail({ provenance: { sourceRefs: ['mail_thread:k_1'], producerVersion: 't', smuggled: 'the words' } as never }));
+  await w.digests.upsert(P, mail({ provenance: { sourceRefs: ['calendar_event:k_1'], producerVersion: 't', smuggled: 'the words' } as never }));
   const row = w.fake.intelligenceDigest.__rows[0];
   assert.deepEqual(Object.keys(row.provenance).sort(), ['aiInvocationId', 'anchorEventIds', 'consentBasis', 'producerVersion', 'schemaId', 'sourceRefs', 'taskId', 'taskVersion']);
   assert.equal(JSON.stringify(row).includes('the words'), false);
@@ -242,8 +274,8 @@ test('the same fingerprint writes nothing; a changed one overwrites the one row,
   assert.equal(w.fake.intelligenceDigest.__rows[0].status, 'CURRENT');
 
   // Marked stale, then re-affirmed with the same meaning: CURRENT again, the version unmoved.
-  assert.equal(await w.digests.markStale(P, { domain: 'MAIL' }), 1);
-  assert.equal((await w.digests.current(P, 'MAIL', { subjectKind: 'THREAD', subjectRef: 'mail_thread:k_1', now: NOW }))!.status, 'STALE');
+  assert.equal(await w.digests.markStale(P, { domain: 'CALENDAR' }), 1);
+  assert.equal((await w.digests.current(P, 'CALENDAR', { subjectKind: 'EVENT', subjectRef: 'calendar_event:k_1', now: NOW }))!.status, 'STALE');
   const reaffirmed = await w.digests.upsert(P, mail({ fingerprint: 'fp-2' }));
   assert.equal(reaffirmed.outcome, 'UNCHANGED');
   assert.equal(reaffirmed.digest.status, 'CURRENT');
@@ -255,8 +287,8 @@ test('expiry is stamped at write (30 days after the newest evidence), an expired
   const P = { organizationId: ORG_A, userId: await w.hire('EMPLOYEE') };
   const r = await w.digests.upsert(P, mail({ lastEvidenceAt: at(-1) }));
   assert.deepEqual(r.outcome === 'WRITTEN' && r.digest.expiresAt, at(29));
-  assert.equal(await w.digests.current(P, 'MAIL', { subjectKind: 'THREAD', subjectRef: 'mail_thread:k_1', now: at(29) }), null, 'not served once expired');
-  assert.deepEqual(await w.digests.upsert(P, mail({ subjectRef: 'mail_thread:old', lastEvidenceAt: at(-40), windowStart: at(-45), windowEnd: at(-35) })), { outcome: 'REFUSED', refusal: 'EXPIRED_AT_WRITE' });
+  assert.equal(await w.digests.current(P, 'CALENDAR', { subjectKind: 'EVENT', subjectRef: 'calendar_event:k_1', now: at(29) }), null, 'not served once expired');
+  assert.deepEqual(await w.digests.upsert(P, mail({ subjectRef: 'calendar_event:old', lastEvidenceAt: at(-40), windowStart: at(-45), windowEnd: at(-35) })), { outcome: 'REFUSED', refusal: 'EXPIRED_AT_WRITE' });
 });
 
 test('purgeExpired deletes every expired digest across tenants and returns only a count', async () => {
@@ -265,7 +297,7 @@ test('purgeExpired deletes every expired digest across tenants and returns only 
   const b = { organizationId: ORG_B, userId: await w.hire('EMPLOYEE', ORG_B) };
   await w.digests.upsert(a, mail({ lastEvidenceAt: at(-20) }));
   await w.digests.upsert(b, mail({ lastEvidenceAt: at(-25) }));
-  await w.digests.upsert(a, mail({ subjectRef: 'mail_thread:fresh', lastEvidenceAt: at(0) }));
+  await w.digests.upsert(a, mail({ subjectRef: 'calendar_event:fresh', lastEvidenceAt: at(0) }));
   assert.deepEqual(await w.digests.purgeExpired(at(9)), { purged: 1 });
   assert.deepEqual(await w.digests.purgeExpired(at(10)), { purged: 1 });
   assert.equal(w.fake.intelligenceDigest.__rows.length, 1);
@@ -320,7 +352,7 @@ test('revoking Telegram content consent deletes that provider\'s digests in the 
   const out = await new SourceContentAuthorizationRepository(w.prisma).revoke(ORG_A, userId, 'TELEGRAM', { now: NOW, actor: { userId } });
   assert.equal(out.outcome, 'REVOKED');
   assert.deepEqual(deletes, [1], 'deleted inside the revoke transaction');
-  assert.deepEqual(w.fake.intelligenceDigest.__rows.map((r: any) => [r.userId, r.provider]).sort(), [[colleague, 'TELEGRAM'], [userId, 'GMAIL']].sort());
+  assert.deepEqual(w.fake.intelligenceDigest.__rows.map((r: any) => [r.userId, r.provider]).sort(), [[colleague, 'TELEGRAM'], [userId, 'GOOGLE_CALENDAR']].sort());
   const audit = w.fake.auditLog.__rows.find((r: any) => r.action === 'source_connection.content.revoked');
   assert.equal(audit.metadata.digestsDeleted, 1, 'counts only');
 });
@@ -383,7 +415,7 @@ test('a disconnect past the grace window deletes that provider\'s digests for th
   assert.deepEqual(await connections.expireDerivedWork(ORG_A, recent, 'TELEGRAM', { now: NOW }), { outcome: 'NOTHING_TO_DO' });
   assert.deepEqual(await connections.expireDerivedWork(ORG_A, back, 'TELEGRAM', { now: NOW }), { outcome: 'NOTHING_TO_DO' });
   const left = w.fake.intelligenceDigest.__rows.map((r: any) => `${r.userId === gone ? 'gone' : r.userId === recent ? 'recent' : 'back'}:${r.provider}`).sort();
-  assert.deepEqual(left, ['back:GMAIL', 'back:TELEGRAM', 'gone:GMAIL', 'recent:GMAIL', 'recent:TELEGRAM']);
+  assert.deepEqual(left, ['back:GOOGLE_CALENDAR', 'back:TELEGRAM', 'gone:GOOGLE_CALENDAR', 'recent:GOOGLE_CALENDAR', 'recent:TELEGRAM']);
   const audit = w.fake.auditLog.__rows.find((r: any) => r.action === 'source_connection.derived.expired');
   assert.equal(audit.metadata.digestsDeleted, 1);
 });

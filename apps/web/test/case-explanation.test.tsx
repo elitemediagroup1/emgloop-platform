@@ -156,7 +156,13 @@ describe('fences', () => {
     const assembly = code(join(__dirname, '..', 'src', 'ai', 'case-explanation.ts'));
     assert.match(assembly.trimStart(), /^import 'server-only';/);
     assert.doesNotMatch(assembly, /process\.env|API_KEY|LOOP_AI_/);
-    assert.match(assembly, /aiEnvironment\(/);
+    // The one web gateway assembly (Loop Intelligence Phase E): every model path shares it.
+    assert.match(assembly, /governedGateway\(/);
+    const gateway = code(join(__dirname, '..', 'src', 'ai', 'governed-gateway.ts'));
+    assert.match(gateway.trimStart(), /^import 'server-only';/);
+    assert.doesNotMatch(gateway, /process\.env|API_KEY|LOOP_AI_/);
+    assert.match(gateway, /aiEnvironment\(/);
+    assert.doesNotMatch(gateway, /'(claude|gpt)-[\w.-]+'/);
     assert.doesNotMatch(assembly, /'(claude|gpt)-[\w.-]+'/, 'no model id outside the reviewed policy');
   });
 });

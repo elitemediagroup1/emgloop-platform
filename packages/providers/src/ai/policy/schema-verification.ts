@@ -8,12 +8,13 @@
 // connections worker at startup (NotConfigured, LOOP_AI_PROVIDERS), the connections stack at synth.
 //
 // Provider ids are named here because this is provider policy (the fence allows ids only in
-// packages/providers/src/ai/). Remove an entry together with its exemption -- for telegram-content-
-// triage.v4, in triage v5 (PR 3).
+// packages/providers/src/ai/). An entry exists exactly while its exemption does.
+//
+// EMPTY since Chats v5 (Loop Intelligence Phase B, 2026-09-26): the only entry, telegram-content-
+// triage.v4 -> anthropic, retired with that schema (v5 is portable). The mechanism stays: a future
+// exemption must come back with its verified-provider list, and a test holds the two keys equal.
 
-export const AI_SCHEMA_VERIFIED_PROVIDERS: Readonly<Record<string, readonly string[]>> = Object.freeze({
-  'telegram-content-triage.v4': Object.freeze(['anthropic']),
-});
+export const AI_SCHEMA_VERIFIED_PROVIDERS: Readonly<Record<string, readonly string[]>> = Object.freeze({});
 
 /** The listed providers that may NOT serve this schema. Empty for every schema without an entry. */
 export function aiSchemaUnverifiedProviders(schemaId: string, providers: readonly string[]): string[] {

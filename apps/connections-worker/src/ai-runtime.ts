@@ -129,7 +129,9 @@ export function workerTriageRunnable(activation: AiActivation, routing: AiRoutin
 /**
  * Refuse a configuration that would let a provider serve a task whose output schema it was never verified
  * against (`AI_SCHEMA_VERIFIED_PROVIDERS`). Throws NotConfigured naming the setting and the provider ids
- * (not secrets); the worker logs it as `worker_fatal` and does not start.
+ * (not secrets); the worker logs it as `worker_fatal` and does not start. Data-driven: since Chats v5
+ * (triage schema v5 is portable) no schema is exempt, so nothing is refused here -- the mechanism stays
+ * for any future exemption, which must arrive with its verified-provider list.
  */
 export function assertWorkerProvidersVerified(listedProviders: readonly string[], activatedTasks: readonly string[]): void {
   for (const taskId of activatedTasks) {
@@ -139,7 +141,7 @@ export function assertWorkerProvidersVerified(listedProviders: readonly string[]
     if (unverified.length > 0) {
       throw new NotConfigured(
         `LOOP_AI_PROVIDERS (${unverified.join(',')} is not verified against ${task.outputSchemaId}, which ${taskId} sends; ` +
-          `remove it, or remove ${taskId} from LOOP_AI_TASKS, until triage v5)`,
+          `remove it, or remove ${taskId} from LOOP_AI_TASKS, until that schema is portable)`,
       );
     }
   }
@@ -161,6 +163,12 @@ export interface WorkerAiRuntime {
    * authoritative. Used by the Chats Intelligence hydration to leave forward triage its reserve.
    */
   triageHeadroom(organizationId: string, at: Date): Promise<number>;
+  /**
+   * Loop Intelligence: the SAME governed gateway, for the domain producers the worker hosts, and the
+   * task ids this deployment activated. A task not listed is never called (the domain kit checks first).
+   */
+  readonly runtime: TelegramContentTriageRuntime;
+  readonly activatedTasks: readonly string[];
 }
 
 /**
@@ -245,6 +253,8 @@ export function createWorkerAiRuntime(
       service: new TelegramContentTriageService({ runtime: options.runtime }),
       enabled: true,
       triageHeadroom: ledgerTriageHeadroom(prisma, parseList(env.LOOP_AI_ORGANIZATIONS)),
+      runtime: options.runtime,
+      activatedTasks: parseList(env.LOOP_AI_TASKS),
     };
   }
 
@@ -323,6 +333,8 @@ function assemble(
   const enabled = providers.length > 0 && workerTriageRunnable(activation);
   return {
     service: new TelegramContentTriageService({ runtime: gateway }),
+    runtime: gateway,
+    activatedTasks: activation.enabled ? activation.tasks : [],
     enabled,
     triageHeadroom: ledgerTriageHeadroom(prisma, activation.organizations, controls),
   };

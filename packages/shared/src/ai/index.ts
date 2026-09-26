@@ -12,6 +12,15 @@ export * from './task';
 export * from './capacity';
 export * from './output-contracts';
 export * from './portable-schema';
+// PR 2 (Loop Intelligence fabric): the one generic, portable domain-reading output contract.
+export * from './domain-reading';
+// Chats v5 (Loop Intelligence Phase B): the portable triage schema v5 contract.
+export * from './telegram-triage-v5';
+// Loop Intelligence tasks (Phases D-G): defined, routed, budgeted -- activated by nothing.
+export * from './intelligence-tasks';
+// Phases F-G: the situation synthesis / verification contracts and the Briefing contract.
+export * from './situation-contracts';
+export * from './briefing-contract';
 
 // Brain execution contracts (B2): capability routes, execution classes, result types and
 // ownership, jobs, steps, the trust envelope and the executor port. Contracts only.

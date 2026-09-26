@@ -30,6 +30,11 @@ import type { BrainExecutionContract } from './brain-execution';
 import { brainExecutionContractViolations } from './brain-execution';
 import type { BrainResultOwner, BrainResultType } from './brain-result';
 import { brainOwnershipRule } from './brain-result';
+import type { AiDomainReading } from './domain-reading';
+import type { AiChatsTriage } from './telegram-triage-v5';
+import type { AiSituationSynthesis, AiSituationVerification } from './situation-contracts';
+import type { AiBriefing } from './briefing-contract';
+import { AI_INTELLIGENCE_TASKS } from './intelligence-tasks';
 
 export const AI_TASK_CONSEQUENCES = ['READ_ONLY', 'PROPOSES_FOR_APPROVAL'] as const;
 export type AiTaskConsequence = (typeof AI_TASK_CONSEQUENCES)[number];
@@ -196,7 +201,12 @@ export const AI_TASK_TELEGRAM_CONTENT_TRIAGE: AiTaskDefinition = Object.freeze({
   // person, and Loop's confidence). The worker stores that reading as the person's private CHATS digest
   // (`intelligence_digests`); the obligations are unchanged and remain WorkItems. ONE invocation still
   // produces both -- there is no second pass and no rollup model call. Output schema v4.
-  version: '3.0.0',
+  // v4.0.0 (Chats v5, Loop Intelligence Phase B, 2026-09-26): output schema v5 -- each obligation says
+  // who appears to owe it (VIEWER / OTHER / UNKNOWN) and names the other party only by a label the
+  // conversation showed; the reading carries TYPED signals (decisions pending, stalled, upcoming ...) and
+  // a state change. Still ONE call. The schema is portable (a one-value enum, no `const`), so the v4
+  // exemption and the OpenAI+triage guard retire with it (telegram-triage-v5.ts).
+  version: '4.0.0',
   // A conservative actionability judgment over a conversation: general reasoning, not communication
   // drafting and not technical analysis. GENERAL_REASONING has no default provider, so the routing
   // entry names one and says why.
@@ -216,7 +226,7 @@ export const AI_TASK_TELEGRAM_CONTENT_TRIAGE: AiTaskDefinition = Object.freeze({
   consequence: 'READ_ONLY',
   requires: Object.freeze([{ resource: 'sourceConnections', action: 'view' } as const]),
   invokerRoles: Object.freeze(['OWNER', 'ADMIN', 'MANAGER', 'EMPLOYEE', 'READ_ONLY']),
-  outputSchemaId: 'telegram-content-triage.v4',
+  outputSchemaId: 'telegram-content-triage.v5',
   // Informational: the reviewed routing policy sets each call's actual ceiling and deadline.
   maxOutputTokens: 2000,
   timeoutMs: 20_000,
@@ -227,6 +237,8 @@ export const AI_TASKS: readonly AiTaskDefinition[] = Object.freeze([
   AI_TASK_CASE_EXPLANATION,
   AI_TASK_MAIL_REPLY_DRAFT,
   AI_TASK_TELEGRAM_CONTENT_TRIAGE,
+  // Loop Intelligence (Phases D-G, 2026-09-26). Defined, routed and budgeted; activated by nothing.
+  ...AI_INTELLIGENCE_TASKS,
 ]);
 
 export function aiTask(taskId: string): AiTaskDefinition | null {
@@ -296,14 +308,17 @@ export interface AiTaskOutput {
    */
   readonly draft?: AiDraftText;
   /**
-   * The classification, for a task whose RESULT IS A CLASSIFICATION (`resultType: 'TRIAGE'`).
-   * v2 conversation triage: the still-unresolved obligations across a bounded recent conversation,
-   * each anchored to its originating message. Like `draft`, it is checked for shape and size and NOT
-   * figure-checked -- a minimized paraphrase naturally restates a fact, and what stands behind it is a
-   * person reading their own conversation, not a validator. An EMPTY list is a VALID answer (nothing
-   * is unresolved), and nothing is raised.
+   * The typed domain reading, for a task answering `domain-reading.v1` (PR 2, `domain-reading.ts`). It
+   * is parsed and validated by that contract only; `validateAiTaskOutput` never sees it.
    */
-  readonly conversationTriage?: AiConversationTriage;
+  readonly domainReading?: AiDomainReading;
+  /** Chats v5 (`telegram-content-triage.v5`), parsed and validated by `telegram-triage-v5.ts` only. */
+  readonly chatsTriage?: AiChatsTriage;
+  /** Phase F: situation synthesis / its independent verification (situation-contracts.ts). */
+  readonly situationSynthesis?: AiSituationSynthesis;
+  readonly situationVerification?: AiSituationVerification;
+  /** Phase G: the composed Briefing (briefing-contract.ts). */
+  readonly briefing?: AiBriefing;
 }
 
 export interface AiDraftText {
@@ -343,57 +358,10 @@ export const AI_TRIAGE_CATEGORIES = [
 ] as const;
 export type AiTriageCategory = (typeof AI_TRIAGE_CATEGORIES)[number];
 
-/** One still-unresolved obligation, anchored to the 1-based ordinal of its originating message. */
-export interface AiTriageObligation {
-  /** 1-based position of the originating message in the evaluated window ([1..chunkSize]). */
-  readonly anchorOrdinal: number;
-  /** The kind of unresolved thing. Never NONE -- the list holds only real obligations. */
-  readonly category: AiTriageCategory;
-  /** WHAT specifically happened or is being asked, as a minimized paraphrase (<=140 chars). Never a quote. */
-  readonly oneLineMeaning: string;
-  /** What it is about, in a few words (<=60 chars). May be empty when the meaning already says it. */
-  readonly topic: string;
-  /** What the person needs to do, as a minimized paraphrase (<=120 chars). Required. */
-  readonly nextStep: string;
-  /**
-   * A material time constraint, written the way the conversation wrote it (<=40 chars), or null when
-   * there is none. GROUNDED: every word must appear in the conversation, or the answer is rejected.
-   */
-  readonly deadline: string | null;
-}
-
 /**
- * The whole conversation's read: the obligations still unresolved (an empty list is valid) and, from v4,
- * the minimized reading of the conversation itself. `conversation` is `undefined` only when the answer
- * did not carry the key at all (which v4 rejects as WRONG_SCHEMA); `null` is the model saying it could
- * not read the conversation -- an honest answer, stored as an INSUFFICIENT digest.
- */
-export interface AiConversationTriage {
-  readonly items: readonly AiTriageObligation[];
-  readonly conversation?: AiConversationIntelligence | null;
-}
-
-/**
- * CHATS INTELLIGENCE (triage v4, 2026-09-25). The minimized reading of ONE conversation, produced by the
- * same governed call that finds the obligations. It is INTELLIGENCE, NEVER WORK: nothing here becomes a
- * WorkItem, and the obligations above stay the only thing that does.
- *
- * NO BODY, NO QUOTE, NO TRANSCRIPT. Every field is a short paraphrase in Loop's own words, bounded, and
- * checked after the answer for quotation marks and for any run of `AI_TRIAGE_LIMITS.verbatimRunTokens`
- * consecutive words copied from one message (VERBATIM_CONTENT) -- a digest can say what a conversation
- * is about; it cannot carry what somebody wrote.
- *
- * KNOWLEDGE BASIS IS PER FIELD (the simplest faithful shape). `developments`, `decisions` and
- * `commitments` are OBSERVED: each states what a message itself says and is anchored to that message's
- * ordinal. `summary`, `topics`, `signals`, `unresolved`, `attention` and `relevance` are INFERRED: Loop's
- * reading of the whole back-and-forth. `DIGEST_FIELD_KNOWLEDGE` in intelligence-digest.ts records the
- * same split for the stored digest, so a surface can label an inference as one.
- *
- * NO IDENTITY FIELD. As with the obligations, who the conversation is with is Telegram's own label,
- * recorded by the worker; nothing here is a name field a model could fill.
- *
- * `relevance` IS THE ONLY BASIS FOR CALLING A CONVERSATION "BUSINESS". Nothing else Loop holds about a
- * chat classifies it.
+ * The conversation relevance and confidence vocabularies of a Chats reading (triage schema v5,
+ * `telegram-triage-v5.ts`, where the obligation and reading types now live). `relevance` IS THE ONLY
+ * BASIS FOR CALLING A CONVERSATION "BUSINESS". Nothing else Loop holds about a chat classifies it.
  */
 export const AI_CONVERSATION_RELEVANCE = ['BUSINESS', 'NOT_BUSINESS', 'UNCLEAR'] as const;
 export type AiConversationRelevance = (typeof AI_CONVERSATION_RELEVANCE)[number];
@@ -401,41 +369,6 @@ export type AiConversationRelevance = (typeof AI_CONVERSATION_RELEVANCE)[number]
 /** Loop's ordinal reading of how well the conversation supports its own reading. Never a percentage. */
 export const AI_CONVERSATION_CONFIDENCE = ['LOW', 'MEDIUM', 'HIGH'] as const;
 export type AiConversationConfidence = (typeof AI_CONVERSATION_CONFIDENCE)[number];
-
-/** A commercial or operational signal. OPPORTUNITY is upside; RISK and CONCERN are downside; OPERATIONAL is neither. */
-export const AI_CONVERSATION_SIGNAL_KINDS = ['OPPORTUNITY', 'RISK', 'CONCERN', 'OPERATIONAL'] as const;
-export type AiConversationSignalKind = (typeof AI_CONVERSATION_SIGNAL_KINDS)[number];
-
-/** One short paraphrased statement, anchored to the 1-based ordinal of the message it rests on. */
-export interface AiConversationStatement {
-  readonly anchorOrdinal: number;
-  readonly statement: string;
-}
-
-export interface AiConversationSignal extends AiConversationStatement {
-  readonly kind: AiConversationSignalKind;
-}
-
-export interface AiConversationIntelligence {
-  readonly relevance: AiConversationRelevance;
-  /** The situation in one minimized paraphrase (<=200 chars). Never a quote. */
-  readonly summary: string;
-  /** What it is about, a few words each (<=5 x <=40 chars). */
-  readonly topics: readonly string[];
-  /** What happened (<=4, each <=140, anchored). OBSERVED. */
-  readonly developments: readonly AiConversationStatement[];
-  /** What was decided (<=3, each <=140, anchored). OBSERVED. */
-  readonly decisions: readonly AiConversationStatement[];
-  /** What someone committed to (<=3, each <=140, anchored). OBSERVED. */
-  readonly commitments: readonly AiConversationStatement[];
-  /** Commercial / operational signals (<=3, each <=140, anchored). INFERRED. */
-  readonly signals: readonly AiConversationSignal[];
-  /** What remains open, in one line (<=140), or null. INFERRED. */
-  readonly unresolved: string | null;
-  /** Whether it needs the person now, and why (<=120). A reason exactly when needed. INFERRED. */
-  readonly attention: { readonly needed: boolean; readonly reason: string | null };
-  readonly confidence: AiConversationConfidence;
-}
 
 /**
  * Bounds the schema cannot say for every provider, enforced in `validateAiTaskOutput` and the worker's
@@ -493,6 +426,17 @@ export interface AiSupportedEvidence {
    * like `terms`. Absent means nothing can be checked, and a v4 conversation reading is refused.
    */
   readonly verbatimRuns?: ReadonlySet<string>;
+  /**
+   * The canonical entity references the context package supplied (PR 2, domain-reading.v1). A reading
+   * may name only these; absent means it may name none.
+   */
+  readonly entityRefs?: ReadonlySet<string>;
+  /**
+   * Chats v5 (triage schema v5): the lower-cased labels the context showed for people in the conversation
+   * (Telegram's conversation label and in-group sender labels). A `who` in the answer must be one of them
+   * exactly (UNGROUNDED_PARTY): Loop never records a person the conversation did not name.
+   */
+  readonly labels?: ReadonlySet<string>;
 }
 
 export const AI_OUTPUT_REJECTIONS = [
@@ -512,6 +456,16 @@ export const AI_OUTPUT_REJECTIONS = [
   'UNGROUNDED_DEADLINE',
   /** A conversation reading that quotes (quotation marks) or copies a run of words from a message. */
   'VERBATIM_CONTENT',
+  /** PR 2 (domain-reading.v1): a reading named an entity reference the context did not supply. */
+  'ENTITY_NOT_SUPPLIED',
+  /** Phase F (situations): a claim asserted a cause the evidence cannot show. */
+  'CAUSAL_OVERREACH',
+  /** Phase F: a claim joined evidence from windows too far apart to compare. */
+  'TEMPORAL_MISMATCH',
+  /** Phase F: a NEW situation that is exactly an open one supplied. */
+  'DUPLICATE_SITUATION',
+  /** Chats v5: a `who` that is not a label the conversation itself showed. */
+  'UNGROUNDED_PARTY',
 ] as const;
 export type AiOutputRejection = (typeof AI_OUTPUT_REJECTIONS)[number];
 
@@ -569,106 +523,12 @@ export function parseAiTaskOutput(value: unknown): AiTaskOutput | null {
     if (typeof body !== 'string') return null;
     draft = { body };
   }
-  // v2 conversation triage: a flat `items` list of still-unresolved obligations. Absent is fine -- the
-  // validator decides whether THIS task required it, and an EMPTY list is a valid answer. A partial
-  // obligation is not an obligation; reading a half-parsed one as one would throw, so the whole answer
-  // is rejected (null) on any shape error.
-  let conversationTriage: AiConversationTriage | undefined;
-  if (v.items !== undefined) {
-    if (!Array.isArray(v.items)) return null;
-    const items: AiTriageObligation[] = [];
-    for (const raw of v.items) {
-      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-      const o = raw as Record<string, unknown>;
-      if (typeof o.anchorOrdinal !== 'number' || !Number.isFinite(o.anchorOrdinal)) return null;
-      if (typeof o.category !== 'string' || typeof o.oneLineMeaning !== 'string') return null;
-      // v2.1: the business context. `nextStep` is required (an obligation with no next step is not
-      // one); `topic` defaults to empty; `deadline` is a string or null and nothing else.
-      if (typeof o.nextStep !== 'string') return null;
-      if (o.topic !== undefined && typeof o.topic !== 'string') return null;
-      if (o.deadline !== undefined && o.deadline !== null && typeof o.deadline !== 'string') return null;
-      items.push({
-        anchorOrdinal: o.anchorOrdinal,
-        category: o.category as AiTriageCategory,
-        oneLineMeaning: o.oneLineMeaning,
-        topic: typeof o.topic === 'string' ? o.topic : '',
-        nextStep: o.nextStep,
-        deadline: typeof o.deadline === 'string' ? o.deadline : null,
-      });
-    }
-    // v4: the conversation reading. Absent stays absent (the validator decides whether this task needed
-    // it); null is an honest "could not read it"; anything else must be EXACTLY the shape -- an unknown
-    // key inside it is refused, because this block is what gets stored.
-    if (v.conversation === undefined) conversationTriage = { items };
-    else if (v.conversation === null) conversationTriage = { items, conversation: null };
-    else {
-      const conversation = parseConversationIntelligence(v.conversation);
-      if (!conversation) return null;
-      conversationTriage = { items, conversation };
-    }
-  }
   return {
     schemaId: v.schemaId,
     summary,
     claims,
     limitations: v.limitations as string[],
     ...(draft ? { draft } : {}),
-    ...(conversationTriage ? { conversationTriage } : {}),
-  };
-}
-
-const CONVERSATION_KEYS = ['relevance', 'summary', 'topics', 'developments', 'decisions', 'commitments', 'signals', 'unresolved', 'attention', 'confidence'];
-
-function exactKeys(o: Record<string, unknown>, keys: readonly string[]): boolean {
-  const own = Object.keys(o);
-  return own.length === keys.length && keys.every((k) => Object.prototype.hasOwnProperty.call(o, k));
-}
-
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return !!v && typeof v === 'object' && !Array.isArray(v);
-}
-
-function parseStatements(v: unknown, withKind: boolean): AiConversationSignal[] | AiConversationStatement[] | null {
-  if (!Array.isArray(v)) return null;
-  const out: (AiConversationStatement | AiConversationSignal)[] = [];
-  for (const raw of v) {
-    if (!isPlainObject(raw)) return null;
-    if (!exactKeys(raw, withKind ? ['kind', 'anchorOrdinal', 'statement'] : ['anchorOrdinal', 'statement'])) return null;
-    if (typeof raw.anchorOrdinal !== 'number' || !Number.isFinite(raw.anchorOrdinal) || typeof raw.statement !== 'string') return null;
-    if (withKind) {
-      if (typeof raw.kind !== 'string') return null;
-      out.push({ kind: raw.kind as AiConversationSignalKind, anchorOrdinal: raw.anchorOrdinal, statement: raw.statement });
-    } else out.push({ anchorOrdinal: raw.anchorOrdinal, statement: raw.statement });
-  }
-  return out as AiConversationSignal[] | AiConversationStatement[];
-}
-
-/** The v4 conversation block, by exact shape. Null on any deviation -- including one extra key. */
-function parseConversationIntelligence(value: unknown): AiConversationIntelligence | null {
-  if (!isPlainObject(value) || !exactKeys(value, CONVERSATION_KEYS)) return null;
-  const c = value;
-  if (typeof c.relevance !== 'string' || typeof c.summary !== 'string' || typeof c.confidence !== 'string') return null;
-  if (!Array.isArray(c.topics) || !c.topics.every((t) => typeof t === 'string')) return null;
-  if (c.unresolved !== null && typeof c.unresolved !== 'string') return null;
-  if (!isPlainObject(c.attention) || !exactKeys(c.attention, ['needed', 'reason'])) return null;
-  if (typeof c.attention.needed !== 'boolean') return null;
-  if (c.attention.reason !== null && typeof c.attention.reason !== 'string') return null;
-  const developments = parseStatements(c.developments, false);
-  const decisions = parseStatements(c.decisions, false);
-  const commitments = parseStatements(c.commitments, false);
-  const signals = parseStatements(c.signals, true);
-  if (!developments || !decisions || !commitments || !signals) return null;
-  return {
-    relevance: c.relevance as AiConversationRelevance,
-    summary: c.summary,
-    topics: c.topics as string[],
-    developments,
-    decisions,
-    commitments,
-    signals: signals as AiConversationSignal[],
-    unresolved: c.unresolved as string | null,
-    attention: { needed: c.attention.needed, reason: c.attention.reason as string | null },
-    confidence: c.confidence as AiConversationConfidence,
   };
 }
 
@@ -685,57 +545,6 @@ export function aiVerbatimRuns(text: string, n: number = AI_TRIAGE_LIMITS.verbat
 
 /** Quotation marks of any common kind. A paraphrase needs none; a quote always has them. */
 const QUOTATION_MARKS = /["\u201C\u201D\u201E\u201F\u00AB\u00BB\u2033\u301D\u301E\uFF02]/;
-
-/** Everything wrong with a v4 conversation reading, given the window's anchor range. */
-function conversationRejections(c: AiConversationIntelligence, chunkSize: number, evidence: AiSupportedEvidence): AiOutputRejection[] {
-  const L = AI_TRIAGE_LIMITS;
-  const out: AiOutputRejection[] = [];
-  if (!(AI_CONVERSATION_RELEVANCE as readonly string[]).includes(c.relevance)) out.push('WRONG_SCHEMA');
-  if (!(AI_CONVERSATION_CONFIDENCE as readonly string[]).includes(c.confidence)) out.push('WRONG_SCHEMA');
-  const texts: string[] = [];
-  const bounded = (value: string, max: number) => {
-    if (value.trim() === '') out.push('EMPTY_ANSWER');
-    if (value.length > max) out.push('ANSWER_TOO_LONG');
-    texts.push(value);
-  };
-  bounded(c.summary, L.maxSummaryChars);
-  if (c.topics.length > L.maxConversationTopics) out.push('ANSWER_TOO_LONG');
-  for (const topic of c.topics) bounded(topic, L.maxConversationTopicChars);
-  const lists: [readonly AiConversationStatement[], number][] = [
-    [c.developments, L.maxDevelopments],
-    [c.decisions, L.maxDecisions],
-    [c.commitments, L.maxCommitments],
-    [c.signals, L.maxSignals],
-  ];
-  for (const [list, max] of lists) {
-    if (list.length > max) out.push('ANSWER_TOO_LONG');
-    for (const s of list) {
-      // Every statement rests on a message actually inside the evaluated window.
-      if (!Number.isInteger(s.anchorOrdinal) || s.anchorOrdinal < 1 || s.anchorOrdinal > chunkSize) out.push('WRONG_SCHEMA');
-      bounded(s.statement, L.maxStatementChars);
-    }
-  }
-  for (const s of c.signals) if (!(AI_CONVERSATION_SIGNAL_KINDS as readonly string[]).includes(s.kind)) out.push('WRONG_SCHEMA');
-  if (c.unresolved !== null) {
-    // Nothing open is null, not a blank.
-    if (c.unresolved.trim() === '') out.push('WRONG_SCHEMA');
-    else bounded(c.unresolved, L.maxUnresolvedChars);
-  }
-  // A reason exactly when attention is needed: "needed" with no why is not a reading, and a reason for
-  // something that does not need the person is a contradiction.
-  if (c.attention.needed) {
-    if (c.attention.reason === null || c.attention.reason.trim() === '') out.push('WRONG_SCHEMA');
-    else bounded(c.attention.reason, L.maxAttentionReasonChars);
-  } else if (c.attention.reason !== null) out.push('WRONG_SCHEMA');
-
-  // NO QUOTE, NO COPIED SENTENCE. Fail closed: with nothing to check against, nothing is accepted.
-  const runs = evidence.verbatimRuns;
-  for (const value of texts) {
-    if (QUOTATION_MARKS.test(value)) out.push('VERBATIM_CONTENT');
-    if (!runs || aiVerbatimRuns(value).some((run) => runs.has(run))) out.push('VERBATIM_CONTENT');
-  }
-  return out;
-}
 
 /** A model that scores its own certainty is guessing twice. C-05 applies to AI too. */
 const CONFIDENCE_LIKE = /\b(\d{1,3})\s?%\s?(confiden|certain|sure|likel)|confidence(\s+score)?\s*[:=]\s*\d|\b(i am|i'm|we are)\s+\d{1,3}\s?%/i;
@@ -774,6 +583,27 @@ export function aiTermsInText(text: string): string[] {
   return String(text).toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
 }
 
+/**
+ * Shared by output contracts outside this file (PR 2, `domain-reading.ts`): the SAME number, date,
+ * quotation and prose checks the existing tasks apply, so a new contract cannot drift from them.
+ */
+export function aiNumberSupported(value: number, allowed: ReadonlySet<number>): boolean {
+  return supported(value, allowed);
+}
+
+/** A quotation mark of any common kind in a model's text. */
+export function aiHasQuotation(text: string): boolean {
+  return QUOTATION_MARKS.test(text);
+}
+
+/** Numeric self-confidence, and (for a READ_ONLY task) telling somebody what to do. */
+export function aiProseRejections(prose: string, consequence: AiTaskConsequence): AiOutputRejection[] {
+  const out: AiOutputRejection[] = [];
+  if (CONFIDENCE_LIKE.test(prose)) out.push('NUMERIC_CONFIDENCE_PRESENT');
+  if (consequence === 'READ_ONLY' && RECOMMENDATION_LIKE.test(prose)) out.push('RECOMMENDS_AN_ACTION');
+  return out;
+}
+
 function supported(value: number, allowed: ReadonlySet<number>): boolean {
   if (allowed.has(value) || allowed.has(Math.abs(value))) return true;
   // A number written to fewer decimals than the source carries is the same number.
@@ -798,73 +628,24 @@ export function validateAiTaskOutput(
   suppliedRefs: ReadonlySet<string>,
   evidence: AiSupportedEvidence,
 ): AiOutputRejection[] {
+  // A TRIAGE is judged by its own registered contract (Chats v5: telegram-triage-v5.ts), never by these
+  // claim rules; an answer routed here for a triage task is not the answer that was asked for.
+  if (task.resultType === 'TRIAGE') return ['WRONG_SCHEMA'];
   const out: AiOutputRejection[] = [];
   if (output.schemaId !== task.outputSchemaId) out.push('WRONG_SCHEMA');
-  // A TRIAGE verdict has no summary and no claims -- its deliverable is the classification below.
-  if (task.resultType !== 'TRIAGE' && !output.summary?.trim()) out.push('EMPTY_ANSWER');
-  // An analysis with no claims is not an analysis. A DRAFT's deliverable is its prose and a TRIAGE's
-  // is its verdict, so neither is required to cite a claim: demanding one would produce padding.
-  if (output.claims.length === 0 && task.resultType !== 'DRAFT' && task.resultType !== 'TRIAGE') out.push('EMPTY_ANSWER');
+  if (!output.summary?.trim()) out.push('EMPTY_ANSWER');
+  // An analysis with no claims is not an analysis. A DRAFT's deliverable is its prose, so it is not
+  // required to cite a claim: demanding one would produce padding.
+  if (output.claims.length === 0 && task.resultType !== 'DRAFT') out.push('EMPTY_ANSWER');
 
-  // A task whose result is prose or a classification is checked for exactly that. A claim-based task
+  // A task whose result is prose is checked for exactly that. A claim-based task
   // may return neither: an answer carrying a payload nobody asked for is not the answer that was
   // asked for, and reading it as one is how a "read-only" task starts proposing actions.
   if (task.resultType === 'DRAFT') {
     const body = output.draft?.body?.trim() ?? '';
     if (body === '') out.push('EMPTY_ANSWER');
     if ((output.draft?.body?.length ?? 0) > AI_DRAFT_LIMITS.maxBodyChars) out.push('ANSWER_TOO_LONG');
-    if (output.conversationTriage !== undefined) out.push('WRONG_SCHEMA');
-  } else if (task.resultType === 'TRIAGE') {
-    // v2 conversation triage: a list of still-unresolved obligations. An ABSENT list is not the answer
-    // asked for; an EMPTY list IS a valid answer (nothing unresolved) and raises nothing.
-    const ct = output.conversationTriage;
-    if (!ct) out.push('EMPTY_ANSWER');
-    else {
-      if (ct.items.length > AI_TRIAGE_LIMITS.maxObligations) out.push('ANSWER_TOO_LONG');
-      // Anchors number the MESSAGE blocks only. A conversation-level block (`…_conversation:…` -- the
-      // label header or the truncation note) is not anchorable and must not widen the range.
-      const chunkSize = [...suppliedRefs].filter((ref) => !/_conversation:/.test(ref)).length;
-      for (const item of ct.items) {
-        // NONE is never a real obligation, and an unknown category is not the answer asked for.
-        if (item.category === 'NONE' || !(AI_TRIAGE_CATEGORIES as readonly string[]).includes(item.category)) {
-          out.push('WRONG_SCHEMA');
-        }
-        // The anchor must point at a message actually inside the evaluated window ([1..chunkSize]).
-        if (!Number.isInteger(item.anchorOrdinal) || item.anchorOrdinal < 1 || item.anchorOrdinal > chunkSize) {
-          out.push('WRONG_SCHEMA');
-        }
-        const meaning = item.oneLineMeaning?.trim() ?? '';
-        if (meaning === '') out.push('EMPTY_ANSWER');
-        if ((item.oneLineMeaning?.length ?? 0) > AI_TRIAGE_LIMITS.maxMeaningChars) out.push('ANSWER_TOO_LONG');
-        // v2.1 business context: a next step is the point of the item; the topic is bounded; a deadline
-        // is bounded AND grounded -- every word of it must be in the conversation, or it was produced.
-        if ((item.nextStep?.trim() ?? '') === '') out.push('EMPTY_ANSWER');
-        if ((item.nextStep?.length ?? 0) > AI_TRIAGE_LIMITS.maxNextStepChars) out.push('ANSWER_TOO_LONG');
-        if ((item.topic?.length ?? 0) > AI_TRIAGE_LIMITS.maxTopicChars) out.push('ANSWER_TOO_LONG');
-        if (item.deadline !== null) {
-          if (item.deadline.trim() === '') out.push('WRONG_SCHEMA');
-          if (item.deadline.length > AI_TRIAGE_LIMITS.maxDeadlineChars) out.push('ANSWER_TOO_LONG');
-          const tokens = aiTermsInText(item.deadline);
-          const terms = evidence.terms;
-          if (!terms || tokens.length === 0 || tokens.some((t) => !terms.has(t))) out.push('UNGROUNDED_DEADLINE');
-        }
-      }
-      // v4: the conversation reading is REQUIRED as a key -- null (could not tell) is an answer, a
-      // missing key is not the answer asked for.
-      if (ct.conversation === undefined) out.push('WRONG_SCHEMA');
-      else if (ct.conversation !== null) out.push(...conversationRejections(ct.conversation, chunkSize, evidence));
-      // Triage limitations are tighter than the general answer bounds (6 items, 200 chars each), and
-      // this is the only place those tighter bounds are enforced -- the schema no longer encodes them,
-      // because Anthropic's structured outputs reject those length/size keywords.
-      if (
-        output.limitations.length > AI_TRIAGE_LIMITS.maxLimitations ||
-        output.limitations.some((l) => l.length > AI_TRIAGE_LIMITS.maxLimitationChars)
-      ) {
-        out.push('ANSWER_TOO_LONG');
-      }
-    }
-    if (output.draft !== undefined) out.push('WRONG_SCHEMA');
-  } else if (output.draft !== undefined || output.conversationTriage !== undefined) {
+  } else if (output.draft !== undefined) {
     out.push('WRONG_SCHEMA');
   }
 

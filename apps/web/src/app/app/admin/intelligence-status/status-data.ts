@@ -31,10 +31,24 @@ import 'server-only';
 //   operating budget (or its absence) and the stored KILLED switches that apply here. Organization totals
 //   only; the trailing figure is this organization's, never the platform's.
 //
+//   THE INTELLIGENCE FABRIC (PR 2): the registered domains (the shared registry, code), the producers
+//   the code knows (a metadata catalog; activation is the worker's), and the refresh queue's COUNTS per
+//   (scope, domain, state) through IntelligenceRefreshQueueRepository.organizationCounts -- never a
+//   subject reference, a target, a user id or content. Before the queue migration it says so.
+//
 // Each section fails on its own: a read that throws is UNAVAILABLE, never empty. No model is called.
 
 import type { PrismaClient } from '@prisma/client';
-import { AiControlRepository, DurableAiUsageLedger, IntelligenceDigestRepository, aiRuntimeControlsReader, prisma } from '@emgloop/database';
+import {
+  AiControlRepository,
+  DurableAiUsageLedger,
+  INTELLIGENCE_PRODUCER_CATALOG,
+  IntelligenceDigestRepository,
+  IntelligenceRefreshQueueRepository,
+  aiRuntimeControlsReader,
+  prisma,
+  refreshQueuePresent,
+} from '@emgloop/database';
 import { AI_PROVIDER_IDS } from '@emgloop/shared';
 import type { AuthSession } from '../../../../auth/auth';
 import {
@@ -43,6 +57,8 @@ import {
   STATUS_WINDOWS,
   digestCountsOnly,
   digestMetadataOnly,
+  fabricQueueCountsOnly,
+  projectFabric,
   projectCapacity,
   projectProviderPolicies,
   projectTaskStatus,
@@ -50,6 +66,8 @@ import {
   type CapacityStatus,
   type DigestCount,
   type DigestMetadata,
+  type FabricRead,
+  type FabricStatus,
   type IntelligenceStatus,
   type OutcomeGroup,
   type OwnGroup,
@@ -73,6 +91,16 @@ export interface StatusDeps {
   readonly digests: DigestReader;
   /** PR 1. The capacity read. Absent: the section is NOT_EXPOSED. */
   readonly capacity?: (organizationId: string, now: Date) => Promise<CapacityRead>;
+  /** PR 2. The fabric's producers and queue counts (digest counts come from `digests`). Absent: NOT_EXPOSED. */
+  readonly fabric?: (organizationId: string) => Promise<Omit<FabricRead, 'digests'>>;
+}
+
+/** The known producers (code), and the refresh queue's counts for one organization, or NOT_MIGRATED. */
+async function readFabric(organizationId: string): Promise<Omit<FabricRead, 'digests'>> {
+  const producers = INTELLIGENCE_PRODUCER_CATALOG.map((p) => ({ id: p.id, domain: p.domain, scope: p.scope, kind: p.kind, taskId: p.taskId }));
+  if (!(await refreshQueuePresent(prisma))) return { producers, queue: { state: 'NOT_MIGRATED' } };
+  const counts = await new IntelligenceRefreshQueueRepository(prisma).organizationCounts(organizationId);
+  return { producers, queue: { state: 'READ', counts: fabricQueueCountsOnly(counts as unknown as Record<string, unknown>[]) } };
 }
 
 /** The same ledger windows and recorded controls the gateway admits against, for one organization. */
@@ -98,6 +126,7 @@ function defaultDeps(): StatusDeps {
     providerPolicies: () => controls.providerPolicies(),
     digests: new IntelligenceDigestRepository(prisma) as unknown as DigestReader,
     capacity: readCapacity,
+    fabric: readFabric,
   };
 }
 
@@ -202,7 +231,8 @@ export async function loadIntelligenceStatus(
   const organizationCounts = deps.digests.organizationCounts?.bind(deps.digests);
 
   const capacityRead = deps.capacity;
-  const [tasks, providers, yourDigests, organizationDigests, capacity] = await Promise.all([
+  const fabricRead = deps.fabric;
+  const [tasks, providers, yourDigests, organizationDigests, capacity, fabricBase] = await Promise.all([
     section(() => readTasks(deps.ledger, organizationId, userId, now)),
     section<readonly ProviderPolicyRow[]>(async () => projectProviderPolicies(AI_PROVIDER_IDS, await deps.providerPolicies())),
     metadataFor
@@ -214,7 +244,13 @@ export async function loadIntelligenceStatus(
     capacityRead
       ? section<CapacityStatus>(async () => projectCapacity(await capacityRead(organizationId, now)))
       : Promise.resolve<Section<CapacityStatus>>({ state: 'NOT_EXPOSED' }),
+    fabricRead ? section(() => fabricRead(organizationId)) : Promise.resolve<Section<Omit<FabricRead, 'digests'>>>({ state: 'NOT_EXPOSED' }),
   ]);
 
-  return { generatedAt: now, tasks, providers, yourDigests, organizationDigests, capacity };
+  const fabric: Section<FabricStatus> =
+    fabricBase.state === 'READ'
+      ? { state: 'READ', value: projectFabric({ ...fabricBase.value, digests: organizationDigests.state === 'READ' ? organizationDigests.value : null }) }
+      : fabricBase;
+
+  return { generatedAt: now, tasks, providers, yourDigests, organizationDigests, capacity, fabric };
 }

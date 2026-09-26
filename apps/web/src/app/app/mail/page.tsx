@@ -41,6 +41,12 @@ import {
 // AN EMPTY LANE AND AN UNREADABLE MAILBOX NEVER LOOK ALIKE. Lanes are only concluded from a read
 // Loop made; "nothing needs your reply" is only said about a current one.
 
+import { MAIL_CONTENT_GOVERNANCE_ENV, mailContentGovernance } from '@emgloop/shared';
+import { SourceContentAuthorizationRepository, prisma } from '@emgloop/database';
+import { loadPrincipalReading } from '../../../intelligence/domain-reading';
+import { DomainReadingPanel } from '../../../intelligence/domain-reading-view';
+import { authorizeMailContentAction, revokeMailContentAction } from '../../../daily-loop/mail-content-actions';
+
 export const dynamic = 'force-dynamic';
 
 const GMAIL_URL = 'https://mail.google.com/';
@@ -63,6 +69,16 @@ export default async function MailPage({ searchParams }: { searchParams?: Record
     dashboard = 'UNAVAILABLE';
   }
   const time = createTimeView(zone, dashboard && dashboard !== 'UNAVAILABLE' ? dashboard.now : new Date());
+
+  // LOOP INTELLIGENCE (Phase D). The person's own MAIL reading -- the SAME stored digest Home's Mail tile
+  // leads with -- and their own Mail-content consent. The consent is OFFERED only once the deployment
+  // names the recorded counterparty-consent decision (UNRESOLVED today); stopping is always offered.
+  const governance = mailContentGovernance(process.env[MAIL_CONTENT_GOVERNANCE_ENV]);
+  const [reading, consent] = await Promise.all([
+    loadPrincipalReading(session, 'MAIL', { now: time.now, connectionLive: true }).catch(() => null),
+    new SourceContentAuthorizationRepository(prisma).get(session.organizationId, session.userId, 'GMAIL').catch(() => null),
+  ]);
+  const contentOn = consent !== null && consent.revokedAt === null;
 
   return (
     <WorkspaceShell session={session}>
@@ -93,6 +109,24 @@ export default async function MailPage({ searchParams }: { searchParams?: Record
         ) : (
           <MailBody dashboard={dashboard} state={state} time={time} />
         )}
+
+        {contentOn || governance.state === 'DECIDED' ? (
+          <DomainReadingPanel
+            title="Mail intelligence"
+            view={reading}
+            time={time}
+            empty={contentOn ? 'Loop has not written a reading of your mail yet.' : 'Loop reads only headers today. Turn on mail reading below for a reading of what your threads say.'}
+          />
+        ) : null}
+        {contentOn ? (
+          <form action={revokeMailContentAction} className="loop-btnrow" data-mail-content="on">
+            <button type="submit" className="loop-btn loop-btn--quiet">Stop mail reading</button>
+          </form>
+        ) : governance.state === 'DECIDED' ? (
+          <form action={authorizeMailContentAction} className="loop-btnrow" data-mail-content="offered">
+            <button type="submit" className="loop-btn">Turn on mail reading</button>
+          </form>
+        ) : null}
       </LoopPage>
     </WorkspaceShell>
   );

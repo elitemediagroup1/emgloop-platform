@@ -140,6 +140,21 @@ export function formatTriageConversationContent(conversation: TelegramTriageConv
 }
 
 /**
+ * Loop's content-free STATE line (template v6): who wrote last, and whether the person has written since
+ * the last message they received. Directions and ordinals only -- the arithmetic that tells "asked and
+ * never answered" from "answered". Null for an empty window.
+ */
+export function formatTriageStateContent(messages: readonly Pick<TelegramTriageWindowMessage, 'direction'>[]): string | null {
+  if (messages.length === 0) return null;
+  const last = messages.length;
+  const lastOutbound = messages.map((m) => m.direction).lastIndexOf('OUTBOUND') + 1;
+  if (lastOutbound === last) return `STATE: the last message (${last}) is from the person.`;
+  if (lastOutbound === 0) return `STATE: all ${last} messages in this slice are from the other side; the person has not written in this slice.`;
+  const range = lastOutbound + 1 === last ? `message ${last} is` : `messages ${lastOutbound + 1}-${last} are`;
+  return `STATE: the person last wrote at message ${lastOutbound}; ${range} from the other side, with no reply from the person since.`;
+}
+
+/**
  * The context items for a window, and the ordinal->providerEventId map. Shared by the package builder
  * and the token estimator so the worker's gather and the gateway's admission check see byte-identical
  * items. The label header (when Telegram gave a label) comes first; a truncated window appends one
@@ -182,6 +197,20 @@ function windowContextItems(input: TelegramTriageContextInput): {
       readUnder: { resource: 'sourceConnections', action: 'view' },
     });
   });
+  const state = formatTriageStateContent(input.messages);
+  if (state !== null) {
+    const sourceRef = conversationSourceRef(input.conversationKey);
+    items.push({
+      blockId: `${input.organizationId}::${sourceRef}#state`,
+      kind: 'TEXT',
+      // Loop's own arithmetic over directions and ordinals: no text, no name, no id (v6).
+      trust: 'GOVERNED_FACT',
+      sourceRef,
+      content: state,
+      sensitivity: 'OPERATIONAL',
+      readUnder: { resource: 'sourceConnections', action: 'view' },
+    });
+  }
   if (input.truncated) {
     const sourceRef = conversationSourceRef(input.conversationKey);
     items.push({
@@ -228,6 +257,21 @@ function verbatimRuns(input: TelegramTriageContextInput): ReadonlySet<string> {
   return runs;
 }
 
+/**
+ * The labels the context shows for people (v6): Telegram's conversation label and every in-group sender
+ * label, capped as shown and lower-cased. A `who` in the answer must be exactly one of these.
+ */
+function supportedLabels(input: TelegramTriageContextInput): ReadonlySet<string> {
+  const labels = new Set<string>();
+  const add = (label: string | null | undefined) => {
+    const trimmed = typeof label === 'string' ? label.trim() : '';
+    if (trimmed !== '') labels.add(capLabel(trimmed).toLowerCase());
+  };
+  add(input.conversation?.label);
+  for (const message of input.messages) add(message.senderLabel);
+  return labels;
+}
+
 /** Build the package. It assembles; it decides nothing about which obligations are unresolved. */
 export function buildTelegramTriageContext(input: TelegramTriageContextInput): TelegramTriageContext {
   const { items, ordinalToProviderEventId, labelled } = windowContextItems(input);
@@ -244,7 +288,7 @@ export function buildTelegramTriageContext(input: TelegramTriageContextInput): T
     // it is excluded from the number/date scan): figures and dates are deliberately empty rather than
     // pretending to have grounded them. `terms` grounds the one field that must be COPIED: the deadline.
     // `verbatimRuns` lets the validator refuse a conversation reading that copies a message (v4).
-    evidence: { figures: new Map(), dates: new Set(), terms: supportedTerms(input), verbatimRuns: verbatimRuns(input) },
+    evidence: { figures: new Map(), dates: new Set(), terms: supportedTerms(input), verbatimRuns: verbatimRuns(input), labels: supportedLabels(input) },
     ordinalToProviderEventId,
     manifest: { includedCount: input.messages.length, truncated: input.truncated, labelled },
   };

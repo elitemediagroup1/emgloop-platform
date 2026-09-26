@@ -84,6 +84,8 @@ import {
 } from './headlines-data';
 import { requireWorkspace } from '../../../../workspaces/guard';
 import { viewerTime } from '../../../../time/viewer-time';
+import { loadSituations } from '../../../../intelligence/situations';
+import { SituationsPanel } from '../../../../intelligence/situations-view';
 
 export const dynamic = 'force-dynamic';
 
@@ -125,6 +127,7 @@ export default async function HeadlinesPage({
   const cases = feed?.ok ? await loadCasesForHeadlines(session.organizationId, feed.value.map((h) => h.id)) : null;
   const sections = feed?.ok && cases?.ok ? sectionHeadlines(feed.value, cases.value) : null;
   const open = expandedSections(show);
+  const situations = await loadSituations(session).catch(() => null);
 
   return (
     <div className="hl-page">
@@ -150,6 +153,13 @@ export default async function HeadlinesPage({
       ) : (
         <>
           <AttentionBanner attention={result.value.attention} />
+
+          {/* Loop Intelligence Phase F: connected situations are Cases too. The measured Headlines below stay
+              the evidence of measured movement; situations are read only by those who may read every
+              domain each one cites. */}
+          {situations?.organization && situations.organization.length > 0 ? (
+            <SituationsPanel read={{ personal: [], organization: situations.organization }} time={time} caseHref={(id) => `/app/admin/cases/${id}`} />
+          ) : null}
 
           {objectiveId ? <ObjectiveScope objective={objective} show={show} /> : null}
 

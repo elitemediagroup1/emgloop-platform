@@ -10,8 +10,10 @@
 //   - content-free activity: `SourceObservationRepository.activitySince` counts for the last day and
 //     the last week, and `recent` for when each conversation was last active (keys and instants only)
 //     -- who/when metadata, never content. It decides whether a digest is out of date, nothing more;
-//   - the flagged items: handed in by the caller from the `loadNeedsYou` it already made. This module
-//     never loads them itself, so a page loads them once and Home and Chats read the same list.
+//   - the conversation items (Chats v5): the viewer's own OPEN triage WorkItems in BOTH lanes -- what
+//     they owe (NEEDS_YOU) and what others in their conversations owe them (WAITING_ON_THEM) -- read
+//     here, by the same `loadNeedsYou` read with both lanes, so Home's Chats tile and the Chats page
+//     compose the SAME items (Home's separate "Needs you" panel keeps its own NEEDS_YOU-only list).
 //
 // EMPLOYEE-PRIVATE. The organization and the person are the signed session's (`principal`); every
 // read is scoped by both, and no role widens it.
@@ -30,7 +32,10 @@ import { sourceConnections } from '../connections/source-connection-runtime';
 import { connectionPresentation } from '../app/app/_connections/source-connections-panel';
 import { readerTimeZone } from './reader-zone';
 import { CHATS_PROVIDER, type ChatsActivity, type ChatsConnection, type ChatsDigest, type ChatsIntelligenceInput, type ChatsItem } from './chats-intelligence';
-import type { NeedsYouItem } from './needs-you';
+import { loadNeedsYou, type NeedsYouItem } from './needs-you';
+
+/** How many open conversation items Chats reads: every one, up to the loader's own ceiling. */
+export const CHATS_ITEM_LIMIT = 200;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** How many of the newest observations are read to know when each conversation was last active. */
@@ -48,6 +53,12 @@ export function chatsItemOf(item: NeedsYouItem): ChatsItem {
     deadline: item.deadline,
     at: item.at,
     conversationKey: item.conversationKey ?? null,
+    id: item.id,
+    lane: item.lane ?? 'NEEDS_YOU',
+    owedBy: item.owedBy ?? null,
+    who: item.who ?? null,
+    repliedAfter: item.repliedAfter ?? null,
+    conversationKind: item.conversationKind ?? null,
   };
 }
 
@@ -72,12 +83,7 @@ export async function loadChatsDigests(principal: WorkPrincipal, now: Date): Pro
   }));
 }
 
-export async function loadChatsInput(args: {
-  session: AuthSession;
-  principal: WorkPrincipal;
-  now: Date;
-  needsYou: readonly NeedsYouItem[];
-}): Promise<ChatsIntelligenceInput> {
+export async function loadChatsInput(args: { session: AuthSession; principal: WorkPrincipal; now: Date }): Promise<ChatsIntelligenceInput> {
   const { session, principal, now } = args;
   const organizationId = principal.organizationId;
 
@@ -118,6 +124,8 @@ export async function loadChatsInput(args: {
   // Loop's own reading of the viewer's conversations. Settled on its own: a failed read is null
   // (said as "could not read"), never an empty list.
   const digests = (): Promise<ChatsDigest[] | null> => loadChatsDigests(principal, now).catch(() => null);
+  // Both lanes, the viewer's own, one read -- the same list Home's tile and the page compose.
+  const items = await loadNeedsYou(principal, CHATS_ITEM_LIMIT, prisma, ['NEEDS_YOU', 'WAITING_ON_THEM']);
 
   // Nothing to read for a person who cannot view connections: said as unknown, not as zero.
   const [activity24h, activity7d, latest, read] = connection
@@ -127,7 +135,7 @@ export async function loadChatsInput(args: {
   return {
     connection,
     digests: read,
-    items: args.needsYou.filter((i) => i.provider === CHATS_PROVIDER).map(chatsItemOf),
+    items: items.filter((i) => i.provider === CHATS_PROVIDER).map(chatsItemOf),
     activity24h,
     activity7d,
     latestActivity: latest,

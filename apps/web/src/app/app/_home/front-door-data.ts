@@ -42,7 +42,11 @@ import { executiveBrief, loadExecutiveReading } from '../admin/marketplace/execu
 import { headlineSituation, type HeadlineSituation, type HeadlineView } from '@emgloop/shared';
 import { HOME_KPI_KEYS, projectHomeKpis, type HomeKpiStrip } from './kpis';
 import { settle, type Settled } from './settle';
-import { TILE_PATHS, type RosterRowInput } from './tiles';
+import { TILE_PATHS, type HomeTile, type RosterRowInput } from './tiles';
+import { loadOrganizationReading, loadPrincipalReading } from '../../../intelligence/domain-reading';
+import type { DomainProjection, IntelligenceDomain } from '@emgloop/shared';
+import { loadSituations, type SituationsRead } from '../../../intelligence/situations';
+import { loadStoredBriefing, type StoredBriefing } from '../../../intelligence/briefing';
 
 /** Whether the rail this person was offered leads to `href`. Nav visibility, not authorization. */
 export function navOffers(groups: readonly NavGroup[], href: string): boolean {
@@ -67,6 +71,45 @@ export interface FrontDoorReads {
   readonly intake: Settled<Readonly<Record<string, number>>> | null;
   /** The creator roster; `value: null` while its migration has not reached this database; null when not offered. */
   readonly creators: Settled<readonly RosterRowInput[] | null> | null;
+  /**
+   * Loop Intelligence: each offered domain's stored reading, projected -- the SAME artifact its page shows.
+   * Personal domains read as the session's own principal; organization domains only with the domain's
+   * registry read authority. A read that fails settles to nothing (the tile keeps its own figures).
+   */
+  readonly readings: Partial<Record<HomeTile['key'], DomainProjection>>;
+  /**
+   * Loop Intelligence Phase F: open situations -- the viewer's own private ones, and the organization's
+   * they may read (every domain a situation cites). Null when the read failed.
+   */
+  readonly situations: SituationsRead | null;
+  /** Loop Intelligence Phase G: today's stored Loop Briefing for the viewer, or null (none, or unreadable). */
+  readonly briefing: StoredBriefing | null;
+}
+
+/** Which tile shows which domain's reading, and at what scope. */
+const TILE_READINGS: readonly { readonly key: HomeTile['key']; readonly href: string; readonly domain: IntelligenceDomain; readonly scope: 'PRINCIPAL' | 'ORGANIZATION'; readonly executiveOnly: boolean }[] = [
+  { key: 'mail', href: TILE_PATHS.mail, domain: 'MAIL', scope: 'PRINCIPAL', executiveOnly: false },
+  { key: 'calendar', href: TILE_PATHS.calendar, domain: 'CALENDAR', scope: 'PRINCIPAL', executiveOnly: false },
+  { key: 'intake', href: TILE_PATHS.intake, domain: 'PIPELINE', scope: 'ORGANIZATION', executiveOnly: false },
+  { key: 'callgrid', href: TILE_PATHS.marketplace, domain: 'CALLGRID', scope: 'ORGANIZATION', executiveOnly: true },
+  { key: 'campaigns', href: TILE_PATHS.marketplace, domain: 'CAMPAIGNS', scope: 'ORGANIZATION', executiveOnly: true },
+  { key: 'creators', href: TILE_PATHS.creators, domain: 'CREATORS', scope: 'ORGANIZATION', executiveOnly: true },
+];
+
+async function loadTileReadings(session: AuthSession, groups: readonly NavGroup[], now: Date, executive: boolean): Promise<Partial<Record<HomeTile['key'], DomainProjection>>> {
+  const out: Partial<Record<HomeTile['key'], DomainProjection>> = {};
+  await Promise.all(
+    TILE_READINGS.filter((t) => navOffers(groups, t.href) && (executive || !t.executiveOnly)).map(async (t) => {
+      const read = await settle(async () =>
+        t.scope === 'PRINCIPAL' ? loadPrincipalReading(session, t.domain, { now, connectionLive: true }) : loadOrganizationReading(session, t.domain, { now }),
+      );
+      if (read.ok && read.value && read.value.projection.state !== 'NONE') out[t.key] = read.value.projection;
+    }),
+  );
+  // Work: the organization's reading on the executive Home, the person's own elsewhere.
+  const work = executive ? await settle(() => loadOrganizationReading(session, 'WORK', { now })) : await settle(() => loadPrincipalReading(session, 'WORK', { now, connectionLive: true }));
+  if (work.ok && work.value && work.value.projection.state !== 'NONE') out.work = work.value.projection;
+  return out;
 }
 
 export async function loadFrontDoor(input: {
@@ -79,18 +122,21 @@ export async function loadFrontDoor(input: {
   /** True only for the executive Home: the organization-wide reads are made for no other seat. */
   readonly executive: boolean;
 }): Promise<FrontDoorReads> {
-  const { session, principal, groups, time, needsYou } = input;
+  const { session, principal, groups, time } = input;
   const organizationId = principal.organizationId;
 
-  const [context, chats, intake, creators] = await Promise.all([
+  const [context, chats, intake, creators, readings, situations, briefing] = await Promise.all([
     input.executive && navOffers(groups, TILE_PATHS.marketplace)
       ? settle(() => loadCommandContextFor(organizationId, undefined, { session, canAct: async () => false }))
       : Promise.resolve(null),
-    navOffers(groups, TILE_PATHS.chats) ? settle(() => loadChatsInput({ session, principal, now: time.now, needsYou })) : Promise.resolve(null),
+    navOffers(groups, TILE_PATHS.chats) ? settle(() => loadChatsInput({ session, principal, now: time.now })) : Promise.resolve(null),
     navOffers(groups, TILE_PATHS.intake) ? settle(() => crmRepos.crm.statusCounts(organizationId)) : Promise.resolve(null),
     input.executive && navOffers(groups, TILE_PATHS.creators)
       ? settle(() => absentUntilMigrated(creatorDomain().records.roster(organizationId)))
       : Promise.resolve(null),
+    loadTileReadings(session, groups, time.now, input.executive).catch(() => ({})),
+    loadSituations(session).catch(() => null),
+    loadStoredBriefing(principal, time.timeZone, time.now).catch(() => null),
   ]);
 
   const callgrid: Settled<HomeKpiStrip> | null = context === null ? null : context.ok ? kpiStrip(context.value) : { ok: false };
@@ -106,7 +152,7 @@ export async function loadFrontDoor(input: {
       })
     : null;
 
-  return { callgrid, callgridBrief, chats, intake, creators };
+  return { callgrid, callgridBrief, chats, intake, creators, readings, situations, briefing };
 }
 
 /**

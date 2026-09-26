@@ -19,7 +19,7 @@
 //
 // PURE. No loader, no clock beyond the TimeView handed in, no I/O.
 
-import { HEALTH_BAND_LABEL, counted, type CallGridBrief, type TimeView } from '@emgloop/shared';
+import { HEALTH_BAND_LABEL, counted, type CallGridBrief, type DomainProjection, type TimeView } from '@emgloop/shared';
 import { chatsNeedsConnections, type ChatsIntelligence } from '../../../daily-loop/chats-intelligence';
 import type { BriefingSourceState, BriefingToday, WorkPosture } from './briefing';
 import type { HomeKpiStrip } from './kpis';
@@ -67,6 +67,13 @@ export interface TilesInput {
   /** The Overview's own brief over the same CallGrid context; null when that context was not read. */
   readonly callgridBrief: TileRead<CallGridBrief> | null;
   readonly time: TimeView;
+  /**
+   * Loop Intelligence (Phases D-E): each domain's stored DOMAIN reading, projected with the ONE shared
+   * projection -- the same artifact the domain's own page shows in depth. When a tile's domain has one, its
+   * statement LEADS the tile and the domain's own counts stay as supporting lines. Absent: the tile is as
+   * it was. Chats is not here: its tile already reads its own composition.
+   */
+  readonly readings?: Partial<Record<HomeTile['key'], DomainProjection>>;
 }
 
 export type TileState = 'OK' | 'EMPTY' | 'NOT_CONNECTED' | 'NOT_READ' | 'UNAVAILABLE' | 'NOT_AVAILABLE';
@@ -202,8 +209,13 @@ function chatsTile(input: TilesInput, item: TileNavItem): HomeTile | null {
       return { ...base, metric: c.metric, lines: [], state: 'NOT_READ', stateLine: c.statement, status };
     case 'STALE':
     case 'CURRENT':
-    default:
-      return { ...base, metric: c.metric, lines: [c.statement], state: 'OK', stateLine: null, status };
+    default: {
+      // Chats v5: the most pressing entry of the page's own first group, one line -- the same composition.
+      const lead = c.groups[0];
+      const top = lead?.entries[0];
+      const line = top ? `${lead.title}: ${top.conversation ? `${top.conversation} — ` : ''}${top.statement}` : null;
+      return { ...base, metric: c.metric, lines: line ? [c.statement, line] : [c.statement], state: 'OK', stateLine: null, status };
+    }
   }
 }
 
@@ -378,5 +390,19 @@ export function projectTiles(input: TilesInput): HomeTile[] {
   if (marketplace) out.push(callgridTile(input, marketplace), campaignsTile(input, marketplace));
   const creators = offered(input, TILE_PATHS.creators);
   if (creators) out.push(creatorsTile(input, creators));
-  return out.filter((t): t is HomeTile => t !== null);
+  return out.filter((t): t is HomeTile => t !== null).map((t) => withReading(t, input.readings?.[t.key]));
+}
+
+/**
+ * The domain reading leads the tile it belongs to (Loop Intelligence). Only a tile that is itself reading
+ * its domain (OK or EMPTY) takes one -- a tile saying "not connected" or "could not be read" keeps saying
+ * so. A reading that is not current says so beside it; the tile's own figures stay as supporting lines.
+ */
+function withReading(tile: HomeTile, reading: DomainProjection | undefined): HomeTile {
+  if (!reading || reading.state === 'NONE' || !reading.statement || tile.key === 'chats') return tile;
+  if (tile.state !== 'OK' && tile.state !== 'EMPTY') return tile;
+  const lead = reading.asCurrent ? reading.statement : `${reading.statement} (not current)`;
+  const top = reading.topSignal && reading.topSignal.statement !== reading.statement ? [reading.topSignal.statement] : [];
+  const supporting = tile.lines.filter((l) => l !== lead && !top.includes(l));
+  return { ...tile, state: 'OK', stateLine: null, lines: [lead, ...top, ...supporting].slice(0, 3) };
 }

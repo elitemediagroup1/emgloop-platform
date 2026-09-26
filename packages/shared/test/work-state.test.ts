@@ -25,6 +25,7 @@ import {
   WORK_PROVENANCE_KINDS,
   WORK_PROVIDERS,
   WORK_RETENTION_CATEGORIES,
+  WORK_RETENTION_NOT_OVERRIDABLE,
   WORK_RETENTION_POLICY_VERSION,
   WORK_SOURCES,
   WORK_STATE_SENSITIVITY,
@@ -47,12 +48,19 @@ import {
   workWithdrawalReason,
 } from '../src/work-state';
 
+import { INTELLIGENCE_BRIEFING_RETENTION_DAYS_DECIDED } from '../src/intelligence-digest';
 const MIGRATION = readFileSync(
   join(__dirname, '..', '..', 'database', 'prisma', 'migrations', '20260920000000_daily_loop_work_state', 'migration.sql'),
   'utf8',
 );
 // The item-outcome CHECK was restated in full by the migration that added REVOKED (2026-09-24);
 // that file is the constraint now in force for outcomes, so the outcome list is pinned against it.
+// Loop Intelligence Phase C restated the observation CHECK with WORK_LINKED added (nothing removed).
+const OBSERVATION_MIGRATION = readFileSync(
+  join(__dirname, '..', '..', 'database', 'prisma', 'migrations', '20261007000000_promote_to_work', 'migration.sql'),
+  'utf8',
+);
+
 const OUTCOME_MIGRATION = readFileSync(
   join(__dirname, '..', '..', 'database', 'prisma', 'migrations', '20261001000000_work_item_outcome_revoked', 'migration.sql'),
   'utf8',
@@ -116,11 +124,14 @@ test('every vocabulary the database also enforces appears in the DL-1 migration'
     actors: WORK_ACTOR_TYPES,
   };
   for (const [name, list] of Object.entries(lists)) {
-    const pinnedIn = name === 'outcomes' ? OUTCOME_MIGRATION : MIGRATION;
+    const pinnedIn = name === 'outcomes' ? OUTCOME_MIGRATION : name === 'observations' ? OBSERVATION_MIGRATION : MIGRATION;
     for (const word of list) {
       assert.match(pinnedIn, new RegExp(`'${word}'`), `${name}: ${word} is not pinned in the migration`);
     }
   }
+  // The observation CHECK is restated, not narrowed: every word DL-1 accepted, Phase C accepts.
+  const dl1Observations = /"observationType" IN \(([^)]*)\)/.exec(MIGRATION)?.[1] ?? '';
+  for (const quoted of dl1Observations.match(/'[A-Z_]+'/g) ?? []) assert.ok(OBSERVATION_MIGRATION.includes(quoted), `${quoted} still accepted`);
   // The outcome CHECK is restated, not narrowed: every word DL-1 accepted, the restatement accepts.
   // Inside the work_items CHECK block only: work_sync_runs has an outcome column of its own.
   const dl1ItemsCheck = /"work_items_shape_check" CHECK \(([\s\S]*?)\n\);/.exec(MIGRATION)?.[1] ?? '';
@@ -135,7 +146,7 @@ test('every vocabulary the database also enforces appears in the DL-1 migration'
 });
 
 test('retention is a window per category, and every work table is covered exactly once', () => {
-  assert.equal(WORK_RETENTION_POLICY_VERSION, 'work-retention.2026-09-24.1');
+  assert.equal(WORK_RETENTION_POLICY_VERSION, 'work-retention.2026-09-26.3');
 
   const covered = WORK_RETENTION_CATEGORIES.flatMap((c) => [...c.tables]);
   assert.deepEqual([...covered].sort(), [...WORK_STATE_TABLES].sort(), 'every table appears in exactly one category');
@@ -153,7 +164,10 @@ test('retention is a window per category, and every work table is covered exactl
   assert.equal(byName('THREAD_CONTEXT').days, 90);
   assert.equal(byName('CALENDAR_STATE').days, 90);
   assert.equal(byName('DERIVED_WORK_FACTS').days, 365);
-  assert.equal(byName('BRIEFS').days, 365);
+  // The approved Loop Briefing decision (2026-09-24) governs work_briefs: one number, not two.
+  assert.equal(byName('BRIEFS').days, 90);
+  assert.equal(byName('BRIEFS').days, INTELLIGENCE_BRIEFING_RETENTION_DAYS_DECIDED);
+  assert.ok(WORK_RETENTION_NOT_OVERRIDABLE.includes('BRIEFS'), 'a decided retention is not an organization default');
   assert.equal(byName('PROCESSING_CACHE').days, 1, 'Stage 2 cache: a 24-hour ceiling, not a lifetime');
   assert.equal(byName('EVIDENCE_QUOTES').rule, 'TIED_TO_PARENT');
   assert.equal(byName('PROVENANCE_REFERENCES').rule, 'TIED_TO_PARENT');

@@ -13,6 +13,7 @@ import { ToolsGrid } from './front-door-view';
 import { briefingNarrative } from './narrative';
 import { RefreshCalendar } from './refresh-calendar';
 import { TILE_PATHS, projectTiles } from './tiles';
+import { SituationsPanel } from '../../../intelligence/situations-view';
 
 // Loop Home for a person without the operational overview's authority: the same front door over
 // their own sources only (2026-09-24; the composition correction, the same day). Top to bottom: their
@@ -107,6 +108,7 @@ export function ModuleHome({
     callgrid: null,
     callgridBrief: null,
     time,
+    readings: front?.readings ?? {},
   });
 
   return (
@@ -115,7 +117,8 @@ export function ModuleHome({
         <div className="loop-front__band">
           <PageHead trail={[{ label: 'Your Loop' }]} title={`${time.greeting()}, ${name}`} subtitle={time.date(time.now)} />
         </div>
-        <BriefingCard narrative={narrative} briefing={briefing} time={time} />
+        <BriefingCard narrative={narrative} briefing={briefing} time={time} stored={front?.briefing ?? null} offers={(href) => navOffers(groups, href)} />
+        {front?.situations ? <SituationsPanel read={front.situations} time={time} caseHref={null} /> : null}
         <YourDayCard today={briefing.today} briefing={briefing} time={time} refresh={<RefreshCalendar />} calendarHref={offer(TILE_PATHS.calendar)} />
         <ToolsGrid tiles={tiles} />
       </div>

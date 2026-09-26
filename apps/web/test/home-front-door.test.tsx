@@ -410,7 +410,10 @@ describe('Your tools & spaces: a tile only where the rail leads, each its domain
   it('Chats is the Chats domain’s reading and routes to Chats; Calendar says the day and routes to Calendar', () => {
     const c = tileByKey(tilesInput(), 'chats')!;
     const reading = composeChatsIntelligence(CHATS);
-    assert.deepEqual([c.state, c.href, c.metric, c.lines, c.status], ['OK', '/app/chats', reading.metric, [reading.statement], `${reading.status} · ${reading.coverage.words}`]);
+    // Chats v5: the statement, then the page's own most pressing group entry (the same composition).
+    const top = reading.groups[0]?.entries[0];
+    const second = top ? [`${reading.groups[0]!.title}: ${top.conversation ? `${top.conversation} — ` : ''}${top.statement}`] : [];
+    assert.deepEqual([c.state, c.href, c.metric, c.lines, c.status], ['OK', '/app/chats', reading.metric, [reading.statement, ...second], `${reading.status} · ${reading.coverage.words}`]);
     assert.deepEqual(c.metric, { value: '1', label: 'business conversation' }, 'business is the digest’s relevance, never an activity count');
     // Connected with no reading yet is still Chats, and says so -- never a summary built from counts.
     const none = tileByKey(tilesInput({ chats: chats({ digests: [] }) }), 'chats')!;
@@ -520,7 +523,7 @@ describe('the front door’s reads are gated by the rail and scoped by the sessi
     assert.match(data, /input\.executive && navOffers\(groups, TILE_PATHS\.marketplace\)\s*\? settle\(\(\) => loadCommandContextFor\(organizationId, undefined, \{ session, canAct: async \(\) => false \}\)\)/, 'the CallGrid context is read only for the executive seat with the marketplace offered, with the session principal and no authority to act');
     // The executive row is the contract's own rule over that context -- Home chooses the figures, never the arithmetic.
     assert.match(data, /const kpis = callGridKpis\(\{\s*metrics: ctx\.report\.metrics,\s*comparison: ctx\.report\.comparison,\s*series: ctx\.facts\?\.series \?\? \[\],\s*comparisonWithheld: ctx\.window !== ctx\.selection\.window,\s*keys: HOME_KPI_KEYS,\s*\}\);\s*return \{ ok: true, value: projectHomeKpis\(\{ \.\.\.ctx, kpis \}\) \};/);
-    assert.match(data, /navOffers\(groups, TILE_PATHS\.chats\) \? settle\(\(\) => loadChatsInput\(\{ session, principal, now: time\.now, needsYou \}\)\)/);
+    assert.match(data, /navOffers\(groups, TILE_PATHS\.chats\) \? settle\(\(\) => loadChatsInput\(\{ session, principal, now: time\.now \}\)\)/);
     assert.match(data, /navOffers\(groups, TILE_PATHS\.intake\) \? settle\(\(\) => crmRepos\.crm\.statusCounts\(organizationId\)\)/);
     assert.match(data, /input\.executive && navOffers\(groups, TILE_PATHS\.creators\)\s*\? settle\(\(\) => absentUntilMigrated\(creatorDomain\(\)\.records\.roster\(organizationId\)\)\)/);
     assert.match(data, /const organizationId = principal\.organizationId;/);
@@ -571,5 +574,41 @@ describe('the front door’s reads are gated by the rail and scoped by the sessi
     assert.equal(/margin[^;:]*:\s*-|position:\s*absolute/.test(block), false, 'no negative margins or absolute positioning');
     assert.equal(/#[0-9a-f]{3,8}\b|rgba?\(/i.test(block), false, 'no colour outside the :root palette');
     for (const retired of ['.loop-brief__pulse', '.loop-brief__kpis', '.loop-brief__kpi ', '.loop-home {', '.loop-home .loop-launchers', '.loop-day__sections']) assert.equal(css.includes(retired), false, retired);
+  });
+});
+
+describe('Loop Intelligence: a domain reading leads its Home tile -- the same stored artifact its page shows', () => {
+  const reading = (over: Record<string, unknown> = {}) =>
+    ({
+      state: 'CURRENT',
+      statement: '3 threads need your reply, and 1 is waiting on others.',
+      status: 'ATTENTION',
+      coverage: 'CONNECTED_SUFFICIENT',
+      asCurrent: true,
+      disclose: false,
+      topSignal: { key: 'needs-reply', kind: 'ATTENTION', statement: 'Premier is waiting on the revised allocation.', knowledge: 'INFERRED', severity: 'HIGH', dueAt: null, owedBy: null },
+      metric: null,
+      signalCount: 4,
+      generatedAt: new Date(NOW.getTime() - 3600_000),
+      version: 3,
+      ...over,
+    }) as never;
+
+  it('the statement and the top signal lead; the domain\'s own figures stay as supporting context', () => {
+    const plain = tileByKey(tilesInput(), 'mail')!;
+    const led = tileByKey(tilesInput({ readings: { mail: reading() } }), 'mail')!;
+    assert.equal(led.lines[0], '3 threads need your reply, and 1 is waiting on others.');
+    assert.equal(led.lines[1], 'Premier is waiting on the revised allocation.');
+    assert.deepEqual(led.metric, plain.metric, 'the supporting metric is unchanged');
+    assert.ok(led.lines.length <= 3);
+  });
+
+  it('a reading that is not current says so; a tile that cannot read its domain keeps saying so; Chats keeps its own composition', () => {
+    const stale = tileByKey(tilesInput({ readings: { mail: reading({ state: 'NOT_CURRENT', asCurrent: false }) } }), 'mail')!;
+    assert.match(stale.lines[0]!, /\(not current\)$/);
+    const none = tileByKey(tilesInput({ readings: { mail: reading({ state: 'NONE', statement: null }) } }), 'mail')!;
+    assert.deepEqual(none.lines, tileByKey(tilesInput(), 'mail')!.lines, 'no reading: the tile is as it was');
+    const chatsTile = tileByKey(tilesInput({ readings: { chats: reading() } }), 'chats')!;
+    assert.deepEqual(chatsTile.lines, tileByKey(tilesInput(), 'chats')!.lines, 'Chats reads its own composition');
   });
 });

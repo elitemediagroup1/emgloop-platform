@@ -302,6 +302,29 @@ export class WorkItemRepository {
     });
   }
 
+  /**
+   * Loop Intelligence Phase C: the person promoted this item to Work OS work. Appends WORK_LINKED with the
+   * item's state unchanged (the item's own lifecycle continues; the work is Work OS's). The person's own
+   * item only: somebody else's id is not-found. Returns false when there is no such item.
+   */
+  async linkToWork(principal: WorkPrincipal, itemId: string, link: { readonly workInstanceId: string; readonly occurredAt: Date }): Promise<boolean> {
+    const scope = workScope(principal);
+    return this.prisma.$transaction(async (tx: any) => {
+      const existing = await tx.workItem.findFirst({ where: { ...scope, id: itemId }, select: { id: true, state: true } });
+      if (!existing) return false;
+      await this.append(tx, scope, existing.id, {
+        observationType: 'WORK_LINKED',
+        occurredAt: link.occurredAt,
+        actorType: 'HUMAN',
+        actorUserId: principal.userId,
+        reason: `promoted to work ${link.workInstanceId}`.slice(0, 200),
+        previousState: existing.state,
+        newState: existing.state,
+      });
+      return true;
+    });
+  }
+
   async items(principal: WorkPrincipal, options: { readonly state?: WorkItemState; readonly limit?: number } = {}): Promise<WorkItemRecord[]> {
     const rows = await this.prisma.workItem.findMany({
       where: { ...workScope(principal), ...(options.state ? { state: options.state } : {}) },

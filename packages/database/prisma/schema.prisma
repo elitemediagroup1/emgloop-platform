@@ -297,6 +297,11 @@ model Organization {
   sourceContentAuthorizations SourceContentAuthorization[]
   /// Loop Intelligence (PR A). Principal-private domain intelligence; always read with a userId as well.
   intelligenceDigests         IntelligenceDigest[]
+  entityLinks                 EntityLink[]
+  intelligenceRefreshRequests IntelligenceRefreshRequest[]
+  workOrigins                 WorkOrigin[]
+  casePrivateScopes           CasePrivateScope[]
+  situationCandidates         SituationCandidate[]
   /// Daily Loop (DL-1). Employee-private work state; always read with a userId as well.
   workSourceCursors           WorkSourceCursor[]
   workDrafts                  WorkDraft[]
@@ -470,6 +475,9 @@ model User {
   /// Daily Loop (DL-1). Corrections this person recorded, and retention overrides they set.
   workFeedbackAuthored      WorkFeedback[]          @relation("WorkFeedbackAuthor")
   workRetentionOverridesSet WorkRetentionOverride[] @relation("WorkRetentionOverrideAuthor")
+  /// Loop Intelligence Phase F: the private situations this person alone may see.
+  casePrivateScopes         CasePrivateScope[]
+  situationCandidates       SituationCandidate[]
 
   @@unique([organizationId, email])
   @@index([organizationId])
@@ -551,6 +559,8 @@ model OrganizationMembership {
   sourceContentAuthorizations SourceContentAuthorization[] @relation("SourceContentAuthorizationMember")
   /// Loop Intelligence (PR A). One person's domain intelligence belongs to their membership.
   intelligenceDigests         IntelligenceDigest[]         @relation("IntelligenceDigestMember")
+  entityLinks                 EntityLink[]                 @relation("EntityLinkMember")
+  intelligenceRefreshRequests IntelligenceRefreshRequest[] @relation("IntelligenceRefreshMember")
   /// Daily Loop (DL-1). One person's own work state, in THIS organization: it belongs to the
   /// membership, so offboarding takes it with them.
   workSourceCursors           WorkSourceCursor[]           @relation("WorkSourceCursorMember")
@@ -1552,6 +1562,8 @@ model WorkInstance {
   expectedReturnSetByUserId String?
   expectedReturnSetAt       DateTime?
 
+  /// Loop Intelligence Phase C: where this work was promoted from (Promote to Work), if anywhere.
+  origins       WorkOrigin[]
   stages        WorkStage[]
   notifications WorkNotification[]
   comments      WorkComment[]
@@ -3467,6 +3479,12 @@ enum OperationalObservationType {
   /// given context is `evidenceId`, and the evidence doing it is
   /// `relatedEvidenceId`.
   EVIDENCE_CONTEXT_RECORDED
+
+  // --- Loop Intelligence Phase C (2026-09-26) ---
+  /// A person promoted this Case into Work OS work (Promote to Work). The work instance is named on
+  /// `destinationSystem`/`destinationType`/`destinationId`. Moves no lane and closes nothing: Work OS
+  /// owns the work from here; the Case keeps its own lifecycle.
+  WORK_LINKED
 }
 
 /// How a priority ended, and — where it can be measured — whether Loop's read of
@@ -3583,6 +3601,8 @@ model OperationalPriority {
   /// ownerUserId and assigneeUserId, which answer accountability and execution;
   /// a real investigation routinely needs a third person for a third reason.
   participants     CaseParticipant[]
+  /// Loop Intelligence Phase F: the one owner of a PRIVATE situation (sourceSystem 'loop-situation:private').
+  privateScope     CasePrivateScope?
 
   @@unique([organizationId, sourceSystem, recurrenceKey])
   @@index([organizationId, state])
@@ -6165,13 +6185,14 @@ model SourceContentAuthorization {
 model IntelligenceDigest {
   id             String    @id @default(cuid())
   organizationId String
-  /// PRINCIPAL (one person's) or ORGANIZATION (RESERVED -- refused until a separate decision).
+  /// PRINCIPAL (one person's) or ORGANIZATION (governed Loop records only; checked: no user, no
+  /// provider, basis LOOP_RECORDS, never CHATS/MAIL/CALENDAR). PR 2, 2026-09-26.
   scope          String
-  /// Required for PRINCIPAL (checked). With organizationId, a composite FK to the membership.
+  /// Required for PRINCIPAL, null for ORGANIZATION (checked). With organizationId, a composite FK to the membership.
   userId         String?
-  /// CHATS, MAIL, CALENDAR, CALLGRID, CREATORS, WORK, CRM or CAMPAIGNS.
+  /// A domain of @emgloop/shared INTELLIGENCE_DOMAIN_REGISTRY (the database checks the pattern only).
   domain         String
-  /// CONVERSATION, THREAD or DOMAIN.
+  /// CONVERSATION, THREAD, DOMAIN, ENTITY or EVENT.
   subjectKind    String
   /// A keyed reference, never a raw provider id. 'domain' for a DOMAIN rollup.
   subjectRef     String
@@ -6188,6 +6209,12 @@ model IntelligenceDigest {
   /// Keyed source refs, anchor event ids, aiInvocationId, taskId, taskVersion, schemaId, producerVersion.
   provenance     Json
   aiInvocationId String?
+  /// Canonical entity references (@emgloop/shared entity-ref.ts), at most 32. PR 2, 2026-09-26.
+  /// The default is the DATABASE's (dbgenerated), deliberately not Prisma's `@default([])`: a client-side
+  /// default is SENT on every create, so code deployed before the migration would name a column the
+  /// database does not have yet. (`prisma migrate diff` always re-proposes a same-value SET DEFAULT for a
+  /// dbgenerated array default -- a known Prisma limitation, harmless.)
+  entityRefs     String[]  @default(dbgenerated("ARRAY[]::TEXT[]"))
   /// Changes only when the digest's meaning changes; an unchanged fingerprint writes nothing.
   fingerprint    String
   version        Int       @default(1)
@@ -6202,8 +6229,13 @@ model IntelligenceDigest {
   organization Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   membership   OrganizationMembership? @relation("IntelligenceDigestMember", fields: [userId, organizationId], references: [userId, organizationId], onDelete: Cascade)
 
-  @@unique([organizationId, userId, domain, subjectKind, subjectRef])
+  // Uniqueness is per scope, by two PARTIAL unique indexes Prisma cannot express (migration
+  // 20261006000000_intelligence_org_digests): (org, user, domain, subject) WHERE scope = 'PRINCIPAL' and
+  // (org, domain, subject) WHERE scope = 'ORGANIZATION'. This plain index is the lookup beside them.
+  @@index([organizationId, userId, domain, subjectKind, subjectRef])
   @@index([organizationId, userId, domain, status])
+  @@index([organizationId, scope, domain, status])
+  @@index([entityRefs], type: Gin)
   @@index([organizationId, userId, provider])
   @@index([expiresAt])
   @@map("intelligence_digests")
@@ -7305,4 +7337,167 @@ model CreatorCompensationEntry {
 
   @@index([organizationId, creatorProfileId, occurredAt])
   @@map("creator_compensation_entries")
+}
+
+/// Loop Intelligence PR 2 (the fabric), 2026-09-26. An EXPLICIT, governed relationship between two
+/// canonical entity references (@emgloop/shared entity-ref.ts): "this CallGrid buyer IS this Party",
+/// "this page is PART_OF this web property". Never a model's guess: the basis is a human declaration, a
+/// deterministic rule, or an import, and each link names its source. It never alters the entity's own
+/// authority (a SAME_AS link does not merge Parties -- identity resolution does that). Reversal is a
+/// stamp, not a delete, so what was believed when stays readable.
+///
+/// Scope as intelligence_digests: PRINCIPAL links are one person's (and may name their private
+/// evidence); ORGANIZATION links name nobody and may not reference a principal-only kind (checked).
+model EntityLink {
+  id               String    @id @default(cuid())
+  organizationId   String
+  scope            String
+  userId           String?
+  fromRef          String
+  toRef            String
+  /// SAME_AS, PART_OF, LOCATED_IN or REPRESENTS.
+  relation         String
+  /// HUMAN_DECLARED, RULE or IMPORTED. Never MODEL.
+  basis            String
+  /// Registry source id or rule id that established the link.
+  source           String
+  sourceRef        String?
+  /// Who declared it, for HUMAN_DECLARED (checked).
+  declaredByUserId String?
+  effectiveFrom    DateTime
+  reversedAt       DateTime?
+  reversedByUserId String?
+  createdAt        DateTime  @default(now())
+
+  organization Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  membership   OrganizationMembership? @relation("EntityLinkMember", fields: [userId, organizationId], references: [userId, organizationId], onDelete: Cascade)
+
+  // One ACTIVE link per (owner, from, relation, to): two partial unique indexes in the migration.
+  @@index([organizationId, scope, fromRef])
+  @@index([organizationId, scope, toRef])
+  @@index([organizationId, userId])
+  @@map("entity_links")
+}
+
+/// Loop Intelligence PR 2 (the fabric), 2026-09-26. A durable, COALESCING request that one intelligence
+/// target be refreshed. Metadata only -- a reason, a source revision, a fingerprint -- never content.
+/// At most one PENDING request per target (partial unique indexes, per scope, so a principal request and
+/// an organization request for the same domain never collapse into each other). A worker claims one with
+/// a lease; completing deletes it; a failure goes back to PENDING with a backoff, and past the attempt
+/// limit it is HELD for an operator. Nothing enqueues on page render.
+model IntelligenceRefreshRequest {
+  id               String    @id @default(cuid())
+  organizationId   String
+  scope            String
+  userId           String?
+  domain           String
+  subjectKind      String
+  subjectRef       String
+  reason           String
+  sourceId         String?
+  sourceRevision   String?
+  fingerprint      String?
+  requestCount     Int       @default(1)
+  firstRequestedAt DateTime
+  lastRequestedAt  DateTime
+  notBefore        DateTime
+  /// PENDING, CLAIMED or HELD.
+  state            String
+  attempts         Int       @default(0)
+  leaseOwner       String?
+  leaseExpiresAt   DateTime?
+  lastOutcome      String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  organization Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  membership   OrganizationMembership? @relation("IntelligenceRefreshMember", fields: [userId, organizationId], references: [userId, organizationId], onDelete: Cascade)
+
+  @@index([state, notBefore])
+  @@index([state, leaseExpiresAt])
+  @@index([organizationId, scope, domain, state])
+  @@index([organizationId, userId])
+  @@map("intelligence_refresh_queue")
+}
+
+/// Loop Intelligence Phase C (2026-09-26): where a piece of Work OS work came from, when a person
+/// promoted it out of intelligence (Promote to Work). The ONE bridge from intelligence to work: an
+/// inferred obligation never becomes work by itself -- a person confirms, and from that moment Work OS
+/// owns the assignee, the dates, the state and the completion.
+///
+/// Keys only, never content: the kind of origin, its scope, a keyed reference to it, the fingerprint of
+/// what the person saw when they confirmed, and the NAMES of the fields they chose to share (the values
+/// are the work instance's own title and outcome). One promotion per origin (unique), so a signal cannot
+/// silently become two pieces of work.
+model WorkOrigin {
+  id                String   @id @default(cuid())
+  organizationId    String
+  workInstanceId    String
+  /// DIGEST_SIGNAL, WORK_ITEM or CASE.
+  originKind        String
+  /// PRINCIPAL (one person's private intelligence) or ORGANIZATION.
+  originScope       String
+  /// For a PRINCIPAL origin: whose it was (always the person who promoted it).
+  originUserId      String?
+  /// Keyed: digest id + signal key, a WorkItem id, a Case id. Never content.
+  originRef         String
+  originFingerprint String
+  promotedByUserId  String
+  promotedAt        DateTime
+  sharedFields      String[]
+  /// One confirmed submission (actor, origin, confirmed fingerprint, the preview's nonce), hashed. A
+  /// retried submission finds its own row; a new confirmed promotion of the same origin is a new row.
+  submissionKey     String
+  createdAt         DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workInstance WorkInstance @relation(fields: [workInstanceId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, submissionKey])
+  @@index([organizationId, originKind, originRef])
+  @@index([organizationId, workInstanceId])
+  @@map("work_origins")
+}
+
+/// Loop Intelligence Phase F (2026-09-26): the ONE owner of a private situation -- a Case whose
+/// sourceSystem is 'loop-situation:private' because it cites that person's private intelligence. Every
+/// organization Case read excludes the private sourceSystem; the private read requires this row naming
+/// the reader. A table, not a column, so no existing whole-row Case read changes (merge-safe).
+model CasePrivateScope {
+  id             String   @id @default(cuid())
+  organizationId String
+  caseId         String   @unique
+  userId         String
+  createdAt      DateTime @default(now())
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  case         OperationalPriority @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, userId])
+  @@map("case_private_scopes")
+}
+
+/// Loop Intelligence Phase F (2026-09-26): the last model decision per deterministic situation cluster and
+/// the fingerprint it was made on, so an unchanged cluster is never sent to a model again. userId NULL is
+/// the organization's; set, that person's own. Partial unique indexes (SQL) keep one row per scope+cluster.
+model SituationCandidate {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String?
+  clusterKey     String
+  fingerprint    String
+  /// NEW | UPDATE | NONE (CHECK).
+  decision       String
+  caseId         String?
+  verification   String?
+  decidedAt      DateTime
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, userId])
+  @@map("situation_candidates")
 }

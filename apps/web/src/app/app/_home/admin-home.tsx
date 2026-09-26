@@ -21,6 +21,7 @@ import { loadOrganizationActivity } from './org-activity-data';
 import { loadExecutiveReview } from './review-data';
 import { settle } from './settle';
 import { TILE_PATHS, projectTiles } from './tiles';
+import { SituationsPanel } from '../../../intelligence/situations-view';
 
 // The executive Home, as the front door to the operating system (Matt, 2026-09-24; the composition
 // correction, the same day). It COMPOSES existing authorities and never becomes one. Top to bottom,
@@ -149,6 +150,7 @@ export async function AdminHome({
     callgrid: front.callgrid,
     callgridBrief: front.callgridBrief,
     time,
+    readings: front.readings,
   });
   const auditHref = navOffers(groups, AUDIT_PATH) ? AUDIT_PATH : null;
 
@@ -173,8 +175,9 @@ export async function AdminHome({
         {!reviewResult.ok ? <SourceUnavailable what="today’s review" /> : null}
         {!homeResult.ok ? <SourceUnavailable what="Loop work" /> : null}
 
-        <BriefingCard narrative={narrative} briefing={briefing} time={time} />
+        <BriefingCard narrative={narrative} briefing={briefing} time={time} stored={front.briefing} offers={(href) => navOffers(groups, href)} />
         {showHeadlines ? <HeadlinesPanel headlines={review?.headlines ?? null} attention={review?.attention ?? null} standings={standings} time={time} href={HOME_PATHS.headlines} /> : null}
+        {front.situations ? <SituationsPanel read={front.situations} time={time} caseHref={(id) => `/app/admin/cases/${id}`} /> : null}
 
         {/* Two compact peers: the signed-in person's own day and what needs them, beside the
             organization's recent business events. Each card's height is its own content's. */}

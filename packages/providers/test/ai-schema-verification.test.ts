@@ -6,12 +6,12 @@ import { AI_PORTABLE_SCHEMA_EXEMPTIONS } from '@emgloop/shared';
 
 import { AI_ROUTING_POLICY, AI_SCHEMA_VERIFIED_PROVIDERS, aiSchemaUnverifiedProviders } from '../src';
 
-test('every exempt schema names the providers it WAS verified against, and only those may serve it (triage v4: anthropic)', () => {
-  assert.deepEqual(Object.keys(AI_SCHEMA_VERIFIED_PROVIDERS).sort(), Object.keys(AI_PORTABLE_SCHEMA_EXEMPTIONS).sort(), 'no exemption without a verified-provider list');
-  assert.deepEqual([...AI_SCHEMA_VERIFIED_PROVIDERS['telegram-content-triage.v4']!], ['anthropic']);
-  assert.deepEqual(aiSchemaUnverifiedProviders('telegram-content-triage.v4', ['anthropic', 'openai']), ['openai']);
-  assert.deepEqual(aiSchemaUnverifiedProviders('telegram-content-triage.v4', ['anthropic']), []);
-  assert.deepEqual(aiSchemaUnverifiedProviders('mail-reply-draft.v2', ['anthropic', 'openai']), [], 'a portable schema restricts nobody');
-  // The verified provider is the triage route's primary: the guard never refuses the production path.
+test('an exempt schema and its verified-provider list exist together or not at all -- and since Chats v5 neither exists', () => {
+  assert.deepEqual(Object.keys(AI_SCHEMA_VERIFIED_PROVIDERS).sort(), Object.keys(AI_PORTABLE_SCHEMA_EXEMPTIONS).sort(), 'no exemption without a verified-provider list, nor the reverse');
+  assert.deepEqual(Object.keys(AI_PORTABLE_SCHEMA_EXEMPTIONS), [], 'triage v5 is portable: no exemption remains');
+  assert.deepEqual(aiSchemaUnverifiedProviders('telegram-content-triage.v5', ['anthropic', 'openai']), [], 'no provider is ineligible for triage v5');
+  assert.deepEqual(aiSchemaUnverifiedProviders('telegram-content-triage.v4', ['anthropic', 'openai']), [], 'the retired schema restricts nobody -- it is sent by nothing');
+  // Production triage stays primary-anthropic; OpenAI is the policy's fallback, commissioned by nothing here.
   assert.equal(AI_ROUTING_POLICY.tasks['telegram.content.triage']!.primary.providerId, 'anthropic');
+  assert.equal(AI_ROUTING_POLICY.tasks['telegram.content.triage']!.taskVersion, '4.0.0');
 });

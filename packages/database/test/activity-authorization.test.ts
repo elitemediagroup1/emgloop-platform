@@ -91,6 +91,8 @@ async function world() {
         entityType: 'customer', entityId: 'cust_1', metadata: {}, createdAt: at('2026-09-10T11:00:00.000Z'),
       },
     });
+    // The Case the log belongs to: an ORGANIZATION Case (Phase F reads resolve the Case first).
+    await fake.operationalPriority.create({ data: { id: 'case_1', organizationId: ORG_A, sourceSystem: 'CALLGRID', recurrenceKey: 'k1', title: 'Case', firstDetectedAt: new Date('2026-09-09T00:00:00Z'), lastDetectedAt: new Date('2026-09-09T00:00:00Z'), severity: 'HIGH', state: 'NEEDS_REVIEW' } });
     await fake.operationalObservation.create({
       data: {
         id: 'obs_1', organizationId: ORG_A, priorityId: 'case_1', observationType: 'SITUATION_DETECTED',

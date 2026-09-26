@@ -6,13 +6,17 @@
 // schema has no registered contract is refused before any model is called: an answer Loop could not
 // check is not an answer Loop may show.
 //
-// TODAY'S THREE CONTRACTS ARE TODAY'S RULES, UNCHANGED. Case Explanation, Mail Reply Draft and
-// Telegram Content Triage are registered against the existing `parseAiTaskOutput` and
-// `validateAiTaskOutput` (task.ts) exactly as the gateway called them before this registry existed,
-// so every answer is judged by the same code, byte for byte.
+// THE PRE-REGISTRY CONTRACTS ARE THE PRE-REGISTRY RULES, UNCHANGED. Case Explanation and Mail Reply Draft
+// are registered against the existing `parseAiTaskOutput` and `validateAiTaskOutput` (task.ts) exactly as
+// the gateway called them before this registry existed. Telegram triage v4 was too, until Chats v5
+// (Phase B) replaced its schema with v5, which has its own contract; a retired schema has no contract.
 //
 // PURE.
 
+import { DOMAIN_READING_SCHEMA_ID, parseDomainReadingOutput, validateDomainReadingOutput } from './domain-reading';
+import { MAIL_CONTENT_TRIAGE_SCHEMA_ID, TELEGRAM_TRIAGE_V5_SCHEMA_ID, parseConversationTriageOutput, parseTriageV5Output, validateTriageV5Output } from './telegram-triage-v5';
+import { BRIEFING_SCHEMA_ID, parseBriefingOutput, validateBriefingOutput } from './briefing-contract';
+import { SITUATION_SYNTHESIS_SCHEMA_ID, SITUATION_VERIFICATION_SCHEMA_ID, parseSituationSynthesisOutput, parseSituationVerificationOutput, validateSituationSynthesisOutput, validateSituationVerificationOutput } from './situation-contracts';
 import { parseAiTaskOutput, validateAiTaskOutput, type AiOutputRejection, type AiSupportedEvidence, type AiTaskDefinition, type AiTaskOutput } from './task';
 
 export interface AiOutputContract {
@@ -30,7 +34,21 @@ function existingRules(schemaId: string): AiOutputContract {
 export const AI_OUTPUT_CONTRACTS: Readonly<Record<string, AiOutputContract>> = Object.freeze({
   'case-explanation.v2': existingRules('case-explanation.v2'),
   'mail-reply-draft.v2': existingRules('mail-reply-draft.v2'),
-  'telegram-content-triage.v4': existingRules('telegram-content-triage.v4'),
+  // PR 2 (Loop Intelligence fabric, 2026-09-26): the ONE generic domain reading. Its own parser and
+  // rules (`domain-reading.ts`); the gateway does not change.
+  [DOMAIN_READING_SCHEMA_ID]: Object.freeze({ schemaId: DOMAIN_READING_SCHEMA_ID, parse: parseDomainReadingOutput, validate: validateDomainReadingOutput }),
+  // Chats v5 (Loop Intelligence Phase B): owedBy, typed signals, grounded parties. Its own rules.
+  [TELEGRAM_TRIAGE_V5_SCHEMA_ID]: Object.freeze({ schemaId: TELEGRAM_TRIAGE_V5_SCHEMA_ID, parse: parseTriageV5Output, validate: validateTriageV5Output }),
+  // Mail content triage (Phase D): the SAME conversation-triage rules, its own schema id.
+  [MAIL_CONTENT_TRIAGE_SCHEMA_ID]: Object.freeze({
+    schemaId: MAIL_CONTENT_TRIAGE_SCHEMA_ID,
+    parse: (value: unknown) => parseConversationTriageOutput(value, MAIL_CONTENT_TRIAGE_SCHEMA_ID),
+    validate: validateTriageV5Output,
+  }),
+  // Phase F: situation synthesis and its independent verification. Phase G: the Briefing.
+  [SITUATION_SYNTHESIS_SCHEMA_ID]: Object.freeze({ schemaId: SITUATION_SYNTHESIS_SCHEMA_ID, parse: parseSituationSynthesisOutput, validate: validateSituationSynthesisOutput }),
+  [SITUATION_VERIFICATION_SCHEMA_ID]: Object.freeze({ schemaId: SITUATION_VERIFICATION_SCHEMA_ID, parse: parseSituationVerificationOutput, validate: validateSituationVerificationOutput }),
+  [BRIEFING_SCHEMA_ID]: Object.freeze({ schemaId: BRIEFING_SCHEMA_ID, parse: parseBriefingOutput, validate: validateBriefingOutput }),
 });
 
 /** The contract an answer to this schema is judged by, or null when none is registered. */

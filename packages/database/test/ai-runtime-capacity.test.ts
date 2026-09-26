@@ -2,12 +2,15 @@
 //
 // WHAT THESE PROVE
 //
-// PRODUCTION TRIAGE IS BYTE-FOR-BYTE WHAT IT WAS. The task definition, its output schema, its template, its
-// route's targets, its budget class and caps, and every request a provider receives are hashed and pinned
-// to the values computed from main 97816a5 (before PR 1). If any of them moves, this file fails -- and a
-// change to what production triage sends is a task change, reviewed as one, not a side effect.
+// PRODUCTION TRIAGE IS EXACTLY THE REVIEWED v5 CONTRACT. PR 1 pinned triage v4 to main 97816a5 and held
+// it byte for byte; Chats v5 (Loop Intelligence Phase B, 2026-09-26) is the DELIBERATE change that pin was
+// waiting for. The task definition, output schema, template and every request a provider receives are now
+// pinned to the v5 production contract (CHATS_V5). What v5 did NOT change is still pinned to main 97816a5:
+// the route's targets, efforts, deadlines, ceilings and fallback (with only its taskVersion moved), the
+// budget class and the daily windows. If any of them moves, this file fails -- a change to what
+// production triage sends is a task change, reviewed as one, never a side effect.
 //
-// EVERY TASK SCHEMA IS ONE BOTH PROVIDERS ACCEPT, except the one named exemption (triage v4 `const`).
+// EVERY TASK SCHEMA IS ONE BOTH PROVIDERS ACCEPT. Since v5 there is no exemption at all.
 //
 // THE NEW GATES FAIL CLOSED AND CHANGE NOTHING WHEN ABSENT. An unregistered output contract, an
 // unreadable control or budget, a stored KILLED switch, a lane the route does not name, a lane or cost
@@ -29,6 +32,8 @@ import {
   AI_TASKS,
   aiUnexemptedSchemaViolations,
   aiPortableSchemaViolationKey,
+  aiPortableSchemaViolations,
+  DOMAIN_READING_SCHEMA,
   type AiBudgetPolicy,
   type AiContextPackage,
   type AiModelRequest,
@@ -54,6 +59,8 @@ import {
   renderCaseExplanationInstructions,
 } from '../src/services/ai-runtime/templates/case-explanation';
 import { MAIL_REPLY_DRAFT_SCHEMA, MAIL_REPLY_DRAFT_SCHEMA_ID } from '../src/services/ai-runtime/templates/mail-reply-draft';
+import { MAIL_CONTENT_TRIAGE_SCHEMA, MAIL_CONTENT_TRIAGE_SCHEMA_ID } from '../src/services/ai-runtime/templates/mail-content-triage';
+import { INTELLIGENCE_TASK_SCHEMAS as EXTRA_TASK_SCHEMAS } from '../src/services/ai-runtime/templates/intelligence-schemas';
 import {
   TELEGRAM_CONTENT_TRIAGE_SCHEMA,
   TELEGRAM_CONTENT_TRIAGE_SCHEMA_ID,
@@ -125,7 +132,7 @@ async function triageFingerprint(extra: Partial<AiRuntimeDeps> = {}, lane?: 'BAC
   return { requests, reservations, outcomes, ledger };
 }
 
-/** Computed with this file's own functions on main 97816a5, before PR 1. */
+/** Computed with this file's own functions on main 97816a5, before PR 1. Still pins what v5 did not change. */
 const MAIN_97816A5 = Object.freeze({
   task: 'c382e51d0e3578d3',
   schema: 'add54bb68235a134',
@@ -136,53 +143,74 @@ const MAIN_97816A5 = Object.freeze({
   reservations: '2d5d6149d8c45145',
 });
 
-test('PRODUCTION TRIAGE IS UNCHANGED: definition, schema, template, route, budget and every provider request match main', async () => {
-  assert.equal(fp(AI_TASK_TELEGRAM_CONTENT_TRIAGE), MAIN_97816A5.task, 'the task definition');
-  assert.equal(TELEGRAM_CONTENT_TRIAGE_SCHEMA_ID, 'telegram-content-triage.v4');
-  assert.equal(fp(TELEGRAM_CONTENT_TRIAGE_SCHEMA), MAIN_97816A5.schema, 'the output schema sent to the provider');
-  assert.equal(`${TELEGRAM_CONTENT_TRIAGE_TEMPLATE_ID}@${TELEGRAM_CONTENT_TRIAGE_TEMPLATE_VERSION}`, 'telegram-content-triage@5');
+/**
+ * THE v5 PRODUCTION CONTRACT (Chats v5, 2026-09-26), computed with this file's own functions. A change to
+ * any of these is a change to what production triage sends: make it deliberately, with a new fixture.
+ */
+const CHATS_V5 = Object.freeze({
+  task: 'a2ea66fbc8963bd1',
+  schema: '60389015902de68b',
+  requests: ['ccf11dcfa2e1c458', 'a83e8c7e0c28d589', '4958fa7a9d13e2bc'],
+  reservations: '3cb4f0819ef438eb',
+});
+
+test('PRODUCTION TRIAGE IS THE REVIEWED v5 CONTRACT: definition, schema, template and every provider request are pinned', async () => {
+  assert.equal(fp(AI_TASK_TELEGRAM_CONTENT_TRIAGE), CHATS_V5.task, 'the task definition');
+  assert.equal(TELEGRAM_CONTENT_TRIAGE_SCHEMA_ID, 'telegram-content-triage.v5');
+  assert.equal(fp(TELEGRAM_CONTENT_TRIAGE_SCHEMA), CHATS_V5.schema, 'the output schema sent to the provider');
+  assert.equal(`${TELEGRAM_CONTENT_TRIAGE_TEMPLATE_ID}@${TELEGRAM_CONTENT_TRIAGE_TEMPLATE_VERSION}`, 'telegram-content-triage@6');
+  const { requests, reservations, outcomes } = await triageFingerprint();
+  assert.deepEqual(requests.map(fp), CHATS_V5.requests, 'instructions, input, schema, limits and effort, byte for byte');
+  assert.equal(fp(reservations), CHATS_V5.reservations, 'the budget class, estimate, target and refs reserved');
+  assert.deepEqual(outcomes, ['FAILED', 'FAILED', 'FAILED']);
+});
+
+test('WHAT v5 DID NOT CHANGE is still main 97816a5: route targets, efforts, deadlines, ceilings, fallback, budget class and windows', () => {
   const route = AI_ROUTING_POLICY.tasks['telegram.content.triage']!;
   const { lane, ...targets } = route;
-  assert.equal(lane, 'FORWARD', 'the only addition to the route is its lane');
-  assert.equal(fp(targets), MAIN_97816A5.route, 'targets, efforts, deadlines, ceilings, fallback and budget class');
+  assert.equal(lane, 'FORWARD');
+  assert.equal(targets.taskVersion, '4.0.0', 'the route moved to the v5 task in lockstep');
+  assert.equal(fp({ ...targets, taskVersion: '3.0.0' }), MAIN_97816A5.route, 'and nothing else about the route moved');
   assert.equal(fp(AI_BUDGET_POLICY.classes[route.budgetClass]), MAIN_97816A5.budgetClass);
   assert.equal(fp([AI_BUDGET_POLICY.organizationDaily, AI_BUDGET_POLICY.globalDaily]), MAIN_97816A5.budgetWindows);
-
-  const { requests, reservations, outcomes } = await triageFingerprint();
-  assert.deepEqual(requests.map(fp), MAIN_97816A5.requests, 'instructions, input, schema, limits and effort, byte for byte');
-  assert.equal(fp(reservations), MAIN_97816A5.reservations, 'the budget class, estimate, target and refs reserved');
-  assert.deepEqual(outcomes, ['FAILED', 'FAILED', 'FAILED']);
+  assert.equal(route.primary.providerId, 'anthropic', 'production stays primary-Anthropic');
 });
 
 test('the recorded controls and the BACKGROUND lane change what is RECORDED, never what a provider receives', async () => {
   const withControls = await triageFingerprint({ storedKillSwitches: async () => [], operatingBudget: async () => ({ state: 'NONE' }) });
-  assert.deepEqual(withControls.requests.map(fp), MAIN_97816A5.requests);
+  assert.deepEqual(withControls.requests.map(fp), CHATS_V5.requests);
   const recorded = await triageFingerprint(
     { storedKillSwitches: async () => [], operatingBudget: async () => ({ state: 'RECORDED', budget: AI_OPERATING_BUDGET_INITIAL }) },
     'BACKGROUND',
   );
-  assert.deepEqual(recorded.requests.map(fp), MAIN_97816A5.requests, 'a recorded budget and the BACKGROUND lane leave the request untouched');
+  assert.deepEqual(recorded.requests.map(fp), CHATS_V5.requests, 'a recorded budget and the BACKGROUND lane leave the request untouched');
   assert.deepEqual(recorded.ledger.calls.map((c) => c.lane), ['BACKGROUND', 'BACKGROUND', 'BACKGROUND'], 'hydration and history are recorded in BACKGROUND');
   const forward = await triageFingerprint();
   assert.deepEqual(forward.ledger.calls.map((c) => c.lane), ['FORWARD', 'FORWARD', 'FORWARD'], 'live triage runs in FORWARD');
   for (const call of forward.ledger.calls) {
     assert.equal(call.specializationPolicyVersion, AI_ROUTING_POLICY.specializationPolicyVersion, 'every call records the specialization version');
-    assert.equal(call.routingPolicyVersion, 'routing.2026-09-26.9');
+    assert.equal(call.routingPolicyVersion, 'routing.2026-09-26.12');
   }
 });
 
 // --- 2. Portable schemas ------------------------------------------------------------------------------
 
-test('every task schema is one both providers accept, apart from the named triage v4 exemption', () => {
+test('every task schema is one both providers accept -- with no exemption since Chats v5', () => {
   const schemas: Record<string, Record<string, unknown>> = {
     [AI_TASK_CASE_EXPLANATION.outputSchemaId]: CASE_EXPLANATION_SCHEMA,
     [MAIL_REPLY_DRAFT_SCHEMA_ID]: MAIL_REPLY_DRAFT_SCHEMA,
     [TELEGRAM_CONTENT_TRIAGE_SCHEMA_ID]: TELEGRAM_CONTENT_TRIAGE_SCHEMA,
+    [MAIL_CONTENT_TRIAGE_SCHEMA_ID]: MAIL_CONTENT_TRIAGE_SCHEMA,
+    'domain-reading.v1': DOMAIN_READING_SCHEMA as unknown as Record<string, unknown>,
+    ...EXTRA_TASK_SCHEMAS,
   };
-  assert.deepEqual(Object.keys(schemas).sort(), AI_TASKS.map((t) => t.outputSchemaId).sort(), 'every task schema is checked');
+  assert.deepEqual(Object.keys(schemas).sort(), [...new Set(AI_TASKS.map((t) => t.outputSchemaId))].sort(), 'every task schema is checked');
   for (const [id, schema] of Object.entries(schemas)) {
     assert.deepEqual(aiUnexemptedSchemaViolations(id, schema).map(aiPortableSchemaViolationKey), [], `${id} is portable`);
+    assert.deepEqual(aiPortableSchemaViolations(schema).map(aiPortableSchemaViolationKey), [], `${id} needs no exemption`);
   }
+  // The generic domain reading is portable too, though no task sends it yet.
+  assert.deepEqual(aiPortableSchemaViolations(DOMAIN_READING_SCHEMA), []);
 });
 
 test('Mail Reply Draft v2: the schema v1 would have failed on both providers is gone, and the task moves in lockstep', () => {

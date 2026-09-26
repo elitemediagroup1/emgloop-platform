@@ -38,6 +38,12 @@ import {
   AI_TASK_MAIL_REPLY_DRAFT,
   AI_TASK_TELEGRAM_CONTENT_TRIAGE,
   AI_TRIAGE_LIMITS,
+  AI_CHATS_LIMITS,
+  AI_CHATS_SIGNAL_KINDS,
+  AI_TRIAGE_OWED_BY,
+  aiOutputContract,
+  parseTriageV5Output,
+  validateTriageV5Output,
   aiTermsInText,
   aiVerbatimRuns,
   AI_ACTIVATION_OFF,
@@ -169,7 +175,8 @@ function output(patch: Partial<AiTaskOutput> = {}): AiTaskOutput {
 
 test('the first task is read-only, operational, structured, and tool-free', () => {
   assert.equal(AI_CONTRACT_VERSION, 'loop-ai.v1');
-  assert.deepEqual(AI_TASKS.map((t) => t.taskId), ['case.explanation', 'mail.reply.draft', 'telegram.content.triage']);
+  // The first three are the pre-intelligence tasks; Loop Intelligence tasks follow them (defined, not activated).
+  assert.deepEqual(AI_TASKS.slice(0, 3).map((t) => t.taskId), ['case.explanation', 'mail.reply.draft', 'telegram.content.triage']);
   const task = aiTask('case.explanation')!;
   assert.equal(task, AI_TASK_CASE_EXPLANATION);
   assert.equal(task.consequence, 'READ_ONLY');
@@ -662,32 +669,30 @@ test('fence: provider conversation state is not Loop memory', () => {
   }
 });
 
-// --- v2.1 conversation triage: parse + validate --------------------------------------------------
+// --- Chats v5: telegram-content-triage.v5 parse + validate (its own registered contract) ---------------
 
-test('telegram content triage is version 3.0.0 with the v4 output schema, and the limits are the reviewed ones', () => {
-  assert.equal(AI_TASK_TELEGRAM_CONTENT_TRIAGE.version, '3.0.0');
-  assert.equal(AI_TASK_TELEGRAM_CONTENT_TRIAGE.outputSchemaId, 'telegram-content-triage.v4');
+test('telegram content triage is version 4.0.0 with the portable v5 output schema, and the limits are the reviewed ones', () => {
+  assert.equal(AI_TASK_TELEGRAM_CONTENT_TRIAGE.version, '4.0.0');
+  assert.equal(AI_TASK_TELEGRAM_CONTENT_TRIAGE.outputSchemaId, 'telegram-content-triage.v5');
+  assert.ok(aiOutputContract('telegram-content-triage.v5'), 'v5 has its own registered contract');
+  assert.equal(aiOutputContract('telegram-content-triage.v4'), null, 'the retired schema has none');
   assert.equal(AI_TRIAGE_LIMITS.maxObligations, 8);
   assert.equal(AI_TRIAGE_LIMITS.maxWindowMessages, 40);
   assert.equal(AI_TRIAGE_LIMITS.maxContextInputTokens, 8000);
-  // The v2.1 bounds: each field is small on purpose -- a card, not a transcript.
   assert.equal(AI_TRIAGE_LIMITS.maxMeaningChars, 140);
   assert.equal(AI_TRIAGE_LIMITS.maxTopicChars, 60);
   assert.equal(AI_TRIAGE_LIMITS.maxNextStepChars, 120);
   assert.equal(AI_TRIAGE_LIMITS.maxDeadlineChars, 40);
   assert.equal(AI_TRIAGE_LIMITS.maxCounterpartyLabelChars, 60);
-  // The v4 conversation reading: a reading, not a transcript.
   assert.equal(AI_TRIAGE_LIMITS.maxSummaryChars, 200);
   assert.equal(AI_TRIAGE_LIMITS.maxConversationTopics, 5);
   assert.equal(AI_TRIAGE_LIMITS.maxConversationTopicChars, 40);
-  assert.equal(AI_TRIAGE_LIMITS.maxDevelopments, 4);
-  assert.equal(AI_TRIAGE_LIMITS.maxDecisions, 3);
-  assert.equal(AI_TRIAGE_LIMITS.maxCommitments, 3);
-  assert.equal(AI_TRIAGE_LIMITS.maxSignals, 3);
   assert.equal(AI_TRIAGE_LIMITS.maxStatementChars, 140);
-  assert.equal(AI_TRIAGE_LIMITS.maxUnresolvedChars, 140);
   assert.equal(AI_TRIAGE_LIMITS.maxAttentionReasonChars, 120);
   assert.equal(AI_TRIAGE_LIMITS.verbatimRunTokens, 10);
+  assert.deepEqual({ ...AI_CHATS_LIMITS }, { maxSignals: 10, maxWhoChars: 60, maxStateChangeChars: 160 });
+  assert.deepEqual([...AI_TRIAGE_OWED_BY], ['VIEWER', 'OTHER', 'UNKNOWN']);
+  assert.deepEqual([...AI_CHATS_SIGNAL_KINDS], ['CHANGE', 'DECIDED', 'DECISION_PENDING', 'OBLIGATION', 'UNRESOLVED', 'STALLED', 'OPPORTUNITY', 'RISK', 'OPERATIONAL', 'UPCOMING']);
 });
 
 test('aiTermsInText: one tokenizer for both sides of a grounding check', () => {
@@ -698,37 +703,30 @@ test('aiTermsInText: one tokenizer for both sides of a grounding check', () => {
 
 {
   const TASK = AI_TASK_TELEGRAM_CONTENT_TRIAGE;
-  // Three MESSAGE context items plus ONE conversation-level item (the label header or the truncation
-  // note). Anchors number the messages only, so a valid anchor is in [1..3] -- the fourth ref must not
-  // widen the range.
+  // Three MESSAGE items plus conversation-level items (label header, state line): anchors are in [1..3].
   const REFS = new Set(['telegram_conversation:ck', 'telegram_message:ck:1', 'telegram_message:ck:2', 'telegram_message:ck:3']);
-  // What the model was shown, as tokens: the only thing a deadline may be made of.
   const SOURCE_TEXT = 'Dana Reyes: Can you send the signed roofing contract back by Thursday? Also the cap is 35 for 2026-10-03.';
   const TERMS = new Set(aiTermsInText(SOURCE_TEXT));
-  // v4: every ten-word run of the message, so a reading that copies it can be refused.
   const RUNS = new Set(aiVerbatimRuns(SOURCE_TEXT));
-  const EV = { figures: new Map<string, ReadonlySet<number>>(), dates: new Set<string>(), terms: TERMS, verbatimRuns: RUNS };
-  // A good v4 conversation reading: minimized, anchored, paraphrased.
+  // The labels the context showed: the conversation label and an in-group sender label.
+  const LABELS = new Set(['acme roofing crew', 'charlie']);
+  const EV: AiSupportedEvidence = { figures: new Map(), dates: new Set(), terms: TERMS, verbatimRuns: RUNS, labels: LABELS };
+  const signal = (over: Record<string, unknown> = {}) => ({ kind: 'CHANGE', anchorOrdinal: 2, statement: 'Dana asked for the signed contract to come back', severity: 'MEDIUM', owedBy: null, who: null, ...over });
   const reading = (over: Record<string, unknown> = {}) => ({
     relevance: 'BUSINESS',
-    summary: 'Dana is waiting on the countersigned roofing contract and asked about the cap.',
+    summary: 'Dana is waiting on the countersigned roofing contract; pricing is not settled.',
     topics: ['Roofing contract', 'Cap'],
-    developments: [{ anchorOrdinal: 2, statement: 'Dana asked for the signed contract to come back' }],
-    decisions: [],
-    commitments: [{ anchorOrdinal: 3, statement: 'The person said they would check the numbers' }],
-    signals: [{ kind: 'OPPORTUNITY', anchorOrdinal: 2, statement: 'A signed contract would close the roofing job' }],
-    unresolved: 'The contract has not been returned yet',
+    stateChange: 'The pricing discussion stopped before anyone agreed.',
+    signals: [
+      signal(),
+      signal({ kind: 'OBLIGATION', anchorOrdinal: 3, statement: 'Charlie said he would send the revised allocation', owedBy: 'OTHER', who: 'Charlie' }),
+      signal({ kind: 'DECISION_PENDING', statement: 'The cap for the job is still open', severity: 'HIGH' }),
+      signal({ kind: 'STALLED', anchorOrdinal: 3, statement: 'Nobody answered the question about the start date' }),
+    ],
     attention: { needed: true, reason: 'Dana set a deadline for the contract' },
     confidence: 'MEDIUM',
     ...over,
   });
-  const parseV4 = (items: unknown, limitations: string[] = [], conversation: unknown = reading()) =>
-    parseAiTaskOutput({ schemaId: 'telegram-content-triage.v4', items, conversation, limitations });
-  const validateV4 = (items: unknown, limitations: string[] = [], evidence: AiSupportedEvidence = EV, conversation: unknown = reading()) => {
-    const out = parseV4(items, limitations, conversation);
-    assert.ok(out, 'the v3 shape parses');
-    return validateAiTaskOutput(out!, TASK, REFS, evidence);
-  };
   const item = (over: Record<string, unknown> = {}) => ({
     anchorOrdinal: 2,
     category: 'REQUEST',
@@ -736,165 +734,79 @@ test('aiTermsInText: one tokenizer for both sides of a grounding check', () => {
     topic: 'Roofing contract',
     nextStep: 'Send the countersigned contract',
     deadline: 'by Thursday',
+    owedBy: 'VIEWER',
+    who: null,
     ...over,
   });
+  const answer = (items: unknown = [item()], conversation: unknown = reading(), limitations: string[] = []) => ({ schemaId: 'telegram-content-triage.v5', items, conversation, limitations });
+  const validate = (value: unknown, evidence: AiSupportedEvidence = EV) => {
+    const parsed = parseTriageV5Output(value);
+    assert.ok(parsed, 'the v5 shape parses');
+    return validateTriageV5Output(parsed!, TASK, REFS, evidence);
+  };
 
-  test('v2.1: a well-formed, specific obligation validates; an EMPTY list is valid; a null deadline is valid', () => {
-    assert.deepEqual(validateV4([item()]), []);
-    assert.deepEqual(validateV4([]), [], 'an empty list is a valid answer, and raises nothing');
-    assert.deepEqual(validateV4([item({ anchorOrdinal: 1, deadline: null }), item({ anchorOrdinal: 3, category: 'DEADLINE', topic: '' })]), []);
+  test('v5: a well-formed answer validates; an EMPTY list and a null reading are valid; the parse carries exactly the contract', () => {
+    assert.deepEqual(validate(answer()), []);
+    assert.deepEqual(validate(answer([])), [], 'nothing owed is a valid answer');
+    assert.deepEqual(validate(answer([item({ owedBy: 'UNKNOWN' })], null)), [], 'could not read the conversation: honest');
+    const parsed = parseTriageV5Output(answer())!;
+    assert.equal(parsed.chatsTriage!.items[0]!.owedBy, 'VIEWER');
+    assert.equal(parsed.chatsTriage!.conversation!.signals[1]!.who, 'Charlie');
+    assert.equal(parsed.claims.length, 0);
   });
 
-  test('v2.1: the business-context fields are bounded -- meaning 140, topic 60, next step 120, deadline 40', () => {
-    assert.ok(validateV4([item({ oneLineMeaning: 'x'.repeat(AI_TRIAGE_LIMITS.maxMeaningChars + 1) })]).includes('ANSWER_TOO_LONG'));
-    assert.ok(validateV4([item({ topic: 'x'.repeat(AI_TRIAGE_LIMITS.maxTopicChars + 1) })]).includes('ANSWER_TOO_LONG'));
-    assert.ok(validateV4([item({ nextStep: 'x'.repeat(AI_TRIAGE_LIMITS.maxNextStepChars + 1) })]).includes('ANSWER_TOO_LONG'));
-    // A deadline over 40 chars, made only of grounded words, is rejected for its LENGTH.
-    const long = Array.from({ length: 12 }, () => 'thursday').join(' ');
-    assert.ok(long.length > AI_TRIAGE_LIMITS.maxDeadlineChars);
-    assert.ok(validateV4([item({ deadline: long })]).includes('ANSWER_TOO_LONG'));
-    const nine = Array.from({ length: AI_TRIAGE_LIMITS.maxObligations + 1 }, () => item());
-    assert.ok(validateV4(nine).includes('ANSWER_TOO_LONG'));
+  test('v5: WHO OWES IT -- VIEWER, OTHER (named only by a label the conversation showed) or UNKNOWN', () => {
+    assert.deepEqual(validate(answer([item({ owedBy: 'OTHER', who: 'Charlie' })])), [], 'a grounded sender label');
+    assert.deepEqual(validate(answer([item({ owedBy: 'OTHER', who: 'ACME Roofing Crew' })])), [], 'the conversation label, case-insensitive');
+    assert.deepEqual(validate(answer([item({ owedBy: 'OTHER', who: null })])), [], 'someone else, not named: allowed');
+    assert.ok(validate(answer([item({ owedBy: 'OTHER', who: 'Lexi' })])).includes('UNGROUNDED_PARTY'), 'a name the context never showed');
+    assert.ok(validate(answer([item({ owedBy: 'OTHER', who: 'Charlie' })]), { ...EV, labels: undefined }).includes('UNGROUNDED_PARTY'), 'fail closed with no labels');
+    assert.ok(validate(answer([item({ owedBy: 'VIEWER', who: 'Charlie' })])).includes('WRONG_SCHEMA'), 'the person has no label');
+    assert.ok(validate(answer([item({ owedBy: 'TEAM' })])).includes('WRONG_SCHEMA'), 'no team assignment exists');
   });
 
-  test('v2.1: a next step is the point of an item -- empty is rejected, and missing does not even parse', () => {
-    assert.ok(validateV4([item({ nextStep: '   ' })]).includes('EMPTY_ANSWER'));
-    assert.equal(parseV4([{ anchorOrdinal: 1, category: 'REQUEST', oneLineMeaning: 'x', deadline: null }]), null, 'missing nextStep: a partial obligation');
-    // The topic is optional and defaults to empty; a non-string topic or deadline is not the shape asked for.
-    assert.equal(parseV4([{ anchorOrdinal: 1, category: 'REQUEST', oneLineMeaning: 'x', nextStep: 'y', deadline: null }])!.conversationTriage!.items[0]!.topic, '');
-    assert.equal(parseV4([item({ topic: 7 })]), null);
-    assert.equal(parseV4([item({ deadline: 7 })]), null);
+  test('v5: typed signals -- closed kinds, owedBy only on an OBLIGATION, grounded parties, bounded', () => {
+    assert.ok(validate(answer([], reading({ signals: [signal({ kind: 'GOSSIP' })] }))).includes('WRONG_SCHEMA'));
+    assert.ok(validate(answer([], reading({ signals: [signal({ owedBy: 'VIEWER' })] }))).includes('WRONG_SCHEMA'), 'owedBy on a CHANGE');
+    assert.ok(validate(answer([], reading({ signals: [signal({ kind: 'OBLIGATION', owedBy: null })] }))).includes('WRONG_SCHEMA'), 'an OBLIGATION says who owes it');
+    assert.ok(validate(answer([], reading({ signals: [signal({ kind: 'OBLIGATION', owedBy: 'OTHER', who: 'Lexi' })] }))).includes('UNGROUNDED_PARTY'));
+    assert.ok(validate(answer([], reading({ signals: [signal({ severity: 'CRITICAL' })] }))).includes('WRONG_SCHEMA'));
+    assert.ok(validate(answer([], reading({ signals: [signal({ anchorOrdinal: 4 })] }))).includes('WRONG_SCHEMA'), 'a conversation-level ref does not widen the range');
+    assert.ok(validate(answer([], reading({ signals: Array.from({ length: AI_CHATS_LIMITS.maxSignals + 1 }, () => signal()) }))).includes('ANSWER_TOO_LONG'));
+    assert.ok(validate(answer([], reading({ signals: [signal({ statement: 'x'.repeat(AI_TRIAGE_LIMITS.maxStatementChars + 1) })] }))).includes('ANSWER_TOO_LONG'));
+    assert.ok(validate(answer([], reading({ stateChange: 'x'.repeat(AI_CHATS_LIMITS.maxStateChangeChars + 1) }))).includes('ANSWER_TOO_LONG'));
+    assert.ok(validate(answer([], reading({ stateChange: '  ' }))).includes('EMPTY_ANSWER'));
   });
 
-  test('v2.1: NO INVENTED DEADLINE -- a deadline must be restated from the conversation, never produced', () => {
-    assert.deepEqual(validateV4([item({ deadline: 'by Thursday' })]), [], 'the conversation said Thursday');
-    assert.deepEqual(validateV4([item({ deadline: 'Thursday?' })]), [], 'punctuation and case do not matter: one tokenizer');
-    assert.deepEqual(validateV4([item({ deadline: '2026-10-03' })]), [], 'an ISO date the conversation wrote');
-    assert.ok(validateV4([item({ deadline: 'by Friday' })]).includes('UNGROUNDED_DEADLINE'), 'nobody wrote Friday');
-    assert.ok(validateV4([item({ deadline: 'end of month' })]).includes('UNGROUNDED_DEADLINE'), 'nobody wrote that either');
-    assert.ok(validateV4([item({ deadline: '2026-10-04' })]).includes('UNGROUNDED_DEADLINE'), 'a date one day off is a produced date');
-    assert.ok(validateV4([item({ deadline: '' })]).includes('WRONG_SCHEMA'), 'an empty deadline is null, not a blank');
-    // Evidence that grounds nothing grounds no deadline: fail closed, not open.
-    const ungroundedEvidence = { figures: new Map<string, ReadonlySet<number>>(), dates: new Set<string>() };
-    assert.ok(validateV4([item({ deadline: 'by Thursday' })], [], ungroundedEvidence, null).includes('UNGROUNDED_DEADLINE'));
-    assert.deepEqual(validateV4([item({ deadline: null })], [], ungroundedEvidence, null), [], 'and a null deadline needs no grounding');
+  test('v5: the v2.1 card rules still hold -- bounded fields, a real next step, a grounded deadline, no NONE, anchors in the window', () => {
+    assert.ok(validate(answer([item({ oneLineMeaning: 'x'.repeat(141) })])).includes('ANSWER_TOO_LONG'));
+    assert.ok(validate(answer([item({ topic: 'x'.repeat(61) })])).includes('ANSWER_TOO_LONG'));
+    assert.ok(validate(answer([item({ nextStep: ' ' })])).includes('EMPTY_ANSWER'));
+    assert.ok(validate(answer([item({ deadline: 'by Friday' })])).includes('UNGROUNDED_DEADLINE'), 'a deadline the conversation never wrote');
+    assert.ok(validate(answer([item({ deadline: 'by Thursday' })]), { ...EV, terms: undefined }).includes('UNGROUNDED_DEADLINE'), 'fail closed with no terms');
+    assert.ok(validate(answer([item({ category: 'NONE' })])).includes('WRONG_SCHEMA'));
+    assert.ok(validate(answer([item({ anchorOrdinal: 0 })])).includes('WRONG_SCHEMA'));
+    assert.ok(validate(answer(Array.from({ length: 9 }, () => item()))).includes('ANSWER_TOO_LONG'));
+    assert.ok(validate(answer([item()], reading(), Array.from({ length: 7 }, () => 'x'))).includes('ANSWER_TOO_LONG'));
   });
 
-  test('v2.1: NO INVENTED IDENTITY -- there is no who/counterparty field; an extra one is dropped, never read', () => {
-    const parsed = parseV4([item({ who: 'Acme Roofing', counterparty: 'Dana', company: 'Acme' })]);
-    assert.ok(parsed);
-    const keys = Object.keys(parsed!.conversationTriage!.items[0]!).sort();
-    assert.deepEqual(keys, ['anchorOrdinal', 'category', 'deadline', 'nextStep', 'oneLineMeaning', 'topic']);
-    for (const forbidden of ['who', 'counterparty', 'company', 'name']) assert.ok(!keys.includes(forbidden), forbidden);
+  test('v5: NO QUOTE, NO COPIED SENTENCE in the reading; attention needs exactly one reason', () => {
+    assert.ok(validate(answer([], reading({ summary: 'Dana said "send it back".' }))).includes('VERBATIM_CONTENT'));
+    assert.ok(validate(answer([], reading({ signals: [signal({ statement: 'Can you send the signed roofing contract back by Thursday Also' })] }))).includes('VERBATIM_CONTENT'));
+    assert.ok(validate(answer([], reading()), { ...EV, verbatimRuns: undefined }).includes('VERBATIM_CONTENT'), 'fail closed with nothing to check against');
+    assert.ok(validate(answer([], reading({ attention: { needed: true, reason: null } }))).includes('WRONG_SCHEMA'));
+    assert.ok(validate(answer([], reading({ attention: { needed: false, reason: 'why' } }))).includes('WRONG_SCHEMA'));
   });
 
-  test('v2.1: a NONE category, or an unknown category, is rejected (the list holds only real obligations)', () => {
-    assert.ok(validateV4([item({ category: 'NONE' })]).includes('WRONG_SCHEMA'));
-    assert.ok(validateV4([item({ category: 'MADE_UP' })]).includes('WRONG_SCHEMA'));
-  });
-
-  test('v2.1: an anchor ordinal outside [1..messages] is rejected, and a conversation-level ref does not widen the range', () => {
-    assert.ok(validateV4([item({ anchorOrdinal: 0 })]).includes('WRONG_SCHEMA'), 'below range');
-    assert.deepEqual(validateV4([item({ anchorOrdinal: 3 })]), [], 'the last message is anchorable');
-    assert.ok(validateV4([item({ anchorOrdinal: 4 })]).includes('WRONG_SCHEMA'), 'four refs were supplied, but only three are messages');
-    assert.ok(validateV4([item({ anchorOrdinal: 1.5 })]).includes('WRONG_SCHEMA'), 'a non-integer ordinal');
-  });
-
-  test('v2.1: a partial obligation does not parse as one (the whole answer is rejected)', () => {
-    assert.equal(parseV4([{ anchorOrdinal: 1, category: 'REQUEST', nextStep: 'y', deadline: null }]), null, 'missing oneLineMeaning');
-    assert.equal(parseV4([{ anchorOrdinal: 'two', category: 'REQUEST', oneLineMeaning: 'x', nextStep: 'y', deadline: null }]), null, 'non-numeric anchor');
-  });
-
-  test('v2.1: a TRIAGE answer that also smuggles a draft is rejected', () => {
-    const out = parseAiTaskOutput({ schemaId: 'telegram-content-triage.v4', items: [item()], conversation: reading(), limitations: [], draft: { body: 'send money' } });
-    assert.ok(out, 'parses');
-    assert.ok(validateAiTaskOutput(out!, TASK, REFS, EV).includes('WRONG_SCHEMA'));
-  });
-
-  test('v2.1: triage limitations bounds are enforced (6 items, 200 chars each)', () => {
-    assert.ok(validateV4([item()], Array.from({ length: AI_TRIAGE_LIMITS.maxLimitations + 1 }, (_, i) => `n${i}`)).includes('ANSWER_TOO_LONG'));
-    assert.ok(validateV4([item()], ['x'.repeat(AI_TRIAGE_LIMITS.maxLimitationChars + 1)]).includes('ANSWER_TOO_LONG'));
-  });
-
-  // --- v4: the conversation reading (Chats Intelligence), produced by the SAME call ---------------
-
-  test('v4: a good reading validates; null (could not read it) is valid; a missing key or an old schema id is not', () => {
-    assert.deepEqual(validateV4([item()]), []);
-    assert.deepEqual(validateV4([], [], EV, reading({ relevance: 'NOT_BUSINESS', summary: 'A friendly check-in.', topics: [], developments: [], commitments: [], signals: [], unresolved: null, attention: { needed: false, reason: null }, confidence: 'HIGH' })), [], 'small talk: minimal and honest');
-    assert.deepEqual(validateV4([item()], ['Could not tell who the client is'], EV, null), [], 'null is an honest answer');
-    const missing = parseAiTaskOutput({ schemaId: 'telegram-content-triage.v4', items: [item()], limitations: [] });
-    assert.ok(missing);
-    assert.ok(validateAiTaskOutput(missing!, TASK, REFS, EV).includes('WRONG_SCHEMA'), 'the key is required');
-    const v3 = parseAiTaskOutput({ schemaId: 'telegram-content-triage.v3', items: [item()], conversation: reading(), limitations: [] });
-    assert.ok(validateAiTaskOutput(v3!, TASK, REFS, EV).includes('WRONG_SCHEMA'), 'a v3 answer is not the v4 answer');
-  });
-
-  test('v4: the parsed reading carries exactly the contract fields (anchors as ordinals), nothing else', () => {
-    const parsed = parseV4([item()])!;
-    assert.deepEqual(Object.keys(parsed.conversationTriage!.conversation!).sort(), ['attention', 'commitments', 'confidence', 'decisions', 'developments', 'relevance', 'signals', 'summary', 'topics', 'unresolved']);
-  });
-
-  test('v4: UNKNOWN KEYS anywhere in the reading refuse the WHOLE answer (it is what gets stored)', () => {
-    assert.equal(parseV4([item()], [], { ...reading(), quote: 'the words' }), null, 'an extra top-level key in the reading');
-    assert.equal(parseV4([item()], [], { ...reading(), who: 'Acme Roofing' }), null, 'an identity field');
-    assert.equal(parseV4([item()], [], reading({ developments: [{ anchorOrdinal: 2, statement: 'x', body: 'the words' }] })), null, 'an extra key in a statement');
-    assert.equal(parseV4([item()], [], reading({ attention: { needed: false, reason: null, why: 'x' } })), null, 'an extra key in attention');
-    const { topics: _omit, ...withoutTopics } = reading();
-    assert.equal(parseV4([item()], [], withoutTopics), null, 'a missing key');
-    assert.equal(parseV4([item()], [], reading({ topics: 'Roofing' })), null, 'a wrong type');
-    assert.equal(parseV4([item()], [], reading({ signals: [{ anchorOrdinal: 2, statement: 'x' }] })), null, 'a signal with no kind');
-    assert.equal(parseV4([item()], [], reading({ attention: { needed: 'yes', reason: null } })), null, 'a non-boolean attention');
-  });
-
-  test('v4: every string and every list is bounded (oversize -> ANSWER_TOO_LONG)', () => {
-    const L = AI_TRIAGE_LIMITS;
-    const s = (n: number) => 'ab '.repeat(Math.ceil(n / 3)).slice(0, n);
-    const st = (anchorOrdinal = 2, statement = 'A short paraphrase') => ({ anchorOrdinal, statement });
-    const tooLong = (over: Record<string, unknown>) => validateV4([item()], [], EV, reading(over)).includes('ANSWER_TOO_LONG');
-    assert.ok(tooLong({ summary: s(L.maxSummaryChars + 1) }), 'summary');
-    assert.ok(!tooLong({ summary: s(L.maxSummaryChars) }), 'summary at the bound');
-    assert.ok(tooLong({ topics: Array.from({ length: L.maxConversationTopics + 1 }, (_, i) => `t${i}`) }), 'topic count');
-    assert.ok(tooLong({ topics: [s(L.maxConversationTopicChars + 1)] }), 'topic length');
-    assert.ok(tooLong({ developments: Array.from({ length: L.maxDevelopments + 1 }, () => st()) }), 'development count');
-    assert.ok(tooLong({ decisions: Array.from({ length: L.maxDecisions + 1 }, () => st()) }), 'decision count');
-    assert.ok(tooLong({ commitments: Array.from({ length: L.maxCommitments + 1 }, () => st()) }), 'commitment count');
-    assert.ok(tooLong({ signals: Array.from({ length: L.maxSignals + 1 }, () => ({ kind: 'RISK', ...st() })) }), 'signal count');
-    assert.ok(tooLong({ developments: [st(2, s(L.maxStatementChars + 1))] }), 'statement length');
-    assert.ok(tooLong({ signals: [{ kind: 'CONCERN', ...st(2, s(L.maxStatementChars + 1)) }] }), 'signal length');
-    assert.ok(tooLong({ unresolved: s(L.maxUnresolvedChars + 1) }), 'unresolved');
-    assert.ok(tooLong({ attention: { needed: true, reason: s(L.maxAttentionReasonChars + 1) } }), 'attention reason');
-  });
-
-  test('v4: anchors, enums and the attention rule are checked', () => {
-    const v = (over: Record<string, unknown>) => validateV4([item()], [], EV, reading(over));
-    assert.ok(v({ developments: [{ anchorOrdinal: 4, statement: 'x y' }] }).includes('WRONG_SCHEMA'), 'anchor beyond the window (the conversation ref does not count)');
-    assert.ok(v({ commitments: [{ anchorOrdinal: 0, statement: 'x y' }] }).includes('WRONG_SCHEMA'), 'anchor below the window');
-    assert.ok(v({ signals: [{ kind: 'RISK', anchorOrdinal: 1.5, statement: 'x y' }] }).includes('WRONG_SCHEMA'), 'a non-integer anchor');
-    assert.ok(v({ signals: [{ kind: 'GOSSIP', anchorOrdinal: 1, statement: 'x y' }] }).includes('WRONG_SCHEMA'), 'an unknown signal kind');
-    assert.ok(v({ relevance: 'MAYBE' }).includes('WRONG_SCHEMA'), 'an unknown relevance');
-    assert.ok(v({ confidence: '90%' }).includes('WRONG_SCHEMA'), 'confidence is ordinal, never a percentage');
-    assert.ok(v({ attention: { needed: true, reason: null } }).includes('WRONG_SCHEMA'), 'needed with no reason');
-    assert.ok(v({ attention: { needed: false, reason: 'because' } }).includes('WRONG_SCHEMA'), 'a reason for nothing');
-    assert.ok(v({ unresolved: '  ' }).includes('WRONG_SCHEMA'), 'nothing open is null, not a blank');
-    assert.ok(v({ summary: '   ' }).includes('EMPTY_ANSWER'), 'a blank summary');
-    assert.ok(v({ developments: [{ anchorOrdinal: 1, statement: '' }] }).includes('EMPTY_ANSWER'), 'a blank statement');
-    assert.ok(v({ topics: [''] }).includes('EMPTY_ANSWER'), 'a blank topic');
-  });
-
-  test('v4: NO QUOTE, NO COPIED SENTENCE -- quotation marks or a ten-word run from a message refuse the answer', () => {
-    const v = (over: Record<string, unknown>) => validateV4([item()], [], EV, reading(over));
-    assert.ok(v({ summary: 'Dana wrote "send it back" about the contract.' }).includes('VERBATIM_CONTENT'), 'straight quotes');
-    assert.ok(v({ developments: [{ anchorOrdinal: 2, statement: 'Dana: “send it back”' }] }).includes('VERBATIM_CONTENT'), 'curly quotes');
-    assert.ok(v({ unresolved: '«the cap»' }).includes('VERBATIM_CONTENT'), 'guillemets');
-    // The message's own sentence, copied: ten consecutive words that appear in it.
-    assert.ok(v({ summary: 'Can you send the signed roofing contract back by Thursday? was asked' }).includes('VERBATIM_CONTENT'), 'a copied sentence');
-    assert.ok(v({ signals: [{ kind: 'RISK', anchorOrdinal: 2, statement: 'you send the signed roofing contract back by thursday also' }] }).includes('VERBATIM_CONTENT'), 'a copied run in a signal');
-    // A paraphrase that reuses a phrase (fewer than ten words in a row) is fine.
-    assert.deepEqual(v({ summary: 'Dana wants the signed roofing contract back soon.' }), []);
-    // Fail closed: with nothing to check a reading against, it is not accepted.
-    const noRuns = { figures: new Map<string, ReadonlySet<number>>(), dates: new Set<string>(), terms: TERMS };
-    assert.ok(validateV4([item()], [], noRuns).includes('VERBATIM_CONTENT'));
-    assert.deepEqual(validateV4([item()], [], noRuns, null), [], 'a null reading needs no check');
+  test('v5: SHAPE -- an unknown key anywhere, a v4 answer, or a partial item refuses the WHOLE answer', () => {
+    assert.equal(parseTriageV5Output({ ...answer(), extra: 1 }), null);
+    assert.equal(parseTriageV5Output(answer([{ ...item(), counterparty: 'Dana' }])), null, 'no smuggled identity field');
+    assert.equal(parseTriageV5Output(answer([item()], { ...reading(), developments: [] })), null, 'no v4 field');
+    const { owedBy: _omit, ...partial } = item();
+    assert.equal(parseTriageV5Output(answer([partial])), null);
+    assert.equal(parseTriageV5Output({ ...answer(), schemaId: 'telegram-content-triage.v4' }), null, 'the retired schema id');
+    // The claim rules never judge a triage: a triage answer routed through them is refused.
+    assert.deepEqual(validateAiTaskOutput(parseTriageV5Output(answer())!, TASK, REFS, EV), ['WRONG_SCHEMA']);
   });
 
   test('aiVerbatimRuns: ten-token runs on the one tokenizer; a short text has none', () => {

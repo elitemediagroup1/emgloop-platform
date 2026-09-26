@@ -24,6 +24,10 @@
 #      With an AI organization id, CONNECTIONS_<STAGE>_AI_PROVIDERS (default anthropic) and
 #      CONNECTIONS_<STAGE>_AI_TASKS (default telegram.content.triage) are optional; listing a
 #      provider makes it callable, never approved (that is the recorded provider policy).
+#      Loop Intelligence (optional, all unset by default): CONNECTIONS_<STAGE>_INTELLIGENCE_PRODUCERS
+#      (producer ids), _INTELLIGENCE_SITUATIONS (organization,private), _INTELLIGENCE_BRIEFINGS (on) and
+#      _INTELLIGENCE_ACTING_USERS (orgId=userId). Unset: the worker schedules no intelligence pass.
+#      See docs/runbooks/loop-intelligence-commissioning.md, section B.
 # Choosing `diff` shows the change and creates nothing.
 
 name: connections-infra-deploy
@@ -70,12 +74,20 @@ jobs:
       STAGING_AI_ORG_ID: ${{ vars.CONNECTIONS_STAGING_AI_ORG_ID }}
       STAGING_AI_PROVIDERS: ${{ vars.CONNECTIONS_STAGING_AI_PROVIDERS }}
       STAGING_AI_TASKS: ${{ vars.CONNECTIONS_STAGING_AI_TASKS }}
+      STAGING_INTELLIGENCE_PRODUCERS: ${{ vars.CONNECTIONS_STAGING_INTELLIGENCE_PRODUCERS }}
+      STAGING_INTELLIGENCE_SITUATIONS: ${{ vars.CONNECTIONS_STAGING_INTELLIGENCE_SITUATIONS }}
+      STAGING_INTELLIGENCE_BRIEFINGS: ${{ vars.CONNECTIONS_STAGING_INTELLIGENCE_BRIEFINGS }}
+      STAGING_INTELLIGENCE_ACTING_USERS: ${{ vars.CONNECTIONS_STAGING_INTELLIGENCE_ACTING_USERS }}
       PRODUCTION_ACCOUNT_ID: ${{ vars.CONNECTIONS_PRODUCTION_ACCOUNT_ID }}
       PRODUCTION_DEPLOY_ROLE_ARN: ${{ vars.CONNECTIONS_PRODUCTION_DEPLOY_ROLE_ARN }}
       PRODUCTION_ALERT_EMAIL: ${{ vars.CONNECTIONS_PRODUCTION_ALERT_EMAIL }}
       PRODUCTION_AI_ORG_ID: ${{ vars.CONNECTIONS_PRODUCTION_AI_ORG_ID }}
       PRODUCTION_AI_PROVIDERS: ${{ vars.CONNECTIONS_PRODUCTION_AI_PROVIDERS }}
       PRODUCTION_AI_TASKS: ${{ vars.CONNECTIONS_PRODUCTION_AI_TASKS }}
+      PRODUCTION_INTELLIGENCE_PRODUCERS: ${{ vars.CONNECTIONS_PRODUCTION_INTELLIGENCE_PRODUCERS }}
+      PRODUCTION_INTELLIGENCE_SITUATIONS: ${{ vars.CONNECTIONS_PRODUCTION_INTELLIGENCE_SITUATIONS }}
+      PRODUCTION_INTELLIGENCE_BRIEFINGS: ${{ vars.CONNECTIONS_PRODUCTION_INTELLIGENCE_BRIEFINGS }}
+      PRODUCTION_INTELLIGENCE_ACTING_USERS: ${{ vars.CONNECTIONS_PRODUCTION_INTELLIGENCE_ACTING_USERS }}
     steps:
       - name: Confirm
         # Only a deploy needs the phrase; `action` is a dropdown choice, never typed text.
@@ -148,6 +160,10 @@ jobs:
               ai_org_id="$(trim "$STAGING_AI_ORG_ID")"
               ai_providers="$(trim "$STAGING_AI_PROVIDERS")"
               ai_tasks="$(trim "$STAGING_AI_TASKS")"
+              intel_producers="$(trim "$STAGING_INTELLIGENCE_PRODUCERS")"
+              intel_situations="$(trim "$STAGING_INTELLIGENCE_SITUATIONS")"
+              intel_briefings="$(trim "$STAGING_INTELLIGENCE_BRIEFINGS")"
+              intel_acting="$(trim "$STAGING_INTELLIGENCE_ACTING_USERS")"
               production_account=""
               ;;
             production)
@@ -157,6 +173,10 @@ jobs:
               ai_org_id="$(trim "$PRODUCTION_AI_ORG_ID")"
               ai_providers="$(trim "$PRODUCTION_AI_PROVIDERS")"
               ai_tasks="$(trim "$PRODUCTION_AI_TASKS")"
+              intel_producers="$(trim "$PRODUCTION_INTELLIGENCE_PRODUCERS")"
+              intel_situations="$(trim "$PRODUCTION_INTELLIGENCE_SITUATIONS")"
+              intel_briefings="$(trim "$PRODUCTION_INTELLIGENCE_BRIEFINGS")"
+              intel_acting="$(trim "$PRODUCTION_INTELLIGENCE_ACTING_USERS")"
               production_account="$account"
               ;;
             *) echo "Refusing: unknown stage '${STAGE}'"; exit 1 ;;
@@ -175,7 +195,7 @@ jobs:
               exit 1
             fi
           fi
-          for v in "$role" "$alert_email" "$ai_org_id" "$ai_providers" "$ai_tasks"; do
+          for v in "$role" "$alert_email" "$ai_org_id" "$ai_providers" "$ai_tasks" "$intel_producers" "$intel_situations" "$intel_briefings" "$intel_acting"; do
             if [[ "$v" =~ [[:space:]] ]]; then echo "Refusing: a ${STAGE} variable contains whitespace"; exit 1; fi
           done
           {
@@ -186,6 +206,10 @@ jobs:
             echo "AI_ORG_ID=${ai_org_id}"
             echo "AI_PROVIDERS=${ai_providers}"
             echo "AI_TASKS=${ai_tasks}"
+            echo "INTEL_PRODUCERS=${intel_producers}"
+            echo "INTEL_SITUATIONS=${intel_situations}"
+            echo "INTEL_BRIEFINGS=${intel_briefings}"
+            echo "INTEL_ACTING_USERS=${intel_acting}"
           } >> "$GITHUB_ENV"
           # The same two values as step outputs, for the credentials action's inputs.
           {
@@ -228,13 +252,13 @@ jobs:
       # an empty aiProviders/aiTasks means the app's default (anthropic / telegram.content.triage).
       - name: Synthesize (creates nothing)
         working-directory: infra/connections
-        run: npx cdk synth --no-notices "$STACK_NAME" -c "stage=$STAGE" -c "productionAccount=$PRODUCTION_ACCOUNT" -c "alertEmail=$ALERT_EMAIL" -c "aiOrganizationId=$AI_ORG_ID" -c "aiProviders=$AI_PROVIDERS" -c "aiTasks=$AI_TASKS"
+        run: npx cdk synth --no-notices "$STACK_NAME" -c "stage=$STAGE" -c "productionAccount=$PRODUCTION_ACCOUNT" -c "alertEmail=$ALERT_EMAIL" -c "aiOrganizationId=$AI_ORG_ID" -c "aiProviders=$AI_PROVIDERS" -c "aiTasks=$AI_TASKS" -c "intelligenceProducers=$INTEL_PRODUCERS" -c "intelligenceSituations=$INTEL_SITUATIONS" -c "intelligenceBriefings=$INTEL_BRIEFINGS" -c "intelligenceActingUsers=$INTEL_ACTING_USERS"
 
       - name: Diff
         working-directory: infra/connections
-        run: npx cdk diff --no-notices "$STACK_NAME" -c "stage=$STAGE" -c "productionAccount=$PRODUCTION_ACCOUNT" -c "alertEmail=$ALERT_EMAIL" -c "aiOrganizationId=$AI_ORG_ID" -c "aiProviders=$AI_PROVIDERS" -c "aiTasks=$AI_TASKS"
+        run: npx cdk diff --no-notices "$STACK_NAME" -c "stage=$STAGE" -c "productionAccount=$PRODUCTION_ACCOUNT" -c "alertEmail=$ALERT_EMAIL" -c "aiOrganizationId=$AI_ORG_ID" -c "aiProviders=$AI_PROVIDERS" -c "aiTasks=$AI_TASKS" -c "intelligenceProducers=$INTEL_PRODUCERS" -c "intelligenceSituations=$INTEL_SITUATIONS" -c "intelligenceBriefings=$INTEL_BRIEFINGS" -c "intelligenceActingUsers=$INTEL_ACTING_USERS"
 
       - name: Deploy
         if: ${{ inputs.action == 'deploy' }}
         working-directory: infra/connections
-        run: npx cdk deploy --no-notices --require-approval never "$STACK_NAME" -c "stage=$STAGE" -c "productionAccount=$PRODUCTION_ACCOUNT" -c "alertEmail=$ALERT_EMAIL" -c "aiOrganizationId=$AI_ORG_ID" -c "aiProviders=$AI_PROVIDERS" -c "aiTasks=$AI_TASKS"
+        run: npx cdk deploy --no-notices --require-approval never "$STACK_NAME" -c "stage=$STAGE" -c "productionAccount=$PRODUCTION_ACCOUNT" -c "alertEmail=$ALERT_EMAIL" -c "aiOrganizationId=$AI_ORG_ID" -c "aiProviders=$AI_PROVIDERS" -c "aiTasks=$AI_TASKS" -c "intelligenceProducers=$INTEL_PRODUCERS" -c "intelligenceSituations=$INTEL_SITUATIONS" -c "intelligenceBriefings=$INTEL_BRIEFINGS" -c "intelligenceActingUsers=$INTEL_ACTING_USERS"

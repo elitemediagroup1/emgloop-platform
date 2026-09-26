@@ -51,8 +51,15 @@ import {
 } from '../case-sections';
 import { loadCase } from '../case-data';
 import { requireWorkspace } from '../../../../../workspaces/guard';
+import { loadPromoteView } from '../../../../../work/promote';
+import { StateBlock } from '../../../_loop-os/record';
+import { PromotePanel, promoteRefusalWords } from '../../../../../work/promote-panel';
+import { promoteHref } from '../../../../../work/promote-origin';
 import { caseExplanationAvailability } from '../../../../../ai/case-explanation';
 import { ExplanationPanel } from '../explanation-panel';
+import { situationCaseFor } from '../../../../../intelligence/situations';
+import { SituationRecordSection } from '../../../../../intelligence/situations-view';
+import { viewerTime } from '../../../../../time/viewer-time';
 
 export const dynamic = 'force-dynamic';
 
@@ -61,7 +68,7 @@ export default async function CaseWorkspacePage({
   searchParams,
 }: {
   params: { id: string };
-  searchParams?: { notice?: string; error?: string };
+  searchParams?: { notice?: string; error?: string; promote?: string; id?: string; promoteResult?: string };
 }) {
   await requireWorkspace('ADMIN');
   // READ is the broad grant. Every control below requires the narrower AUTHORING
@@ -82,6 +89,10 @@ export default async function CaseWorkspacePage({
   // indistinguishable from one that does not exist.
   const view = read.value;
   if (!view) notFound();
+  // Loop Intelligence Phase F: an organization SITUATION is visible only to someone who may read every
+  // domain it cites; anyone else gets the same not-found as a Case that does not exist.
+  const situation = await situationCaseFor(session, params.id);
+  if (situation.kind === 'HIDDEN') notFound();
 
   const brief = view.brief;
   const state = CASE_STATE_LANGUAGE[brief.status];
@@ -106,11 +117,27 @@ export default async function CaseWorkspacePage({
   // re-decides everything when a person actually asks.
   const explanation = await caseExplanationAvailability({ organizationId: session.organizationId, userId: session.userId });
 
+  // PROMOTE TO WORK (Loop Intelligence Phase C): offered on an open Case; the confirmation renders here
+  // only when asked for, re-resolved for this person, and nothing is created until they confirm.
+  const promoteAsked = searchParams?.promote === 'case';
+  const promoteView = caseIsOpen && promoteAsked ? await loadPromoteView(session, { kind: 'CASE', caseId: params.id }) : null;
+  const promoteRefused = promoteRefusalWords(searchParams?.promoteResult);
+
   return (
     <div className="cw-page">
       <nav className="cw-back">
         <Link href="/app/admin/headlines">← Headlines</Link>
       </nav>
+
+      {promoteRefused ? <StateBlock kind="attention" compact title="Promote to Work" body={promoteRefused} /> : null}
+      {promoteView ? <PromotePanel view={promoteView} returnTo={'/app/admin/cases/' + params.id} /> : null}
+      {caseIsOpen && !promoteAsked ? (
+        <p className="cw-head__subject">
+          <Link className="loop-link" href={promoteHref('/app/admin/cases/' + params.id, { kind: 'CASE', caseId: params.id })} data-case-promote>
+            Promote to Work
+          </Link>
+        </p>
+      ) : null}
 
       <header className="cw-head">
         <p className="cw-head__eyebrow">Investigation</p>
@@ -161,6 +188,8 @@ export default async function CaseWorkspacePage({
           ) : null}
         </dl>
       </header>
+
+      {situation.kind === 'VISIBLE' ? <SituationRecordSection view={situation.view} time={viewerTime()} /> : null}
 
       {searchParams?.notice ? (
         <p className="hl-flash hl-flash--notice" role="status">{searchParams.notice}</p>

@@ -17,53 +17,21 @@
 
 import 'server-only';
 
-import { randomUUID } from 'crypto';
 import {
-  AiRuntimeGateway,
-  aiRuntimeControlsReader,
-  DurableAiUsageLedger,
   MailReplyDraftService,
   WorkDraftRepository,
-  iamAiAuthorizer,
   prisma,
   type MailReplyDraftResult,
   type WorkPrincipal,
 } from '@emgloop/database';
-import { AI_BUDGET_POLICY, AI_MAX_ATTEMPTS_PER_TARGET, AI_ROUTING_POLICY, aiCatalogCapabilities } from '@emgloop/providers';
+import { AI_ROUTING_POLICY } from '@emgloop/providers';
 import { AI_TASK_MAIL_REPLY_DRAFT, aiTaskAvailability, type AiTaskAvailability } from '@emgloop/shared';
 
-import { aiEnvironment } from './ai-environment';
+import { governedGateway } from './governed-gateway';
 import { loadThread } from '../daily-loop/mail';
 
-// One cached reader per server instance (30 s, never more than 60): a provider policy, a KILLED control
-// or an operating budget recorded in `ai_controls` reaches every instance within a minute, without a deploy.
-const controls = aiRuntimeControlsReader(prisma);
-
 function assemble() {
-  const env = aiEnvironment({ capabilities: aiCatalogCapabilities });
-  const authorize = iamAiAuthorizer(prisma);
-  const providers = env.providers.flatMap((p) => (p.state === 'CONFIGURED' ? [p.provider] : []));
-  const gateway = new AiRuntimeGateway(
-    {
-      activation: env.activation,
-      policy: AI_ROUTING_POLICY,
-      budget: AI_BUDGET_POLICY,
-      killSwitches: env.killSwitches,
-      maxAttemptsPerTarget: AI_MAX_ATTEMPTS_PER_TARGET,
-    },
-    {
-      providers,
-      ledger: new DurableAiUsageLedger(prisma),
-      authorize,
-      now: () => new Date(),
-      newInvocationId: () => randomUUID(),
-      // G2: the recorded provider policies, shared by every request this instance serves.
-      providerPolicies: controls.providerPolicies,
-      // PR 1: stored KILLED switches and the recorded operating budget.
-      storedKillSwitches: controls.storedKillSwitches,
-      operatingBudget: controls.operatingBudget,
-    },
-  );
+  const { env, authorize, gateway } = governedGateway();
   const service = new MailReplyDraftService({
     runtime: gateway,
     authorize,

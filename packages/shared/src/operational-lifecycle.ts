@@ -103,6 +103,10 @@ export const OBSERVATION_TYPES = [
   // and changes no lifecycle: evidence is immutable, and this records a fact
   // ABOUT two rows rather than a change to either.
   'EVIDENCE_CONTEXT_RECORDED',
+
+  // Loop Intelligence Phase C. A person promoted the Case to Work OS work. It moves no lane: the work
+  // is Work OS's from there, and the Case keeps its own lifecycle.
+  'WORK_LINKED',
 ] as const;
 export type ObservationType = (typeof OBSERVATION_TYPES)[number];
 
@@ -394,6 +398,7 @@ export function projectLifecycle(
       case 'SEVERITY_CHANGED':
       case 'EVIDENCE_ADDED':
       case 'EVIDENCE_CONTEXT_RECORDED':
+      case 'WORK_LINKED':
         // Attributes of the decision, not of its lifecycle. Recorded because
         // "who raised this to urgent, and when" is a real operational question;
         // they move nothing.

@@ -22,6 +22,7 @@ import type { PrismaClient } from '@prisma/client';
 import { CALLGRID_DECISION_PRODUCER } from '@emgloop/shared';
 import { CREATOR_ONBOARDING_PRODUCER } from '../services/intelligence/creator-onboarding';
 import { IDENTITY_MATCH_TYPE } from './cognitive/identity-suggestion.repository';
+import { CASE_ORGANIZATION_WHERE } from '@emgloop/shared';
 
 /** The producer the CallGrid pipeline records Cases as (apps/web `CALLGRID_SOURCE`). */
 export const CALLGRID_CASE_PRODUCER = CALLGRID_DECISION_PRODUCER;
@@ -281,8 +282,8 @@ export class IntelligenceStateRepository {
     // 3. Rows written since `since`, by table.
     const created = { ...org, createdAt: { gte: since } };
     const writesSince: Record<IntelligenceStateWriteTable, number> = {
-      casesCreated: await this.db.operationalPriority.count({ where: created }),
-      casesUpdated: await this.db.operationalPriority.count({ where: { ...org, updatedAt: { gte: since } } }),
+      casesCreated: await this.db.operationalPriority.count({ where: { ...created, ...CASE_ORGANIZATION_WHERE } }),
+      casesUpdated: await this.db.operationalPriority.count({ where: { ...org, ...CASE_ORGANIZATION_WHERE, updatedAt: { gte: since } } }),
       caseLog: await this.db.operationalObservation.count({ where: created }),
       caseEvidence: await this.db.decisionEvidence.count({ where: created }),
       hypotheses: await this.db.intelligenceHypothesis.count({ where: created }),

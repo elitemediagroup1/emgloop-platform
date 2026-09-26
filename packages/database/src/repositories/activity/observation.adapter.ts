@@ -41,6 +41,7 @@ import {
   type ActivityRequirement,
   type ActivitySubject,
 } from './adapter';
+import { CASE_ORGANIZATION_WHERE } from '@emgloop/shared';
 
 const RECORD_TYPE = 'operational-observation';
 const REQUIRES: readonly ActivityRequirement[] = [{ resource: 'commercialIntelligence', action: 'view' }];
@@ -89,6 +90,8 @@ const CATEGORY: Record<ObservationType, ActivityCategory> = {
   MONITORING_STARTED: 'DECISION',
   MONITORING_REVISED: 'DECISION',
   MONITORING_CONCLUDED: 'DECISION',
+  // Loop Intelligence Phase C: a person promoted the Case to Work OS work.
+  WORK_LINKED: 'WORK',
 };
 
 const INTERPRETIVE: readonly ActivityCategory[] = ['SIGNAL', 'FINDING', 'RECOMMENDATION'];
@@ -201,6 +204,8 @@ export class ObservationActivityAdapter implements ActivityAdapter {
     // index, so one Case's log is reached directly. Ordering is the contract's --
     // occurrence, not sequence -- because an operator can record today something
     // that happened last week, and the log's order is not the world's.
+    // A private situation's log belongs to its one owner; the activity surface is the organization's.
+    if (!(await this.prisma.operationalPriority.findFirst({ where: { id: request.subject.priorityId, organizationId: request.organizationId, ...CASE_ORGANIZATION_WHERE }, select: { id: true } }))) return EMPTY_PAGE;
     const rows = await this.prisma.operationalObservation.findMany({
       where: {
         organizationId: request.organizationId,

@@ -2,6 +2,7 @@ import { loadOrFallback, DataUnavailable } from '../../../demo/db-health';
 import { crmRepos, requireCrmContext } from '../../../crm/crm-data';
 import { requirePermission } from '../../../auth/guard';
 import { UNKNOWN_DISPLAY } from '@emgloop/shared';
+import { OrganizationReadingSection } from '../../../intelligence/domain-reading-section';
 
 // Analytics — Sprint 10 (Loop Intelligence Foundation, Phase 4)
 //          + Sprint 14 (Website Intelligence — website widgets).
@@ -109,6 +110,7 @@ export default async function AnalyticsPage() {
           <p className="crm-sub">Last 30 days — real Neon data only. No fabricated metrics.</p>
         </div>
       </div>
+      <OrganizationReadingSection domain="WEBSITE" title="Website reading" />
 
       {/* KPI strip */}
       <div className="crm-analytics-hero">

@@ -72,9 +72,10 @@ test('the shipped routing policy conforms for every task, and Case Explanation n
   // The version moves for a reviewed change to the policy: a new route (GM-3's Mail Reply Draft, the
   // content-triage slice's Telegram Content Triage) OR a task version bump (v2 conversation triage moved
   // the Telegram entry's taskVersion, and v2.1 moved it again) OR a policy-wide field (PR 1 added each
-  // entry's lane and the specialization version the policy conforms to). Case Explanation's targets,
-  // efforts, deadlines and ceilings are untouched, which is what the assertions around this one check.
-  assert.equal(AI_ROUTING_POLICY_VERSION, 'routing.2026-09-26.9');
+  // entry's lane and the specialization version the policy conforms to; Chats v5 moved the triage task to
+  // 4.0.0). Case Explanation's targets, efforts, deadlines and ceilings are untouched, which is what the
+  // assertions around this one check.
+  assert.equal(AI_ROUTING_POLICY_VERSION, 'routing.2026-09-26.12');
   assert.equal(AI_ROUTING_POLICY.tasks['case.explanation']!.providerChoiceReason, undefined);
   // The fallback is another provider, and that is not a departure.
   assert.equal(AI_ROUTING_POLICY.tasks['case.explanation']!.fallback!.providerId, 'openai');
@@ -223,12 +224,13 @@ test('fence: no task definition carries a provider or model, only a capability',
 
 test('telegram content triage: task 3.0.0 and its routing entry move in lockstep, at the pinned policy version', () => {
   const task = AI_TASKS.find((t) => t.taskId === 'telegram.content.triage')!;
-  assert.equal(task.version, '3.0.0', 'the v3 task: obligations plus the conversation reading, in ONE call');
+  assert.equal(task.version, '4.0.0', 'the v4 task (Chats v5): owed-by obligations plus the typed reading, in ONE call');
   const entry = AI_ROUTING_POLICY.tasks['telegram.content.triage']!;
   assert.equal(entry.taskVersion, task.version, 'the routing taskVersion tracks the task in lockstep');
-  // PR 1 moved the POLICY version (lanes, the specialization version, Mail Reply Draft 1.1.0); this entry's
-  // targets, efforts, deadlines, ceilings and budget class did not move, and its lane is FORWARD.
-  assert.equal(AI_ROUTING_POLICY_VERSION, 'routing.2026-09-26.9', 'the policy version after PR 1');
+  // PR 1 moved the POLICY version (lanes, the specialization version, Mail Reply Draft 1.1.0) and Chats v5
+  // moved it again (task 4.0.0); this entry's targets, efforts, deadlines, ceilings and budget class did
+  // not move, and its lane is FORWARD.
+  assert.equal(AI_ROUTING_POLICY_VERSION, 'routing.2026-09-26.12', 'the policy version after the intelligence routes');
   assert.equal(entry.lane, 'FORWARD', 'live triage runs in the FORWARD lane');
   assert.equal(entry.primary.providerId, 'anthropic');
   assert.equal(entry.primary.reasoningEffort, 'low');
@@ -247,7 +249,8 @@ test('telegram content triage: task 3.0.0 and its routing entry move in lockstep
   assert.equal(cls.maxOutputTokensPerCall, 2_000, 'the budget class follows the route ceiling');
   assert.equal(cls.taskDaily.maxInvocations, 50, 'the daily invocation cap was NOT raised');
   assert.equal(cls.taskDaily.maxOutputTokens, 100_000, 'daily output tokens keep 50 calls at the new ceiling');
-  assert.equal(AI_BUDGET_POLICY_VERSION, 'budget.2026-09-25.4');
+  // .5 (Loop Intelligence) added two classes; the triage class and the shared ceilings did not move.
+  assert.equal(AI_BUDGET_POLICY_VERSION, 'budget.2026-09-26.6');
 });
 
 test('telegram content triage: the whole-context input cap sits INSIDE the budget class per-call cap (the budget class was NOT raised)', () => {

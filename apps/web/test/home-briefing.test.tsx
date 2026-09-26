@@ -36,6 +36,7 @@ import {
 } from '@emgloop/shared';
 import { BRIEFING_LIMITS, composeBriefing, coverageWords, dueTodayFromQueue, dueTodayFromWork, rankAttention, workPostureFromQueue, workPostureFromSummary, type Briefing, type BriefingInput, type QueueInstance } from '../src/app/app/_home/briefing';
 import { BriefingCard, NeedsAttention, WhatLoopRead, YourDayCard } from '../src/app/app/_home/briefing-view';
+import { storedBriefingOf } from '../src/intelligence/briefing';
 import { NARRATIVE_MAX, briefingNarrative, type NarrativeInput } from '../src/app/app/_home/narrative';
 import { composeChatsIntelligence, type ChatsIntelligenceInput } from '../src/daily-loop/chats-intelligence';
 import { HOME_KPI_KEYS, projectHomeKpis, type HomeKpiStrip } from '../src/app/app/_home/kpis';
@@ -563,6 +564,37 @@ describe('your briefing is a synthesis in prose, not the What-changed list', () 
 // --- the views ----------------------------------------------------------------------------------------
 
 describe('the briefing, drawn', () => {
+  it('Loop Intelligence Phase G: a stored Loop Briefing leads the card, says who composed it, and links each line to where it rests', () => {
+    const b = brief();
+    const stored = storedBriefingOf({
+      headline: 'Your work needs you today.',
+      items: [
+        { kind: 'NEEDS_YOU', statement: 'Two of your steps are overdue.', citations: ['digest:w'] },
+        { kind: 'WATCH', statement: 'Calls are down this week.', citations: ['digest:c', 'digest:unknown'] },
+        { kind: 'BOGUS', statement: 'dropped', citations: [] },
+      ],
+      coverage: { schema: 'loop-briefing.v1', composer: 'MODEL', limitations: [], refs: { 'digest:w': 'WORK', 'digest:c': 'CALLGRID' } },
+      generatedAt: NOW,
+    })!;
+    assert.equal(stored.lines.length, 2, 'a line of an unknown kind is not shown');
+    const out = html(<BriefingCard narrative={briefingNarrative(narrativeInput())} briefing={b} time={time} stored={stored} offers={() => true} />);
+    const employee = html(<BriefingCard narrative={[]} briefing={b} time={time} stored={stored} offers={(h) => h !== '/app/admin/marketplace' && h !== '/app/admin/work'} />);
+    assert.doesNotMatch(employee, /href="\/app\/admin\/(work|marketplace)"[^>]*>(Work|CallGrid)</, 'no chip links where the viewer cannot go');
+    assert.match(employee, /<span class="loop-front__chip" data-briefing-chip="WORK">Work<\/span>/);
+    assert.match(out, /data-briefing-stored="MODEL"/);
+    assert.match(out, /data-briefing-headline="true"><span>Your work needs you today\.<\/span>/);
+    assert.match(out, /Needs you: Two of your steps are overdue\./);
+    assert.match(out, /data-briefing-chip="WORK" href="\/app\/admin\/work"/);
+    assert.match(out, /data-briefing-chip="CALLGRID" href="\/app\/admin\/marketplace"/);
+    assert.match(out, /Composed by Loop from what it read for you/);
+    assert.doesNotMatch(out, /data-briefing-sentence="business"/, 'the stored Briefing replaces the narrative, never doubles it');
+    const rule = storedBriefingOf({ headline: 'Nothing pressing.', items: [], coverage: { schema: 'loop-briefing.v1', composer: 'RULE' }, generatedAt: NOW })!;
+    assert.match(html(<BriefingCard narrative={[]} briefing={b} time={time} stored={rule} />), /Loop’s own Briefing from what it read for you/);
+    // Not Loop's Briefing (a DL brief with no schema, or no headline): the card keeps its own narrative.
+    assert.equal(storedBriefingOf({ headline: 'x', items: [], coverage: {}, generatedAt: NOW }), null);
+    assert.equal(storedBriefingOf({ headline: null, items: [], coverage: { schema: 'loop-briefing.v1' }, generatedAt: NOW }), null);
+  });
+
   it('the briefing card leads with the prose and its source chips; What Loop read is folded, closed by default, capped', () => {
     const b = brief();
     const out = html(<BriefingCard narrative={briefingNarrative(narrativeInput())} briefing={b} time={time} />);

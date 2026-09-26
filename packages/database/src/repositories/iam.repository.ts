@@ -35,6 +35,7 @@ import { absentUntilMigrated } from '../creator/until-migrated';
 import { AuditRepository } from './audit.repository';
 import { WorkErasureRepository, type WorkErasure } from './work-state/work-erasure.repository';
 import { intelligenceDigestsPresent } from './intelligence/intelligence-digest.repository';
+import { intelligenceFabricPresent, type IntelligenceFabricPresence } from './intelligence/intelligence-fabric-presence';
 import { IdentitySuggestionRepository } from './cognitive/identity-suggestion.repository';
 import { WORK_RETENTION_POLICY_VERSION } from '@emgloop/shared';
 
@@ -770,6 +771,7 @@ export class IamRepository {
     let googleRevocation: GoogleRevocation | null = null;
     const endSources = await sourceConnectionTablesPresent(this.prisma, organizationId, userId);
     const digests = await intelligenceDigestsPresent(this.prisma, { organizationId, userId });
+    const fabric = await intelligenceFabricPresent(this.prisma);
     const changed = await this.setStatus(organizationId, userId, 'DISABLED', async (tx) => {
       const now = new Date();
       googleRevocation = await revokeGoogleConnectionInTx(this.prisma, tx, organizationId, userId, {
@@ -778,7 +780,7 @@ export class IamRepository {
         now,
       });
       if (endSources) await endSourceConnectionsInTx(this.prisma, tx, organizationId, userId, 'MEMBER_DISABLED', actor, now, digests);
-      await eraseWorkStateInTx(this.prisma, tx, organizationId, userId, 'MEMBER_DISABLED', actor, digests);
+      await eraseWorkStateInTx(this.prisma, tx, organizationId, userId, 'MEMBER_DISABLED', actor, digests, fabric);
     });
     return { changed, googleRevocation: changed ? googleRevocation : null };
   }
@@ -827,6 +829,7 @@ export class IamRepository {
     const m = meta(user);
     const endSources = await sourceConnectionTablesPresent(this.prisma, organizationId, userId);
     const digests = await intelligenceDigestsPresent(this.prisma, { organizationId, userId });
+    const fabric = await intelligenceFabricPresent(this.prisma);
     const googleRevocation = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.user.update({
         where: { id: userId },
@@ -843,7 +846,7 @@ export class IamRepository {
         now,
       });
       if (endSources) await endSourceConnectionsInTx(this.prisma, tx, organizationId, userId, 'MEMBER_REMOVED', actor, now, digests);
-      await eraseWorkStateInTx(this.prisma, tx, organizationId, userId, 'MEMBER_REMOVED', actor, digests);
+      await eraseWorkStateInTx(this.prisma, tx, organizationId, userId, 'MEMBER_REMOVED', actor, digests, fabric);
       return revocation;
     });
     return { changed: true, googleRevocation };
@@ -1003,8 +1006,10 @@ async function eraseWorkStateInTx(
   actor: GoogleActor,
   // Probed before the transaction (`intelligenceDigestsPresent`); false only before the migration.
   digests: boolean,
+  // Probed before the transaction (`intelligenceFabricPresent`): false per table only before its migration.
+  fabric: IntelligenceFabricPresence,
 ): Promise<WorkErasure> {
-  const erased = await new WorkErasureRepository(tx).eraseAll({ organizationId, userId }, { intelligenceDigests: digests });
+  const erased = await new WorkErasureRepository(tx).eraseAll({ organizationId, userId }, { intelligenceDigests: digests, intelligenceFabric: fabric });
   const { suggestions: privateSuggestions } = await new IdentitySuggestionRepository(tx).erasePrivate({ organizationId, userId });
   const total = Object.values(erased).reduce((sum, n) => sum + n, 0) + privateSuggestions;
   if (total > 0) {

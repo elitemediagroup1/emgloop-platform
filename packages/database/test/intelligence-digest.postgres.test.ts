@@ -2,8 +2,8 @@
 // OPT-IN AND LOCAL ONLY (LOOP_TEST_POSTGRES_URL, localhost).
 //
 // WHAT IT PROVES, THAT AN IN-MEMORY DOUBLE CANNOT
-//   - The CHECK constraints: a PRINCIPAL digest names its user; ORGANIZATION scope is refused
-//     outright (reserved); content may not carry body/text/quote/message; vocabularies are closed;
+//   - The CHECK constraints: a PRINCIPAL digest names its user; an ORGANIZATION row is never a private
+//     (Chats) row (PR 2); content may not carry body/text/quote/message; vocabularies are closed;
 //     the composite FK refuses a user who is not a member of that organization.
 //   - The repository round trip on the real schema: isolation, fingerprint versioning, expiry purge.
 //   - A consent revoke deletes the provider's digests in the same transaction; offboarding erases
@@ -70,15 +70,17 @@ test('the database refuses what the contract forbids, even without the repositor
   try {
     const create = (data: Record<string, unknown>) => prisma.intelligenceDigest.create({ data: data as never });
     await create(row(organizationId, alice!)); // the baseline passes
-    await assert.rejects(() => create(row(organizationId, null)), /intelligence_digests_shape_check/, 'a PRINCIPAL digest names its user');
-    await assert.rejects(() => create(row(organizationId, null, { scope: 'ORGANIZATION' })), /intelligence_digests_organization_scope_reserved/, 'ORGANIZATION scope is reserved');
-    await assert.rejects(() => create(row(organizationId, alice!, { scope: 'ORGANIZATION' })), /intelligence_digests_organization_scope_reserved/);
+    await assert.rejects(() => create(row(organizationId, null)), /intelligence_digests_scope_check/, 'a PRINCIPAL digest names its user');
+    // PR 2: ORGANIZATION rows exist, but only over Loop records -- the full rules are proved in
+    // intelligence-fabric.postgres.test.ts. A Chats row (private, provider TELEGRAM) can never be one.
+    await assert.rejects(() => create(row(organizationId, null, { scope: 'ORGANIZATION' })), /intelligence_digests_scope_check/, 'a private-domain row is never ORGANIZATION');
+    await assert.rejects(() => create(row(organizationId, alice!, { scope: 'ORGANIZATION' })), /intelligence_digests_scope_check/);
     for (const key of ['body', 'text', 'quote', 'message']) {
       await assert.rejects(() => create(row(organizationId, alice!, { content: { [key]: 'the words' } })), /intelligence_digests_content_check/, key);
     }
     await assert.rejects(() => create(row(organizationId, alice!, { content: ['not', 'an', 'object'] })), /intelligence_digests_content_check/);
-    await assert.rejects(() => create(row(organizationId, alice!, { content: { synthesis: 'x'.repeat(20_000) } })), /intelligence_digests_content_check/, 'bounded');
-    await assert.rejects(() => create(row(organizationId, alice!, { domain: 'EVERYTHING' })), /intelligence_digests_shape_check/);
+    await assert.rejects(() => create(row(organizationId, alice!, { content: { synthesis: 'x'.repeat(40_000) } })), /intelligence_digests_content_check/, 'bounded');
+    await assert.rejects(() => create(row(organizationId, alice!, { domain: 'every thing' })), /intelligence_digests_shape_check/);
     await assert.rejects(() => create(row(organizationId, alice!, { coverage: 'GREAT' })), /intelligence_digests_shape_check/);
     await assert.rejects(() => create(row(organizationId, alice!, { subjectKind: 'DOMAIN', subjectRef: 'other' })), /intelligence_digests_shape_check/);
     await assert.rejects(() => create(row(organizationId, alice!, { evidenceCount: 2, lastEvidenceAt: null })), /intelligence_digests_shape_check/);
@@ -116,7 +118,7 @@ test('the repository on the real schema: isolation, versioning, expiry purge', {
     const meta = await repo.metadataFor(A, { now: NOW });
     assert.deepEqual(meta.map((m) => [m.domain, m.subjectKind, m.coverage, m.status, m.version]), [['CHATS', 'CONVERSATION', 'CONNECTED_PARTIAL', 'CURRENT', 2]]);
     assert.deepEqual(await repo.metadataFor({ organizationId, userId: owner! }, { now: NOW }), []);
-    assert.deepEqual(await repo.organizationCounts(organizationId, { now: NOW }), [{ domain: 'CHATS', status: 'CURRENT', coverage: 'CONNECTED_PARTIAL', count: 1 }]);
+    assert.deepEqual(await repo.organizationCounts(organizationId, { now: NOW }), [{ scope: 'PRINCIPAL', domain: 'CHATS', status: 'CURRENT', coverage: 'CONNECTED_PARTIAL', count: 1 }]);
     assert.deepEqual(await repo.organizationCounts(organizationId, { now: at(30) }), [], 'expired digests are not counted');
     // Expiry: stamped at write, purged by time.
     const purged = await repo.purgeExpired(at(28));
@@ -139,14 +141,14 @@ test('revoke, offboarding and a disconnect past grace each remove the digests th
       await prisma.sourceConnection.create({ data: { organizationId, userId: u, provider: 'TELEGRAM', state: 'READY', backgroundObservation: 'UNAVAILABLE', connectedAt: at(-90) } });
       await prisma.sourceContentAuthorization.create({ data: { organizationId, userId: u, provider: 'TELEGRAM', authorizedAt: at(-60) } });
       assert.equal((await repo.upsert({ organizationId, userId: u }, digest())).outcome, 'WRITTEN');
-      assert.equal((await repo.upsert({ organizationId, userId: u }, digest({ domain: 'MAIL', subjectKind: 'THREAD', subjectRef: 'mail_thread:k', provider: 'GMAIL', consentBasis: 'SOURCE_CONNECTION_GRANT' }))).outcome, 'WRITTEN');
+      assert.equal((await repo.upsert({ organizationId, userId: u }, digest({ domain: 'CALENDAR', subjectKind: 'EVENT', subjectRef: 'calendar_event:k', provider: 'GOOGLE_CALENDAR', consentBasis: 'SOURCE_CONNECTION_GRANT' }))).outcome, 'WRITTEN');
     }
     const count = (u: string, provider?: string) => prisma.intelligenceDigest.count({ where: { organizationId, userId: u, ...(provider ? { provider } : {}) } });
 
     // REVOKE: Alice's Telegram digest goes with the consent, in the same transaction; Gmail stays.
     assert.equal((await new SourceContentAuthorizationRepository(prisma).revoke(organizationId, alice!, 'TELEGRAM', { now: NOW, actor: { userId: alice! } })).outcome, 'REVOKED');
     assert.equal(await count(alice!, 'TELEGRAM'), 0);
-    assert.equal(await count(alice!, 'GMAIL'), 1);
+    assert.equal(await count(alice!, 'GOOGLE_CALENDAR'), 1);
     assert.equal(await count(bob!, 'TELEGRAM'), 1, 'a colleague is untouched');
     // A producer still in flight cannot land a digest after the revoke.
     assert.deepEqual(await repo.upsert({ organizationId, userId: alice! }, digest({ fingerprint: 'late' })), { outcome: 'REFUSED', refusal: 'CONSENT_NOT_IN_FORCE' });
@@ -155,14 +157,14 @@ test('revoke, offboarding and a disconnect past grace each remove the digests th
     assert.equal((await new IamRepository(prisma).removeMember(organizationId, bob!, { userId: owner! })).changed, true);
     assert.equal(await count(bob!), 0);
     const erased = await prisma.auditLog.findFirst({ where: { organizationId, action: 'work_state.erased' } });
-    assert.equal(((erased!.metadata as any).erased as Record<string, number>).intelligence_digests, 1, 'Telegram went with the consent revoke; Gmail with the erasure');
+    assert.equal(((erased!.metadata as any).erased as Record<string, number>).intelligence_digests, 1, 'Telegram went with the consent revoke; Calendar with the erasure');
 
     // DISCONNECT PAST GRACE: Carol's Telegram digest is deleted with her derived work; Gmail stays.
     await prisma.sourceConnection.updateMany({ where: { organizationId, userId: carol! }, data: { state: 'DISCONNECTED', disconnectedAt: at(-(WORK_DISCONNECT_GRACE_DAYS + 1)) } });
     const expired = await new SourceConnectionRepository(prisma).expireDerivedWork(organizationId, carol!, 'TELEGRAM', { now: NOW });
     assert.deepEqual(expired, { outcome: 'EXPIRED', items: 0, observations: 0, digests: 1 });
     assert.equal(await count(carol!, 'TELEGRAM'), 0);
-    assert.equal(await count(carol!, 'GMAIL'), 1);
+    assert.equal(await count(carol!, 'GOOGLE_CALENDAR'), 1);
   } finally {
     await prisma.organization.delete({ where: { id: organizationId } }).catch(() => undefined);
     await prisma.$disconnect();

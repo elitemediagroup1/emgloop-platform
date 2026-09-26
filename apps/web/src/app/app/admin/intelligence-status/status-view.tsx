@@ -12,6 +12,7 @@ import {
   type CapacityStatus,
   type DigestCount,
   type DigestMetadata,
+  type FabricStatus,
   type IntelligenceStatus,
   type ProviderPolicyRow,
   type Section,
@@ -223,6 +224,84 @@ function CapacityView({ c, time }: { c: CapacityStatus; time: TimeView }) {
   );
 }
 
+function FabricView({ f, time }: { f: FabricStatus; time: TimeView }) {
+  return (
+    <>
+      <p className="loop-panel__lead">
+        {f.totals.producers === 0 ? 'No domain producer is built into this release yet' : `${num(f.totals.producers)} producers known to this release`}
+        {' · '}
+        {f.queueMigrated ? `${num(f.totals.queued)} refreshes queued · ${num(f.totals.held)} held` : 'The refresh queue has not been migrated into this database yet'}
+        {' · '}
+        {num(f.totals.stale)} stale and {num(f.totals.error)} unreadable digests
+      </p>
+      <table className="loop-table" aria-label="Intelligence domains">
+        <thead>
+          <tr>
+            <th>Domain</th>
+            <th>Scope</th>
+            <th>Lives on</th>
+            <th>Reading</th>
+            <th>Producers</th>
+            <th>Digests</th>
+            <th>Refresh queue</th>
+          </tr>
+        </thead>
+        <tbody>
+          {f.domains.map((d) => (
+            <tr key={d.domain} data-fabric-domain={d.domain}>
+              <td className="loop-table__strong">{d.label}</td>
+              <td>{d.scopes.map((s) => (s === 'PRINCIPAL' ? 'Personal' : 'Organization')).join(' and ')}</td>
+              <td>
+                {d.surfaces.join(', ')}
+                <br />
+                <span className="loop-table__muted">{d.homeTile ? 'Home tile' : 'No Home tile'}</span>
+              </td>
+              <td>{d.readingTask ? taskLabel(d.readingTask) : <span className="loop-table__muted">No reading task</span>}</td>
+              <td>{d.producers.length === 0 ? <span className="loop-table__muted">None built</span> : d.producers.map((p) => `${p.id} (${p.kind === 'RULE' ? 'rule' : p.kind === 'MODEL' ? 'model' : 'rule, and model when activated'})`).join(', ')}</td>
+              <td>
+                {d.digests ? (
+                  <>
+                    {num(d.digests.principal)} personal · {num(d.digests.organization)} organization
+                    {d.digests.stale + d.digests.error > 0 ? (
+                      <>
+                        <br />
+                        <span className="loop-table__muted">
+                          {num(d.digests.stale)} stale · {num(d.digests.error)} unreadable
+                        </span>
+                      </>
+                    ) : null}
+                  </>
+                ) : (
+                  <span className="loop-table__muted">Could not read</span>
+                )}
+              </td>
+              <td>
+                {d.queue ? (
+                  <>
+                    {num(d.queue.pending)} pending · {num(d.queue.claimed)} running · {num(d.queue.held)} held
+                    {d.queue.oldestPendingAt ? (
+                      <>
+                        <br />
+                        <span className="loop-table__muted">Oldest requested {time.relative(d.queue.oldestPendingAt)}</span>
+                      </>
+                    ) : null}
+                  </>
+                ) : (
+                  <span className="loop-table__muted">Not migrated</span>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </>
+  );
+}
+
+function taskLabel(taskId: string): string {
+  return taskId === 'telegram.content.triage' ? 'Telegram content triage' : taskId;
+}
+
 export function IntelligenceStatusView({ status, time }: { status: IntelligenceStatus; time: TimeView }) {
   return (
     <>
@@ -321,6 +400,15 @@ export function IntelligenceStatusView({ status, time }: { status: IntelligenceS
         </SectionState>
       </Panel>
 
+      <Panel
+        title="Intelligence fabric"
+        lead="Every domain Loop can hold intelligence about, what reads it, and whether readings are being refreshed. Counts only: never a subject, never whose, never what."
+      >
+        <SectionState section={status.fabric} what="the intelligence fabric">
+          {(f) => <FabricView f={f} time={time} />}
+        </SectionState>
+      </Panel>
+
       <Panel title="Organization domain intelligence" lead="How many digests exist across the organization, by domain, status and coverage. Counts only: never whose, never what.">
         <SectionState section={status.organizationDigests} what="organization digest counts">
           {(rows) =>
@@ -338,7 +426,7 @@ export function IntelligenceStatusView({ status, time }: { status: IntelligenceS
                 </thead>
                 <tbody>
                   {rows.map((c) => (
-                    <CountRow key={`${c.domain}:${c.status}:${c.coverage}`} c={c} />
+                    <CountRow key={`${c.scope ?? ''}:${c.domain}:${c.status}:${c.coverage}`} c={c} />
                   ))}
                 </tbody>
               </table>

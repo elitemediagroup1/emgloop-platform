@@ -82,6 +82,7 @@ import type {
   ListDecisionsOptions,
   DecisionActor,
 } from './decision-engine.contracts';
+import { CASE_ORGANIZATION_WHERE } from '@emgloop/shared';
 
 /** Map a stored observation into the pure projection contract. */
 function toLifecycle(o: OperationalObservation): LifecycleObservation {
@@ -784,7 +785,7 @@ export class DecisionEngine {
 
   async get(organizationId: string, id: string): Promise<DecisionView | null> {
     const decision = await this.prisma.operationalPriority.findFirst({
-      where: { id, organizationId },
+      where: { id, organizationId, ...CASE_ORGANIZATION_WHERE },
     });
     if (!decision) return null;
     const [observations, evidence] = await Promise.all([
@@ -806,7 +807,9 @@ export class DecisionEngine {
   }
 
   /** The raw append-only log, oldest first. */
-  getHistory(organizationId: string, id: string): Promise<OperationalObservation[]> {
+  async getHistory(organizationId: string, id: string): Promise<OperationalObservation[]> {
+    // The Case is resolved as an ORGANIZATION Case first: a private situation's log is its owner's alone.
+    if (!(await this.prisma.operationalPriority.findFirst({ where: { id, organizationId, ...CASE_ORGANIZATION_WHERE }, select: { id: true } }))) return [];
     return this.prisma.operationalObservation.findMany({
       where: { organizationId, priorityId: id },
       orderBy: [{ sequence: 'asc' }],
@@ -846,7 +849,8 @@ export class DecisionEngine {
       }));
   }
 
-  getEvidence(organizationId: string, id: string): Promise<DecisionEvidence[]> {
+  async getEvidence(organizationId: string, id: string): Promise<DecisionEvidence[]> {
+    if (!(await this.prisma.operationalPriority.findFirst({ where: { id, organizationId, ...CASE_ORGANIZATION_WHERE }, select: { id: true } }))) return [];
     return this.prisma.decisionEvidence.findMany({
       where: { organizationId, priorityId: id },
       orderBy: [{ observedAt: 'asc' }, { createdAt: 'asc' }],
@@ -861,7 +865,7 @@ export class DecisionEngine {
    */
   async getCurrentState(organizationId: string, id: string): Promise<PriorityState | null> {
     const decision = await this.prisma.operationalPriority.findFirst({
-      where: { id, organizationId },
+      where: { id, organizationId, ...CASE_ORGANIZATION_WHERE },
       select: { id: true },
     });
     if (!decision) return null;
@@ -873,6 +877,7 @@ export class DecisionEngine {
     return this.prisma.operationalPriority.findMany({
       where: {
         organizationId,
+        ...CASE_ORGANIZATION_WHERE,
         ...(opts.producer ? { sourceSystem: opts.producer } : {}),
         ...(opts.state ? { state: opts.state } : {}),
         ...(opts.states ? { state: { in: opts.states } } : {}),
@@ -889,7 +894,7 @@ export class DecisionEngine {
     producer?: string,
   ): Promise<Record<OperationalPriorityState, number>> {
     const rows = await this.prisma.operationalPriority.findMany({
-      where: { organizationId, ...(producer ? { sourceSystem: producer } : {}) },
+      where: { organizationId, ...CASE_ORGANIZATION_WHERE, ...(producer ? { sourceSystem: producer } : {}) },
       select: { state: true },
     });
     const counts = {
@@ -911,7 +916,7 @@ export class DecisionEngine {
     id: string,
   ): Promise<OperationalPriority | null> {
     const decision = await this.prisma.operationalPriority.findFirst({
-      where: { id, organizationId },
+      where: { id, organizationId, ...CASE_ORGANIZATION_WHERE },
     });
     if (!decision) return null;
     const log = await this.getHistory(organizationId, id);
@@ -931,7 +936,7 @@ export class DecisionEngine {
     recurrenceKey: string,
   ): Promise<OperationalPriority | null> {
     return this.prisma.operationalPriority.findFirst({
-      where: { organizationId, sourceSystem: producer, recurrenceKey },
+      where: { organizationId, sourceSystem: producer, recurrenceKey, ...CASE_ORGANIZATION_WHERE },
     });
   }
 
@@ -947,7 +952,7 @@ export class DecisionEngine {
     id: string,
   ): Promise<OperationalPriority> {
     const found = await this.prisma.operationalPriority.findFirst({
-      where: { id, organizationId },
+      where: { id, organizationId, ...CASE_ORGANIZATION_WHERE },
     });
     if (!found) throw new DecisionNotFoundError(id);
     return found;

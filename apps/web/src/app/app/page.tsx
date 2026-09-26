@@ -16,6 +16,10 @@ import { settle } from './_home/settle';
 import { loadFrontDoor } from './_home/front-door-data';
 import { creatorSeatOf } from '../../creator/creator-runtime';
 import { CreatorHome } from '../../creator/creator-home';
+import { promoteOriginFrom } from '../../work/promote-origin';
+import { loadPromoteView } from '../../work/promote';
+import { PromotePanel, promoteRefusalWords } from '../../work/promote-panel';
+import { StateBlock } from './_loop-os/record';
 
 // Loop Home — the first destination after sign-in, for every role.
 //
@@ -45,7 +49,7 @@ export const dynamic = 'force-dynamic';
  */
 const HOME_NEEDS_YOU_LIMIT = 200;
 
-export default async function LoopHome() {
+export default async function LoopHome({ searchParams }: { searchParams?: Record<string, string | string[] | undefined> }) {
   const session = await getSession();
   if (!session) redirect(loginPathFor(LOOP_HOME));
 
@@ -79,8 +83,20 @@ export default async function LoopHome() {
   // areas they can open; loadFrontDoor settles each read on its own and never throws.
   const front = !creatorSeat && role !== 'ADMIN' ? await loadFrontDoor({ session, principal, groups, time, needsYou, executive: false }) : null;
 
+  // PROMOTE TO WORK from Home (Loop Intelligence): a person's own private situation has no page of its own,
+  // so its confirmation renders here, re-resolved inside the signed session's scope by the one service.
+  const param = (k: string) => {
+    const v = searchParams?.[k];
+    return typeof v === 'string' ? v : null;
+  };
+  const promoteOrigin = creatorSeat ? null : promoteOriginFrom(param);
+  const promoteView = promoteOrigin ? await loadPromoteView(session, promoteOrigin) : null;
+  const promoteRefused = promoteRefusalWords(param('promoteResult'));
+
   return (
     <WorkspaceShell session={session}>
+      {promoteRefused ? <StateBlock kind="attention" compact title="Promote to Work" body={promoteRefused} /> : null}
+      {promoteView ? <PromotePanel view={promoteView} returnTo="/app" /> : null}
       {creatorSeat ? (
         <CreatorHome seat={creatorSeat} time={time} />
       ) : role === 'ADMIN' ? (

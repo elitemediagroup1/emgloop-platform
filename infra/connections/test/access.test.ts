@@ -184,11 +184,20 @@ test('the deploy workflow: manual, one stage per run, environment and confirmati
     'CONNECTIONS_PRODUCTION_AI_TASKS',
     'CONNECTIONS_PRODUCTION_ALERT_EMAIL',
     'CONNECTIONS_PRODUCTION_DEPLOY_ROLE_ARN',
+    // Loop Intelligence (2026-09-26): optional worker settings, all unset by default.
+    'CONNECTIONS_PRODUCTION_INTELLIGENCE_ACTING_USERS',
+    'CONNECTIONS_PRODUCTION_INTELLIGENCE_BRIEFINGS',
+    'CONNECTIONS_PRODUCTION_INTELLIGENCE_PRODUCERS',
+    'CONNECTIONS_PRODUCTION_INTELLIGENCE_SITUATIONS',
     'CONNECTIONS_STAGING_AI_ORG_ID',
     'CONNECTIONS_STAGING_AI_PROVIDERS',
     'CONNECTIONS_STAGING_AI_TASKS',
     'CONNECTIONS_STAGING_ALERT_EMAIL',
     'CONNECTIONS_STAGING_DEPLOY_ROLE_ARN',
+    'CONNECTIONS_STAGING_INTELLIGENCE_ACTING_USERS',
+    'CONNECTIONS_STAGING_INTELLIGENCE_BRIEFINGS',
+    'CONNECTIONS_STAGING_INTELLIGENCE_PRODUCERS',
+    'CONNECTIONS_STAGING_INTELLIGENCE_SITUATIONS',
   ]);
 
   // The resolve step fails closed: 12 digits; production is never the staging or management
@@ -207,7 +216,13 @@ test('the deploy workflow: manual, one stage per run, environment and confirmati
       assert.ok(code.includes(`${local}="$(trim "$${prefix}_${name}")"`), `${stage} resolves ${local} from ${prefix}_${name}`);
     }
   }
-  assert.ok(code.includes('for v in "$role" "$alert_email" "$ai_org_id" "$ai_providers" "$ai_tasks"; do'));
+  assert.ok(code.includes('for v in "$role" "$alert_email" "$ai_org_id" "$ai_providers" "$ai_tasks" "$intel_producers" "$intel_situations" "$intel_briefings" "$intel_acting"; do'));
+  // Loop Intelligence: resolved by STAGE the same way, whitespace-refused, handed to every CDK step.
+  for (const [stage, prefix] of [['staging', 'STAGING'], ['production', 'PRODUCTION']] as const) {
+    for (const [name, local] of [['INTELLIGENCE_PRODUCERS', 'intel_producers'], ['INTELLIGENCE_SITUATIONS', 'intel_situations'], ['INTELLIGENCE_BRIEFINGS', 'intel_briefings'], ['INTELLIGENCE_ACTING_USERS', 'intel_acting']] as const) {
+      assert.ok(code.includes(`${local}="$(trim "$${prefix}_${name}")"`), `${stage} resolves ${local}`);
+    }
+  }
   assert.ok(code.includes('echo "AI_PROVIDERS=${ai_providers}"') && code.includes('echo "AI_TASKS=${ai_tasks}"'));
 
   // Credentials: the resolved role, first checked to be in the resolved account; the credentials
@@ -220,7 +235,7 @@ test('the deploy workflow: manual, one stage per run, environment and confirmati
 
   // synth runs before diff, diff before deploy; all three carry the same stage context; deploy is
   // gated on the stage's confirmation text.
-  const context = '-c "stage=$STAGE" -c "productionAccount=$PRODUCTION_ACCOUNT" -c "alertEmail=$ALERT_EMAIL" -c "aiOrganizationId=$AI_ORG_ID" -c "aiProviders=$AI_PROVIDERS" -c "aiTasks=$AI_TASKS"';
+  const context = '-c "stage=$STAGE" -c "productionAccount=$PRODUCTION_ACCOUNT" -c "alertEmail=$ALERT_EMAIL" -c "aiOrganizationId=$AI_ORG_ID" -c "aiProviders=$AI_PROVIDERS" -c "aiTasks=$AI_TASKS" -c "intelligenceProducers=$INTEL_PRODUCERS" -c "intelligenceSituations=$INTEL_SITUATIONS" -c "intelligenceBriefings=$INTEL_BRIEFINGS" -c "intelligenceActingUsers=$INTEL_ACTING_USERS"';
   for (const verb of ['synth --no-notices', 'diff --no-notices', 'deploy --no-notices --require-approval never']) {
     assert.ok(code.includes(`npx cdk ${verb} "$STACK_NAME" ${context}`), `cdk ${verb} carries the stage context`);
   }
