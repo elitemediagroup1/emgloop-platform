@@ -750,6 +750,32 @@ export class IntelligenceDigestRepository {
   }
 
   /**
+   * THE PRODUCER LOOP'S VERDICT ON ONE TARGET'S STORED READING (either scope). `markTargetStale`: a refresh
+   * established that the prior reading no longer stands (NO_EVIDENCE) or could not be completed (HELD), so
+   * a CURRENT row becomes STALE -- shown only "as of", never synthesized. `reaffirmTarget`: a refresh
+   * gathered EXACTLY the evidence the stored reading was made from (same fingerprint), so a STALE row is
+   * CURRENT again -- without a read or a model call. Each returns how many rows moved (0 or 1).
+   */
+  async markTargetStale(
+    owner: { readonly scope: 'PRINCIPAL'; readonly principal: IntelligencePrincipal } | { readonly scope: 'ORGANIZATION'; readonly organizationId: string },
+    target: { readonly domain: IntelligenceDomain; readonly subjectKind: IntelligenceSubjectKind; readonly subjectRef: string },
+  ): Promise<{ readonly moved: number }> {
+    const where = owner.scope === 'PRINCIPAL' ? { ...workScope(owner.principal), scope: 'PRINCIPAL' } : { organizationId: owner.organizationId, scope: 'ORGANIZATION', userId: null };
+    const { count } = await this.db.intelligenceDigest.updateMany({ where: { ...where, domain: target.domain, subjectKind: target.subjectKind, subjectRef: target.subjectRef, status: 'CURRENT' }, data: { status: 'STALE' } });
+    return { moved: count };
+  }
+
+  async reaffirmTarget(
+    owner: { readonly scope: 'PRINCIPAL'; readonly principal: IntelligencePrincipal } | { readonly scope: 'ORGANIZATION'; readonly organizationId: string },
+    target: { readonly domain: IntelligenceDomain; readonly subjectKind: IntelligenceSubjectKind; readonly subjectRef: string },
+    fingerprint: string,
+  ): Promise<{ readonly moved: number }> {
+    const where = owner.scope === 'PRINCIPAL' ? { ...workScope(owner.principal), scope: 'PRINCIPAL' } : { organizationId: owner.organizationId, scope: 'ORGANIZATION', userId: null };
+    const { count } = await this.db.intelligenceDigest.updateMany({ where: { ...where, domain: target.domain, subjectKind: target.subjectKind, subjectRef: target.subjectRef, status: 'STALE', fingerprint }, data: { status: 'CURRENT' } });
+    return { moved: count };
+  }
+
+  /**
    * Mark this person's CURRENT digests stale -- all in a domain, one subject, or one provider's.
    * Returns how many moved. Nothing else about the rows changes.
    */

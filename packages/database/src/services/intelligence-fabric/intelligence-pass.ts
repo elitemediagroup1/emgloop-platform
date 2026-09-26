@@ -20,7 +20,7 @@ import { runIntelligenceProducerCycle, type ProducerLoopOptions, type ProducerLo
 export interface IntelligencePassDeps {
   readonly registry: IntelligenceProducerRegistry;
   readonly queue: Pick<IntelligenceRefreshQueueRepository, 'enqueue' | 'claim' | 'complete' | 'retry' | 'hold'>;
-  readonly digests: Pick<IntelligenceDigestRepository, 'storedFingerprint' | 'upsert' | 'upsertOrganization'>;
+  readonly digests: Pick<IntelligenceDigestRepository, 'storedFingerprint' | 'upsert' | 'upsertOrganization' | 'markTargetStale' | 'reaffirmTarget'>;
   readonly leaseOwner: string;
   readonly now: () => Date;
 }

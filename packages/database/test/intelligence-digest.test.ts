@@ -116,7 +116,17 @@ test('the repository has no organization-wide read of digests and no role bypass
   const methods = [...code.matchAll(/^  async (\w+)\(/gm)].map((m) => m[1]);
   const principalMethods = ['current', 'deleteForPrincipal', 'forDomain', 'markStale', 'metadataFor', 'upsert', 'withdrawForProvider'];
   const organizationMethods = ['organizationCurrent', 'organizationForDomain', 'upsertOrganization'];
-  assert.deepEqual(methods.sort(), [...principalMethods, ...organizationMethods, 'organizationCounts', 'purgeExpired', 'storedFingerprint'].sort());
+  assert.deepEqual(methods.sort(), [...principalMethods, ...organizationMethods, 'organizationCounts', 'purgeExpired', 'storedFingerprint', 'markTargetStale', 'reaffirmTarget'].sort());
+  // The producer loop's verdicts on ONE target (review blocker 1): owner-scoped exactly like storedFingerprint,
+  // one exact target, and a move only between CURRENT and STALE -- never WITHDRAWN, never another row.
+  const verdictBody = (name: string) => code.slice(code.indexOf(`  async ${name}(`), code.indexOf('\n  }\n', code.indexOf(`  async ${name}(`)));
+  for (const name of ['markTargetStale', 'reaffirmTarget']) {
+    const body = verdictBody(name);
+    assert.match(body, /owner\.scope === 'PRINCIPAL' \? \{ \.\.\.workScope\(owner\.principal\), scope: 'PRINCIPAL' \} : \{ organizationId: owner\.organizationId, scope: 'ORGANIZATION', userId: null \}/, `${name} is owner-scoped`);
+    assert.match(body, /domain: target\.domain, subjectKind: target\.subjectKind, subjectRef: target\.subjectRef/, `${name} touches one target`);
+  }
+  assert.match(verdictBody('markTargetStale'), /status: 'CURRENT' \}, data: \{ status: 'STALE' \}/);
+  assert.match(verdictBody('reaffirmTarget'), /status: 'STALE', fingerprint \}, data: \{ status: 'CURRENT' \}/);
   const bodyOf = (name: string) => code.slice(code.indexOf(`  async ${name}(`), code.indexOf('\n  }\n', code.indexOf(`  async ${name}(`)));
   // Every PRINCIPAL method resolves its scope from the principal, and every one that reads or writes
   // rows beyond a delete names scope PRINCIPAL, so it can never touch an organization row.

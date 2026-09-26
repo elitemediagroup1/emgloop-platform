@@ -19,7 +19,7 @@ import type { IntelligenceProducerRegistry } from './producer';
 
 export interface ProducerLoopDeps {
   readonly queue: Pick<IntelligenceRefreshQueueRepository, 'claim' | 'complete' | 'retry' | 'hold'>;
-  readonly digests: Pick<IntelligenceDigestRepository, 'storedFingerprint' | 'upsert' | 'upsertOrganization'>;
+  readonly digests: Pick<IntelligenceDigestRepository, 'storedFingerprint' | 'upsert' | 'upsertOrganization' | 'markTargetStale' | 'reaffirmTarget'>;
   readonly registry: IntelligenceProducerRegistry;
   readonly leaseOwner: string;
   readonly now: () => Date;
@@ -76,16 +76,26 @@ export async function runIntelligenceProducerCycle(deps: ProducerLoopDeps, optio
   tally.claimed = claims.length;
   const backoff = options.backoffMs ?? defaultBackoff;
 
+  const ownerOf = (t: IntelligenceRefreshClaim['target']) =>
+    t.scope === 'PRINCIPAL' ? ({ scope: 'PRINCIPAL', principal: { organizationId: t.organizationId, userId: t.userId } } as const) : ({ scope: 'ORGANIZATION', organizationId: t.organizationId } as const);
+  // A refresh that ends without a reading (NO_EVIDENCE, HELD) means the prior one no longer stands: it
+  // is STALE from now on, whatever later happens to the queue row. (While a refresh is still pending or
+  // retrying, the queue row itself keeps the reading out of synthesis -- DigestSourceStateRepository.)
+  const staleTarget = (claim: IntelligenceRefreshClaim) => deps.digests.markTargetStale(ownerOf(claim.target), claim.target).catch(() => undefined);
   const hold = async (claim: IntelligenceRefreshClaim, code: string) => {
     note(code);
     if (await deps.queue.hold(claim, code)) tally.held += 1;
+    await staleTarget(claim);
   };
   const retry = async (claim: IntelligenceRefreshClaim, code: string) => {
     note(code);
     const now = deps.now();
     const r = await deps.queue.retry(claim, { outcome: code, retryAt: new Date(now.getTime() + backoff(claim.attempts)), maxAttempts: options.maxAttempts });
     if (r === 'RETRYING') tally.retried += 1;
-    else if (r === 'HELD') tally.held += 1;
+    else if (r === 'HELD') {
+      tally.held += 1;
+      await staleTarget(claim);
+    }
   };
 
   for (const claim of claims) {
@@ -99,6 +109,8 @@ export async function runIntelligenceProducerCycle(deps: ProducerLoopDeps, optio
       if (gathered.status === 'NO_EVIDENCE') {
         tally.noEvidence += 1;
         note('NO_EVIDENCE');
+        // The evidence behind any prior reading is gone: that reading no longer stands.
+        await staleTarget(claim);
         await deps.queue.complete(claim);
         continue;
       }
@@ -112,10 +124,13 @@ export async function runIntelligenceProducerCycle(deps: ProducerLoopDeps, optio
       }
 
       const t = claim.target;
-      const owner = t.scope === 'PRINCIPAL' ? ({ scope: 'PRINCIPAL', principal: { organizationId: t.organizationId, userId: t.userId } } as const) : ({ scope: 'ORGANIZATION', organizationId: t.organizationId } as const);
+      const owner = ownerOf(t);
       const stored = await deps.digests.storedFingerprint(owner, { domain: t.domain, subjectKind: t.subjectKind, subjectRef: t.subjectRef });
-      if (stored && stored.fingerprint === gathered.fingerprint && stored.status === 'CURRENT') {
-        // THE COST GATE: the input has not changed, so nothing is read and no model is called.
+      if (stored && stored.fingerprint === gathered.fingerprint && (stored.status === 'CURRENT' || stored.status === 'STALE')) {
+        // THE COST GATE: the input has not changed, so nothing is read and no model is called. A reading
+        // marked STALE by an earlier unresolved refresh is re-affirmed: this refresh gathered exactly the
+        // evidence it was made from.
+        if (stored.status === 'STALE') await deps.digests.reaffirmTarget(owner, t, gathered.fingerprint);
         tally.skippedUnchangedBeforeRead += 1;
         note('UNCHANGED_BEFORE_READ');
         await deps.queue.complete(claim);

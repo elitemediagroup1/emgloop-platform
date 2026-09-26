@@ -50,7 +50,7 @@ function claimFor(patch: Partial<IntelligenceRefreshClaim> = {}): IntelligenceRe
   };
 }
 
-function world(claims: IntelligenceRefreshClaim[], opts: { stored?: string | null; write?: string } = {}) {
+function world(claims: IntelligenceRefreshClaim[], opts: { stored?: string | null; storedStatus?: 'CURRENT' | 'STALE'; write?: string } = {}) {
   const log: string[] = [];
   const deps = (registry: IntelligenceProducerRegistry): ProducerLoopDeps => ({
     registry,
@@ -76,7 +76,15 @@ function world(claims: IntelligenceRefreshClaim[], opts: { stored?: string | nul
     },
     digests: {
       async storedFingerprint() {
-        return opts.stored ? { fingerprint: opts.stored, status: 'CURRENT', version: 1 } : null;
+        return opts.stored ? { fingerprint: opts.stored, status: opts.storedStatus ?? 'CURRENT', version: 1 } : null;
+      },
+      async markTargetStale() {
+        log.push('stale');
+        return { moved: 1 };
+      },
+      async reaffirmTarget(_o, _t, fp) {
+        log.push(`reaffirm:${fp}`);
+        return { moved: 1 };
       },
       async upsert() {
         log.push('upsert');
@@ -133,20 +141,21 @@ test('every failure path: hold what will not change, retry what may, never leak 
     const report = await runIntelligenceProducerCycle(w.deps(new IntelligenceProducerRegistry([p], [p.id])), LOOP);
     return { log: w.log, report };
   };
-  assert.deepEqual((await run(producer({ async gather() { return { status: 'NO_EVIDENCE' }; } }))).log, ['claim:WORK', 'complete:q1']);
-  assert.deepEqual((await run(producer({ async gather() { return { status: 'NOT_PERMITTED', reason: 'x' }; } }))).log, ['claim:WORK', 'hold:q1:NOT_PERMITTED']);
+  // NO_EVIDENCE and every HOLD end the refresh without a reading: the prior reading is marked STALE.
+  assert.deepEqual((await run(producer({ async gather() { return { status: 'NO_EVIDENCE' }; } }))).log, ['claim:WORK', 'stale', 'complete:q1']);
+  assert.deepEqual((await run(producer({ async gather() { return { status: 'NOT_PERMITTED', reason: 'x' }; } }))).log, ['claim:WORK', 'hold:q1:NOT_PERMITTED', 'stale']);
   assert.deepEqual((await run(producer({ async gather() { return { status: 'UNAVAILABLE', reason: 'x' }; } }))).log, ['claim:WORK', 'retry:q1:GATHER_UNAVAILABLE']);
-  assert.deepEqual((await run(producer({ async read() { return { status: 'NOT_READ', reason: 'AI_NOT_ACTIVATED', retryable: false }; } }))).log, ['claim:WORK', 'hold:q1:AI_NOT_ACTIVATED']);
+  assert.deepEqual((await run(producer({ async read() { return { status: 'NOT_READ', reason: 'AI_NOT_ACTIVATED', retryable: false }; } }))).log, ['claim:WORK', 'hold:q1:AI_NOT_ACTIVATED', 'stale']);
   assert.deepEqual((await run(producer({ async read() { return { status: 'NOT_READ', reason: 'AI_FAILED', retryable: true }; } }))).log, ['claim:WORK', 'retry:q1:AI_FAILED']);
   assert.deepEqual(
     (await run(producer({ async read() { return { status: 'READ', digest: { domain: 'WORK', subjectKind: 'DOMAIN', fingerprint: 'other' } as IntelligenceDigestInput }; } }))).log,
-    ['claim:WORK', 'hold:q1:FINGERPRINT_MISMATCH'],
+    ['claim:WORK', 'hold:q1:FINGERPRINT_MISMATCH', 'stale'],
   );
   assert.deepEqual(
     (await run(producer({ async read(_t, _c, fp) { return { status: 'READ', digest: { domain: 'CRM', subjectKind: 'DOMAIN', fingerprint: fp } as IntelligenceDigestInput }; } }))).log,
-    ['claim:WORK', 'hold:q1:TARGET_MISMATCH'],
+    ['claim:WORK', 'hold:q1:TARGET_MISMATCH', 'stale'],
   );
-  assert.deepEqual((await run(producer(), 'PRIVATE_EVIDENCE')).log, ['claim:WORK', 'upsertOrganization', 'hold:q1:PRIVATE_EVIDENCE']);
+  assert.deepEqual((await run(producer(), 'PRIVATE_EVIDENCE')).log, ['claim:WORK', 'upsertOrganization', 'hold:q1:PRIVATE_EVIDENCE', 'stale']);
   assert.deepEqual((await run(producer(), 'CONTENDED')).log, ['claim:WORK', 'upsertOrganization', 'retry:q1:CONTENDED']);
   const thrown = await run(producer({ async gather() { throw new Error('secret content in a message'); } }));
   assert.deepEqual(thrown.log, ['claim:WORK', 'retry:q1:PRODUCER_ERROR']);
@@ -156,7 +165,25 @@ test('every failure path: hold what will not change, retry what may, never leak 
 test('a claimed request whose producer is no longer active is held, never guessed at', async () => {
   const w = world([claimFor({ target: { scope: 'ORGANIZATION', organizationId: 'o', domain: 'CRM', subjectKind: 'DOMAIN', subjectRef: 'domain' } })]);
   await runIntelligenceProducerCycle(w.deps(new IntelligenceProducerRegistry([producer()], ['test.work@1'])), LOOP);
-  assert.deepEqual(w.log, ['claim:WORK', 'hold:q1:NO_ACTIVE_PRODUCER']);
+  assert.deepEqual(w.log, ['claim:WORK', 'hold:q1:NO_ACTIVE_PRODUCER', 'stale']);
+});
+
+test('an unchanged refresh of a reading marked STALE re-affirms it without a read; a retry that is not yet HELD leaves it as it is', async () => {
+  let reads = 0;
+  const w = world([claimFor()], { stored: 'fp-1', storedStatus: 'STALE' });
+  const p = producer({
+    async read(_t, _c, fp) {
+      reads += 1;
+      return { status: 'READ', digest: { domain: 'WORK', subjectKind: 'DOMAIN', fingerprint: fp } as IntelligenceDigestInput };
+    },
+  });
+  await runIntelligenceProducerCycle(w.deps(new IntelligenceProducerRegistry([p], ['test.work@1'])), LOOP);
+  assert.equal(reads, 0);
+  assert.deepEqual(w.log, ['claim:WORK', 'reaffirm:fp-1', 'complete:q1']);
+  // Retrying (attempts below the limit): the queue row itself keeps the reading out; nothing is marked.
+  const r = world([claimFor()]);
+  await runIntelligenceProducerCycle(r.deps(new IntelligenceProducerRegistry([producer({ async gather() { return { status: 'UNAVAILABLE', reason: 'x' }; } })], ['test.work@1'])), LOOP);
+  assert.deepEqual(r.log, ['claim:WORK', 'retry:q1:GATHER_UNAVAILABLE']);
 });
 
 test('the registry: ids are well formed, one active producer per target, MODEL names its task, unknown activations are reported', () => {

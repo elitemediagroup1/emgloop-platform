@@ -5,6 +5,10 @@
 //
 //   status        CURRENT (a STALE mark or a WITHDRAWN row never contributes);
 //   content       passes the participation contract (else ERROR);
+//   refresh       no unresolved refresh work for its target (PENDING, CLAIMED, retrying or HELD in the
+//                 refresh queue): a refresh Loop has asked for and not finished means Loop does not yet
+//                 know whether the stored reading still stands. (A refresh that ENDED without a reading --
+//                 NO_EVIDENCE, HELD -- marks the reading STALE, which the status rule above excludes.)
 //   freshness     `digestFreshness` (source live, evidence no newer than what the digest read, not about to
 //                 expire) says CONNECTED_SUFFICIENT or CONNECTED_PARTIAL -- `mayShowAsCurrent`.
 //
@@ -40,17 +44,20 @@ export interface SynthesisSourceState {
   readonly connectionLive: boolean;
   /** The newest evidence the source holds for this digest's subject, or null when unknown. */
   readonly sourceLastEvidenceAt: Date | null;
+  /** Whether the digest's target has refresh work the fabric has not resolved (queued, claimed, retrying, held). */
+  readonly refreshUnresolved?: boolean;
 }
 
 export type SynthesisEligibility =
   | { readonly eligible: true; readonly coverage: 'CONNECTED_SUFFICIENT' | 'CONNECTED_PARTIAL'; readonly limitations: readonly string[] }
-  | { readonly eligible: false; readonly coverage: IntelligenceCoverage; readonly reason: 'NOT_CURRENT_STATUS' | 'INVALID_CONTENT' | 'NOT_CURRENT_COVERAGE' };
+  | { readonly eligible: false; readonly coverage: IntelligenceCoverage; readonly reason: 'NOT_CURRENT_STATUS' | 'INVALID_CONTENT' | 'REFRESH_UNRESOLVED' | 'NOT_CURRENT_COVERAGE' };
 
 export function digestSynthesisEligibility(digest: SynthesisEligibilityInput, source: SynthesisSourceState, now: Date): SynthesisEligibility {
   if (digest.status !== 'CURRENT') return { eligible: false, coverage: digest.status === 'WITHDRAWN' ? 'DISCONNECTED' : 'STALE', reason: 'NOT_CURRENT_STATUS' };
   const kind = (digest.provenance as { producerKind?: unknown } | undefined)?.producerKind;
   const producerKind = kind === 'RULE' || kind === 'MODEL' || kind === 'RULE_AND_MODEL' ? kind : null;
   if (digestContentRefusals(digest.content, { scope: digest.scope, producerKind }).length > 0) return { eligible: false, coverage: 'ERROR', reason: 'INVALID_CONTENT' };
+  if (source.refreshUnresolved === true) return { eligible: false, coverage: 'STALE', reason: 'REFRESH_UNRESOLVED' };
   const coverage = digestFreshness(digest, { ...source, now });
   if (!mayShowAsCurrent(coverage)) return { eligible: false, coverage, reason: 'NOT_CURRENT_COVERAGE' };
   const own = (digest.content.limitations ?? []).filter((l): l is string => typeof l === 'string' && l.trim() !== '');

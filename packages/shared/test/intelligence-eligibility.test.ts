@@ -52,3 +52,8 @@ test('an absence is justified only by readings that are all SUFFICIENT (and at l
   assert.equal(absenceJustified(['CONNECTED_SUFFICIENT', 'CONNECTED_PARTIAL']), false);
   assert.equal(absenceJustified([]), false);
 });
+
+test('unresolved refresh work (queued, claimed, retrying, held) keeps even a CURRENT, SUFFICIENT reading out', () => {
+  assert.deepEqual(digestSynthesisEligibility(digest(), { ...LIVE, refreshUnresolved: true }, NOW), { eligible: false, coverage: 'STALE', reason: 'REFRESH_UNRESOLVED' });
+  assert.equal(digestSynthesisEligibility(digest(), { ...LIVE, refreshUnresolved: false }, NOW).eligible, true);
+});
