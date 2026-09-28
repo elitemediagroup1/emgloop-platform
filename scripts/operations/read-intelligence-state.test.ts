@@ -26,7 +26,7 @@ const hash = (v: string) => createHash('sha256').update(v).digest('hex');
 
 /** A real reader over the test double, seeded with everything this runner must never print. */
 async function world() {
-  const fake: any = makeCognitivePrisma({ also: ['organization', 'invitation', 'organizationMembership', 'crmRelationship', 'crmRelationshipEvent', 'crmParticipant'] });
+  const fake: any = makeCognitivePrisma({ also: ['organization', 'invitation', 'organizationMembership', 'crmRelationship', 'crmRelationshipEvent', 'crmParticipant', 'intelligenceRefreshRequest'] });
   const prisma = fake as PrismaClient;
   await fake.organization.create({ data: { id: 'org_live_1', name: 'Services In My City', slug: 'servicesinmycity-demo' } });
   const iam = new IamRepository(prisma);
@@ -103,7 +103,7 @@ test('every section is printed, with exactly these fields', async () => {
   const result = await runIntelligenceState({ organizationSlug: 'servicesinmycity-demo', since: '2026-09-19T00:00:00Z' }, w.deps);
   assert.equal(result.overall, 'READ');
   const events = w.out.map((l) => /^event=(\S+)/.exec(l)?.[1]);
-  for (const section of ['ORGANIZATION', 'CASES', 'CASE_LOG_SINCE_SUMMARY', 'DUPLICATES', 'WRITES', 'OUTBOX_SUMMARY', 'CREATOR', 'DELIVERY_SUMMARY', 'SUMMARY']) {
+  for (const section of ['ORGANIZATION', 'CASES', 'CASE_LOG_SINCE_SUMMARY', 'DUPLICATES', 'WRITES', 'OUTBOX_SUMMARY', 'CREATOR', 'DELIVERY_SUMMARY', 'INTELLIGENCE_REFRESH_SUMMARY', 'SUMMARY']) {
     assert.ok(events.includes(section), `${section} is printed`);
   }
   const fields = (event: string) => (w.out.find((l) => l.startsWith(`event=${event} `)) ?? '').split(' ').map((kv) => kv.slice(0, kv.indexOf('=')));
@@ -126,6 +126,65 @@ test('nothing private or identifying is printed: no title, name, entity, address
   await runIntelligenceState({ organizationSlug: 'servicesinmycity-demo', since: '2026-09-19T00:00:00Z' }, w.deps);
   const text = w.out.join('\n');
   for (const secret of [...SENSITIVE, w.matt.id, 'org_live_1', '@']) assert.equal(text.includes(secret), false, `${secret} must not be printed`);
+});
+
+/** Refresh requests carrying every private column the queue has, plus one in another organization. */
+async function seedRefreshQueue(fake: any, userId: string) {
+  const at = (m: number) => new Date(Date.UTC(2026, 8, 28, 10, m));
+  const row = (patch: Record<string, unknown>) =>
+    fake.intelligenceRefreshRequest.create({
+      data: {
+        organizationId: 'org_live_1', scope: 'ORGANIZATION', userId: null, domain: 'CAMPAIGNS', subjectKind: 'DOMAIN', subjectRef: 'campaign:Acme Insurance Group',
+        reason: 'EVIDENCE_CHANGED', sourceId: 'buyer-7781', sourceRevision: 'rev-Renewal with Dana', fingerprint: 'campaigns:fp-secret-4f1c', requestCount: 3,
+        firstRequestedAt: at(0), lastRequestedAt: at(5), notBefore: at(5), state: 'HELD', attempts: 3, leaseOwner: 'worker-lease-9', leaseExpiresAt: null,
+        lastOutcome: 'FINGERPRINT_MISMATCH', createdAt: at(0), updatedAt: at(5),
+        ...patch,
+      },
+    });
+  await row({});
+  await row({ createdAt: at(2), updatedAt: at(9), subjectRef: 'campaign:Glow Cosmetics' });
+  await row({ scope: 'PRINCIPAL', userId, domain: 'CALENDAR', state: 'PENDING', attempts: 1, lastOutcome: null, subjectRef: 'domain', createdAt: at(20), updatedAt: at(21) });
+  await row({ organizationId: 'org_other_9', domain: 'PIPELINE', lastOutcome: 'NOT_PERMITTED', subjectRef: 'other-tenant-subject' });
+}
+
+test('the refresh queue: identical requests aggregated with their HELD reason, only in the requested organization', async () => {
+  const w = await world();
+  await seedRefreshQueue(w.fake, w.matt.id);
+  await runIntelligenceState({ organizationSlug: 'servicesinmycity-demo', since: '2026-09-19T00:00:00Z' }, w.deps);
+  const refresh = w.out.filter((l) => l.startsWith('event=INTELLIGENCE_REFRESH'));
+  assert.deepEqual(refresh, [
+    'event=INTELLIGENCE_REFRESH domain=CAMPAIGNS scope=ORGANIZATION state=HELD attempts=3 reason=FINGERPRINT_MISMATCH count=2 oldestCreatedAt=2026-09-28T10:00:00.000Z latestUpdatedAt=2026-09-28T10:09:00.000Z',
+    'event=INTELLIGENCE_REFRESH domain=CALENDAR scope=PRINCIPAL state=PENDING attempts=1 reason=- count=1 oldestCreatedAt=2026-09-28T10:20:00.000Z latestUpdatedAt=2026-09-28T10:21:00.000Z',
+    'event=INTELLIGENCE_REFRESH_SUMMARY present=true requests=3 held=2 bounded=false',
+  ]);
+});
+
+test('the refresh queue never prints a user id, organization id, subject ref, source id, revision, fingerprint or lease', async () => {
+  const w = await world();
+  await seedRefreshQueue(w.fake, w.matt.id);
+  await runIntelligenceState({ organizationSlug: 'servicesinmycity-demo', since: '2026-09-19T00:00:00Z' }, w.deps);
+  const text = w.out.join('\n');
+  for (const secret of [w.matt.id, 'org_live_1', 'org_other_9', 'Acme Insurance Group', 'Glow Cosmetics', 'other-tenant-subject', 'buyer-7781', 'Renewal with Dana', 'fp-secret', 'worker-lease-9', 'EVIDENCE_CHANGED', 'NOT_PERMITTED', 'PIPELINE']) {
+    assert.equal(text.includes(secret), false, `${secret} must not be printed`);
+  }
+  // An outcome code that is not a code token prints as UNRECOGNIZED, never as itself.
+  const x = await world();
+  await x.fake.intelligenceRefreshRequest.create({ data: { organizationId: 'org_live_1', scope: 'ORGANIZATION', domain: 'CAMPAIGNS', subjectKind: 'DOMAIN', subjectRef: 'domain', reason: 'X', requestCount: 1, firstRequestedAt: NOW, lastRequestedAt: NOW, notBefore: NOW, state: 'HELD', attempts: 1, lastOutcome: 'held because Acme Insurance Group said so', createdAt: NOW, updatedAt: NOW } });
+  await runIntelligenceState({ organizationSlug: 'servicesinmycity-demo', since: '2026-09-19T00:00:00Z' }, x.deps);
+  assert.ok(x.out.some((l) => l.includes('reason=UNRECOGNIZED count=1')));
+  assert.equal(x.out.join('\n').includes('Acme'), false);
+});
+
+test('the refresh queue read selects only metadata columns, and before its migration says so', async () => {
+  const reader = readFileSync(join(__dirname, '..', '..', 'packages', 'database', 'src', 'repositories', 'intelligence-state.repository.ts'), 'utf8');
+  const select = /intelligenceRefreshRequest\.findMany\(\{[\s\S]*?select: \{([^}]*)\}/.exec(reader)?.[1] ?? '';
+  assert.deepEqual(select.split(',').map((s) => s.trim().replace(/: true$/, '')).filter(Boolean), ['domain', 'scope', 'state', 'attempts', 'lastOutcome', 'createdAt', 'updatedAt']);
+  // A database without the queue (a client generated before it): the section says absent, nothing else.
+  const fake: any = makeCognitivePrisma({ also: ['organization', 'invitation', 'organizationMembership', 'crmRelationship', 'crmRelationshipEvent', 'crmParticipant'] });
+  await fake.organization.create({ data: { id: 'org_live_1', name: 'Services In My City', slug: 'servicesinmycity-demo' } });
+  const out: string[] = [];
+  await runIntelligenceState({ organizationSlug: 'servicesinmycity-demo', since: '' }, { reader: new IntelligenceStateRepository(readOnlyClient(fake as PrismaClient)), now: () => NOW, log: (l) => void out.push(l) });
+  assert.ok(out.includes('event=INTELLIGENCE_REFRESH_SUMMARY present=false'));
 });
 
 test('a value that is not a code token prints as UNRECOGNIZED, never as itself', () => {
