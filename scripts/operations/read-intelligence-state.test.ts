@@ -187,6 +187,55 @@ test('the refresh queue read selects only metadata columns, and before its migra
   assert.ok(out.includes('event=INTELLIGENCE_REFRESH_SUMMARY present=false'));
 });
 
+const DIAGNOSIS = {
+  selected: true, digests: 3, eligibleDigests: 3, eligibleDomains: ['CALLGRID', 'CAMPAIGNS', 'PIPELINE'], ineligible: { REFRESH_UNRESOLVED: 1 },
+  domains: [
+    { domain: 'CALLGRID', digests: 1, eligible: 1, signals: 5, clusterable: 1, entityRefs: 1 },
+    { domain: 'CAMPAIGNS', digests: 1, eligible: 1, signals: 4, clusterable: 2, entityRefs: 2 },
+  ],
+  signals: 9, clusterableSignals: 3, excluded: { kind: { OPERATIONAL: 5 }, noEntity: 1 }, clusterableDomains: ['CALLGRID', 'CAMPAIGNS'],
+  entityRefs: 3, explicitLinks: 0, sharedAcrossDomains: 0, clusters: 0, unchanged: 0, wouldSynthesize: 0, reason: 'NO_SHARED_ENTITY',
+} as const;
+
+test('the situation pass diagnosis prints counts and codes only, for the requested organization', async () => {
+  const w = await world();
+  const asked: string[] = [];
+  await runIntelligenceState({ organizationSlug: 'servicesinmycity-demo', since: '' }, { ...w.deps, situations: async (organizationId) => (asked.push(organizationId), DIAGNOSIS as never) });
+  assert.deepEqual(asked, ['org_live_1'], 'the resolved organization, never a slug from input');
+  assert.deepEqual(w.out.filter((l) => l.startsWith('event=SITUATION_')), [
+    'event=SITUATION_DOMAIN domain=CALLGRID digests=1 eligible=1 signals=5 clusterable=1 entityRefs=1',
+    'event=SITUATION_DOMAIN domain=CAMPAIGNS digests=1 eligible=1 signals=4 clusterable=2 entityRefs=2',
+    'event=SITUATION_INELIGIBLE reason=REFRESH_UNRESOLVED count=1',
+    'event=SITUATION_EXCLUDED basis=KIND kind=OPERATIONAL count=5',
+    'event=SITUATION_EXCLUDED basis=NO_ENTITY kind=- count=1',
+    'event=SITUATION_PASS scope=ORGANIZATION selected=true digests=3 eligibleDigests=3 eligibleDomains=CALLGRID,CAMPAIGNS,PIPELINE signals=9 clusterableSignals=3 clusterableDomains=CALLGRID,CAMPAIGNS entityRefs=3 explicitLinks=0 sharedAcrossDomains=0 clusters=0 unchanged=0 wouldSynthesize=0 reason=NO_SHARED_ENTITY modelCalls=0',
+  ]);
+  // Absent (a reader without it): the section is simply not printed.
+  const x = await world();
+  await runIntelligenceState({ organizationSlug: 'servicesinmycity-demo', since: '' }, x.deps);
+  assert.equal(x.out.some((l) => l.startsWith('event=SITUATION_')), false);
+});
+
+test('the diagnosis cannot leak: a code field carrying text prints UNRECOGNIZED; ids and statements never appear', async () => {
+  const w = await world();
+  const hostile = { ...DIAGNOSIS, eligibleDomains: ['CALLGRID', 'provider member Acme Insurance Group'], ineligible: { 'org_live_1 said no': 1 }, excluded: { kind: { 'Please call me': 2 }, noEntity: 0 }, reason: 'Acme Insurance Group' };
+  await runIntelligenceState({ organizationSlug: 'servicesinmycity-demo', since: '' }, { ...w.deps, situations: async () => hostile as never });
+  const text = w.out.join('\n');
+  for (const secret of ['Acme', 'org_live_1', 'Please call me', w.matt.id]) assert.equal(text.includes(secret), false, secret);
+  assert.match(text, /eligibleDomains=CALLGRID,UNRECOGNIZED/);
+  assert.match(text, /reason=UNRECOGNIZED modelCalls=0/);
+});
+
+test('production wiring: the diagnosis runs on a read-only client with no runtime and no task enabled -- it cannot call a model', () => {
+  const runner = readFileSync(join(__dirname, 'read-intelligence-state.ts'), 'utf8');
+  assert.match(runner, /new SituationService\(\{ prisma: readOnlyClient\(prisma\), runtime: null, modelEnabled: \(\) => false, principalFor: async \(\) => null,/);
+  assert.match(runner, /situationService\.diagnose\(\{ scope: 'ORGANIZATION', organizationId \}\)/);
+  assert.equal(/\.pass\(/.test(runner), false, 'the runner never runs a pass');
+  const service = readFileSync(join(__dirname, '..', '..', 'packages', 'database', 'src', 'services', 'intelligence-fabric', 'situations.ts'), 'utf8');
+  const diagnose = service.slice(service.indexOf('async diagnose('), service.indexOf('  private async gather('));
+  for (const forbidden of ['runtime', 'recordCandidate', '.record(', 'modelEnabled', 'principalFor']) assert.equal(diagnose.includes(forbidden), false, `diagnose never touches ${forbidden}`);
+});
+
 test('a value that is not a code token prints as UNRECOGNIZED, never as itself', () => {
   assert.equal(token('volume-drop'), 'volume-drop');
   assert.equal(token('daily:2026-09-19..2026-09-20'), 'daily:2026-09-19..2026-09-20');

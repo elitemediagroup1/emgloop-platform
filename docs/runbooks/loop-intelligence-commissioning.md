@@ -209,6 +209,12 @@ For Loop's own records (every organization reading), the refresh is the freshnes
 - Either success also resolves that target's older HELD rows, so a fixed producer clears its own barrier on
   the next pass. There is no manual cleanup. A HELD row that no success supersedes still leaves after 7 days.
 
+**Situations make no call?** Run Read Intelligence State for the organization. `SITUATION_PASS` replays the
+organization pass read-only, up to the model call. `reason` names the first gate that stopped it:
+`NOT_SELECTED`, `NO_ELIGIBLE_DIGESTS`, `INSUFFICIENT_DOMAINS`, `NO_ELIGIBLE_SIGNALS`,
+`INSUFFICIENT_SIGNAL_DOMAINS`, `NO_SHARED_ENTITY`, `OUTSIDE_TEMPORAL_WINDOW`, `ALL_UNCHANGED` or
+`WOULD_SYNTHESIZE`. It prints counts and codes only and calls no model.
+
 **The Briefing's expected coverage.** Every domain Loop is supposed to observe for the person must be
 present and current before "nothing pressing" can appear. That set is:
 

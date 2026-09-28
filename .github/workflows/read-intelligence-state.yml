@@ -6,8 +6,8 @@
 # moment; the outbox by domain and status; whether any relationship event qualifies for the
 # creator review; delivery and subscription state; per member, calendar attendee-key coverage and
 # identity suggestions by state; and the intelligence refresh queue, aggregated by domain, scope,
-# state, attempts and hold/retry outcome code. It writes nothing (no retry, no purge, no stale
-# transition): the reader runs on a client that
+# state, attempts and hold/retry outcome code; and the organization's situation pass, diagnosed read-only
+# (it calls no model). It writes nothing (no retry, no purge, no stale transition): the reader runs on a client that
 # can only read.
 #
 # It prints Case ids, rule ids, states, times and counts. It never prints a title, a buyer,
@@ -132,4 +132,5 @@ jobs:
           echo "- \`OUTBOX\` / \`CREATOR\` / \`DELIVERIES\` / \`SUBSCRIPTION\` - what the drain has to deliver, what qualifies for the creator review, and what was delivered." >> "$GITHUB_STEP_SUMMARY"
           echo "- \`EMPLOYEE\` - per person (\`ref\`, as the cycles log it): calendar events holding attendee keys, and identity suggestions by state. Counts only." >> "$GITHUB_STEP_SUMMARY"
           echo "- \`INTELLIGENCE_REFRESH\` - refresh requests still in the queue, identical ones aggregated: domain, scope, state, attempts, \`reason\` (the last hold/retry outcome code, e.g. FINGERPRINT_MISMATCH), count, oldest createdAt, latest updatedAt. Never a user, subject, source or fingerprint." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`SITUATION_PASS\` / \`SITUATION_DOMAIN\` / \`SITUATION_EXCLUDED\` / \`SITUATION_INELIGIBLE\` - the organization Situation pass, replayed read-only up to the model call: whether the scheduled pass visits the organization, digests and eligible domains, signals entering clustering and those that can cluster (a situation kind naming an entity), entity refs, explicit links, cross-domain clusters, already-decided ones, and \`reason\` - the first gate that stops it (e.g. NO_SHARED_ENTITY). \`modelCalls=0\` always: no model is called. Counts and codes only." >> "$GITHUB_STEP_SUMMARY"
           echo "- \`bounded=true\` or \`truncated=true\` - that part is incomplete; do not act on it." >> "$GITHUB_STEP_SUMMARY"

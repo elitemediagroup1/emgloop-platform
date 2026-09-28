@@ -446,7 +446,7 @@ export { MailContentTriageService } from './services/ai-runtime/mail-content-tri
 // Loop Intelligence Phase F: connected situations, held as Cases; private ones are one person's alone.
 export { SituationRepository, SITUATION_RECORD_SCHEMA, situationRecurrenceKey } from './repositories/intelligence/situation.repository';
 export type { SituationOwner, SituationRecord, SituationView } from './repositories/intelligence/situation.repository';
-export { SituationService, situationInputsOf, situationContext } from './services/intelligence-fabric/situations';
+export { SituationService, situationInputsOf, situationContext, type SituationDiagnosis, type SituationDiagnosisReason } from './services/intelligence-fabric/situations';
 export type { SituationPorts, SituationPassReport } from './services/intelligence-fabric/situations';
 // Loop Intelligence Phase G: the Loop Briefing, stored in the person's own work_briefs.
 export { BriefingComposer, BRIEFING_RECORD_SCHEMA, BRIEFING_RULE_VERSION, readableOrganizationDomains, ruleBriefing } from './services/intelligence-fabric/briefing';

@@ -88,6 +88,7 @@ import {
 import { absentUntilMigrated } from '../../creator/until-migrated';
 import { membershipAuthority } from '../membership.repository';
 import { contentAuthorizedInTx } from '../source-content-consent';
+import { ReadOnlyViolation } from '../read-only-client';
 import { workScope, type WorkPrincipal } from '../work-state/work-principal';
 import { digestEntityRefsPresent } from './intelligence-fabric-presence';
 
@@ -437,7 +438,16 @@ export class IntelligenceDigestRepository {
    */
   private async refsPresent(): Promise<boolean> {
     const db = this.db as PrismaClient;
-    if (typeof db.$transaction !== 'function') return false;
+    let base: boolean;
+    try {
+      base = typeof db.$transaction === 'function';
+    } catch (err) {
+      // A read-only view (`readOnlyClient`) refuses every `$` member -- and is only ever built over a base
+      // client, so the probe (a plain read) may run. Anything else is not ours to guess about.
+      if (!(err instanceof ReadOnlyViolation)) throw err;
+      base = true;
+    }
+    if (!base) return false;
     return digestEntityRefsPresent(db);
   }
 
