@@ -13,6 +13,8 @@
 //
 // ONE CYCLE IS BOUNDED: at most `limit` requests, each under a lease.
 
+import { createHash } from 'node:crypto';
+
 import type { IntelligenceDigestRepository, IntelligenceDigestWriteOutcome } from '../../repositories/intelligence/intelligence-digest.repository';
 import type { IntelligenceRefreshClaim, IntelligenceRefreshQueueRepository } from '../../repositories/intelligence/intelligence-refresh-queue.repository';
 import type { IntelligenceProducerRegistry } from './producer';
@@ -35,6 +37,8 @@ export interface ProducerLoopOptions {
 
 /** What one cycle did. Counts and outcome codes only -- never a target, a subject or content. */
 export interface ProducerLoopReport {
+  /** How each attempted MODEL stage went, by bounded code (MODEL_READ, REFUSED_BY_LOOP:<codes>, ...). */
+  readonly modelStages: Readonly<Record<string, number>>;
   readonly claimed: number;
   readonly written: number;
   readonly unchanged: number;
@@ -63,14 +67,36 @@ const HOLD_REFUSALS = new Set([
   'EXPIRED_AT_WRITE',
 ]);
 
+/**
+ * The fingerprint the cost gate compares: the gathered evidence fingerprint bound to how the producer would
+ * read (its reading identity). Same prefix, so a stored row stays recognisable; no identity, no change.
+ */
+export function effectiveFingerprint(evidence: string, identity: string | null): string {
+  if (!identity) return evidence;
+  const prefix = (evidence.split(':')[0] ?? 'fp').replace(/[^A-Za-z0-9._-]/g, '').slice(0, 32) || 'fp';
+  return `${prefix}:${createHash('sha256').update(`${evidence}\n${identity}`).digest('hex')}`;
+}
+
+/**
+ * A model stage that did NOT happen for a reason that may pass (refused before any provider call, a provider
+ * failure, no principal yet): its rule reading is stored under an UNSATISFIED fingerprint, so the next pass
+ * tries the model again instead of freezing the rule reading until the evidence changes. A stage that did
+ * happen and was spent (READ, REJECTED_OUTPUT, REFUSED_BY_MODEL) satisfies the identity: no repeat call.
+ */
+function modelStageSatisfied(stage: string | undefined): boolean {
+  if (!stage) return true;
+  return stage === 'MODEL_READ' || stage === 'MODEL_NOT_ACTIVATED' || stage === 'REJECTED_OUTPUT' || stage === 'REFUSED_BY_MODEL' || stage === 'EMPTY_CONTEXT';
+}
+
 export async function runIntelligenceProducerCycle(deps: ProducerLoopDeps, options: ProducerLoopOptions): Promise<ProducerLoopReport> {
   const outcomes: Record<string, number> = {};
+  const modelStages: Record<string, number> = {};
   const tally = { claimed: 0, written: 0, unchanged: 0, skippedUnchangedBeforeRead: 0, noEvidence: 0, retried: 0, held: 0 };
   const note = (code: string) => {
     outcomes[code] = (outcomes[code] ?? 0) + 1;
   };
   const domains = deps.registry.activeDomains();
-  if (domains.length === 0) return { ...tally, outcomes };
+  if (domains.length === 0) return { ...tally, outcomes, modelStages };
 
   const claims = await deps.queue.claim({ leaseOwner: deps.leaseOwner, now: deps.now(), leaseMs: options.leaseMs, limit: options.limit, domains });
   tally.claimed = claims.length;
@@ -140,25 +166,29 @@ export async function runIntelligenceProducerCycle(deps: ProducerLoopDeps, optio
 
       const t = claim.target;
       const owner = ownerOf(t);
+      // The cost gate compares evidence AND reading configuration: a task newly activated over an unchanged
+      // rule digest is one model-backed refresh, and never a repeat after that.
+      const identity = producer.readingIdentity ? producer.readingIdentity() : null;
+      const expected = effectiveFingerprint(gathered.fingerprint, identity);
       const stored = await deps.digests.storedFingerprint(owner, { domain: t.domain, subjectKind: t.subjectKind, subjectRef: t.subjectRef });
-      if (stored && stored.fingerprint === gathered.fingerprint && (stored.status === 'CURRENT' || stored.status === 'STALE')) {
+      if (stored && stored.fingerprint === expected && (stored.status === 'CURRENT' || stored.status === 'STALE')) {
         // THE COST GATE: the input has not changed, so nothing is read and no model is called. A reading
         // marked STALE by an earlier unresolved refresh is re-affirmed: this refresh gathered exactly the
         // evidence it was made from.
-        if (stored.status === 'STALE') await deps.digests.reaffirmTarget(owner, t, gathered.fingerprint);
+        if (stored.status === 'STALE') await deps.digests.reaffirmTarget(owner, t, expected);
         tally.skippedUnchangedBeforeRead += 1;
         note('UNCHANGED_BEFORE_READ');
         await deps.queue.complete(claim);
         continue;
       }
 
-      const read = await producer.read(t, gathered.context, gathered.fingerprint, deps.now());
+      const read = await producer.read(t, gathered.context, expected, deps.now());
       if (read.status === 'NOT_READ') {
         if (read.retryable) await retry(claim, read.reason);
         else await hold(claim, read.reason);
         continue;
       }
-      if (read.digest.fingerprint !== gathered.fingerprint) {
+      if (read.digest.fingerprint !== expected) {
         // A producer must write the fingerprint it gathered, or the skip above could never fire.
         await hold(claim, 'FINGERPRINT_MISMATCH');
         continue;
@@ -167,10 +197,15 @@ export async function runIntelligenceProducerCycle(deps: ProducerLoopDeps, optio
         await hold(claim, 'TARGET_MISMATCH');
         continue;
       }
+      if (read.modelStage) modelStages[read.modelStage] = (modelStages[read.modelStage] ?? 0) + 1;
+      // A model stage that did not happen for a passing reason: store the rule reading as UNSATISFIED, so the
+      // next pass tries again (it cannot equal `expected`), while it is honestly a RULE reading meanwhile.
+      const fingerprint = modelStageSatisfied(read.modelStage) ? expected : effectiveFingerprint(gathered.fingerprint, `${identity ?? ''};unsatisfied`);
+      const digest = { ...read.digest, fingerprint };
       const written: IntelligenceDigestWriteOutcome =
         t.scope === 'PRINCIPAL'
-          ? await deps.digests.upsert({ organizationId: t.organizationId, userId: t.userId }, { ...read.digest, scope: 'PRINCIPAL' })
-          : await deps.digests.upsertOrganization(t.organizationId, { ...read.digest, scope: 'ORGANIZATION' });
+          ? await deps.digests.upsert({ organizationId: t.organizationId, userId: t.userId }, { ...digest, scope: 'PRINCIPAL' })
+          : await deps.digests.upsertOrganization(t.organizationId, { ...digest, scope: 'ORGANIZATION' });
       if (written.outcome === 'WRITTEN' || written.outcome === 'UNCHANGED') {
         if (written.outcome === 'WRITTEN') tally.written += 1;
         else tally.unchanged += 1;
@@ -186,5 +221,5 @@ export async function runIntelligenceProducerCycle(deps: ProducerLoopDeps, optio
       await retry(claim, 'PRODUCER_ERROR').catch(() => undefined);
     }
   }
-  return { ...tally, outcomes };
+  return { ...tally, outcomes, modelStages };
 }

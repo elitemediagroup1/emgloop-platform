@@ -19,6 +19,7 @@
 
 import {
   INTELLIGENCE_DOMAIN_SUBJECT_REF,
+  validateAiContextPackage,
   type AiContextItem,
   type AiSupportedEvidence,
   type AiTaskDefinition,
@@ -35,7 +36,7 @@ import type { IntelligenceDigestInput } from '../../repositories/intelligence/in
 import type { IntelligenceRefreshTarget } from '../../repositories/intelligence/intelligence-refresh-queue.repository';
 import type { AiPrincipal } from '../ai-runtime/gateway';
 import type { DomainReadingService } from '../ai-runtime/domain-reading.service';
-import type { DomainReadingFraming } from '../ai-runtime/templates/domain-reading';
+import { DOMAIN_READING_TEMPLATE_VERSION, type DomainReadingFraming } from '../ai-runtime/templates/domain-reading';
 import type { IntelligenceGatherResult, IntelligenceProducer, IntelligenceReadResult } from './producer';
 
 /** What a rule reading says. Signals may be MEASURED (with a metric) or OBSERVED record facts. */
@@ -98,6 +99,12 @@ export function domainProducer<C>(spec: DomainProducerSpec<C>, ports: DomainKitP
     kind: spec.model ? 'RULE_AND_MODEL' : 'RULE',
     taskId: spec.model?.task.taskId ?? null,
     gather: (target, now) => spec.gather(target, now),
+    readingIdentity: () =>
+      !spec.model
+        ? 'rule'
+        : ports.reader && ports.modelEnabled(spec.model.task.taskId)
+          ? `model:${spec.model.task.taskId}@${spec.model.task.version}/${spec.model.task.outputSchemaId}/${DOMAIN_READING_TEMPLATE_VERSION}`
+          : `rule;model-off:${spec.model.task.taskId}`,
     ...(spec.discover ? { discover: (now: Date) => spec.discover!(now) } : {}),
     async read(target, ctx, fingerprint, now): Promise<IntelligenceReadResult> {
       const rule = spec.rule(ctx, now);
@@ -108,17 +115,26 @@ export function domainProducer<C>(spec: DomainProducerSpec<C>, ports: DomainKitP
       let producerKind: 'RULE' | 'RULE_AND_MODEL' = 'RULE';
       let aiInvocationId: string | null = null;
       let taskVersion: string | null = null;
+      let modelStage: string | undefined;
       const limitations = [...rule.limitations];
+      if (spec.model && !(ports.reader && ports.modelEnabled(spec.model.task.taskId))) modelStage = 'MODEL_NOT_ACTIVATED';
       if (spec.model && ports.reader && ports.modelEnabled(spec.model.task.taskId)) {
         const principal = await ports.principalFor(target);
         const built = spec.model.context(ctx, rule);
+        if (!principal) modelStage = 'NO_PRINCIPAL';
+        else if (built.items.length === 0) modelStage = 'EMPTY_CONTEXT';
         if (principal && built.items.length > 0) {
-          const answer = await ports.reader.read(principal, {
-            task: spec.model.task,
-            framing: spec.model.framing,
-            context: { organizationId: principal.organizationId, viewerUserId: principal.userId, taskId: spec.model.task.taskId, items: [...built.items], sensitivityCeiling: spec.model.task.sensitivityCeiling },
-            evidence: built.evidence,
-          });
+          // Every block is minted INSIDE the organization it is read in (`<org>::<id>`), which the gateway's
+          // context validation requires: without it every call was refused before any reservation.
+          const org = principal.organizationId;
+          const items = built.items.map((i) => (i.blockId.startsWith(`${org}::`) ? i : { ...i, blockId: `${org}::${i.blockId}` }));
+          const context = { organizationId: org, viewerUserId: principal.userId, taskId: spec.model.task.taskId, items, sensitivityCeiling: spec.model.task.sensitivityCeiling };
+          // Checked here too, so a refusal is named (the gateway reports only CONTEXT_REFUSED) and costs nothing.
+          const contextRefusals = validateAiContextPackage(context);
+          const answer = contextRefusals.length > 0
+            ? ({ outcome: 'CONTEXT_REFUSED', codes: contextRefusals } as const)
+            : await ports.reader.read(principal, { task: spec.model.task, framing: spec.model.framing, context, evidence: built.evidence });
+          modelStage = modelStageCode(answer);
           if (answer.outcome === 'READ') {
             statement = answer.reading.reading.statement;
             status = answer.reading.reading.status;
@@ -166,7 +182,30 @@ export function domainProducer<C>(spec: DomainProducerSpec<C>, ports: DomainKitP
         fingerprint,
         generatedAt: now,
       };
-      return { status: 'READ', digest };
+      return { status: 'READ', digest, ...(modelStage ? { modelStage } : {}) };
     },
   };
+}
+
+const CODE = /^[A-Z][A-Z0-9_]{0,47}$/;
+const safe = (c: unknown) => (typeof c === 'string' && CODE.test(c) ? c : 'OTHER');
+
+/** A bounded, content-free code for how a model stage went. Never an id, a subject, content or provider text. */
+export function modelStageCode(answer: { readonly outcome: string; readonly codes?: readonly string[]; readonly failure?: string }): string {
+  switch (answer.outcome) {
+    case 'READ':
+      return 'MODEL_READ';
+    case 'CONTEXT_REFUSED':
+      return `CONTEXT_REFUSED:${[...new Set((answer.codes ?? []).map(safe))].sort().slice(0, 4).join('+')}`;
+    case 'REFUSED_BY_LOOP':
+      return `REFUSED_BY_LOOP:${[...new Set((answer.codes ?? []).map(safe))].sort().slice(0, 4).join('+')}`;
+    case 'REJECTED_OUTPUT':
+      return 'REJECTED_OUTPUT';
+    case 'REFUSED_BY_MODEL':
+      return 'REFUSED_BY_MODEL';
+    case 'FAILED':
+      return `FAILED:${safe(answer.failure)}`;
+    default:
+      return 'OTHER';
+  }
 }

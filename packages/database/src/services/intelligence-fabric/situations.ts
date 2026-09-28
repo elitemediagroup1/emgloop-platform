@@ -111,9 +111,10 @@ export function situationInputsOf(digests: readonly IntelligenceDigestRecord[], 
 }
 
 /** The context package and grounding evidence for one cluster (the SAME for synthesis and verification). */
-export function situationContext(cluster: SituationClusterCandidate, open: readonly SituationView[], audience: 'ORGANIZATION' | 'PRINCIPAL', readUnder: { resource: string; action: 'view' }) {
+export function situationContext(cluster: SituationClusterCandidate, open: readonly SituationView[], audience: 'ORGANIZATION' | 'PRINCIPAL', readUnder: { resource: string; action: 'view' }, organizationId: string) {
   const items: AiContextItem[] = cluster.items.map((item, i) => ({
-    blockId: `s${i}`,
+    // Minted inside the organization (`<org>::`): the gateway refuses any other block before reserving.
+    blockId: `${organizationId}::s${i}`,
     kind: 'STRUCTURED',
     trust: 'UNTRUSTED_INPUT',
     sourceRef: item.ref,
@@ -213,7 +214,7 @@ export class SituationService {
         report.notAsked += 1;
         continue;
       }
-      const { items, evidence, offered } = situationContext(cluster, open, owner.scope, synthTask.requires[0]!);
+      const { items, evidence, offered } = situationContext(cluster, open, owner.scope, synthTask.requires[0]!, owner.organizationId);
       const context = { organizationId: owner.organizationId, viewerUserId: principal.userId, taskId: synthTask.taskId, items, sensitivityCeiling: synthTask.sensitivityCeiling };
       const synth = await this.ports.runtime.run(principal, {
         task: synthTask,

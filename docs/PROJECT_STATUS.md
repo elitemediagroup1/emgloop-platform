@@ -2438,6 +2438,34 @@ worker is redeployed on it, and the runtime has been verified in production.
 
 Blueprint: https://claude.ai/artifact/VZuKzXAmCpc2WZsQR32gDS
 
+## Loop Intelligence — domain model commissioning fix — IN REVIEW (draft PR, branch `fix/domain-model-commissioning`, off main `3df1716`)
+
+**Production (2026-09-28):**
+- #341 merged, migrated and deployed.
+- Rule producers are active, the acting operator is set, and nine AI tasks are active.
+- Situations, Briefing, Mail and OpenAI are OFF.
+
+After about 12 hours, every `*.domain.reading` task showed 0 ledger runs, including Calendar, which had
+written a fresh digest after activation.
+
+**Root cause (reproduced through the real gateway):** domain model contexts minted block ids without the
+`<org>::` prefix. The gateway's context validation refused them (`CROSS_ORGANIZATION_BLOCK` →
+`CONTEXT_REFUSED`) before any reservation, and the domain kit silently wrote a RULE digest.
+
+**Second defect:** the loop's cost gate compared the evidence fingerprint only, so activating a task never
+upgraded an existing rule digest.
+
+**Fixed:**
+- Block ids are minted in the organization (domain kit; also situations and the Briefing, which are still
+  OFF).
+- Model stages report bounded outcome codes (`modelStages` in the loop report and the worker
+  `intelligence_pass` log).
+- The cost gate compares evidence bound to the reading identity. That gives one model-backed refresh on
+  activation and none after, disabling is honest, and passing refusals are retried.
+
+**Next (Matt):** review, merge, redeploy the worker. Then read back `modelStages` (`MODEL_READ`),
+`ai_invocations` rows in BACKGROUND and `RULE_AND_MODEL` provenance before enabling Situations.
+
 ## Loop Intelligence — COMPLETE BUILD (Phases A–G) — IN REVIEW (draft PR #341, branch `feat/loop-intelligence-fabric`, off main `d70f737`) · NOTHING COMMISSIONED
 
 **Built, in one draft PR with one commit per phase:**

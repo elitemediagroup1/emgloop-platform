@@ -253,10 +253,11 @@ export function ruleBriefing(artifacts: readonly BriefingArtifact[], gaps: reado
 /** An absence conclusion in composed prose, refused unless the coverage justifies it. */
 const ABSENCE_CLAIM = /\b(nothing (is |needs? |to )?(pressing|urgent|needs you|to do|waiting)|all clear|no (open |pressing )?(issues|action needed)|you('| a)re (all )?caught up|quiet day)\b/i;
 
-function contextOf(artifacts: readonly BriefingArtifact[]) {
+function contextOf(artifacts: readonly BriefingArtifact[], organizationId: string) {
   const read = AI_TASK_LOOP_BRIEFING.requires[0]!;
   const items: AiContextItem[] = artifacts.map((a, i) => ({
-    blockId: `a${i}`,
+    // Minted inside the organization (`<org>::`): the gateway refuses any other block before reserving.
+    blockId: `${organizationId}::a${i}`,
     kind: 'STRUCTURED',
     trust: 'UNTRUSTED_INPUT',
     sourceRef: a.ref,
@@ -334,7 +335,7 @@ export class BriefingComposer {
 
     let composed: { headline: string; lines: BriefingLine[]; composer: 'MODEL' | 'RULE'; limitations: readonly string[]; invocationId?: string; providerId?: string; reason?: string } | null = null;
     if (modelOn && artifacts.length > 0) {
-      const { items, evidence } = contextOf(artifacts);
+      const { items, evidence } = contextOf(artifacts, principal.organizationId);
       const result = await this.ports.runtime!.run(principal, {
         task: AI_TASK_LOOP_BRIEFING,
         context: { organizationId: principal.organizationId, viewerUserId: principal.userId, taskId: AI_TASK_LOOP_BRIEFING.taskId, items, sensitivityCeiling: AI_TASK_LOOP_BRIEFING.sensitivityCeiling },

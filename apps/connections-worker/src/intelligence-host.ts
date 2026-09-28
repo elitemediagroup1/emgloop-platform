@@ -124,7 +124,7 @@ export async function createIntelligenceHost(
             briefingTally[r.outcome] = (briefingTally[r.outcome] ?? 0) + 1;
           }
         }
-        log('intelligence_pass', { situations: situationTally, briefings: briefingTally, active: report.activeProducers, discovered: report.discovered, enqueued: report.enqueued, refused: report.refused, discoveryFailures: report.discoveryFailures, ...(report.cycle ? { claimed: report.cycle.claimed, written: report.cycle.written, unchanged: report.cycle.unchanged, skipped: report.cycle.skippedUnchangedBeforeRead, retried: report.cycle.retried, held: report.cycle.held } : {}) });
+        log('intelligence_pass', { situations: situationTally, briefings: briefingTally, active: report.activeProducers, discovered: report.discovered, enqueued: report.enqueued, refused: report.refused, discoveryFailures: report.discoveryFailures, ...(report.cycle ? { claimed: report.cycle.claimed, written: report.cycle.written, unchanged: report.cycle.unchanged, skipped: report.cycle.skippedUnchangedBeforeRead, retried: report.cycle.retried, held: report.cycle.held, modelStages: report.cycle.modelStages } : {}) });
       } catch (err) {
         log('intelligence_pass_error', { name: (err as Error)?.name ?? 'error' });
       } finally {

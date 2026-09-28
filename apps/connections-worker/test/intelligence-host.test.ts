@@ -33,4 +33,6 @@ test('the worker schedules the intelligence timer only when the host says so, an
   // Counts and codes only in the log line: never an organization or a person.
   const logLine = host.slice(host.indexOf("log('intelligence_pass'"), host.indexOf("log('intelligence_pass'") + 600);
   assert.doesNotMatch(logLine, /organizationId|userId|subjectRef/);
+  // Why a domain model stage did or did not run, as bounded codes (2026-09-28 commissioning defect).
+  assert.match(logLine, /modelStages: report\.cycle\.modelStages/);
 });
