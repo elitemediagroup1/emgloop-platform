@@ -139,6 +139,38 @@ test('unchanged input is skipped BEFORE the read: the producer (and any model) i
   assert.deepEqual(w.log, ['claim:WORK', 'complete:q1']);
 });
 
+test('superseded HELD rows are resolved only after a successful write or re-affirm; a failed resolve keeps the barrier and never turns the completed refresh into a retry', async () => {
+  const runWith = async (opts: { stored?: string; storedStatus?: 'CURRENT' | 'STALE'; write?: string }, resolve: (target: unknown, o: { fingerprint: string }) => Promise<{ resolved: number }>) => {
+    const w = world([claimFor()], opts);
+    const seen: string[] = [];
+    const deps = w.deps(new IntelligenceProducerRegistry([producer()], ['test.work@1']));
+    const queue = { ...deps.queue, resolveSupersededHeld: async (t: never, o: { fingerprint: string; refreshStartedAt: Date; now: Date }) => (seen.push(o.fingerprint), resolve(t, o)) };
+    const report = await runIntelligenceProducerCycle({ ...deps, queue }, LOOP);
+    return { log: w.log, report, seen };
+  };
+  const ok = async () => ({ resolved: 2 });
+  // Written: resolved after completion, with the fingerprint written.
+  const written = await runWith({}, ok);
+  assert.deepEqual(written.log, ['claim:WORK', 'upsertOrganization', 'complete:q1']);
+  assert.deepEqual(written.seen, ['fp-1']);
+  assert.equal(written.report.outcomes.SUPERSEDED_HELD_RESOLVED, 2);
+  // Unchanged-before-read over a STALE reading: re-affirmed, then resolved.
+  const reaffirmed = await runWith({ stored: 'fp-1', storedStatus: 'STALE' }, ok);
+  assert.deepEqual(reaffirmed.log, ['claim:WORK', 'reaffirm:fp-1', 'complete:q1']);
+  assert.deepEqual(reaffirmed.seen, ['fp-1']);
+  // A refused write: never asked.
+  const refused = await runWith({ write: 'INVALID_ENTITY_REFS' }, ok);
+  assert.deepEqual(refused.seen, []);
+  assert.deepEqual(refused.log, ['claim:WORK', 'upsertOrganization', 'stale', 'hold:q1:INVALID_ENTITY_REFS']);
+  // A resolve that throws: the refresh stays completed, the barrier stays, a code is noted (no message).
+  const failed = await runWith({}, async () => {
+    throw new Error('serialization failure on org_1');
+  });
+  assert.deepEqual(failed.log, ['claim:WORK', 'upsertOrganization', 'complete:q1'], 'not retried, not held');
+  assert.equal(failed.report.outcomes.SUPERSEDED_HELD_KEPT, 1);
+  assert.equal(JSON.stringify(failed.report).includes('org_1'), false);
+});
+
 test('every failure path: hold what will not change, retry what may, never leak a message', async () => {
   const run = async (p: IntelligenceProducer<unknown>, write?: string) => {
     const w = world([claimFor()], { write });

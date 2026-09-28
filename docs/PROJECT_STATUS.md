@@ -2438,29 +2438,31 @@ worker is redeployed on it, and the runtime has been verified in production.
 
 Blueprint: https://claude.ai/artifact/VZuKzXAmCpc2WZsQR32gDS
 
-## Loop Intelligence — Calendar domain reading validation fix — IN REVIEW (draft PR #344, branch `fix/calendar-domain-reading-validation`, off main `a80c03d`)
+## Loop Intelligence — Campaigns INVALID_ENTITY_REFS fix — IN REVIEW (draft PR #346, branch `fix/campaigns-entity-refs`, off main `55d14e3`)
 
-**Production (2026-09-28, after #342):**
-- Domain model readings reach Anthropic. CallGrid, campaigns and pipeline each ran 1 and answered 1.
-- `calendar.domain.reading` ran 3 and answered 0 (OUTPUT_INVALID 3).
+**Production (2026-09-28):**
+- Calendar, CallGrid, Campaigns and Pipeline model readings answer (#342, #344 merged).
+- Campaigns: 1 STALE digest, and 3 refresh requests `HELD INVALID_ENTITY_REFS` (read with #345).
 - Situations, Briefing, Mail and OpenAI are OFF.
 
-**Root cause (reproduced through the real gateway and contract):** template v1 rule 5 told the model to
-write `occurredAt`/`dueAt` as a bare `YYYY-MM-DD`. The signal contract accepts only a UTC instant, so
-every dated signal was refused (`BAD_INSTANT` → `UNSUPPORTED_DATE_IN_TEXT`). Calendar is the only activated
-domain whose sources carry instants, so it is the only one whose answers date their signals.
+**Root cause (reproduced on the real repository):** `campaignsRule` named a campaign twice in the digest's
+`entityRefs` when it both moved at least 20% and sold nothing. The digest write refuses a repeated reference
+(`DUPLICATE_KEY` → `INVALID_ENTITY_REFS`), and the loop holds that refusal. Each such pass had already paid
+for the Campaigns model call.
 
 **Fixed:**
-- Template v2: the instants shape, no clock times, no quotation marks. Schema descriptions only; the
-  schema is still portable.
-- Calendar supplies the day's counts (`work_events:day`) and each meeting's start and end instants.
-- `modelStages` now reads `REJECTED_OUTPUT:<codes>`.
-- A rejected answer backs its subject off for 24 hours per task and template version (read from the AI
-  ledger).
+- Each campaign is named once.
+- Signal keys are always valid and distinct. A key that was already valid is unchanged; an upper-case or
+  over-long campaign id gets a hashed key. This latent `BAD_KEY` defect would otherwise have been refused
+  next as `INVALID_CONTENT`.
 
-**Next (Matt):** review, merge, redeploy the worker. The v2 template is a new reading identity, so each
-activated domain digest makes exactly one refresh call on the next pass. Then read back
-`modelStages` and `ai_invocations.rejectionCodes` for `calendar.domain.reading`.
+**Recovery (no cleanup), self-healing:** a successful refresh (write or re-affirm) resolves the HELD rows of
+its exact target that it supersedes. This runs in one serializable transaction that re-checks the reading
+is CURRENT. The next scheduled pass therefore writes Campaigns CURRENT and clears its 3 HELD rows. Refusals,
+failures, enqueue and claim never clear a barrier. Genuinely unresolved HELD rows keep the 7-day retention.
+
+**Next (Matt):** review, merge, redeploy the worker. Then run Read Intelligence State and check the Campaigns
+digest is CURRENT and no new HELD rows appear.
 
 ## Loop Intelligence — COMPLETE BUILD (Phases A–G) — IN REVIEW (draft PR #341, branch `feat/loop-intelligence-fabric`, off main `d70f737`) · NOTHING COMMISSIONED
 

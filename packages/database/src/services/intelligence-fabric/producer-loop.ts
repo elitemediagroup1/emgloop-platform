@@ -20,7 +20,7 @@ import type { IntelligenceRefreshClaim, IntelligenceRefreshQueueRepository } fro
 import type { IntelligenceProducerRegistry } from './producer';
 
 export interface ProducerLoopDeps {
-  readonly queue: Pick<IntelligenceRefreshQueueRepository, 'claim' | 'complete' | 'retry' | 'hold'>;
+  readonly queue: Pick<IntelligenceRefreshQueueRepository, 'claim' | 'complete' | 'retry' | 'hold'> & Partial<Pick<IntelligenceRefreshQueueRepository, 'resolveSupersededHeld'>>;
   readonly digests: Pick<IntelligenceDigestRepository, 'storedFingerprint' | 'upsert' | 'upsertOrganization' | 'markTargetStale' | 'reaffirmTarget'>;
   readonly registry: IntelligenceProducerRegistry;
   readonly leaseOwner: string;
@@ -137,7 +137,24 @@ export async function runIntelligenceProducerCycle(deps: ProducerLoopDeps, optio
     else if (r === 'HELD') tally.held += 1;
   };
 
+  /**
+   * After a SUCCESSFUL refresh only (written, unchanged-and-current, or re-affirmed): HELD requests for the
+   * exact same target that this refresh supersedes are resolved, in one transaction that re-checks the
+   * CURRENT reading (the queue repository). A failure leaves the barrier up (fail closed) and never turns the
+   * completed refresh into a retry. Never on enqueue or claim, and never after a refusal or a failure.
+   */
+  const resolveSuperseded = async (target: IntelligenceRefreshClaim['target'], fingerprint: string, refreshStartedAt: Date) => {
+    if (!deps.queue.resolveSupersededHeld) return;
+    try {
+      const { resolved } = await deps.queue.resolveSupersededHeld(target, { fingerprint, refreshStartedAt, now: deps.now() });
+      if (resolved > 0) outcomes.SUPERSEDED_HELD_RESOLVED = (outcomes.SUPERSEDED_HELD_RESOLVED ?? 0) + resolved;
+    } catch {
+      note('SUPERSEDED_HELD_KEPT');
+    }
+  };
+
   for (const claim of claims) {
+    const refreshStartedAt = deps.now();
     try {
       const producer = deps.registry.producerFor(claim.target);
       if (!producer) {
@@ -181,6 +198,9 @@ export async function runIntelligenceProducerCycle(deps: ProducerLoopDeps, optio
         tally.skippedUnchangedBeforeRead += 1;
         note('UNCHANGED_BEFORE_READ');
         await deps.queue.complete(claim);
+        // The stored reading stands for this evidence. (A re-affirm that did not land leaves it STALE, and the
+        // repository's CURRENT check then resolves nothing.)
+        await resolveSuperseded(t, expected, refreshStartedAt);
         continue;
       }
 
@@ -213,6 +233,7 @@ export async function runIntelligenceProducerCycle(deps: ProducerLoopDeps, optio
         else tally.unchanged += 1;
         note(written.outcome);
         await deps.queue.complete(claim);
+        await resolveSuperseded(t, fingerprint, refreshStartedAt);
       } else if (HOLD_REFUSALS.has(written.refusal)) {
         await hold(claim, written.refusal);
       } else {

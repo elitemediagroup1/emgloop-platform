@@ -14,6 +14,8 @@
 // Coverage: if the organization's call record starts inside the prior window, there is no comparison
 // (a start is not a change), and the reading says so.
 
+import { createHash } from 'node:crypto';
+
 import type { CallDimensionAggregate, CallWindowAggregate, MarketplaceCallRepository } from '../../../repositories/marketplace-call.repository';
 import { AI_TASK_CALLGRID_DOMAIN_READING, AI_TASK_CAMPAIGNS_DOMAIN_READING, type IntelligenceSignal } from '@emgloop/shared';
 
@@ -115,6 +117,19 @@ export function callgridRule(ctx: CallsContext, now: Date): RuleReading {
   };
 }
 
+/**
+ * A signal key for one campaign: the established `prefix.basis` form whenever that is already a valid key
+ * (lower-case, at most 64 characters, nothing cut), so existing keys do not move. Otherwise -- a campaign id
+ * with upper-case letters, or one too long to fit -- a lower-cased, shortened form plus a hash of the exact
+ * id, so the key is valid (the digest write refuses BAD_KEY as INVALID_CONTENT) and two campaigns can never
+ * share one (DUPLICATE_KEY).
+ */
+function campaignSignalKey(prefix: string, basis: string, exact: string, cut: boolean): string {
+  const key = `${prefix}.${basis}`.replace(/[^A-Za-z0-9._-]/g, '_');
+  if (!cut && key.length <= 64 && key === key.toLowerCase()) return key;
+  return `${key.toLowerCase().slice(0, 53)}.${createHash('sha256').update(exact).digest('hex').slice(0, 10)}`;
+}
+
 function byKey(rows: readonly CallDimensionAggregate[]): Map<string, CallDimensionAggregate> {
   return new Map(rows.map((r) => [r.key, r]));
 }
@@ -126,7 +141,11 @@ export function campaignsRule(ctx: CallsContext, now: Date): RuleReading {
   const signals: IntelligenceSignal[] = [
     { key: 'active-campaigns', kind: 'OPERATIONAL', knowledge: 'MEASURED', statement: `${plural(current.length, 'campaign')} carried calls in the last ${WINDOW_DAYS} days.`, evidenceRefs: [WINDOW_REF], metric: { name: 'active_campaigns', value: current.length, unit: 'count' }, asOf },
   ];
+  // The digest names each campaign ONCE, however many of its signals are about it: a campaign that moved
+  // sharply AND sold nothing is one entity with two signals. (A repeated reference is refused by the digest
+  // write as INVALID_ENTITY_REFS -- production, 2026-09-28: every such refresh was HELD.)
   const entityRefs: string[] = [];
+  const name = (ref: string) => void (entityRefs.includes(ref) || entityRefs.push(ref));
   const moves: { ref: string; change: number; row: CallDimensionAggregate; before: number }[] = [];
   if (ctx.prior) {
     for (const row of current) {
@@ -142,9 +161,9 @@ export function campaignsRule(ctx: CallsContext, now: Date): RuleReading {
   }
   moves.sort((a, b) => Math.abs(b.change) * b.before - Math.abs(a.change) * a.before);
   for (const m of moves.slice(0, 6)) {
-    entityRefs.push(m.ref);
+    name(m.ref);
     signals.push({
-      key: `campaign.${m.ref.slice(-40)}`.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 64),
+      key: campaignSignalKey('campaign', m.ref.slice(-40), m.ref, m.ref.length - m.ref.lastIndexOf(':') - 1 > 40),
       kind: m.change === -100 ? 'QUIET' : m.change < 0 ? 'RISK' : 'CHANGE',
       knowledge: 'OBSERVED',
       statement: m.change === -100 ? `A campaign that carried ${m.before} calls the week before carried none this week.` : `A campaign’s calls are ${m.change < 0 ? 'down' : 'up'} ${Math.abs(m.change)}% (${m.before} to ${m.row.calls}).`,
@@ -158,8 +177,8 @@ export function campaignsRule(ctx: CallsContext, now: Date): RuleReading {
   for (const r of unsold) {
     const ref = memberRef('campaign', r.key);
     if (!ref) continue;
-    entityRefs.push(ref);
-    signals.push({ key: `unsold.${r.key}`.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 64), kind: 'RISK', knowledge: 'OBSERVED', statement: `A campaign carried ${r.calls} calls and none were billable.`, entities: [ref], evidenceRefs: [WINDOW_REF], severity: 'HIGH', asOf });
+    name(ref);
+    signals.push({ key: campaignSignalKey('unsold', r.key, ref, false), kind: 'RISK', knowledge: 'OBSERVED', statement: `A campaign carried ${r.calls} calls and none were billable.`, entities: [ref], evidenceRefs: [WINDOW_REF], severity: 'HIGH', asOf });
   }
   const high = signals.filter((s) => s.severity === 'HIGH').length;
   return {
