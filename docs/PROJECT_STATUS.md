@@ -2438,33 +2438,29 @@ worker is redeployed on it, and the runtime has been verified in production.
 
 Blueprint: https://claude.ai/artifact/VZuKzXAmCpc2WZsQR32gDS
 
-## Loop Intelligence — domain model commissioning fix — IN REVIEW (draft PR, branch `fix/domain-model-commissioning`, off main `3df1716`)
+## Loop Intelligence — Calendar domain reading validation fix — IN REVIEW (draft PR #344, branch `fix/calendar-domain-reading-validation`, off main `a80c03d`)
 
-**Production (2026-09-28):**
-- #341 merged, migrated and deployed.
-- Rule producers are active, the acting operator is set, and nine AI tasks are active.
+**Production (2026-09-28, after #342):**
+- Domain model readings reach Anthropic. CallGrid, campaigns and pipeline each ran 1 and answered 1.
+- `calendar.domain.reading` ran 3 and answered 0 (OUTPUT_INVALID 3).
 - Situations, Briefing, Mail and OpenAI are OFF.
 
-After about 12 hours, every `*.domain.reading` task showed 0 ledger runs, including Calendar, which had
-written a fresh digest after activation.
-
-**Root cause (reproduced through the real gateway):** domain model contexts minted block ids without the
-`<org>::` prefix. The gateway's context validation refused them (`CROSS_ORGANIZATION_BLOCK` →
-`CONTEXT_REFUSED`) before any reservation, and the domain kit silently wrote a RULE digest.
-
-**Second defect:** the loop's cost gate compared the evidence fingerprint only, so activating a task never
-upgraded an existing rule digest.
+**Root cause (reproduced through the real gateway and contract):** template v1 rule 5 told the model to
+write `occurredAt`/`dueAt` as a bare `YYYY-MM-DD`. The signal contract accepts only a UTC instant, so
+every dated signal was refused (`BAD_INSTANT` → `UNSUPPORTED_DATE_IN_TEXT`). Calendar is the only activated
+domain whose sources carry instants, so it is the only one whose answers date their signals.
 
 **Fixed:**
-- Block ids are minted in the organization (domain kit; also situations and the Briefing, which are still
-  OFF).
-- Model stages report bounded outcome codes (`modelStages` in the loop report and the worker
-  `intelligence_pass` log).
-- The cost gate compares evidence bound to the reading identity. That gives one model-backed refresh on
-  activation and none after, disabling is honest, and passing refusals are retried.
+- Template v2: the instants shape, no clock times, no quotation marks. Schema descriptions only; the
+  schema is still portable.
+- Calendar supplies the day's counts (`work_events:day`) and each meeting's start and end instants.
+- `modelStages` now reads `REJECTED_OUTPUT:<codes>`.
+- A rejected answer backs its subject off for 24 hours per task and template version (read from the AI
+  ledger).
 
-**Next (Matt):** review, merge, redeploy the worker. Then read back `modelStages` (`MODEL_READ`),
-`ai_invocations` rows in BACKGROUND and `RULE_AND_MODEL` provenance before enabling Situations.
+**Next (Matt):** review, merge, redeploy the worker. The v2 template is a new reading identity, so each
+activated domain digest makes exactly one refresh call on the next pass. Then read back
+`modelStages` and `ai_invocations.rejectionCodes` for `calendar.domain.reading`.
 
 ## Loop Intelligence — COMPLETE BUILD (Phases A–G) — IN REVIEW (draft PR #341, branch `feat/loop-intelligence-fabric`, off main `d70f737`) · NOTHING COMMISSIONED
 

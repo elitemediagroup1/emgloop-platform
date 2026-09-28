@@ -70,7 +70,29 @@ export interface DomainKitPorts {
   readonly reader: Pick<DomainReadingService, 'read'> | null;
   /** Who a model reading runs as: the principal for a PRINCIPAL target, the organization's acting principal otherwise. */
   readonly principalFor: (target: IntelligenceRefreshTarget) => Promise<AiPrincipal | null>;
+  /**
+   * Whether this target's reading task had an answer REJECTED by Loop since `since`, under this task and
+   * template version (the AI usage ledger). True: the kit does not pay again inside the backoff and writes
+   * the rule reading. Absent: no backoff.
+   */
+  readonly modelRejectedSince?: (q: {
+    readonly organizationId: string;
+    /** The principal for a PRINCIPAL target; null for an ORGANIZATION target (its one reading, whoever ran it). */
+    readonly userId: string | null;
+    readonly taskId: string;
+    readonly taskVersion: string;
+    readonly templateVersion: string;
+    readonly since: Date;
+  }) => Promise<boolean>;
 }
+
+/**
+ * After an answer Loop REJECTED, the same reading is not paid for again for this long, whatever the evidence
+ * does: at most one discarded answer per subject per task and template version per day. The class cap and
+ * circuit breaker bound the organization; this bounds one subject whose evidence keeps moving (a calendar).
+ * A new template or task version is a new question and is asked at once.
+ */
+export const MODEL_REJECTION_BACKOFF_MS = 24 * 60 * 60 * 1000;
 
 export interface DomainProducerSpec<C> {
   readonly id: string;
@@ -131,9 +153,28 @@ export function domainProducer<C>(spec: DomainProducerSpec<C>, ports: DomainKitP
           const context = { organizationId: org, viewerUserId: principal.userId, taskId: spec.model.task.taskId, items, sensitivityCeiling: spec.model.task.sensitivityCeiling };
           // Checked here too, so a refusal is named (the gateway reports only CONTEXT_REFUSED) and costs nothing.
           const contextRefusals = validateAiContextPackage(context);
-          const answer = contextRefusals.length > 0
-            ? ({ outcome: 'CONTEXT_REFUSED', codes: contextRefusals } as const)
-            : await ports.reader.read(principal, { task: spec.model.task, framing: spec.model.framing, context, evidence: built.evidence });
+          // The backoff after a rejected answer. Unreadable: no call now (fail closed), tried again next pass.
+          const backoff =
+            contextRefusals.length > 0 || !ports.modelRejectedSince
+              ? false
+              : await ports
+                  .modelRejectedSince({
+                    organizationId: target.organizationId,
+                    userId: target.scope === 'PRINCIPAL' ? target.userId : null,
+                    taskId: spec.model.task.taskId,
+                    taskVersion: spec.model.task.version,
+                    templateVersion: DOMAIN_READING_TEMPLATE_VERSION,
+                    since: new Date(now.getTime() - MODEL_REJECTION_BACKOFF_MS),
+                  })
+                  .catch(() => null);
+          const answer =
+            contextRefusals.length > 0
+              ? ({ outcome: 'CONTEXT_REFUSED', codes: contextRefusals } as const)
+              : backoff === null
+                ? ({ outcome: 'FAILED', failure: 'BACKOFF_UNREADABLE' } as const)
+                : backoff
+                  ? ({ outcome: 'MODEL_BACKOFF' } as const)
+                  : await ports.reader.read(principal, { task: spec.model.task, framing: spec.model.framing, context, evidence: built.evidence });
           modelStage = modelStageCode(answer);
           if (answer.outcome === 'READ') {
             statement = answer.reading.reading.statement;
@@ -200,9 +241,12 @@ export function modelStageCode(answer: { readonly outcome: string; readonly code
     case 'REFUSED_BY_LOOP':
       return `REFUSED_BY_LOOP:${[...new Set((answer.codes ?? []).map(safe))].sort().slice(0, 4).join('+')}`;
     case 'REJECTED_OUTPUT':
-      return 'REJECTED_OUTPUT';
+      // Which contract rules the answer broke (codes only, never the answer): what production could not see.
+      return `REJECTED_OUTPUT:${[...new Set((answer.codes ?? []).map(safe))].sort().slice(0, 4).join('+')}`;
     case 'REFUSED_BY_MODEL':
       return 'REFUSED_BY_MODEL';
+    case 'MODEL_BACKOFF':
+      return 'MODEL_BACKOFF:REJECTED_OUTPUT';
     case 'FAILED':
       return `FAILED:${safe(answer.failure)}`;
     default:

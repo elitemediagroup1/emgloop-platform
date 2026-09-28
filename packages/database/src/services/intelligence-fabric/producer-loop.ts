@@ -81,11 +81,13 @@ export function effectiveFingerprint(evidence: string, identity: string | null):
  * A model stage that did NOT happen for a reason that may pass (refused before any provider call, a provider
  * failure, no principal yet): its rule reading is stored under an UNSATISFIED fingerprint, so the next pass
  * tries the model again instead of freezing the rule reading until the evidence changes. A stage that did
- * happen and was spent (READ, REJECTED_OUTPUT, REFUSED_BY_MODEL) satisfies the identity: no repeat call.
+ * happen and was spent (READ, REJECTED_OUTPUT, REFUSED_BY_MODEL) satisfies the identity: no repeat call. So does
+ * MODEL_BACKOFF (the kit declined to spend again after a rejected answer): the rule reading stands until the
+ * evidence changes after the backoff.
  */
 function modelStageSatisfied(stage: string | undefined): boolean {
   if (!stage) return true;
-  return stage === 'MODEL_READ' || stage === 'MODEL_NOT_ACTIVATED' || stage === 'REJECTED_OUTPUT' || stage === 'REFUSED_BY_MODEL' || stage === 'EMPTY_CONTEXT';
+  return stage === 'MODEL_READ' || stage === 'MODEL_NOT_ACTIVATED' || stage === 'REFUSED_BY_MODEL' || stage === 'EMPTY_CONTEXT' || stage.startsWith('REJECTED_OUTPUT') || stage.startsWith('MODEL_BACKOFF');
 }
 
 export async function runIntelligenceProducerCycle(deps: ProducerLoopDeps, options: ProducerLoopOptions): Promise<ProducerLoopReport> {

@@ -132,8 +132,10 @@ is reported as unknown. See D.
 - `ai_invocations` rows appear in the BACKGROUND lane;
 - the worker's `intelligence_pass` log carries `modelStages`: counts per outcome code (`MODEL_READ`,
   `MODEL_NOT_ACTIVATED`, `NO_PRINCIPAL`, `EMPTY_CONTEXT`, `CONTEXT_REFUSED:<codes>`,
-  `REFUSED_BY_LOOP:<codes>`, `REJECTED_OUTPUT`, `REFUSED_BY_MODEL`, `FAILED:<class>`). No ids, subjects or
-  text appear in it.
+  `REFUSED_BY_LOOP:<codes>`, `REJECTED_OUTPUT:<codes>`, `MODEL_BACKOFF:REJECTED_OUTPUT`, `REFUSED_BY_MODEL`,
+  `FAILED:<class>`). No ids, subjects or text appear in it. `REJECTED_OUTPUT:<codes>` names the
+  domain-reading.v1 rules the discarded answer broke (e.g. `UNSUPPORTED_DATE_IN_TEXT`); the same codes are
+  in `ai_invocations.rejectionCodes`.
 
 Activating a task over readings that already exist costs exactly **one** model-backed refresh per target on
 the next pass, even when the evidence is unchanged: the cost gate compares the evidence *and* the reading
@@ -142,6 +144,12 @@ configuration. After that, unchanged passes make no calls.
 A model stage refused by Loop, or failed at the provider, leaves an honest RULE reading and is tried again
 on the next pass. A refusal costs no reservation. Disabling a task replaces the model reading with a RULE
 reading on the next pass.
+
+An answer Loop **rejects** (paid, then discarded) is not re-asked on unchanged evidence. It is also not
+re-asked for that subject for **24 hours** under the same task and template version, however much the
+evidence moves (`MODEL_BACKOFF:REJECTED_OUTPUT`, rule reading meanwhile). So the most a persistent invalid
+answer shape can spend is one call per subject per task per day. A new task or template version is a new
+question and is asked on the next pass.
 
 ### B3. Situations
 

@@ -236,6 +236,32 @@ export class AiUsageLedgerRepository {
   }
 
   /**
+   * Whether a task's answer was REJECTED by Loop (paid, then discarded) since `since`, under exactly this task
+   * and template version -- for one principal, or for anyone in the organization when `principalUserId` is
+   * null. Reads the outcome only: no content, no codes. The per-subject bound on paying again for an answer
+   * shape Loop keeps refusing (the domain kit's backoff).
+   */
+  async rejectedSince(
+    organizationId: string,
+    q: { readonly taskId: string; readonly taskVersion: string; readonly templateId: string; readonly templateVersion: string; readonly principalUserId: string | null; readonly since: Date },
+  ): Promise<boolean> {
+    const row = await this.prisma.aiInvocation.findFirst({
+      where: {
+        organizationId,
+        taskId: q.taskId,
+        taskVersion: q.taskVersion,
+        templateId: q.templateId,
+        templateVersion: q.templateVersion,
+        outcome: 'REJECTED_BY_LOOP',
+        requestedAt: { gte: q.since },
+        ...(q.principalUserId ? { principalUserId: q.principalUserId } : {}),
+      },
+      select: { id: true },
+    });
+    return row !== null;
+  }
+
+  /**
    * Replace the estimate with what actually happened. Scoped by organization AND
    * invocation id, so a reconcile can never reach another tenant's row; a miss writes
    * nothing and returns false rather than inventing a row for an attempt nobody

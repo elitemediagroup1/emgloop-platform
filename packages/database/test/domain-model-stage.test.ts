@@ -96,7 +96,7 @@ test('model-stage codes are bounded and content-free: refusal codes pass through
   assert.equal(modelStageCode({ outcome: 'FAILED', failure: 'TIMEOUT' }), 'FAILED:TIMEOUT');
   assert.equal(modelStageCode({ outcome: 'FAILED', failure: 'org demo-org-0001 said: secret text' }), 'FAILED:OTHER', 'provider text never becomes a code');
   assert.equal(modelStageCode({ outcome: 'REFUSED_BY_LOOP', codes: ['user_abc123'] }), 'REFUSED_BY_LOOP:OTHER');
-  assert.equal(modelStageCode({ outcome: 'REJECTED_OUTPUT', codes: ['UNCITED_CLAIM'] }), 'REJECTED_OUTPUT');
+  assert.equal(modelStageCode({ outcome: 'REJECTED_OUTPUT', codes: ['UNCITED_CLAIM'] }), 'REJECTED_OUTPUT:UNCITED_CLAIM', 'which rules the answer broke, codes only');
 });
 
 test('situation and Briefing contexts are minted inside the organization too (both still OFF in production)', async () => {
