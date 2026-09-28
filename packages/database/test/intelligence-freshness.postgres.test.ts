@@ -8,6 +8,8 @@
 //   - an unchanged successful refresh re-affirms it (no read), and it is eligible again;
 //   - a changed successful refresh replaces it, and only the new reading is used.
 //   - (2026-09-28) commissioning a domain model task over an existing rule digest, through the real gateway.
+//   - (2026-09-28) Campaigns: a campaign that is both a mover and unsold is named once, so the refresh writes
+//     CURRENT instead of being HELD as INVALID_ENTITY_REFS; production's HELD rows recover by the normal path.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -17,7 +19,7 @@ import { workRetentionCategory, type AiModelResult, type AiProviderPolicy } from
 import { RecordedModelProvider, aiCatalogCapabilities, AI_ROUTING_POLICY, AI_BUDGET_POLICY, AI_MAX_ATTEMPTS_PER_TARGET } from '@emgloop/providers';
 import { AiRuntimeGateway, InMemoryAiUsageLedger } from '../src/services/ai-runtime/gateway';
 import { DomainReadingService } from '../src/services/ai-runtime/domain-reading.service';
-import { callgridDomainProducer } from '../src/services/intelligence-fabric/domains/callgrid';
+import { callgridDomainProducer, campaignsDomainProducer } from '../src/services/intelligence-fabric/domains/callgrid';
 
 import { forgetIntelligenceFabricPresence } from '../src/repositories/intelligence/intelligence-fabric-presence';
 import { IntelligenceDigestRepository, type IntelligenceDigestInput } from '../src/repositories/intelligence/intelligence-digest.repository';
@@ -462,6 +464,109 @@ test('COMMISSIONING: activating callgrid.domain.reading over an unchanged rule d
     // The report carries codes and counts only.
     assert.equal(JSON.stringify([r1, r2, r4, r5, r6]).includes(organizationId), false);
   } finally {
+    await prisma.$disconnect();
+  }
+});
+
+// --- Campaigns: INVALID_ENTITY_REFS (production, 2026-09-28) ----------------------------------------------
+// Every Campaigns refresh was HELD with INVALID_ENTITY_REFS. campaignsRule named a campaign that both moved
+// sharply AND sold nothing twice in the digest's entityRefs; the real repository refuses a repeated reference
+// (DUPLICATE_KEY). Here, against the real repository, queue and gateway.
+
+test('CAMPAIGNS: a campaign that moved AND sold nothing is named once; the refresh writes CURRENT (RULE_AND_MODEL) past production-shaped HELD rows; malformed refs are still refused', { skip }, async () => {
+  const prisma = new PrismaClient({ datasources: { db: { url: URL } } });
+  forgetIntelligenceFabricPresence();
+  try {
+    const organizationId = `org_camp_${randomUUID()}`;
+    await prisma.organization.create({ data: { id: organizationId, name: 'CAMP', slug: organizationId } });
+    const REF = 'provider_member:callgrid:campaign:c1';
+    const dim = (key: string, calls: number, monetized: number) => ({ key, label: key, calls, monetized, converted: 0, revenueCents: 0, payoutCents: 0, costCents: 0, callsWithRevenue: 0, callsWithPayout: 0, callsWithCost: 0 });
+    const agg = (campaigns: ReturnType<typeof dim>[]) => ({ calls: campaigns.reduce((n, c) => n + c.calls, 0), monetized: campaigns.reduce((n, c) => n + c.monetized, 0), converted: 0, revenueCents: 0, payoutCents: 0, costCents: 0, callsWithRevenue: 0, callsWithPayout: 0, callsWithCost: 0, buyers: [], vendors: [], sources: [], campaigns });
+    // c1: 10 -> 40 calls (+300%, a mover) and none billable (unsold). c2: steady and sold.
+    const current = agg([dim('c1', 40, 0), dim('c2', 30, 30)]);
+    const prior = agg([dim('c1', 10, 0), dim('c2', 30, 30)]);
+    // Only this organization has calls: a claim of anyone else's CAMPAIGNS request gathers nothing.
+    const calls = {
+      firstCallAt: async (org: string) => (org === organizationId ? new Date('2026-01-01') : null),
+      aggregateWindow: async (_org: string, from: Date) => (from.getTime() < Date.now() - 8 * 24 * 3600_000 ? prior : current),
+      organizationIdsWithCallsSince: async () => [organizationId],
+    };
+    // A model answer that cites the campaign too (a model-added signal naming a supplied entity).
+    const modelAnswer: AiModelResult = {
+      ...answer,
+      output: { json: { schemaId: 'domain-reading.v1', reading: { statement: 'One campaign is growing on calls nobody buys.', status: 'ATTENTION', confidence: 'MEDIUM' }, signals: [{ key: 'unsold-growth', kind: 'RISK', knowledge: 'INFERRED', statement: 'A growing campaign is not being bought.', entities: [REF], evidenceRefs: ['marketplace_calls:7d'], occurredAt: null, dueAt: null, confidence: 'MEDIUM', severity: 'HIGH', owedBy: null }], limitations: [] } },
+    };
+    const ledger = new InMemoryAiUsageLedger();
+    const gateway = new AiRuntimeGateway(
+      { activation: { enabled: true, organizations: [organizationId], tasks: ['campaigns.domain.reading'], providers: ['anthropic'] }, policy: AI_ROUTING_POLICY, budget: AI_BUDGET_POLICY, killSwitches: [], maxAttemptsPerTarget: AI_MAX_ATTEMPTS_PER_TARGET },
+      { providers: [new RecordedModelProvider('anthropic', [{ modelId: 'claude-opus-5', result: modelAnswer }], (m) => aiCatalogCapabilities('anthropic', m))], ledger, authorize: async () => true, now: () => new Date(), newInvocationId: () => `inv_${randomUUID()}`, providerPolicies: async () => COMMISSIONING_POLICY },
+    );
+    const producer = campaignsDomainProducer(calls as never, { modelEnabled: (id) => id === 'campaigns.domain.reading', reader: new DomainReadingService(gateway), principalFor: async () => ({ organizationId, userId: 'user_operator' }) });
+    const frozen = new Date();
+    const now = () => frozen;
+    const queue = new IntelligenceRefreshQueueRepository(prisma);
+    const digests = new IntelligenceDigestRepository(prisma);
+    const target: IntelligenceRefreshTarget = { scope: 'ORGANIZATION', organizationId, domain: 'CAMPAIGNS', subjectKind: 'DOMAIN', subjectRef: 'domain' };
+    const owner = { scope: 'ORGANIZATION', organizationId } as const;
+
+    // 1. The root cause, reproduced on the REAL repository: the digest this producer wrote before the fix
+    //    (the same campaign named twice) is refused -- INVALID_ENTITY_REFS, exactly what production held.
+    const g = await producer.gather(target, frozen);
+    assert.equal(g.status, 'READY');
+    const read = await producer.read(target, (g as { context: never }).context, 'campaigns:repro', frozen);
+    assert.equal(read.status, 'READ');
+    const digest = (read as { digest: IntelligenceDigestInput }).digest;
+    assert.deepEqual(digest.entityRefs, [REF], 'named once, canonical identity unchanged');
+    assert.deepEqual(
+      (digest.content.signals as { key: string; entities?: string[] }[]).filter((s) => s.entities?.includes(REF)).map((s) => s.key).sort(),
+      ['campaign.provider_member_callgrid_campaign_c1', 'm.unsold-growth', 'unsold.c1'],
+      'both rule signals and the model signal still name the campaign',
+    );
+    assert.equal((await digests.upsertOrganization(organizationId, { ...digest, entityRefs: [REF, REF] })).outcome, 'REFUSED');
+    assert.deepEqual(await digests.upsertOrganization(organizationId, { ...digest, entityRefs: [REF, REF] }), { outcome: 'REFUSED', refusal: 'INVALID_ENTITY_REFS' });
+
+    // 2. Malformed references are still refused -- the validation is not weakened.
+    for (const [refs, refusal] of [
+      [['provider_member:callgrid:campaign:has space'], 'INVALID_ENTITY_REFS'],
+      [['provider_member:callgrid:planet:c1'], 'INVALID_ENTITY_REFS'],
+      [['campaign_name:Acme'], 'INVALID_ENTITY_REFS'],
+      [['c1'], 'INVALID_ENTITY_REFS'],
+      [Array.from({ length: 33 }, (_, i) => `provider_member:callgrid:campaign:c${i}`), 'INVALID_ENTITY_REFS'],
+      [['work_event:ev1'], 'PRIVATE_EVIDENCE'],
+    ] as const) {
+      assert.deepEqual(await digests.upsertOrganization(organizationId, { ...digest, entityRefs: [...refs] }), { outcome: 'REFUSED', refusal }, JSON.stringify(refs).slice(0, 60));
+    }
+    assert.equal(await prisma.intelligenceDigest.count({ where: { organizationId } }), 0, 'nothing refused was written');
+
+    // 3. Production's state: an older reading now STALE, and three HELD INVALID_ENTITY_REFS requests.
+    const stale = { ...digest, entityRefs: [REF], fingerprint: 'campaigns:before', content: { ...digest.content, reading: { statement: 'An older reading.', status: 'CALM' as const, confidence: 'MEDIUM' as const } } };
+    assert.equal((await digests.upsertOrganization(organizationId, stale)).outcome, 'WRITTEN');
+    await digests.markTargetStale(owner, target);
+    const held: string[] = [];
+    for (let i = 0; i < 3; i += 1) {
+      const row = await prisma.intelligenceRefreshRequest.create({ data: { organizationId, scope: 'ORGANIZATION', userId: null, domain: 'CAMPAIGNS', subjectKind: 'DOMAIN', subjectRef: 'domain', reason: 'SCHEDULED', firstRequestedAt: frozen, lastRequestedAt: frozen, notBefore: frozen, state: 'HELD', attempts: 1, lastOutcome: 'INVALID_ENTITY_REFS' } });
+      held.push(row.id);
+    }
+    const heldBefore = await prisma.intelligenceRefreshRequest.findMany({ where: { id: { in: held } }, orderBy: { id: 'asc' } });
+
+    // 4. The normal path: the scheduled pass enqueues a fresh request (a HELD row never blocks one), the
+    //    repaired producer reads, and the write succeeds.
+    assert.equal((await queue.enqueue(target, { reason: 'SCHEDULED' }, now())).outcome, 'ENQUEUED');
+    const report = await runIntelligenceProducerCycle({ queue, digests, registry: new IntelligenceProducerRegistry([producer], ['campaigns.domain@1']), leaseOwner: 'campaigns-test', now }, { limit: 50, leaseMs: 60_000, maxAttempts: 3 });
+    assert.equal(report.held, 0, 'not held');
+    assert.ok(report.written >= 1);
+    assert.deepEqual(report.modelStages, { MODEL_READ: 1 });
+    const row = await prisma.intelligenceDigest.findFirst({ where: { organizationId, domain: 'CAMPAIGNS' }, select: { status: true, entityRefs: true, provenance: true } });
+    assert.equal(row!.status, 'CURRENT', 'the STALE reading is replaced by a CURRENT one');
+    assert.deepEqual(row!.entityRefs, [REF]);
+    assert.equal((row!.provenance as { producerKind: string }).producerKind, 'RULE_AND_MODEL');
+    assert.equal(await prisma.intelligenceRefreshRequest.count({ where: { organizationId, state: { not: 'HELD' } } }), 0, 'the fresh request completed');
+
+    // 5. The code does not touch production's HELD rows: they are exactly as they were (the governed
+    //    retention sweep removes them; until then they only hold synthesis back, which is OFF).
+    assert.deepEqual(await prisma.intelligenceRefreshRequest.findMany({ where: { id: { in: held } }, orderBy: { id: 'asc' } }), heldBefore);
+  } finally {
+    await prisma.intelligenceRefreshRequest.deleteMany({ where: { organizationId: { startsWith: 'org_camp_' } } }).catch(() => undefined);
     await prisma.$disconnect();
   }
 });
