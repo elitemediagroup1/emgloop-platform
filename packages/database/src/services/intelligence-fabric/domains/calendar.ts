@@ -8,7 +8,8 @@
 //                person's reply (attendee keys meet thread participant keys -- a deterministic join, the
 //                "prep" signal); a meeting with outside attendees that ended with no mail sent to any of
 //                them since (the "follow-up" signal);
-//     model      when calendar.domain.reading is activated: what the day MEANS, from the same facts.
+//     model      when calendar.domain.reading is activated: what the day MEANS, from the same facts (the day's
+//                counts as `work_events:day`, and each meeting with its UTC start and end instants).
 //
 // "The day" is the person's own zone (employee_work_preferences.timeZone); instants are stored UTC and a
 // surface formats them (Loop Time Authority). Provider GOOGLE_CALENDAR, basis SOURCE_CONNECTION_GRANT:
@@ -150,14 +151,27 @@ export function calendarDomainProducer(facts: DomainFactsRepository, kit: Domain
         },
         context(ctx) {
           const read = { resource: 'employeeIntelligence', action: 'view' } as const;
-          const items: AiContextItem[] = ctx.events.slice(0, 20).map((e) => ({
+          // The day as a whole, so a count the reading states is one a source holds (the rule's own figures).
+          const today = ctx.events.filter((e) => e.startsAt >= ctx.windowStart && !e.declined);
+          const day = {
+            meetingsToday: today.length,
+            withOutsideAttendees: today.filter((e) => e.external > 0).length,
+            overlappingPairs: ctx.conflicts.length,
+            meetingsWithMailWaitingOnYou: ctx.prep.length,
+            meetingsWithNoFollowUpSent: ctx.noFollowUp.length,
+          };
+          const dayItem: AiContextItem = { blockId: 'work_events:day', kind: 'STRUCTURED', trust: 'GOVERNED_FACT', sourceRef: 'work_events:day', content: JSON.stringify(day), sensitivity: 'COMMUNICATION_CONTENT', readUnder: read };
+          const eventItems: AiContextItem[] = ctx.events.slice(0, 20).map((e) => ({
             blockId: `work_event:${e.id}`,
             kind: 'STRUCTURED',
             trust: 'UNTRUSTED_INPUT',
             sourceRef: `work_event:${e.id}`,
             content: JSON.stringify({
               title: e.summary,
+              // Instants a signal's occurredAt/dueAt may copy exactly. UTC: the person's zone is not given, so
+              // the reading places meetings relative to each other rather than naming a clock time.
               starts: e.startsAt.toISOString(),
+              ends: e.endsAt.toISOString(),
               minutes: Math.round((e.endsAt.getTime() - e.startsAt.getTime()) / 60_000),
               outsideAttendees: e.external,
               overlaps: ctx.conflicts.some((c) => c.includes(e.id)),
@@ -169,10 +183,13 @@ export function calendarDomainProducer(facts: DomainFactsRepository, kit: Domain
             readUnder: read,
           }));
           return {
-            items,
+            items: [dayItem, ...eventItems],
             evidence: {
-              figures: new Map(ctx.events.map((e) => [`work_event:${e.id}`, new Set([Math.round((e.endsAt.getTime() - e.startsAt.getTime()) / 60_000), e.external])])),
-              dates: new Set(ctx.events.map((e) => e.startsAt.toISOString().slice(0, 10))),
+              figures: new Map([
+                ['work_events:day', new Set(Object.values(day))],
+                ...ctx.events.map((e) => [`work_event:${e.id}`, new Set([Math.round((e.endsAt.getTime() - e.startsAt.getTime()) / 60_000), e.external])] as const),
+              ]),
+              dates: new Set(ctx.events.flatMap((e) => [e.startsAt.toISOString().slice(0, 10), e.endsAt.toISOString().slice(0, 10)])),
               entityRefs: new Set(ctx.events.map((e) => entityRef('work_event', e.id))),
             },
           };

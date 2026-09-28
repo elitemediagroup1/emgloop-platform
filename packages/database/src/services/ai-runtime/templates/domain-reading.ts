@@ -14,7 +14,11 @@
 import { DOMAIN_READING_SCHEMA, DOMAIN_READING_SCHEMA_ID, INTELLIGENCE_SIGNAL_KINDS } from '@emgloop/shared';
 
 export const DOMAIN_READING_TEMPLATE_ID = 'domain-reading';
-export const DOMAIN_READING_TEMPLATE_VERSION = '1';
+// v2 (2026-09-28): rule 5 contradicted the contract. It told the model to write occurredAt/dueAt as a bare
+// YYYY-MM-DD, which the signal contract refuses (an instant is YYYY-MM-DDTHH:MM:SS[.sss]Z): every dated
+// signal was discarded as UNSUPPORTED_DATE_IN_TEXT (BAD_INSTANT) -- all of production's Calendar answers,
+// the one domain whose sources carry instants. Also: a clock time is a number no source figure supports.
+export const DOMAIN_READING_TEMPLATE_VERSION = '2';
 export { DOMAIN_READING_SCHEMA, DOMAIN_READING_SCHEMA_ID };
 
 /** How one domain frames its reading. Constant per task: reviewed code, never tenant text. */
@@ -56,10 +60,14 @@ export function renderDomainReadingInstructions(framing: DomainReadingFraming, s
     entities.length > 0 ? '4. `entities` may name only these references, copied exactly (or be empty):' : '4. `entities` must be empty: no entity references were supplied.',
     ...entities.map((ref) => `   - ${ref}`),
     '5. Every number you write must appear in a source that statement cites (for the reading: in any source).',
-    '   Write dates only as YYYY-MM-DD and only dates in the sources; occurredAt and dueAt likewise, or null.',
+    '   A time of day is a number too: never write a clock time; place things relative to each other instead.',
+    '   In text, write a date only as YYYY-MM-DD and only a date in the sources.',
+    '   `occurredAt` and `dueAt` are instants: copy one exactly as a source writes it (YYYY-MM-DDTHH:MM:SS.sssZ),',
+    '   or use null. Never a date alone, never an instant no source contains.',
     '6. `owedBy` only on an OBLIGATION (VIEWER, COWORKER, COUNTERPARTY or UNKNOWN), and only when a source shows',
     '   who; otherwise UNKNOWN. Never assign work to anyone; say who appears to owe it.',
-    '7. Paraphrase. No quotation marks, no copied sentences, no names beyond the labels the sources use.',
+    '7. Paraphrase. No quotation marks of any kind (not even around a title), no copied sentences, no names',
+    '   beyond the labels the sources use.',
     '8. Never state a confidence as a number. The reading does not tell anyone what to do.',
     '9. If the evidence is thin or partial, say so in `limitations`. An honest gap is the correct answer.',
     '10. Keys are short, lower-case and stable (e.g. "buyer-concern"), so the same situation keeps its key.',

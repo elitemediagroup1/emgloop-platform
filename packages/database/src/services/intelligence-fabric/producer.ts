@@ -36,7 +36,8 @@ export type IntelligenceGatherResult<C> =
 /**
  * How a producer's MODEL stage went, as a bounded code (never an id, a subject, content or provider text):
  * MODEL_READ, MODEL_NOT_ACTIVATED, NO_PRINCIPAL, EMPTY_CONTEXT, CONTEXT_REFUSED:<codes>,
- * REFUSED_BY_LOOP:<codes>, REJECTED_OUTPUT, REFUSED_BY_MODEL, FAILED:<class>. Absent for a rule-only producer.
+ * REFUSED_BY_LOOP:<codes>, REJECTED_OUTPUT:<codes>, REFUSED_BY_MODEL, MODEL_BACKOFF:REJECTED_OUTPUT, FAILED:<class>.
+ * Absent for a rule-only producer.
  */
 export type IntelligenceModelStage = string;
 

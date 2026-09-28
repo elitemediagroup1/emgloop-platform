@@ -18,6 +18,7 @@ import type { PrismaClient } from '@prisma/client';
 
 import { createCreatorDomain } from '../../creator';
 import { absentUntilMigrated } from '../../creator/until-migrated';
+import { AiUsageLedgerRepository } from '../../repositories/ai-usage-ledger.repository';
 import { CrmRepository } from '../../repositories/crm.repository';
 import { DomainFactsRepository } from '../../repositories/intelligence/domain-facts.repository';
 import type { IntelligenceRefreshTarget } from '../../repositories/intelligence/intelligence-refresh-queue.repository';
@@ -26,6 +27,7 @@ import { WebsiteAnalyticsRepository } from '../../repositories/website-analytics
 import type { WorkRepository } from '../../repositories/work.repository';
 import type { AiPrincipal } from '../ai-runtime/gateway';
 import type { DomainReadingService } from '../ai-runtime/domain-reading.service';
+import { DOMAIN_READING_TEMPLATE_ID } from '../ai-runtime/templates/domain-reading';
 import type { DomainKitPorts } from './domain-kit';
 import type { IntelligenceProducer } from './producer';
 import { calendarDomainProducer } from './domains/calendar';
@@ -69,7 +71,13 @@ export interface LoopProducerPorts {
 
 export function loopProducers(ports: LoopProducerPorts): IntelligenceProducer<any>[] {
   const facts = new DomainFactsRepository(ports.prisma);
-  const kit: DomainKitPorts = { modelEnabled: ports.modelEnabled, reader: ports.reader, principalFor: principalResolver(facts, ports.actingUsers, ports.now) };
+  const ledger = new AiUsageLedgerRepository(ports.prisma);
+  const kit: DomainKitPorts = {
+    modelEnabled: ports.modelEnabled,
+    reader: ports.reader,
+    principalFor: principalResolver(facts, ports.actingUsers, ports.now),
+    modelRejectedSince: (q) => ledger.rejectedSince(q.organizationId, { taskId: q.taskId, taskVersion: q.taskVersion, templateId: DOMAIN_READING_TEMPLATE_ID, templateVersion: q.templateVersion, principalUserId: q.userId, since: q.since }),
+  };
   const creators = createCreatorDomain(ports.prisma, ports.work);
   const roster = {
     // Creator Hub tables may not be migrated where this runs: absent is no evidence, not an error.
