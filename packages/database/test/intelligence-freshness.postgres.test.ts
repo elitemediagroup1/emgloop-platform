@@ -7,12 +7,17 @@
 //   - NO_EVIDENCE leaves the old reading STALE, never current;
 //   - an unchanged successful refresh re-affirms it (no read), and it is eligible again;
 //   - a changed successful refresh replaces it, and only the new reading is used.
+//   - (2026-09-28) commissioning a domain model task over an existing rule digest, through the real gateway.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { PrismaClient } from '@prisma/client';
-import { workRetentionCategory } from '@emgloop/shared';
+import { workRetentionCategory, type AiModelResult, type AiProviderPolicy } from '@emgloop/shared';
+import { RecordedModelProvider, aiCatalogCapabilities, AI_ROUTING_POLICY, AI_BUDGET_POLICY, AI_MAX_ATTEMPTS_PER_TARGET } from '@emgloop/providers';
+import { AiRuntimeGateway, InMemoryAiUsageLedger } from '../src/services/ai-runtime/gateway';
+import { DomainReadingService } from '../src/services/ai-runtime/domain-reading.service';
+import { callgridDomainProducer } from '../src/services/intelligence-fabric/domains/callgrid';
 
 import { forgetIntelligenceFabricPresence } from '../src/repositories/intelligence/intelligence-fabric-presence';
 import { IntelligenceDigestRepository, type IntelligenceDigestInput } from '../src/repositories/intelligence/intelligence-digest.repository';
@@ -348,6 +353,115 @@ test('HELD retention: newer HELD stays; older HELD is purged with its CURRENT re
     assert.deepEqual((await prisma.intelligenceRefreshRequest.findMany({ where: { organizationId: other.organizationId }, select: { state: true }, orderBy: { state: 'asc' } })).map((r) => r.state), ['CLAIMED', 'PENDING']);
   } finally {
     for (const organizationId of orgs) await prisma.intelligenceRefreshRequest.deleteMany({ where: { organizationId } }).catch(() => undefined);
+    await prisma.$disconnect();
+  }
+});
+
+// --- Commissioning a domain model task over an existing rule digest (2026-09-28) --------------------------
+// In this file so it runs sequentially with the other loop-driving tests (lease recovery is platform-wide).
+
+const COMMISSIONING_POLICY: readonly AiProviderPolicy[] = [{ providerId: 'anthropic', state: 'ACTIVE', ceiling: 'COMMUNICATION_CONTENT', version: 1, recordedAtMs: 0 }];
+
+const answer: AiModelResult = {
+  output: { json: { schemaId: 'domain-reading.v1', reading: { statement: 'Calls held steady this week.', status: 'CALM', confidence: 'MEDIUM' }, signals: [{ key: 'steady', kind: 'OPERATIONAL', knowledge: 'INFERRED', statement: 'Calls held steady.', entities: [], evidenceRefs: ['marketplace_calls:7d'], occurredAt: null, dueAt: null, confidence: 'MEDIUM', severity: 'LOW', owedBy: null }], limitations: [] } },
+  toolCalls: [],
+  stopReason: 'END',
+  usage: { inputTokens: 900, outputTokens: 120 },
+  providerRequestId: 'req_1',
+  reportedModel: 'claude-opus-5',
+  latencyMs: 40,
+};
+
+test('COMMISSIONING: activating callgrid.domain.reading over an unchanged rule digest makes exactly one model-backed refresh; no repeats; disabling is honest; refusals are observable and re-attempted', { skip }, async () => {
+  const prisma = new PrismaClient({ datasources: { db: { url: URL } } });
+  forgetIntelligenceFabricPresence();
+  try {
+    const organizationId = `org_comm_${randomUUID()}`;
+    await prisma.organization.create({ data: { id: organizationId, name: 'COMM', slug: organizationId } });
+    const operator = 'user_operator';
+
+    // The real gateway; its activation is read on every call, so the test can commission and decommission.
+    const activation = { enabled: true, organizations: [organizationId] as string[], tasks: ['telegram.content.triage'] as string[], providers: ['anthropic'] as string[] };
+    const ledger = new InMemoryAiUsageLedger();
+    const provider = new RecordedModelProvider('anthropic', [{ modelId: 'claude-opus-5', result: answer }], (m) => aiCatalogCapabilities('anthropic', m));
+    const gateway = new AiRuntimeGateway(
+      { activation, policy: AI_ROUTING_POLICY, budget: AI_BUDGET_POLICY, killSwitches: [], maxAttemptsPerTarget: AI_MAX_ATTEMPTS_PER_TARGET },
+      { providers: [provider], ledger, authorize: async () => true, now: () => new Date(), newInvocationId: () => `inv_${randomUUID()}`, providerPolicies: async () => COMMISSIONING_POLICY },
+    );
+    const dim = { key: 'c1', label: 'c1', calls: 40, monetized: 30, converted: 0, revenueCents: 400000, payoutCents: 200000, costCents: 0, callsWithRevenue: 40, callsWithPayout: 40, callsWithCost: 0 };
+    const agg = { calls: 40, monetized: 30, converted: 0, revenueCents: 400000, payoutCents: 200000, costCents: 0, callsWithRevenue: 40, callsWithPayout: 40, callsWithCost: 0, buyers: [dim], vendors: [], sources: [], campaigns: [dim] };
+    const calls = { firstCallAt: async () => new Date('2026-01-01'), aggregateWindow: async () => agg, organizationIdsWithCallsSince: async () => [] };
+    // The worker's modelEnabled is its activation list: the same list the gateway enforces.
+    const producer = callgridDomainProducer(calls as never, { modelEnabled: (id) => activation.tasks.includes(id), reader: new DomainReadingService(gateway), principalFor: async () => ({ organizationId, userId: operator }) });
+
+    // Frozen at the real start time: the evidence fingerprint (bucketed hourly) is genuinely unchanged across
+    // passes, and lease recovery (platform-wide) never sees a skewed clock from this test.
+    const frozen = new Date();
+    const now = () => frozen;
+    const queue = new IntelligenceRefreshQueueRepository(prisma);
+    const digests = new IntelligenceDigestRepository(prisma);
+    const target: IntelligenceRefreshTarget = { scope: 'ORGANIZATION', organizationId, domain: 'CALLGRID', subjectKind: 'DOMAIN', subjectRef: 'domain' };
+    const pass = async () => {
+      await queue.enqueue(target, { reason: 'SCHEDULED' }, now());
+      return runIntelligenceProducerCycle({ queue, digests, registry: new IntelligenceProducerRegistry([producer], ['callgrid.domain@1']), leaseOwner: 'commissioning-test', now }, { limit: 50, leaseMs: 60_000, maxAttempts: 3 });
+    };
+    const stored = async () => {
+      const row = await prisma.intelligenceDigest.findFirst({ where: { organizationId, domain: 'CALLGRID' }, select: { provenance: true, fingerprint: true, content: true } });
+      return { kind: (row!.provenance as { producerKind: string }).producerKind, fingerprint: row!.fingerprint, statement: (row!.content as { reading: { statement: string } }).reading.statement };
+    };
+
+    // 1. Rule only: the task is not activated.
+    const r1 = await pass();
+    assert.equal(r1.written, 1);
+    assert.deepEqual(r1.modelStages, { MODEL_NOT_ACTIVATED: 1 });
+    assert.equal((await stored()).kind, 'RULE');
+    assert.equal(ledger.calls.length, 0);
+
+    // 2. Commission the task: the evidence is unchanged, the reading configuration is not -> ONE model call.
+    activation.tasks.push('callgrid.domain.reading');
+    const r2 = await pass();
+    assert.equal(r2.skippedUnchangedBeforeRead, 0, 'the cost gate saw the new reading configuration');
+    assert.deepEqual(r2.modelStages, { MODEL_READ: 1 });
+    assert.equal(ledger.calls.length, 1);
+    assert.equal(ledger.calls[0]!.taskId, 'callgrid.domain.reading');
+    assert.equal(ledger.calls[0]!.lane, 'BACKGROUND');
+    const commissioned = await stored();
+    assert.equal(commissioned.kind, 'RULE_AND_MODEL');
+    assert.equal(commissioned.statement, 'Calls held steady this week.');
+
+    // 3. Unchanged after that: skipped before the read, zero repeat calls.
+    for (let i = 0; i < 3; i += 1) assert.equal((await pass()).skippedUnchangedBeforeRead, 1);
+    assert.equal(ledger.calls.length, 1, 'no repeat calls');
+
+    // 4. Decommission: the stored model reading is replaced by an honest RULE reading -- no call, no pretence.
+    activation.tasks.splice(activation.tasks.indexOf('callgrid.domain.reading'), 1);
+    const r4 = await pass();
+    assert.deepEqual(r4.modelStages, { MODEL_NOT_ACTIVATED: 1 });
+    assert.equal((await stored()).kind, 'RULE');
+    assert.equal(ledger.calls.length, 1);
+
+    // 5. A Loop refusal (the organization is not enabled): named, no reservation, the rule reading stays
+    //    honest, and it is re-attempted next pass (its fingerprint is unsatisfied, never `expected`).
+    activation.tasks.push('callgrid.domain.reading');
+    activation.organizations.splice(0, 1);
+    const r5 = await pass();
+    assert.deepEqual(r5.modelStages, { 'REFUSED_BY_LOOP:ORGANIZATION_NOT_ENABLED': 1 });
+    assert.equal(ledger.calls.length, 1, 'refused before any reservation');
+    assert.equal((await stored()).kind, 'RULE');
+    const r5b = await pass();
+    assert.equal(r5b.skippedUnchangedBeforeRead, 0, 're-attempted, not frozen');
+    assert.deepEqual(r5b.modelStages, { 'REFUSED_BY_LOOP:ORGANIZATION_NOT_ENABLED': 1 });
+    // The configuration is fixed: the next pass commissions it.
+    activation.organizations.push(organizationId);
+    const r6 = await pass();
+    assert.deepEqual(r6.modelStages, { MODEL_READ: 1 });
+    assert.equal((await stored()).kind, 'RULE_AND_MODEL');
+    assert.equal(ledger.calls.length, 2);
+    assert.equal((await pass()).skippedUnchangedBeforeRead, 1);
+    assert.equal(ledger.calls.length, 2);
+    // The report carries codes and counts only.
+    assert.equal(JSON.stringify([r1, r2, r4, r5, r6]).includes(organizationId), false);
+  } finally {
     await prisma.$disconnect();
   }
 });

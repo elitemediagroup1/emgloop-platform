@@ -33,8 +33,15 @@ export type IntelligenceGatherResult<C> =
   /** A transient failure reading Loop's own records. Retried. */
   | { readonly status: 'UNAVAILABLE'; readonly reason: string };
 
+/**
+ * How a producer's MODEL stage went, as a bounded code (never an id, a subject, content or provider text):
+ * MODEL_READ, MODEL_NOT_ACTIVATED, NO_PRINCIPAL, EMPTY_CONTEXT, CONTEXT_REFUSED:<codes>,
+ * REFUSED_BY_LOOP:<codes>, REJECTED_OUTPUT, REFUSED_BY_MODEL, FAILED:<class>. Absent for a rule-only producer.
+ */
+export type IntelligenceModelStage = string;
+
 export type IntelligenceReadResult =
-  | { readonly status: 'READ'; readonly digest: IntelligenceDigestInput }
+  | { readonly status: 'READ'; readonly digest: IntelligenceDigestInput; readonly modelStage?: IntelligenceModelStage }
   /** The governed runtime refused or could not answer; `retryable` decides retry vs hold. */
   | { readonly status: 'NOT_READ'; readonly reason: string; readonly retryable: boolean };
 
@@ -52,6 +59,13 @@ export interface IntelligenceProducer<C = unknown> {
   /** For a MODEL producer, the task it calls (it must also be activated in the AI runtime). */
   readonly taskId: string | null;
   gather(target: IntelligenceRefreshTarget, now: Date): Promise<IntelligenceGatherResult<C>>;
+  /**
+   * How this producer would READ right now, as a stable identity: rule only, rule with its model task not
+   * activated, or rule plus the activated task at its version/schema/template. The loop's cost gate treats
+   * a stored digest as unchanged only when BOTH its evidence and this identity are unchanged, so activating
+   * a task over an existing rule digest produces exactly one model-backed refresh. Absent: evidence only.
+   */
+  readingIdentity?(): string;
   /**
    * Optional: the targets this producer should refresh now (a scheduled pass enqueues them; the loop's
    * fingerprint check keeps an unchanged target from costing anything). Loop's own records only.

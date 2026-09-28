@@ -126,8 +126,22 @@ is reported as unknown. See D.
 
 3. Redeploy.
 
-**Read back:** the digest's provenance says `RULE_AND_MODEL`, its signals carry an `m.` prefix, and
-`ai_invocations` rows appear in the BACKGROUND lane.
+**Read back:**
+
+- the digest's provenance says `RULE_AND_MODEL`, and its signals carry an `m.` prefix;
+- `ai_invocations` rows appear in the BACKGROUND lane;
+- the worker's `intelligence_pass` log carries `modelStages`: counts per outcome code (`MODEL_READ`,
+  `MODEL_NOT_ACTIVATED`, `NO_PRINCIPAL`, `EMPTY_CONTEXT`, `CONTEXT_REFUSED:<codes>`,
+  `REFUSED_BY_LOOP:<codes>`, `REJECTED_OUTPUT`, `REFUSED_BY_MODEL`, `FAILED:<class>`). No ids, subjects or
+  text appear in it.
+
+Activating a task over readings that already exist costs exactly **one** model-backed refresh per target on
+the next pass, even when the evidence is unchanged: the cost gate compares the evidence *and* the reading
+configuration. After that, unchanged passes make no calls.
+
+A model stage refused by Loop, or failed at the provider, leaves an honest RULE reading and is tried again
+on the next pass. A refusal costs no reservation. Disabling a task replaces the model reading with a RULE
+reading on the next pass.
 
 ### B3. Situations
 

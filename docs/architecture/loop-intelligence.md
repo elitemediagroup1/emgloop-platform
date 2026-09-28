@@ -73,6 +73,13 @@ Every domain is built with the **domain kit** (`domain-kit.ts`):
 - `rule` produces the floor reading: MEASURED and OBSERVED.
 - `model` is optional and uses `domain-reading.v1`. It replaces the rule reading's statement; the rule's
   signals are kept, and the model's signals are added under an `m.` prefix.
+- Every context block is minted inside its organization (`<org>::<id>`), which the gateway requires.
+- Every model stage reports a bounded outcome code (`modelStages` in the loop report and the worker log).
+- The loop's cost gate compares an **effective fingerprint**: the evidence bound to the producer's reading
+  identity (rule; rule with the task off; rule plus the activated task at its version, schema and
+  template). Activating a task is therefore one model-backed refresh, not a frozen rule reading. A stage
+  that did not happen for a reason that may pass (a Loop refusal, a provider failure, no principal) stores
+  its rule reading under an unsatisfied fingerprint, so it is retried.
 
 The organization domain producers read through the scoped `DomainFactsRepository` or the domain's own
 repository. They never call Prisma from a service.
