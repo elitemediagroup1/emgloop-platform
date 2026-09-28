@@ -81,11 +81,32 @@ test('the reader reports real rows as ids and counts, stays inside its organizat
       attendeeHashes: [key('dana@acme.test')], observedAt: at,
     });
 
+    // Refresh requests carrying private columns, in both organizations.
+    const queued = (organizationId: string, patch: Record<string, unknown> = {}) =>
+      prisma.intelligenceRefreshRequest.create({
+        data: {
+          organizationId, scope: 'ORGANIZATION', domain: 'CAMPAIGNS', subjectKind: 'DOMAIN', subjectRef: `subject-secret-${randomUUID()}`, reason: 'EVIDENCE_CHANGED',
+          sourceId: 'SOURCE_SECRET_7781', fingerprint: 'campaigns:fp-secret', firstRequestedAt: at, lastRequestedAt: at, notBefore: at, state: 'HELD', attempts: 3,
+          lastOutcome: 'FINGERPRINT_MISMATCH', ...patch,
+        },
+      });
+    await queued(orgA);
+    await queued(orgA);
+    await queued(orgA, { scope: 'PRINCIPAL', userId: matt.userId, domain: 'CALENDAR', state: 'PENDING', attempts: 0, lastOutcome: null });
+    await queued(orgB, { domain: 'PIPELINE' });
+
     const before = await snapshot(prisma, orgA);
+    const queueBefore = await prisma.intelligenceRefreshRequest.findMany({ where: { organizationId: { in: [orgA, orgB] } }, orderBy: { id: 'asc' } });
     const reader = new IntelligenceStateRepository(readOnlyClient(prisma));
     assert.deepEqual(await reader.organizationBySlug(orgA), { id: orgA, slug: orgA });
     const state = await reader.read(orgA, new Date(Date.now() - 3_600_000));
     assert.deepEqual(await snapshot(prisma, orgA), before, 'no row changed in any table the reader touches');
+    assert.deepEqual(await prisma.intelligenceRefreshRequest.findMany({ where: { organizationId: { in: [orgA, orgB] } }, orderBy: { id: 'asc' } }), queueBefore, 'no refresh request retried, purged or moved');
+    assert.deepEqual(
+      state.refreshQueue?.groups.map((g) => [g.domain, g.scope, g.state, g.attempts, g.outcome, g.count]).sort(),
+      [['CALENDAR', 'PRINCIPAL', 'PENDING', 0, null, 1], ['CAMPAIGNS', 'ORGANIZATION', 'HELD', 3, 'FINGERPRINT_MISMATCH', 2]],
+      'aggregated, and only this organization',
+    );
 
     assert.deepEqual(state.cases.rows.map((c) => [c.id, c.rule, c.entityType, c.state, c.timesSeen]), [
       [one.decision.id, 'volume-drop', 'buyer', 'NEEDS_REVIEW', 1],
@@ -99,8 +120,14 @@ test('the reader reports real rows as ids and counts, stays inside its organizat
     const employee = state.employees.find((e) => e.userId === matt.userId)!;
     assert.deepEqual([employee.events, employee.eventsWithAttendeeKeys, employee.attendeeKeys], [1, 1, 1]);
     const text = JSON.stringify(state);
-    for (const secret of ['Buyer Acme', 'Acme Insurance Group', 'buyer-7781', 'Org B', key('dana@acme.test')]) {
+    for (const secret of ['Buyer Acme', 'Acme Insurance Group', 'buyer-7781', 'Org B', key('dana@acme.test'), 'subject-secret', 'SOURCE_SECRET_7781', 'fp-secret', 'EVIDENCE_CHANGED', orgB]) {
       assert.equal(text.includes(secret), false, `${secret} must not leave the reader`);
+    }
+
+    // The refresh queue section carries no person, organization, subject, source or fingerprint at all.
+    const queueText = JSON.stringify(state.refreshQueue);
+    for (const secret of [matt.userId, orgA, orgB, 'subject-secret', 'SOURCE_SECRET_7781', 'fp-secret', 'EVIDENCE_CHANGED', 'DOMAIN']) {
+      assert.equal(queueText.includes(secret), false, `${secret} must not leave the refresh queue read`);
     }
 
     // And the client it runs on cannot write, whatever a future edit tries.
@@ -109,6 +136,7 @@ test('the reader reports real rows as ids and counts, stays inside its organizat
     assert.throws(() => (guarded as unknown as { $executeRawUnsafe: unknown }).$executeRawUnsafe, ReadOnlyViolation);
   } finally {
     for (const id of [orgA, orgB]) {
+      await prisma.intelligenceRefreshRequest.deleteMany({ where: { organizationId: id } }).catch(() => undefined);
       await prisma.decisionEvidence.deleteMany({ where: { organizationId: id } }).catch(() => undefined);
       await prisma.operationalObservation.deleteMany({ where: { organizationId: id } }).catch(() => undefined);
       await prisma.operationalPriority.deleteMany({ where: { organizationId: id } }).catch(() => undefined);

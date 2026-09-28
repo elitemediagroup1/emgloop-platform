@@ -4,13 +4,16 @@
 // Cases seen since a moment, each with its log of sightings (type, actor, time); duplicate Cases by
 // rule and entity; how many rows each intelligence table gained since that moment; the outbox by
 // domain and status; whether any relationship event qualifies for the creator review; delivery
-// and subscription state; and, per member, calendar attendee-key coverage and identity
-// suggestions by state. It writes nothing: the reader is built on a client that can only read
+// and subscription state; per member, calendar attendee-key coverage and identity suggestions by
+// state; and the intelligence refresh queue, aggregated by domain, scope, state, attempts and the
+// hold/retry outcome code (why a refresh is HELD). It writes nothing -- no retry, no purge, no stale
+// transition: the reader is built on a client that can only read
 // (`readOnlyClient`), and nothing here names a write.
 //
 // WHAT IT NEVER PRINTS: a title, a summary, a note or reason, an evidence payload, a buyer, vendor
 // or campaign name or id, the entity half of a recurrence key, a user id or email, an address, an
-// attendee key, a message or a token. A person is the cycle's own `ref` digest. Every other value
+// attendee key, a message or a token; from the refresh queue, never a user id, subject ref, source id or
+// fingerprint. A person is the cycle's own `ref` digest. Every other value
 // is a code-vocabulary token (a rule id, a state, a status); anything that is not one prints as
 // UNRECOGNIZED rather than as itself.
 //
@@ -223,6 +226,27 @@ export async function runIntelligenceState(
       suggestionsRejected: e.suggestions.REJECTED,
       suggestionsOther: e.suggestions.OTHER,
     }));
+  }
+
+  // 8. The intelligence refresh queue: identical requests aggregated; metadata and outcome codes only.
+  if (state.refreshQueue === null) deps.log(line({ event: 'INTELLIGENCE_REFRESH_SUMMARY', present: false }));
+  else {
+    for (const g of state.refreshQueue.groups) {
+      deps.log(line({
+        event: 'INTELLIGENCE_REFRESH',
+        domain: token(g.domain),
+        scope: token(g.scope),
+        state: token(g.state),
+        attempts: g.attempts,
+        reason: token(g.outcome),
+        count: g.count,
+        oldestCreatedAt: iso(g.oldestCreatedAt),
+        latestUpdatedAt: iso(g.latestUpdatedAt),
+      }));
+    }
+    const held = state.refreshQueue.groups.filter((g) => g.state === 'HELD').reduce((n, g) => n + g.count, 0);
+    const total = state.refreshQueue.groups.reduce((n, g) => n + g.count, 0);
+    deps.log(line({ event: 'INTELLIGENCE_REFRESH_SUMMARY', present: true, requests: total, held, bounded: state.refreshQueue.bounded }));
   }
 
   deps.log(line({

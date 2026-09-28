@@ -4,8 +4,10 @@
 # recorded: the CallGrid Cases seen since a moment, each with its sightings (type, actor, time);
 # duplicate Cases by rule and entity; how many rows each intelligence table gained since that
 # moment; the outbox by domain and status; whether any relationship event qualifies for the
-# creator review; delivery and subscription state; and, per member, calendar attendee-key
-# coverage and identity suggestions by state. It writes nothing: the reader runs on a client that
+# creator review; delivery and subscription state; per member, calendar attendee-key coverage and
+# identity suggestions by state; and the intelligence refresh queue, aggregated by domain, scope,
+# state, attempts and hold/retry outcome code. It writes nothing (no retry, no purge, no stale
+# transition): the reader runs on a client that
 # can only read.
 #
 # It prints Case ids, rule ids, states, times and counts. It never prints a title, a buyer,
@@ -129,4 +131,5 @@ jobs:
           echo "- \`WRITES\` - rows each table gained since the moment. \`casesUpdated\` counts Cases changed in any way, new ones included. \`draftsSent\` counts mail actually sent." >> "$GITHUB_STEP_SUMMARY"
           echo "- \`OUTBOX\` / \`CREATOR\` / \`DELIVERIES\` / \`SUBSCRIPTION\` - what the drain has to deliver, what qualifies for the creator review, and what was delivered." >> "$GITHUB_STEP_SUMMARY"
           echo "- \`EMPLOYEE\` - per person (\`ref\`, as the cycles log it): calendar events holding attendee keys, and identity suggestions by state. Counts only." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`INTELLIGENCE_REFRESH\` - refresh requests still in the queue, identical ones aggregated: domain, scope, state, attempts, \`reason\` (the last hold/retry outcome code, e.g. FINGERPRINT_MISMATCH), count, oldest createdAt, latest updatedAt. Never a user, subject, source or fingerprint." >> "$GITHUB_STEP_SUMMARY"
           echo "- \`bounded=true\` or \`truncated=true\` - that part is incomplete; do not act on it." >> "$GITHUB_STEP_SUMMARY"

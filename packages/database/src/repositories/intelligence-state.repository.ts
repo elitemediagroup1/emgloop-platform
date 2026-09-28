@@ -10,7 +10,10 @@
 //   - counts of rows, by table, status, domain or kind;
 //   - subscription definitions (which handler, which domain, which key pattern);
 //   - per member, counts of calendar events and attendee keys and of identity suggestions, with
-//     the member's user id so the runner can reduce it to the cycle's `ref`.
+//     the member's user id so the runner can reduce it to the cycle's `ref`;
+//   - the intelligence refresh queue, grouped by domain, scope, state, attempts and last outcome code,
+//     with a count and the earliest createdAt / latest updatedAt. Never a user id, subject ref, source
+//     id, source revision, fingerprint or lease owner: those columns are not even selected.
 // It never selects a title, a summary, a note, a reason, an evidence payload, an entity name, an
 // address, an attendee key or a message. The entity half of a recurrence key can hold a buyer's
 // NAME (`callgrid-scoring.ts` falls back to it when there is no id), so it is used only inside
@@ -23,6 +26,7 @@ import { CALLGRID_DECISION_PRODUCER } from '@emgloop/shared';
 import { CREATOR_ONBOARDING_PRODUCER } from '../services/intelligence/creator-onboarding';
 import { IDENTITY_MATCH_TYPE } from './cognitive/identity-suggestion.repository';
 import { CASE_ORGANIZATION_WHERE } from '@emgloop/shared';
+import { refreshQueuePresent } from './intelligence/intelligence-fabric-presence';
 
 /** The producer the CallGrid pipeline records Cases as (apps/web `CALLGRID_SOURCE`). */
 export const CALLGRID_CASE_PRODUCER = CALLGRID_DECISION_PRODUCER;
@@ -138,6 +142,28 @@ export interface IntelligenceState {
   }[];
   readonly employees: readonly IntelligenceStateEmployee[];
   readonly employeesBounded: boolean;
+  /**
+   * The intelligence refresh queue (every row is unresolved: a completed request is deleted). Null: the
+   * queue's migration has not reached this database.
+   */
+  readonly refreshQueue: {
+    readonly groups: readonly IntelligenceStateRefreshGroup[];
+    readonly bounded: boolean;
+  } | null;
+}
+
+/** Identical refresh requests, aggregated. Metadata only. */
+export interface IntelligenceStateRefreshGroup {
+  readonly domain: string;
+  readonly scope: string;
+  /** PENDING, CLAIMED or HELD. */
+  readonly state: string;
+  readonly attempts: number;
+  /** The last hold/retry outcome code (e.g. FINGERPRINT_MISMATCH); null when none was recorded. */
+  readonly outcome: string | null;
+  readonly count: number;
+  readonly oldestCreatedAt: Date;
+  readonly latestUpdatedAt: Date;
 }
 
 /** The rule half of `<ruleId>::<entity>`. */
@@ -347,6 +373,35 @@ export class IntelligenceStateRepository {
       select: { privateToUserId: true, status: true },
       take: bound + 1,
     });
+    // The refresh queue: ONLY these seven columns are selected -- never userId, subjectRef, subjectKind,
+    // reason, sourceId, sourceRevision, fingerprint or the lease.
+    const queueRows = (await refreshQueuePresent(this.db))
+      ? await this.db.intelligenceRefreshRequest.findMany({
+          where: org,
+          select: { domain: true, scope: true, state: true, attempts: true, lastOutcome: true, createdAt: true, updatedAt: true },
+          orderBy: { createdAt: 'asc' },
+          take: bound + 1,
+        })
+      : null;
+    const refreshQueue = queueRows
+      ? {
+          groups: tally(queueRows.slice(0, bound), (r) => [r.domain, r.scope, r.state, String(r.attempts), r.lastOutcome ?? '']).map(({ parts: [domain, scope, state, attempts, outcome], count }) => {
+            const rows = queueRows.slice(0, bound).filter((r) => r.domain === domain && r.scope === scope && r.state === state && String(r.attempts) === attempts && (r.lastOutcome ?? '') === outcome);
+            return {
+              domain: domain!,
+              scope: scope!,
+              state: state!,
+              attempts: Number(attempts),
+              outcome: outcome || null,
+              count,
+              oldestCreatedAt: new Date(Math.min(...rows.map((r) => r.createdAt.getTime()))),
+              latestUpdatedAt: new Date(Math.max(...rows.map((r) => r.updatedAt.getTime()))),
+            };
+          }),
+          bounded: queueRows.length > bound,
+        }
+      : null;
+
     const employees: IntelligenceStateEmployee[] = members.map((m) => {
       const own = workEvents.slice(0, bound).filter((e) => e.userId === m.userId);
       const keyed = own.filter((e) => (e.attendeeHashes ?? []).length > 0);
@@ -407,6 +462,7 @@ export class IntelligenceStateRepository {
       })),
       employees,
       employeesBounded: workEvents.length > bound || suggestionRows.length > bound,
+      refreshQueue,
     };
   }
 }
