@@ -80,6 +80,11 @@ Every domain is built with the **domain kit** (`domain-kit.ts`):
   template). Activating a task is therefore one model-backed refresh, not a frozen rule reading. A stage
   that did not happen for a reason that may pass (a Loop refusal, a provider failure, no principal) stores
   its rule reading under an unsatisfied fingerprint, so it is retried.
+- An answer Loop rejected satisfies the gate (no repeat on unchanged evidence) and backs off that subject
+  for 24 hours under the same task and template version (`MODEL_REJECTION_BACKOFF_MS`, read from the AI
+  ledger), so a persistent invalid shape costs at most one call per subject per task per day.
+- The domain-reading template (v2) asks for `occurredAt`/`dueAt` as instants copied from a source, the
+  shape the signal contract accepts; no clock times, no quotation marks.
 
 The organization domain producers read through the scoped `DomainFactsRepository` or the domain's own
 repository. They never call Prisma from a service.
