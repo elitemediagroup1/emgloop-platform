@@ -2438,7 +2438,7 @@ worker is redeployed on it, and the runtime has been verified in production.
 
 Blueprint: https://claude.ai/artifact/VZuKzXAmCpc2WZsQR32gDS
 
-## Loop Intelligence — Calendar domain reading validation fix — IN REVIEW (draft PR, branch `fix/calendar-domain-reading-validation`, off main `a80c03d`)
+## Loop Intelligence — Calendar domain reading validation fix — IN REVIEW (draft PR #344, branch `fix/calendar-domain-reading-validation`, off main `a80c03d`)
 
 **Production (2026-09-28, after #342):**
 - Domain model readings reach Anthropic. CallGrid, campaigns and pipeline each ran 1 and answered 1.
