@@ -473,7 +473,7 @@ test('COMMISSIONING: activating callgrid.domain.reading over an unchanged rule d
 // sharply AND sold nothing twice in the digest's entityRefs; the real repository refuses a repeated reference
 // (DUPLICATE_KEY). Here, against the real repository, queue and gateway.
 
-test('CAMPAIGNS: a campaign that moved AND sold nothing is named once; the refresh writes CURRENT (RULE_AND_MODEL) past production-shaped HELD rows; malformed refs are still refused', { skip }, async () => {
+test('CAMPAIGNS: a campaign that moved AND sold nothing is named once; from production state the repaired pass writes CURRENT and resolves exactly its superseded HELD rows; malformed refs are still refused', { skip }, async () => {
   const prisma = new PrismaClient({ datasources: { db: { url: URL } } });
   forgetIntelligenceFabricPresence();
   try {
@@ -503,7 +503,9 @@ test('CAMPAIGNS: a campaign that moved AND sold nothing is named once; the refre
     );
     const producer = campaignsDomainProducer(calls as never, { modelEnabled: (id) => id === 'campaigns.domain.reading', reader: new DomainReadingService(gateway), principalFor: async () => ({ organizationId, userId: 'user_operator' }) });
     const frozen = new Date();
-    const now = () => frozen;
+    // The loop's clock. Moved past the seeded rows before the pass, as a real later pass would be.
+    let clock = frozen;
+    const now = () => clock;
     const queue = new IntelligenceRefreshQueueRepository(prisma);
     const digests = new IntelligenceDigestRepository(prisma);
     const target: IntelligenceRefreshTarget = { scope: 'ORGANIZATION', organizationId, domain: 'CAMPAIGNS', subjectKind: 'DOMAIN', subjectRef: 'domain' };
@@ -538,35 +540,170 @@ test('CAMPAIGNS: a campaign that moved AND sold nothing is named once; the refre
     }
     assert.equal(await prisma.intelligenceDigest.count({ where: { organizationId } }), 0, 'nothing refused was written');
 
-    // 3. Production's state: an older reading now STALE, and three HELD INVALID_ENTITY_REFS requests.
+    // 3. Production's state: an older reading now STALE, and three HELD INVALID_ENTITY_REFS requests for the
+    //    exact target -- plus HELD rows that are NOT this target's (another domain, another organization's
+    //    CAMPAIGNS, another subject), which must come through byte-identical.
     const stale = { ...digest, entityRefs: [REF], fingerprint: 'campaigns:before', content: { ...digest.content, reading: { statement: 'An older reading.', status: 'CALM' as const, confidence: 'MEDIUM' as const } } };
     assert.equal((await digests.upsertOrganization(organizationId, stale)).outcome, 'WRITTEN');
     await digests.markTargetStale(owner, target);
+    const heldRow = (org: string, patch: Record<string, unknown> = {}) =>
+      prisma.intelligenceRefreshRequest.create({ data: { organizationId: org, scope: 'ORGANIZATION', userId: null, domain: 'CAMPAIGNS', subjectKind: 'DOMAIN', subjectRef: 'domain', reason: 'SCHEDULED', firstRequestedAt: frozen, lastRequestedAt: frozen, notBefore: frozen, state: 'HELD', attempts: 1, lastOutcome: 'INVALID_ENTITY_REFS', ...patch } });
     const held: string[] = [];
-    for (let i = 0; i < 3; i += 1) {
-      const row = await prisma.intelligenceRefreshRequest.create({ data: { organizationId, scope: 'ORGANIZATION', userId: null, domain: 'CAMPAIGNS', subjectKind: 'DOMAIN', subjectRef: 'domain', reason: 'SCHEDULED', firstRequestedAt: frozen, lastRequestedAt: frozen, notBefore: frozen, state: 'HELD', attempts: 1, lastOutcome: 'INVALID_ENTITY_REFS' } });
-      held.push(row.id);
-    }
-    const heldBefore = await prisma.intelligenceRefreshRequest.findMany({ where: { id: { in: held } }, orderBy: { id: 'asc' } });
+    for (let i = 0; i < 3; i += 1) held.push((await heldRow(organizationId)).id);
+    const otherOrg = `org_camp_other_${randomUUID()}`;
+    await prisma.organization.create({ data: { id: otherOrg, name: 'CAMP OTHER', slug: otherOrg } });
+    const unrelated = [
+      (await heldRow(organizationId, { domain: 'CALLGRID', lastOutcome: 'NOT_PERMITTED' })).id,
+      (await heldRow(organizationId, { subjectKind: 'ENTITY', subjectRef: REF })).id,
+      (await heldRow(otherOrg)).id,
+    ];
+    const unrelatedBefore = await prisma.intelligenceRefreshRequest.findMany({ where: { id: { in: unrelated } }, orderBy: { id: 'asc' } });
+    const heldFor = () => prisma.intelligenceRefreshRequest.count({ where: { organizationId, scope: 'ORGANIZATION', userId: null, domain: 'CAMPAIGNS', subjectKind: 'DOMAIN', subjectRef: 'domain', state: 'HELD' } });
+    assert.equal(await heldFor(), 3);
 
-    // 4. The normal path: the scheduled pass enqueues a fresh request (a HELD row never blocks one), the
-    //    repaired producer reads, and the write succeeds.
+    // 4. Enqueueing or claiming a fresh request clears nothing: the barrier stands until a reading lands.
+    clock = new Date(Date.now() + 5);
     assert.equal((await queue.enqueue(target, { reason: 'SCHEDULED' }, now())).outcome, 'ENQUEUED');
+    assert.equal(await heldFor(), 3, 'an enqueue is not a success');
+
+    // 5. The normal repaired pass: the fresh request is claimed, read and written CURRENT -- and, in the same
+    //    breath, the three superseded HELD rows for this exact target are resolved.
     const report = await runIntelligenceProducerCycle({ queue, digests, registry: new IntelligenceProducerRegistry([producer], ['campaigns.domain@1']), leaseOwner: 'campaigns-test', now }, { limit: 50, leaseMs: 60_000, maxAttempts: 3 });
     assert.equal(report.held, 0, 'not held');
     assert.ok(report.written >= 1);
     assert.deepEqual(report.modelStages, { MODEL_READ: 1 });
+    assert.equal(report.outcomes.SUPERSEDED_HELD_RESOLVED, 3);
     const row = await prisma.intelligenceDigest.findFirst({ where: { organizationId, domain: 'CAMPAIGNS' }, select: { status: true, entityRefs: true, provenance: true } });
     assert.equal(row!.status, 'CURRENT', 'the STALE reading is replaced by a CURRENT one');
     assert.deepEqual(row!.entityRefs, [REF]);
     assert.equal((row!.provenance as { producerKind: string }).producerKind, 'RULE_AND_MODEL');
-    assert.equal(await prisma.intelligenceRefreshRequest.count({ where: { organizationId, state: { not: 'HELD' } } }), 0, 'the fresh request completed');
+    assert.equal(await heldFor(), 0, 'CURRENT digest + 0 HELD rows for that target');
+    assert.equal(await prisma.intelligenceRefreshRequest.count({ where: { id: { in: held } } }), 0);
+    assert.equal(await prisma.intelligenceRefreshRequest.count({ where: { organizationId, domain: 'CAMPAIGNS', subjectKind: 'DOMAIN', state: { not: 'HELD' } } }), 0, 'the fresh request completed');
+    assert.deepEqual(await prisma.intelligenceRefreshRequest.findMany({ where: { id: { in: unrelated } }, orderBy: { id: 'asc' } }), unrelatedBefore, 'every other target’s HELD row is byte-identical');
 
-    // 5. The code does not touch production's HELD rows: they are exactly as they were (the governed
-    //    retention sweep removes them; until then they only hold synthesis back, which is OFF).
-    assert.deepEqual(await prisma.intelligenceRefreshRequest.findMany({ where: { id: { in: held } }, orderBy: { id: 'asc' } }), heldBefore);
+    // 6. And the synthesis barrier is gone for this target only.
+    const { DigestSourceStateRepository } = await import('../src/repositories/intelligence/digest-source-state.repository');
+    const records = await digests.organizationForDomain(organizationId, 'CAMPAIGNS', { now: now() });
+    const state = await new DigestSourceStateRepository(prisma).resolve(records);
+    assert.equal(state.get(records[0]!.id)!.refreshUnresolved, false);
   } finally {
     await prisma.intelligenceRefreshRequest.deleteMany({ where: { organizationId: { startsWith: 'org_camp_' } } }).catch(() => undefined);
+    await prisma.$disconnect();
+  }
+});
+
+test('SELF-HEALING is fail closed: only a successful refresh of the EXACT target resolves its older HELD rows; refusals, failures, NO_EVIDENCE, enqueue and claim never do; unsuperseded HELD keeps its retention', { skip }, async () => {
+  const prisma = new PrismaClient({ datasources: { db: { url: URL } } });
+  forgetIntelligenceFabricPresence();
+  const organizationId = `org_heal_${randomUUID()}`;
+  try {
+    await prisma.organization.create({ data: { id: organizationId, name: 'HEAL', slug: organizationId } });
+    const users: string[] = [];
+    for (const n of [0, 1]) {
+      const userId = `user_heal_${n}_${randomUUID()}`;
+      await prisma.user.create({ data: { id: userId, organizationId, email: `${userId}@example.test`, name: 'H', status: 'ACTIVE', metadata: { systemRole: 'OWNER' } } });
+      await prisma.organizationMembership.create({ data: { organizationId, userId, systemRole: 'OWNER', status: 'ACTIVE', effectiveFrom: new Date('2026-01-01T00:00:00Z') } });
+      users.push(userId);
+    }
+    const digests = new IntelligenceDigestRepository(prisma);
+    const queue = new IntelligenceRefreshQueueRepository(prisma);
+    const target: IntelligenceRefreshTarget = { scope: 'ORGANIZATION', organizationId, domain: 'CAMPAIGNS', subjectKind: 'DOMAIN', subjectRef: 'domain' };
+    const exact = { organizationId, scope: 'ORGANIZATION', userId: null, domain: 'CAMPAIGNS', subjectKind: 'DOMAIN', subjectRef: 'domain' };
+    const held = (patch: Record<string, unknown> = {}) =>
+      prisma.intelligenceRefreshRequest.create({ data: { ...exact, reason: 'SCHEDULED', firstRequestedAt: NOW, lastRequestedAt: NOW, notBefore: NOW, state: 'HELD', attempts: 1, lastOutcome: 'INVALID_ENTITY_REFS', ...patch } });
+    const heldCount = () => prisma.intelligenceRefreshRequest.count({ where: { ...exact, state: 'HELD' } });
+
+    // --- The repository guard, directly ----------------------------------------------------------------
+    await held();
+    await held();
+    const started = new Date(Date.now() + 5);
+    // No digest at all: nothing to stand on.
+    assert.deepEqual(await queue.resolveSupersededHeld(target, { fingerprint: 'campaigns:v1', refreshStartedAt: started, now: new Date() }), { resolved: 0 });
+    assert.equal((await digests.upsertOrganization(organizationId, orgDigest('CAMPAIGNS', 'A campaign carried calls nobody bought.', 'campaigns:v1'))).outcome, 'WRITTEN');
+    // A different fingerprint than the stored CURRENT reading: not this refresh's reading.
+    assert.deepEqual(await queue.resolveSupersededHeld(target, { fingerprint: 'campaigns:other', refreshStartedAt: started, now: new Date() }), { resolved: 0 });
+    // The reading is STALE: not current.
+    await digests.markTargetStale({ scope: 'ORGANIZATION', organizationId }, target);
+    assert.deepEqual(await queue.resolveSupersededHeld(target, { fingerprint: 'campaigns:v1', refreshStartedAt: started, now: new Date() }), { resolved: 0 });
+    await digests.reaffirmTarget({ scope: 'ORGANIZATION', organizationId }, target, 'campaigns:v1');
+    // Expired: not a valid reading.
+    assert.deepEqual(await queue.resolveSupersededHeld(target, { fingerprint: 'campaigns:v1', refreshStartedAt: started, now: new Date(Date.now() + 400 * 864e5) }), { resolved: 0 });
+    // A malformed target: refused before anything is read.
+    assert.deepEqual(await queue.resolveSupersededHeld({ ...target, organizationId: '' }, { fingerprint: 'campaigns:v1', refreshStartedAt: started, now: new Date() }), { resolved: 0 });
+    assert.equal(await heldCount(), 2, 'every guard held the barrier');
+
+    // Rows it must never touch: a HELD row newer than the refresh, PENDING and CLAIMED rows for the target,
+    // other targets' HELD rows (another domain, subject, person, organization).
+    const otherOrg = `org_heal_other_${randomUUID()}`;
+    await prisma.organization.create({ data: { id: otherOrg, name: 'HEAL O', slug: otherOrg } });
+    const newer = (await held({ lastOutcome: 'NOT_PERMITTED' })).id;
+    await prisma.intelligenceRefreshRequest.update({ where: { id: newer }, data: { updatedAt: new Date(started.getTime() + 60_000) } });
+    const untouchable = [
+      newer,
+      (await prisma.intelligenceRefreshRequest.create({ data: { ...exact, reason: 'SCHEDULED', firstRequestedAt: NOW, lastRequestedAt: NOW, notBefore: NOW, state: 'PENDING' } })).id,
+      (await held({ domain: 'CALLGRID' })).id,
+      (await held({ subjectKind: 'ENTITY', subjectRef: ENTITY })).id,
+      (await held({ scope: 'PRINCIPAL', userId: users[0], domain: 'WORK' })).id,
+      (await held({ scope: 'PRINCIPAL', userId: users[1], domain: 'WORK' })).id,
+      (await held({ organizationId: otherOrg })).id,
+    ];
+    const before = await prisma.intelligenceRefreshRequest.findMany({ where: { id: { in: untouchable } }, orderBy: { id: 'asc' } });
+    assert.deepEqual(await queue.resolveSupersededHeld(target, { fingerprint: 'campaigns:v1', refreshStartedAt: started, now: new Date() }), { resolved: 2 }, 'exactly the two older HELD rows of this target');
+    assert.deepEqual(await prisma.intelligenceRefreshRequest.findMany({ where: { id: { in: untouchable } }, orderBy: { id: 'asc' } }), before, 'nothing else changed');
+    await prisma.intelligenceDigest.deleteMany({ where: { organizationId } });
+    await prisma.intelligenceRefreshRequest.deleteMany({ where: { organizationId: { in: [organizationId, otherOrg] } } });
+
+    // --- Through the real loop: failure paths never clear the barrier -----------------------------------
+    let mode: { kind: 'READY'; fingerprint: string; statement: string; bad?: boolean } | { kind: 'NO_EVIDENCE' } | { kind: 'UNAVAILABLE' } = { kind: 'UNAVAILABLE' };
+    const producer: IntelligenceProducer<{ statement: string; bad?: boolean }> = {
+      id: 'campaigns.domain@1', domain: 'CAMPAIGNS', scope: 'ORGANIZATION', subjectKinds: ['DOMAIN'], kind: 'RULE', taskId: null,
+      gather: async () => (mode.kind === 'READY' ? { status: 'READY', context: { statement: mode.statement, bad: mode.bad }, fingerprint: mode.fingerprint } : mode.kind === 'NO_EVIDENCE' ? { status: 'NO_EVIDENCE' } : { status: 'UNAVAILABLE', reason: 'test' }),
+      read: async (_t, ctx, fingerprint) => {
+        const d = orgDigest('CAMPAIGNS', ctx.statement, fingerprint);
+        // The production defect's shape: a repeated reference, refused by the real repository.
+        return { status: 'READ', digest: ctx.bad ? { ...d, entityRefs: [ENTITY, ENTITY] } : d };
+      },
+    };
+    let clock = Date.now();
+    const now = () => new Date(clock);
+    const pass = async (enqueue = true) => {
+      clock = Date.now() + 10 * 60_000; // later than every seeded row, and past any backoff
+      if (enqueue) await queue.enqueue(target, { reason: 'SCHEDULED' }, new Date(Date.now()));
+      return runIntelligenceProducerCycle({ queue, digests, registry: new IntelligenceProducerRegistry([producer], ['campaigns.domain@1']), leaseOwner: 'heal-test', now }, { limit: 50, leaseMs: 60_000, maxAttempts: 1 });
+    };
+    assert.equal((await digests.upsertOrganization(organizationId, orgDigest('CAMPAIGNS', 'An older reading.', 'campaigns:old'))).outcome, 'WRITTEN');
+    await digests.markTargetStale({ scope: 'ORGANIZATION', organizationId }, target);
+    for (let i = 0; i < 3; i += 1) await held();
+
+    mode = { kind: 'READY', fingerprint: 'campaigns:bad', statement: 'Refused.', bad: true };
+    const refused = await pass();
+    assert.equal(refused.held, 1, 'the refused write is HELD, as before');
+    assert.equal(await heldCount(), 4, 'a refused write resolves nothing');
+    mode = { kind: 'UNAVAILABLE' };
+    await pass();
+    assert.equal(await heldCount(), 5, 'a failed gather resolves nothing (and exhausts into HELD)');
+    mode = { kind: 'NO_EVIDENCE' };
+    await pass();
+    assert.equal(await heldCount(), 5, 'NO_EVIDENCE resolves nothing');
+    assert.equal((await prisma.intelligenceDigest.findFirst({ where: { organizationId, domain: 'CAMPAIGNS' } }))!.status, 'STALE');
+
+    // --- A successful re-affirm (unchanged evidence over a STALE reading) resolves them -------------------
+    mode = { kind: 'READY', fingerprint: 'campaigns:old', statement: 'An older reading.' };
+    const reaffirmed = await pass();
+    assert.equal(reaffirmed.skippedUnchangedBeforeRead, 1, 'no read: the stored reading stands for this evidence');
+    assert.equal(reaffirmed.outcomes.SUPERSEDED_HELD_RESOLVED, 5);
+    assert.equal(await heldCount(), 0);
+    assert.equal((await prisma.intelligenceDigest.findFirst({ where: { organizationId, domain: 'CAMPAIGNS' } }))!.status, 'CURRENT');
+
+    // --- Retention still governs a HELD row no successful refresh supersedes -----------------------------
+    const orphan = (await held({ subjectKind: 'ENTITY', subjectRef: ENTITY, lastOutcome: 'NOT_PERMITTED' })).id;
+    await prisma.intelligenceRefreshRequest.update({ where: { id: orphan }, data: { updatedAt: new Date(Date.now() - 8 * 864e5) } });
+    const { purged } = await queue.purgeHeld(new Date(Date.now() - 7 * 864e5), { organizationIds: [organizationId] });
+    assert.equal(purged, 1);
+    assert.equal(await prisma.intelligenceRefreshRequest.count({ where: { id: orphan } }), 0);
+  } finally {
+    await prisma.intelligenceRefreshRequest.deleteMany({ where: { organizationId: { startsWith: 'org_heal_' } } }).catch(() => undefined);
     await prisma.$disconnect();
   }
 });

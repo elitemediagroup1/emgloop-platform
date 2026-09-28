@@ -19,6 +19,9 @@
 // can never both own a request. An expired lease is recovered by the next claimer: back to PENDING, or,
 // when a newer PENDING request already exists for the target, folded into it.
 //
+// A HELD REQUEST IS A FRESHNESS BARRIER until it is superseded -- a later successful refresh of the exact
+// same target resolves it (`resolveSupersededHeld`) -- or its retention ends (`purgeHeld`).
+//
 // ENQUEUE IS A PRODUCER'S ACT, NEVER A PAGE'S. Nothing in apps/web enqueues (a source-scan test pins it):
 // rendering Home or a domain page must never cause a model call.
 //
@@ -341,6 +344,36 @@ export class IntelligenceRefreshQueueRepository {
       count: g._count._all,
       oldestRequestedAt: g._min.firstRequestedAt ?? null,
     }));
+  }
+
+  /**
+   * SELF-HEALING: a refresh for this EXACT target has just written or re-affirmed its reading, so the HELD
+   * requests it supersedes -- same organization, scope, principal, domain, subject kind and subject ref,
+   * last touched before that refresh began -- no longer stand between the reading and synthesis.
+   *
+   * ONE SERIALIZABLE TRANSACTION: the target's digest is re-read inside it and must be CURRENT, unexpired and
+   * carry exactly the fingerprint the refresh wrote; only then are the superseded HELD rows deleted. So the
+   * barrier is never cleared without a current reading from a successful refresh, and a concurrent change
+   * (a stale transition, another write) aborts it -- the barrier stays and the next success tries again.
+   * Never another target's rows, never a PENDING or CLAIMED row, never a HELD row newer than the refresh.
+   * Rows no successful refresh supersedes keep the governed retention (`purgeHeld`).
+   */
+  async resolveSupersededHeld(
+    target: IntelligenceRefreshTarget,
+    opts: { readonly fingerprint: string; readonly refreshStartedAt: Date; readonly now: Date },
+  ): Promise<{ readonly resolved: number }> {
+    if (refreshTargetRefusal(target) || !opts.fingerprint) return { resolved: 0 };
+    if (!(await refreshQueuePresent(this.db))) return { resolved: 0 };
+    const where = targetWhere(target);
+    return this.db.$transaction(
+      async (tx) => {
+        const current = await tx.intelligenceDigest.findFirst({ where: { ...where, status: 'CURRENT', fingerprint: opts.fingerprint, expiresAt: { gt: opts.now } }, select: { id: true } });
+        if (!current) return { resolved: 0 };
+        const { count } = await tx.intelligenceRefreshRequest.deleteMany({ where: { ...where, state: 'HELD', updatedAt: { lt: opts.refreshStartedAt } } });
+        return { resolved: count };
+      },
+      { isolationLevel: 'Serializable' },
+    );
   }
 
   /** Maintenance, across tenants: delete HELD requests last touched before `before`. A count only. */

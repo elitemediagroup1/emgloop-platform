@@ -2456,10 +2456,10 @@ for the Campaigns model call.
   over-long campaign id gets a hashed key. This latent `BAD_KEY` defect would otherwise have been refused
   next as `INVALID_CONTENT`.
 
-**Recovery (no cleanup):** the next scheduled pass enqueues a fresh request, which writes a CURRENT reading.
-The 3 old HELD rows are untouched. They are removed by the 7-day HELD retention sweep, which moves the
-reading to STALE in the same transaction; the next pass restores it. Until then they hold only synthesis
-back, which is OFF.
+**Recovery (no cleanup), self-healing:** a successful refresh (write or re-affirm) resolves the HELD rows of
+its exact target that it supersedes. This runs in one serializable transaction that re-checks the reading
+is CURRENT. The next scheduled pass therefore writes Campaigns CURRENT and clears its 3 HELD rows. Refusals,
+failures, enqueue and claim never clear a barrier. Genuinely unresolved HELD rows keep the 7-day retention.
 
 **Next (Matt):** review, merge, redeploy the worker. Then run Read Intelligence State and check the Campaigns
 digest is CURRENT and no new HELD rows appear.

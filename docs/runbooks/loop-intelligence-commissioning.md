@@ -206,6 +206,8 @@ For Loop's own records (every organization reading), the refresh is the freshnes
   is removed only once that succeeds: a failed stale write leaves the request retrying or held.
 - An unchanged successful refresh re-affirms it without a read.
 - A changed one replaces it.
+- Either success also resolves that target's older HELD rows, so a fixed producer clears its own barrier on
+  the next pass. There is no manual cleanup. A HELD row that no success supersedes still leaves after 7 days.
 
 **The Briefing's expected coverage.** Every domain Loop is supposed to observe for the person must be
 present and current before "nothing pressing" can appear. That set is:

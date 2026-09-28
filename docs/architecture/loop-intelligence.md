@@ -173,6 +173,10 @@ CURRENT:
 - If the stale write fails on NO_EVIDENCE, the request is retried rather than completed.
 - A terminal failure is held whatever the stale write did.
 - `purgeHeld` moves the reading out of CURRENT and deletes the HELD row in one transaction.
+- A later **successful** refresh of the exact same target (written, or re-affirmed) resolves the HELD rows it
+  supersedes (`resolveSupersededHeld`): those last touched before that refresh began. It runs in one
+  serializable transaction that re-checks the reading is CURRENT, unexpired and carries the fingerprint just
+  written. Enqueue, claim, refusals and failures never clear a barrier. Another target's rows are never touched.
 - The unresolved-refresh lookup asks about exactly the supplied digests' targets, with no result cap.
 
 - A PARTIAL digest's limitation travels with every signal into the model's context and into the stored
@@ -261,7 +265,7 @@ line's chip links only where the viewer's navigation goes.
 | Principal digests | 30 days (stamped on the row) |
 | ORGANIZATION digests | Their own expiry |
 | Entity links | Tied to the membership |
-| Refresh requests | Deleted on completion; a HELD one 7 days after it last changed (the `INTELLIGENCE_REFRESH_REQUESTS` policy), purged by the worker's retention sweep through `purgeHeld`, which moves its reading out of CURRENT in the same transaction |
+| Refresh requests | Deleted on completion; a HELD one when a later successful refresh of the same target supersedes it, otherwise 7 days after it last changed (the `INTELLIGENCE_REFRESH_REQUESTS` policy), purged by the worker's retention sweep through `purgeHeld`, which moves its reading out of CURRENT in the same transaction |
 | Private situations and a person's candidates | Tied to the membership (`PRIVATE_SITUATIONS`, work-retention `.2`) |
 | Organization candidates | Purged after 90 days undecided |
 | Loop Briefings (`work_briefs`) | 90 days from the local date: the approved decision (`INTELLIGENCE_BRIEFING_RETENTION_DAYS_DECIDED`), the `BRIEFS` category (work-retention `.3`, not overridable), purged by the worker |
