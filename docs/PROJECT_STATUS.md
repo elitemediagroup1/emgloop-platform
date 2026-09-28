@@ -2438,7 +2438,7 @@ worker is redeployed on it, and the runtime has been verified in production.
 
 Blueprint: https://claude.ai/artifact/VZuKzXAmCpc2WZsQR32gDS
 
-## Loop Intelligence — Campaigns INVALID_ENTITY_REFS fix — IN REVIEW (draft PR, branch `fix/campaigns-entity-refs`, off main `55d14e3`)
+## Loop Intelligence — Campaigns INVALID_ENTITY_REFS fix — IN REVIEW (draft PR #346, branch `fix/campaigns-entity-refs`, off main `55d14e3`)
 
 **Production (2026-09-28):**
 - Calendar, CallGrid, Campaigns and Pipeline model readings answer (#342, #344 merged).
