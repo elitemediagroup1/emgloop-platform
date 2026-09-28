@@ -28,6 +28,7 @@ import {
   AI_TASK_SITUATION_SYNTHESIS,
   AI_TASK_SITUATION_VERIFICATION,
   INTELLIGENCE_DOMAIN_REGISTRY,
+  SITUATION_SIGNAL_KINDS,
   SITUATION_SYNTHESIS_SCHEMA,
   SITUATION_VERIFICATION_SCHEMA,
   aiNumbersInText,
@@ -165,8 +166,173 @@ function verificationState(verdicts: readonly { verdict: string }[], claims: num
   return supported === claims ? 'VERIFIED' : 'PARTIAL';
 }
 
+/**
+ * Why an owner's pass reached (or would reach) no synthesis call -- the first gate that stopped it, as a code:
+ * NOT_MIGRATED, NOT_SELECTED (owners() would not visit it), NO_DIGESTS, NO_ELIGIBLE_DIGESTS,
+ * INSUFFICIENT_DOMAINS (fewer than two eligible domains), NO_ELIGIBLE_SIGNALS (no signal of a situation kind
+ * naming an entity), INSUFFICIENT_SIGNAL_DOMAINS (such signals in fewer than two domains), NO_SHARED_ENTITY
+ * (no entity -- directly or through an explicit link -- appears in two domains), OUTSIDE_TEMPORAL_WINDOW
+ * (shared, but too far apart in time), ALL_UNCHANGED (every cluster already decided at this fingerprint), or
+ * WOULD_SYNTHESIZE (at least one cluster needs situation.synthesis, if it is activated and a principal runs it).
+ */
+export type SituationDiagnosisReason =
+  | 'NOT_MIGRATED'
+  | 'NOT_SELECTED'
+  | 'NO_DIGESTS'
+  | 'NO_ELIGIBLE_DIGESTS'
+  | 'INSUFFICIENT_DOMAINS'
+  | 'NO_ELIGIBLE_SIGNALS'
+  | 'INSUFFICIENT_SIGNAL_DOMAINS'
+  | 'NO_SHARED_ENTITY'
+  | 'OUTSIDE_TEMPORAL_WINDOW'
+  | 'ALL_UNCHANGED'
+  | 'WOULD_SYNTHESIZE';
+
+/** What an owner's situation pass sees, as counts and codes. Never a signal, an entity, a subject or an id. */
+export interface SituationDiagnosis {
+  readonly selected: boolean;
+  readonly digests: number;
+  readonly eligibleDigests: number;
+  readonly eligibleDomains: readonly string[];
+  /** Ineligible digests by eligibility reason (NOT_CURRENT_STATUS, REFRESH_UNRESOLVED, ...). */
+  readonly ineligible: Readonly<Record<string, number>>;
+  /** Per domain: digests, eligible, signals entering clustering, and those that can cluster. */
+  readonly domains: readonly { readonly domain: string; readonly digests: number; readonly eligible: number; readonly signals: number; readonly clusterable: number; readonly entityRefs: number }[];
+  /** Signals entering clusterSituationSignals. */
+  readonly signals: number;
+  /** Of those, of a situation kind AND naming at least one entity. */
+  readonly clusterableSignals: number;
+  /** Signals left out: by kind (not a situation kind), or naming no entity. */
+  readonly excluded: { readonly kind: Readonly<Record<string, number>>; readonly noEntity: number };
+  readonly clusterableDomains: readonly string[];
+  /** Distinct canonical entity references the signals name. */
+  readonly entityRefs: number;
+  /** Explicit entity links available between them. */
+  readonly explicitLinks: number;
+  /** Entity references named directly by clusterable signals in two or more domains (before links and the window). */
+  readonly sharedAcrossDomains: number;
+  readonly clusters: number;
+  readonly unchanged: number;
+  readonly wouldSynthesize: number;
+  readonly reason: SituationDiagnosisReason;
+}
+
 export class SituationService {
   constructor(private readonly ports: SituationPorts) {}
+
+  /**
+   * The deterministic front half of a pass -- gather, eligibility, explicit links, clusters -- shared by
+   * `pass` and `diagnose`, so the diagnosis is exactly what the pass sees. Reads only.
+   */
+  private async prepare(owner: SituationOwner, now: Date) {
+    const digests = await this.gather(owner, now);
+    const sources = await new DigestSourceStateRepository(this.ports.prisma).resolve(digests);
+    const inputs = situationInputsOf(digests, sources, now);
+    const linkOwner: EntityLinkOwner = owner.scope === 'ORGANIZATION' ? { scope: 'ORGANIZATION', organizationId: owner.organizationId } : { scope: 'PRINCIPAL', principal: { organizationId: owner.organizationId, userId: owner.userId } };
+    const entities = [...new Set(inputs.flatMap((i) => i.signal.entities ?? []))];
+    const links = entities.length ? await new EntityLinkRepository(this.ports.prisma).linksFor(linkOwner, entities) : [];
+    const clusters = clusterSituationSignals(inputs, links.map((l) => [l.fromRef, l.toRef] as const));
+    return { digests, sources, inputs, entities, links, clusters };
+  }
+
+  /**
+   * READ-ONLY DIAGNOSIS of one owner's pass: the same gather, eligibility, links and clusters as `pass`, and
+   * which clusters are already decided -- then it stops. No model is called, nothing is written. Counts and
+   * codes only.
+   */
+  async diagnose(owner: SituationOwner): Promise<SituationDiagnosis> {
+    const situations = new SituationRepository(this.ports.prisma);
+    const now = this.ports.now();
+    const empty = { digests: 0, eligibleDigests: 0, eligibleDomains: [], ineligible: {}, domains: [], signals: 0, clusterableSignals: 0, excluded: { kind: {}, noEntity: 0 }, clusterableDomains: [], entityRefs: 0, explicitLinks: 0, sharedAcrossDomains: 0, clusters: 0, unchanged: 0, wouldSynthesize: 0 };
+    if (!(await situations.present())) return { selected: false, ...empty, reason: 'NOT_MIGRATED' };
+    // The worker visits exactly these owners (the same bound it uses).
+    const selected = (await situations.owners(owner.scope, now, 100)).some((o) => o.organizationId === owner.organizationId && (o.scope === 'ORGANIZATION' || (owner.scope === 'PRINCIPAL' && o.userId === owner.userId)));
+    const { digests, sources, inputs, entities, links, clusters } = await this.prepare(owner, now);
+
+    const ineligible: Record<string, number> = {};
+    const perDomain = new Map<string, { digests: number; eligible: number; signals: number; clusterable: number; refs: Set<string> }>();
+    const domainOf = (d: string) => perDomain.get(d) ?? (perDomain.set(d, { digests: 0, eligible: 0, signals: 0, clusterable: 0, refs: new Set() }), perDomain.get(d)!);
+    for (const d of digests) {
+      const row = domainOf(d.domain);
+      row.digests += 1;
+      const e = digestSynthesisEligibility(d, sources.get(d.id) ?? { connectionLive: false, sourceLastEvidenceAt: null }, now);
+      if (e.eligible) row.eligible += 1;
+      else ineligible[e.reason] = (ineligible[e.reason] ?? 0) + 1;
+    }
+    const excludedKind: Record<string, number> = {};
+    let noEntity = 0;
+    const clusterable = inputs.filter((i) => {
+      const row = domainOf(i.domain);
+      row.signals += 1;
+      const ofKind = SITUATION_SIGNAL_KINDS.includes(i.signal.kind);
+      const named = (i.signal.entities?.length ?? 0) > 0;
+      if (!ofKind) excludedKind[i.signal.kind] = (excludedKind[i.signal.kind] ?? 0) + 1;
+      else if (!named) noEntity += 1;
+      if (!ofKind || !named) return false;
+      row.clusterable += 1;
+      for (const e of i.signal.entities!) row.refs.add(e);
+      return true;
+    });
+    const domainsOfRef = new Map<string, Set<string>>();
+    for (const i of clusterable) for (const e of i.signal.entities!) domainsOfRef.set(e, (domainsOfRef.get(e) ?? new Set()).add(i.domain));
+    const sharedAcrossDomains = [...domainsOfRef.values()].filter((d) => d.size >= 2).length;
+    // The same join the clusterer makes: entities connected by explicit links count as one.
+    const parent = new Map<string, string>();
+    const root = (x: string): string => (parent.has(x) && parent.get(x) !== x ? root(parent.get(x)!) : x);
+    for (const l of links) {
+      const [a, b] = [root(l.fromRef), root(l.toRef)];
+      if (a !== b) parent.set(a < b ? b : a, a < b ? a : b);
+    }
+    const domainsOfRoot = new Map<string, Set<string>>();
+    for (const [e, ds] of domainsOfRef) domainsOfRoot.set(root(e), new Set([...(domainsOfRoot.get(root(e)) ?? []), ...ds]));
+    const sharedViaLinks = [...domainsOfRoot.values()].some((d) => d.size >= 2);
+
+    let unchanged = 0;
+    for (const cluster of clusters) {
+      const stored = await situations.candidate(owner, `sc_${sha(cluster.clusterBasis).slice(0, 32)}`);
+      if (stored?.fingerprint === `situation:${sha(cluster.fingerprintBasis)}`) unchanged += 1;
+    }
+    const eligibleDomains = [...perDomain.entries()].filter(([, r]) => r.eligible > 0).map(([d]) => d).sort();
+    const clusterableDomains = [...new Set(clusterable.map((i) => i.domain))].sort();
+    const reason: SituationDiagnosisReason = !selected
+      ? 'NOT_SELECTED'
+      : digests.length === 0
+        ? 'NO_DIGESTS'
+        : eligibleDomains.length === 0
+          ? 'NO_ELIGIBLE_DIGESTS'
+          : eligibleDomains.length < 2
+            ? 'INSUFFICIENT_DOMAINS'
+            : clusterable.length === 0
+              ? 'NO_ELIGIBLE_SIGNALS'
+              : clusterableDomains.length < 2
+                ? 'INSUFFICIENT_SIGNAL_DOMAINS'
+                : clusters.length === 0
+                  ? sharedViaLinks
+                    ? 'OUTSIDE_TEMPORAL_WINDOW'
+                    : 'NO_SHARED_ENTITY'
+                  : unchanged === clusters.length
+                    ? 'ALL_UNCHANGED'
+                    : 'WOULD_SYNTHESIZE';
+    return {
+      selected,
+      digests: digests.length,
+      eligibleDigests: [...perDomain.values()].reduce((n, r) => n + r.eligible, 0),
+      eligibleDomains,
+      ineligible,
+      domains: [...perDomain.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([domain, r]) => ({ domain, digests: r.digests, eligible: r.eligible, signals: r.signals, clusterable: r.clusterable, entityRefs: r.refs.size })),
+      signals: inputs.length,
+      clusterableSignals: clusterable.length,
+      excluded: { kind: excludedKind, noEntity },
+      clusterableDomains,
+      entityRefs: entities.length,
+      explicitLinks: links.length,
+      sharedAcrossDomains,
+      clusters: clusters.length,
+      unchanged,
+      wouldSynthesize: clusters.length - unchanged,
+      reason,
+    };
+  }
 
   private async gather(owner: SituationOwner, now: Date): Promise<IntelligenceDigestRecord[]> {
     const digests = new IntelligenceDigestRepository(this.ports.prisma);
@@ -185,12 +351,7 @@ export class SituationService {
     const tally = (m: Record<string, number>, k: string) => (m[k] = (m[k] ?? 0) + 1);
     if (!(await situations.present())) return { state: 'NOT_MIGRATED', ...report };
     const now = this.ports.now();
-    const digests = await this.gather(owner, now);
-    const inputs = situationInputsOf(digests, await new DigestSourceStateRepository(this.ports.prisma).resolve(digests), now);
-    const linkOwner: EntityLinkOwner = owner.scope === 'ORGANIZATION' ? { scope: 'ORGANIZATION', organizationId: owner.organizationId } : { scope: 'PRINCIPAL', principal: { organizationId: owner.organizationId, userId: owner.userId } };
-    const entities = [...new Set(inputs.flatMap((i) => i.signal.entities ?? []))];
-    const links = entities.length ? await new EntityLinkRepository(this.ports.prisma).linksFor(linkOwner, entities) : [];
-    const clusters = clusterSituationSignals(inputs, links.map((l) => [l.fromRef, l.toRef] as const));
+    const { clusters } = await this.prepare(owner, now);
     report.candidates = clusters.length;
     if (clusters.length === 0) return { state: 'RAN', ...report };
 

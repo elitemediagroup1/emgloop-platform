@@ -6,7 +6,9 @@
 // domain and status; whether any relationship event qualifies for the creator review; delivery
 // and subscription state; per member, calendar attendee-key coverage and identity suggestions by
 // state; and the intelligence refresh queue, aggregated by domain, scope, state, attempts and the
-// hold/retry outcome code (why a refresh is HELD). It writes nothing -- no retry, no purge, no stale
+// hold/retry outcome code (why a refresh is HELD); and the organization's situation pass, diagnosed
+// read-only (digests, eligibility, signals, entity refs, links, clusters, decided, and the first gate that
+// stopped it) -- it calls no model. It writes nothing -- no retry, no purge, no stale
 // transition: the reader is built on a client that can only read
 // (`readOnlyClient`), and nothing here names a write.
 //
@@ -20,7 +22,7 @@
 // NO SCHEDULE, NO PUSH, NO PULL_REQUEST, NO WORKFLOW_CALL. Reading production is still touching
 // production, and a human should be the one asking.
 
-import type { IntelligenceState } from '@emgloop/database';
+import type { IntelligenceState, SituationDiagnosis } from '@emgloop/database';
 import { employeeRef } from './cycle-employee-sources';
 
 export interface IntelligenceStateReader {
@@ -30,6 +32,11 @@ export interface IntelligenceStateReader {
 
 export interface IntelligenceStateDeps {
   reader: IntelligenceStateReader;
+  /**
+   * The ORGANIZATION situation pass, diagnosed read-only (SituationService.diagnose on a read-only client,
+   * with no runtime: no model can be called). Absent: the section is not printed.
+   */
+  situations?: (organizationId: string) => Promise<SituationDiagnosis>;
   now: () => Date;
   log: (line: string) => void;
 }
@@ -249,6 +256,37 @@ export async function runIntelligenceState(
     deps.log(line({ event: 'INTELLIGENCE_REFRESH_SUMMARY', present: true, requests: total, held, bounded: state.refreshQueue.bounded }));
   }
 
+  // 9. The organization's situation pass, diagnosed: why it would (or would not) call situation.synthesis.
+  if (deps.situations) {
+    const d = await deps.situations(org.id);
+    const list = (xs: readonly string[]) => (xs.length ? xs.map((x) => token(x)).join(',') : null);
+    for (const r of d.domains) {
+      deps.log(line({ event: 'SITUATION_DOMAIN', domain: token(r.domain), digests: r.digests, eligible: r.eligible, signals: r.signals, clusterable: r.clusterable, entityRefs: r.entityRefs }));
+    }
+    for (const [reason, count] of Object.entries(d.ineligible)) deps.log(line({ event: 'SITUATION_INELIGIBLE', reason: token(reason), count }));
+    for (const [kind, count] of Object.entries(d.excluded.kind)) deps.log(line({ event: 'SITUATION_EXCLUDED', basis: 'KIND', kind: token(kind), count }));
+    if (d.excluded.noEntity > 0) deps.log(line({ event: 'SITUATION_EXCLUDED', basis: 'NO_ENTITY', kind: null, count: d.excluded.noEntity }));
+    deps.log(line({
+      event: 'SITUATION_PASS',
+      scope: 'ORGANIZATION',
+      selected: d.selected,
+      digests: d.digests,
+      eligibleDigests: d.eligibleDigests,
+      eligibleDomains: list(d.eligibleDomains),
+      signals: d.signals,
+      clusterableSignals: d.clusterableSignals,
+      clusterableDomains: list(d.clusterableDomains),
+      entityRefs: d.entityRefs,
+      explicitLinks: d.explicitLinks,
+      sharedAcrossDomains: d.sharedAcrossDomains,
+      clusters: d.clusters,
+      unchanged: d.unchanged,
+      wouldSynthesize: d.wouldSynthesize,
+      reason: token(d.reason),
+      modelCalls: 0,
+    }));
+  }
+
   deps.log(line({
     event: 'SUMMARY',
     cases: state.cases.rows.length,
@@ -276,11 +314,14 @@ async function main(): Promise<number> {
     return 2;
   }
 
-  const { prisma, readOnlyClient, IntelligenceStateRepository } = await import('@emgloop/database');
+  const { prisma, readOnlyClient, IntelligenceStateRepository, SituationService } = await import('@emgloop/database');
   try {
     // The reader gets a client that can only read. Its own `$disconnect` stays with this wiring.
     const reader = new IntelligenceStateRepository(readOnlyClient(prisma));
-    const result = await runIntelligenceState({ organizationSlug: args.organization, since: args.since }, { reader, now: () => new Date(), log });
+    // The situation diagnosis: the same read-only client, NO runtime and no task enabled -- it cannot call a model.
+    const situationService = new SituationService({ prisma: readOnlyClient(prisma), runtime: null, modelEnabled: () => false, principalFor: async () => null, now: () => new Date() });
+    const situations = (organizationId: string) => situationService.diagnose({ scope: 'ORGANIZATION', organizationId });
+    const result = await runIntelligenceState({ organizationSlug: args.organization, since: args.since }, { reader, situations, now: () => new Date(), log });
     return result.overall === 'READ' ? 0 : 1;
   } finally {
     await prisma.$disconnect();
