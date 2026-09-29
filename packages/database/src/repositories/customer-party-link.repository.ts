@@ -58,8 +58,8 @@ export class CustomerPartyLinkRepository {
    * Write a new active link. The unique `activeCustomerId` makes a concurrent
    * second active link fail with P2002 rather than coexist; the caller re-reads.
    */
-  create(organizationId: string, input: CreateCustomerPartyLinkInput): Promise<CustomerPartyLink> {
-    return this.prisma.customerPartyLink.create({
+  create(organizationId: string, input: CreateCustomerPartyLinkInput, tx?: Pick<PrismaClient, 'customerPartyLink'>): Promise<CustomerPartyLink> {
+    return (tx ?? this.prisma).customerPartyLink.create({
       data: {
         organizationId,
         customerId: input.customerId,
@@ -80,8 +80,10 @@ export class CustomerPartyLinkRepository {
     organizationId: string,
     linkId: string,
     input: { reversedByUserId: string; reason: string; at: Date },
+    tx?: Pick<PrismaClient, 'customerPartyLink'>,
   ): Promise<CustomerPartyLink | null> {
-    const { count } = await this.prisma.customerPartyLink.updateMany({
+    const db = tx ?? this.prisma;
+    const { count } = await db.customerPartyLink.updateMany({
       where: { id: linkId, organizationId, reversedAt: null },
       data: {
         reversedAt: input.at,
@@ -91,6 +93,6 @@ export class CustomerPartyLinkRepository {
       },
     });
     if (count === 0) return null;
-    return this.prisma.customerPartyLink.findFirst({ where: { id: linkId, organizationId } });
+    return db.customerPartyLink.findFirst({ where: { id: linkId, organizationId } });
   }
 }

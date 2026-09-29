@@ -97,7 +97,7 @@ export class CustomerPartyLinkService {
   private readonly links: CustomerPartyLinkRepository;
   private readonly audit: Pick<AuditRepository, 'record'>;
 
-  constructor(prisma: PrismaClient, deps: CustomerPartyLinkDeps = {}) {
+  constructor(private readonly prisma: PrismaClient, deps: CustomerPartyLinkDeps = {}) {
     this.iam = deps.iam ?? new IamRepository(prisma);
     this.references = deps.references ?? new PartyReferenceRepository(prisma);
     this.links = deps.links ?? new CustomerPartyLinkRepository(prisma);
@@ -143,14 +143,36 @@ export class CustomerPartyLinkService {
         : { outcome: 'CONFLICTING_ACTIVE_LINK' };
     }
 
+    // The link and its audit entry commit TOGETHER: a person's link is attributed work (intake eligibility reads
+    // it), so it may never exist without its trail, nor its trail without it.
+    const actorName = await this.actorName(organizationId, actorUserId, options);
     let link: CustomerPartyLink;
     try {
-      link = await this.links.create(organizationId, {
-        customerId: customer.id,
-        partyId: party.id,
-        basis: basis as (typeof CUSTOMER_PARTY_LINK_BASES)[number],
-        linkedByUserId: actorUserId,
-        linkedAt: new Date(),
+      link = await this.prisma.$transaction(async (tx) => {
+        const created = await this.links.create(
+          organizationId,
+          {
+            customerId: customer.id,
+            partyId: party.id,
+            basis: basis as (typeof CUSTOMER_PARTY_LINK_BASES)[number],
+            linkedByUserId: actorUserId,
+            linkedAt: new Date(),
+          },
+          tx,
+        );
+        await this.audit.record(
+          {
+            organizationId,
+            userId: actorUserId,
+            actorName,
+            action: 'customer.party_linked',
+            entityType: 'customer',
+            entityId: customer.id,
+            metadata: { linkId: created.id, partyId: party.id, basis },
+          },
+          tx,
+        );
+        return created;
       });
     } catch (error) {
       if (!isUniqueViolation(error)) throw error;
@@ -160,16 +182,6 @@ export class CustomerPartyLinkService {
       if (winner && winner.partyId === party.id) return { outcome: 'ALREADY_LINKED', link: winner };
       return { outcome: 'CONFLICTING_ACTIVE_LINK' };
     }
-
-    await this.audit.record({
-      organizationId,
-      userId: actorUserId,
-      actorName: await this.actorName(organizationId, actorUserId, options),
-      action: 'customer.party_linked',
-      entityType: 'customer',
-      entityId: customer.id,
-      metadata: { linkId: link.id, partyId: party.id, basis },
-    });
     return { outcome: 'LINKED', link };
   }
 
@@ -189,22 +201,26 @@ export class CustomerPartyLinkService {
     const active = await this.links.findActive(organizationId, customer.id);
     if (!active) return { outcome: 'NO_ACTIVE_LINK' };
 
-    const reversed = await this.links.reverse(organizationId, active.id, {
-      reversedByUserId: actorUserId,
-      reason,
-      at: new Date(),
+    // The reversal and its audit entry commit together, like the link.
+    const actorName = await this.actorName(organizationId, actorUserId, options);
+    const reversed = await this.prisma.$transaction(async (tx) => {
+      const r = await this.links.reverse(organizationId, active.id, { reversedByUserId: actorUserId, reason, at: new Date() }, tx);
+      if (!r) return null;
+      await this.audit.record(
+        {
+          organizationId,
+          userId: actorUserId,
+          actorName,
+          action: 'customer.party_link_reversed',
+          entityType: 'customer',
+          entityId: customer.id,
+          metadata: { linkId: r.id, partyId: r.partyId, reason },
+        },
+        tx,
+      );
+      return r;
     });
     if (!reversed) return { outcome: 'NO_ACTIVE_LINK' };
-
-    await this.audit.record({
-      organizationId,
-      userId: actorUserId,
-      actorName: await this.actorName(organizationId, actorUserId, options),
-      action: 'customer.party_link_reversed',
-      entityType: 'customer',
-      entityId: customer.id,
-      metadata: { linkId: reversed.id, partyId: reversed.partyId, reason },
-    });
     return { outcome: 'REVERSED', link: reversed };
   }
 
