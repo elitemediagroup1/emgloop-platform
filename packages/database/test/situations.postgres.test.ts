@@ -412,23 +412,23 @@ test('DIAGNOSIS: counts and the first gate that stops the pass -- NO_SHARED_ENTI
         signals: 6, clusterableSignals: 2, excluded: { kind: { OPERATIONAL: 3 }, noEntity: 1 }, clusterableDomains: ['CALLGRID', 'CAMPAIGNS'],
         entityRefs: 2, explicitLinks: 0, projectedLinks: 0,
         projection: [{ linkClass: 'CUSTOMER_PARTY', records: 0, links: 0, rejected: {} }, { linkClass: 'CREATOR_PARTY', records: 0, links: 0, rejected: {} }, { linkClass: 'WORK_ORIGIN', records: 0, links: 0, rejected: {} }],
-        sharedAcrossDomains: 0, clusters: 0, independentClusters: 0, eliminatedSameSource: 0, composition: [], unchanged: 0, wouldSynthesize: 0, reason: 'NO_SHARED_ENTITY',
+        sharedAcrossDomains: 0, clusters: 0, sourceIndependentClusters: 0, eliminatedSameSource: 0, composition: [], unchanged: 0, wouldSynthesize: 0, reason: 'NO_SHARED_ENTITY',
       },
     );
     // Metadata only.
     for (const secret of ['Secret', 'b-secret-1', 'c-secret-2', orgA, 'provider_member']) assert.equal(JSON.stringify(d1).includes(secret), false, secret);
 
     // 2. An explicit link joins the buyer and the campaign: a cross-domain cluster -- but CallGrid and Campaigns
-    //    are ONE governed source (CALLGRID). Not independent: the pass never reads it.
+    //    are ONE governed source (CALLGRID). Not sourceIndependent: the pass never reads it.
     const links = new EntityLinkRepository(prisma);
     assert.equal((await links.declare({ scope: 'ORGANIZATION', organizationId: orgA }, { fromRef: BUYER, toRef: CAMPAIGN, relation: 'PART_OF', basis: 'RULE', source: 'diag-test', effectiveFrom: at(-2) })).outcome, 'LINKED');
     const d2 = await service.diagnose(owner);
-    assert.deepEqual([d2.explicitLinks, d2.clusters, d2.independentClusters, d2.eliminatedSameSource, d2.wouldSynthesize, d2.reason], [1, 1, 0, 1, 0, 'NO_INDEPENDENT_SOURCES']);
-    assert.deepEqual(d2.composition, [{ domains: ['CALLGRID', 'CAMPAIGNS'], sources: ['CALLGRID'], count: 1, independent: false }]);
+    assert.deepEqual([d2.explicitLinks, d2.clusters, d2.sourceIndependentClusters, d2.eliminatedSameSource, d2.wouldSynthesize, d2.reason], [1, 1, 0, 1, 0, 'NO_INDEPENDENT_SOURCES']);
+    assert.deepEqual(d2.composition, [{ domains: ['CALLGRID', 'CAMPAIGNS'], sources: ['CALLGRID'], count: 1, sourceIndependent: false }]);
     const calls: string[] = [];
     const runtime = { run: async (_p: unknown, req: { task: { taskId: string } }) => (calls.push(req.task.taskId), { outcome: 'REFUSED_BY_LOOP', refusals: ['TEST'] }) } as never;
     const pass = await new SituationService({ prisma, runtime, modelEnabled: () => true, principalFor: async () => ({ organizationId: orgA, userId: 'u' }), now: () => new Date() }).pass(owner);
-    assert.deepEqual([pass.candidates, pass.notIndependent, pass.unchanged, pass.notAsked], [1, 1, 0, 0]);
+    assert.deepEqual([pass.candidates, pass.sameSourceOnly, pass.unchanged, pass.notAsked], [1, 1, 0, 0]);
     assert.deepEqual(calls, [], 'a same-source cluster never reaches the model, even with every task enabled');
 
     // 3. Pipeline (a SECOND governed source, LOOP_INTAKE) names the campaign in a stalled signal: independent.
@@ -436,20 +436,20 @@ test('DIAGNOSIS: counts and the first gate that stops the pass -- NO_SHARED_ENTI
     const stalled = { ...named, content: { ...named.content, signals: [{ ...named.content.signals[0]!, kind: 'STALLED' }] } } as IntelligenceDigestInput;
     assert.equal((await digests.upsertOrganization(orgA, stalled)).outcome, 'WRITTEN');
     const d3 = await service.diagnose(owner);
-    assert.deepEqual([d3.clusters, d3.independentClusters, d3.eliminatedSameSource, d3.wouldSynthesize, d3.reason], [1, 1, 0, 1, 'WOULD_SYNTHESIZE']);
-    assert.deepEqual(d3.composition, [{ domains: ['CALLGRID', 'CAMPAIGNS', 'PIPELINE'], sources: ['CALLGRID', 'LOOP_INTAKE'], count: 1, independent: true }]);
+    assert.deepEqual([d3.clusters, d3.sourceIndependentClusters, d3.eliminatedSameSource, d3.wouldSynthesize, d3.reason], [1, 1, 0, 1, 'WOULD_SYNTHESIZE']);
+    assert.deepEqual(d3.composition, [{ domains: ['CALLGRID', 'CAMPAIGNS', 'PIPELINE'], sources: ['CALLGRID', 'LOOP_INTAKE'], count: 1, sourceIndependent: true }]);
 
     // 4. Once decided at this fingerprint: ALL_UNCHANGED.
     const shared = await import('@emgloop/shared');
     const { situationInputsOf } = await import('../src/services/intelligence-fabric/situations');
     const records = (await Promise.all(['CALLGRID', 'CAMPAIGNS', 'PIPELINE'].map((d) => digests.organizationForDomain(orgA, d as never, { now: new Date() })))).flat();
     const [cluster] = shared.clusterSituationSignals(situationInputsOf(records, new Map(records.map((r) => [r.id, { connectionLive: true, sourceLastEvidenceAt: null, refreshUnresolved: false }])), new Date()), [[BUYER, CAMPAIGN]]);
-    assert.equal(cluster!.independent, true);
+    assert.equal(cluster!.sourceIndependent, true);
     const { createHash } = await import('node:crypto');
     const sha = (v: string) => createHash('sha256').update(v).digest('hex');
     await new SituationRepository(prisma).recordCandidate(owner, { clusterKey: `sc_${sha(cluster!.clusterBasis).slice(0, 32)}`, fingerprint: `situation:${sha(cluster!.fingerprintBasis)}`, decision: 'NONE', caseId: null, verification: null, at: new Date() });
     const d4 = await service.diagnose(owner);
-    assert.deepEqual([d4.independentClusters, d4.unchanged, d4.wouldSynthesize, d4.reason], [1, 1, 0, 'ALL_UNCHANGED']);
+    assert.deepEqual([d4.sourceIndependentClusters, d4.unchanged, d4.wouldSynthesize, d4.reason], [1, 1, 0, 'ALL_UNCHANGED']);
 
     // 5. An organization with a reading in one domain is never visited by the scheduled pass.
     assert.equal((await digests.upsertOrganization(orgB, digest('CALLGRID', 'k', 'Secret.', BUYER))).outcome, 'WRITTEN');
@@ -544,11 +544,11 @@ test('CONNECTIVITY: governed relationship classes from the projector; stable vs 
     assert.deepEqual(c.governed.crm, { established: 2, newlyEstablished7d: 1, nameable: 1, awaitingDecision: 1 });
 
     // CURRENT (persisted entity_links only): CallGrid + Campaigns share the campaign -- one source, not independent.
-    assert.deepEqual(c.current, { crossDomain: 1, independent: 0, eliminatedSameSource: 1, composition: [{ domains: ['CALLGRID', 'CAMPAIGNS'], sources: ['CALLGRID'], count: 1, independent: false }] });
+    assert.deepEqual(c.current, { crossDomain: 1, sourceIndependent: 0, eliminatedSameSource: 1, composition: [{ domains: ['CALLGRID', 'CAMPAIGNS'], sources: ['CALLGRID'], count: 1, sourceIndependent: false }] });
     // PROJECTOR (plus the governed projection): the WorkOrigin joins Work to that campaign (LOOP_WORK makes it
     // independent), and the Party link + CreatorProfile join the stalled intake record and the creator.
-    assert.deepEqual([c.projector.crossDomain, c.projector.independent, c.projector.eliminatedSameSource], [2, 2, 0]);
-    assert.deepEqual(c.projector.composition.map((g) => [g.domains.join('+'), g.sources.join('+'), g.count, g.independent]).sort(), [
+    assert.deepEqual([c.projector.crossDomain, c.projector.sourceIndependent, c.projector.eliminatedSameSource], [2, 2, 0]);
+    assert.deepEqual(c.projector.composition.map((g) => [g.domains.join('+'), g.sources.join('+'), g.count, g.sourceIndependent]).sort(), [
       ['CALLGRID+CAMPAIGNS+WORK', 'CALLGRID+LOOP_WORK', 1, true],
       ['CREATORS+PIPELINE', 'LOOP_CREATORS+LOOP_INTAKE', 1, true],
     ]);

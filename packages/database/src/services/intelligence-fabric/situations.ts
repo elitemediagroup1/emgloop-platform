@@ -8,13 +8,16 @@
 //              links PROJECTED from governed records (GovernedEntityLinkProjector: an active Customer->Party
 //              link, a Creator's Party, a Work item's promoted origin -- organization passes only), within the
 //              temporal window, across at least two domains. No model decides what to look at.
-//   independence  only a cluster whose evidence rests on at least two DISTINCT GOVERNED SOURCES (the registered
-//              source ids of its digests' provenance) is synthesized. CallGrid and Campaigns both read the one
-//              CALLGRID source: together they are one source seen twice, never corroboration.
+//   source independence  only a cluster whose evidence rests on at least two DISTINCT GOVERNED SOURCES is
+//              synthesized. A signal's source is its digest's one registered provenance source (signalSourcesOf;
+//              a multi-source digest's signals claim none). CallGrid and Campaigns both read the one CALLGRID
+//              source: together they are one source seen twice, never corroboration. A link -- explicit or
+//              projected, a WorkOrigin included -- only joins entities; it is never a source. Evidence-source
+//              independence is NOT verification independence (below): different controls, different problems.
 //   skip       a cluster whose fingerprint equals the last decided one costs nothing (situation_candidates).
 //   synthesize situation.synthesis[.private]: NEW / UPDATE (a SUPPLIED open situation) / NONE, with claims
 //              citing supplied signal refs -- validated by the registered contract before this sees it.
-//   verify     situation.verify[.private], routed OTHER_THAN_SUBJECT: a different provider marks each claim.
+//   verify     situation.verify[.private], routed OTHER_THAN_SUBJECT: a different MODEL PROVIDER marks each claim.
 //              With none commissioned the check does not run and the situation records UNAVAILABLE -- it is
 //              never checked by the same provider and called independent. If an independent check finds NO
 //              claim supported, the situation is not recorded.
@@ -83,8 +86,8 @@ export interface SituationPorts {
 export interface SituationPassReport {
   readonly state: 'NOT_MIGRATED' | 'RAN';
   readonly candidates: number;
-  /** Candidates not read because their evidence rests on fewer than two distinct governed sources. */
-  readonly notIndependent: number;
+  /** Candidates not read because their evidence rests on fewer than two distinct governed SOURCES (not a verification outcome). */
+  readonly sameSourceOnly: number;
   readonly unchanged: number;
   readonly notAsked: number;
   readonly decisions: Readonly<Record<string, number>>;
@@ -114,19 +117,42 @@ export function governedSourcesOf(digest: Pick<IntelligenceDigestRecord, 'proven
 }
 
 /**
+ * The governed sources ONE SIGNAL rests on. Provenance is recorded per digest, not per signal, so a signal can
+ * inherit it only when the digest read exactly one governed source: then every claim in it came from there. A
+ * digest that read several (Website with more than one connected reader) cannot say which source each signal
+ * came from, and handing every signal all of them would let one source's claim count as two -- so its signals
+ * get none: they may still connect, but never make a cluster independent (fail closed).
+ */
+export function signalSourcesOf(digest: Pick<IntelligenceDigestRecord, 'provenance'>): string[] {
+  const governed = governedSourcesOf(digest);
+  return governed.length === 1 ? governed : [];
+}
+
+/**
+ * A signal a MODEL wrote into a rule reading (RULE_AND_MODEL digests key them `m.<key>`). It restates the rule's
+ * own facts from the same source, and it may name any combination of the supplied references -- so in a Situation
+ * it would be a model choosing which entities belong together. Clustering reads the rule's observed facts only.
+ */
+function modelAuthored(digest: Pick<IntelligenceDigestRecord, 'provenance'>, key: unknown): boolean {
+  return (digest.provenance as { producerKind?: unknown } | undefined)?.producerKind === 'RULE_AND_MODEL' && typeof key === 'string' && key.startsWith('m.');
+}
+
+/**
  * The ELIGIBLE digests' signals as clusterable inputs. A digest that is not legitimately current for
  * synthesis (digestSynthesisEligibility: status CURRENT, valid content, freshness SUFFICIENT or PARTIAL)
- * contributes nothing. A PARTIAL digest's signals carry its coverage and limitations.
+ * contributes nothing. A PARTIAL digest's signals carry its coverage and limitations. Each signal carries the
+ * governed sources IT rests on (signalSourcesOf); a model's addition to a rule reading is left out.
  */
 export function situationInputsOf(digests: readonly IntelligenceDigestRecord[], sources: ReadonlyMap<string, SynthesisSourceState>, now: Date): SituationSignalInput[] {
   const out: SituationSignalInput[] = [];
   for (const d of digests) {
     const eligibility = digestSynthesisEligibility(d, sources.get(d.id) ?? { connectionLive: false, sourceLastEvidenceAt: null }, now);
     if (!eligibility.eligible) continue;
-    const governed = governedSourcesOf(d);
+    const lineage = signalSourcesOf(d);
     for (const s of d.content.signals ?? []) {
+      if (modelAuthored(d, s.key)) continue;
       const key = String(s.key).replace(/[^A-Za-z0-9_.-]/g, '_');
-      out.push({ ref: `digest:${d.id}/${key}`, domain: d.domain, signal: s, at: signalTime(s, d.generatedAt), coverage: eligibility.coverage, limitations: eligibility.limitations, sources: governed });
+      out.push({ ref: `digest:${d.id}/${key}`, domain: d.domain, signal: s, at: signalTime(s, d.generatedAt), coverage: eligibility.coverage, limitations: eligibility.limitations, sources: lineage });
     }
   }
   return out;
@@ -240,7 +266,7 @@ export interface SituationDiagnosis {
   readonly sharedAcrossDomains: number;
   readonly clusters: number;
   /** Of those, resting on at least two distinct governed sources -- the only ones synthesis may read. */
-  readonly independentClusters: number;
+  readonly sourceIndependentClusters: number;
   /** Cross-domain clusters the independence rule removes (one source seen through several domains). */
   readonly eliminatedSameSource: number;
   /** Clusters by source composition: domains, governed sources, count, independent. Codes only. */
@@ -254,13 +280,13 @@ export interface SourceComposition {
   readonly domains: readonly string[];
   readonly sources: readonly string[];
   readonly count: number;
-  readonly independent: boolean;
+  readonly sourceIndependent: boolean;
 }
 
 /** Cross-domain connectivity for one scenario, from the REAL clusterer (kind, window and sources applied). */
 export interface ConnectivityScenario {
   readonly crossDomain: number;
-  readonly independent: number;
+  readonly sourceIndependent: number;
   readonly eliminatedSameSource: number;
   readonly composition: readonly SourceComposition[];
 }
@@ -270,12 +296,12 @@ function compositionOf(clusters: readonly SituationClusterCandidate[]): Connecti
   for (const c of clusters) {
     const key = `${c.domains.join('+')}|${c.sources.join('+')}`;
     const g = groups.get(key);
-    groups.set(key, { domains: c.domains, sources: c.sources, count: (g?.count ?? 0) + 1, independent: c.independent });
+    groups.set(key, { domains: c.domains, sources: c.sources, count: (g?.count ?? 0) + 1, sourceIndependent: c.sourceIndependent });
   }
-  const independent = clusters.filter((c) => c.independent).length;
+  const independent = clusters.filter((c) => c.sourceIndependent).length;
   return {
     crossDomain: clusters.length,
-    independent,
+    sourceIndependent: independent,
     eliminatedSameSource: clusters.length - independent,
     composition: [...groups.values()].sort((a, b) => b.count - a.count || a.domains.join().localeCompare(b.domains.join())),
   };
@@ -346,7 +372,7 @@ export class SituationService {
   async diagnose(owner: SituationOwner): Promise<SituationDiagnosis> {
     const situations = new SituationRepository(this.ports.prisma);
     const now = this.ports.now();
-    const empty = { digests: 0, eligibleDigests: 0, eligibleDomains: [], ineligible: {}, domains: [], signals: 0, clusterableSignals: 0, excluded: { kind: {}, noEntity: 0 }, clusterableDomains: [], entityRefs: 0, explicitLinks: 0, projectedLinks: 0, projection: [], sharedAcrossDomains: 0, clusters: 0, independentClusters: 0, eliminatedSameSource: 0, composition: [], unchanged: 0, wouldSynthesize: 0 };
+    const empty = { digests: 0, eligibleDigests: 0, eligibleDomains: [], ineligible: {}, domains: [], signals: 0, clusterableSignals: 0, excluded: { kind: {}, noEntity: 0 }, clusterableDomains: [], entityRefs: 0, explicitLinks: 0, projectedLinks: 0, projection: [], sharedAcrossDomains: 0, clusters: 0, sourceIndependentClusters: 0, eliminatedSameSource: 0, composition: [], unchanged: 0, wouldSynthesize: 0 };
     if (!(await situations.present())) return { selected: false, ...empty, reason: 'NOT_MIGRATED' };
     // The worker visits exactly these owners (the same bound it uses).
     const selected = (await situations.owners(owner.scope, now, 100)).some((o) => o.organizationId === owner.organizationId && (o.scope === 'ORGANIZATION' || (owner.scope === 'PRINCIPAL' && o.userId === owner.userId)));
@@ -393,7 +419,7 @@ export class SituationService {
     const sharedViaLinks = [...domainsOfRoot.values()].some((d) => d.size >= 2);
 
     // Only an independent cluster can reach synthesis; "unchanged" is judged among those.
-    const independent = clusters.filter((c) => c.independent);
+    const independent = clusters.filter((c) => c.sourceIndependent);
     let unchanged = 0;
     for (const cluster of independent) {
       const stored = await situations.candidate(owner, `sc_${sha(cluster.clusterBasis).slice(0, 32)}`);
@@ -440,7 +466,7 @@ export class SituationService {
       projection: projection?.classes ?? [],
       sharedAcrossDomains,
       clusters: clusters.length,
-      independentClusters: independent.length,
+      sourceIndependentClusters: independent.length,
       eliminatedSameSource: composed.eliminatedSameSource,
       composition: composed.composition,
       unchanged,
@@ -462,7 +488,7 @@ export class SituationService {
 
   async pass(owner: SituationOwner): Promise<SituationPassReport> {
     const situations = new SituationRepository(this.ports.prisma);
-    const report = { candidates: 0, notIndependent: 0, unchanged: 0, notAsked: 0, decisions: {} as Record<string, number>, verification: {} as Record<string, number>, refused: {} as Record<string, number> };
+    const report = { candidates: 0, sameSourceOnly: 0, unchanged: 0, notAsked: 0, decisions: {} as Record<string, number>, verification: {} as Record<string, number>, refused: {} as Record<string, number> };
     const tally = (m: Record<string, number>, k: string) => (m[k] = (m[k] ?? 0) + 1);
     if (!(await situations.present())) return { state: 'NOT_MIGRATED', ...report };
     const now = this.ports.now();
@@ -470,8 +496,8 @@ export class SituationService {
     report.candidates = clusters.length;
     if (clusters.length === 0) return { state: 'RAN', ...report };
     // INDEPENDENCE: only a cluster resting on two distinct governed sources is read -- before any lookup or call.
-    const independent = clusters.filter((c) => c.independent);
-    report.notIndependent = clusters.length - independent.length;
+    const independent = clusters.filter((c) => c.sourceIndependent);
+    report.sameSourceOnly = clusters.length - independent.length;
     if (independent.length === 0) return { state: 'RAN', ...report };
 
     const synthTask = owner.scope === 'ORGANIZATION' ? AI_TASK_SITUATION_SYNTHESIS : AI_TASK_PRIVATE_SITUATION_SYNTHESIS;
@@ -519,7 +545,9 @@ export class SituationService {
         await situations.recordCandidate(owner, { clusterKey, fingerprint, decision: 'NONE', caseId: null, verification: null, at: now });
         continue;
       }
-      // Independent verification: a DIFFERENT provider, or honestly none.
+      // Independent VERIFICATION: a DIFFERENT model provider, or honestly none (UNAVAILABLE). Unrelated to source
+      // independence, which this cluster already passed: a situation on two governed sources is recorded even
+      // when no second provider exists.
       const subjectProvider = synth.provenance.requestedModel.providerId;
       let state: SituationVerificationState = 'UNAVAILABLE';
       let verifier: string | null = null;

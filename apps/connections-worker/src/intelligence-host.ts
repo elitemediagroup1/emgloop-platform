@@ -116,7 +116,7 @@ export async function createIntelligenceHost(
             situationTally[k] = (situationTally[k] ?? 0) + 1;
             for (const [d, n] of Object.entries(r?.decisions ?? {})) situationTally[`${scope}:${d}`] = (situationTally[`${scope}:${d}`] ?? 0) + n;
             // Clusters not read because their evidence rests on fewer than two distinct governed sources.
-            if (r && r.notIndependent > 0) situationTally[`${scope}:NOT_INDEPENDENT`] = (situationTally[`${scope}:NOT_INDEPENDENT`] ?? 0) + r.notIndependent;
+            if (r && r.sameSourceOnly > 0) situationTally[`${scope}:SAME_SOURCE_ONLY`] = (situationTally[`${scope}:SAME_SOURCE_ONLY`] ?? 0) + r.sameSourceOnly;
           }
         }
         const briefingTally: Record<string, number> = {};

@@ -298,14 +298,14 @@ export async function runIntelligenceState(
       projectedLinks: d.projectedLinks,
       sharedAcrossDomains: d.sharedAcrossDomains,
       clusters: d.clusters,
-      independentClusters: d.independentClusters,
+      sourceIndependentClusters: d.sourceIndependentClusters,
       eliminatedSameSource: d.eliminatedSameSource,
       unchanged: d.unchanged,
       wouldSynthesize: d.wouldSynthesize,
       reason: token(d.reason),
       modelCalls: 0,
     }));
-    for (const g of d.composition) deps.log(line({ event: 'SITUATION_PASS_COMPOSITION', domains: list(g.domains)?.replace(/,/g, '+') ?? null, sources: list(g.sources)?.replace(/,/g, '+') ?? null, count: g.count, independent: g.independent }));
+    for (const g of d.composition) deps.log(line({ event: 'SITUATION_PASS_COMPOSITION', domains: list(g.domains)?.replace(/,/g, '+') ?? null, sources: list(g.sources)?.replace(/,/g, '+') ?? null, count: g.count, sourceIndependent: g.sourceIndependent }));
   }
 
   // 10. What the organization could legitimately connect -- counts and codes; no link is created.
@@ -328,9 +328,9 @@ export async function runIntelligenceState(
     // Both from the real clusterer over the pass's own eligible signals: kind, window and sources applied.
     for (const [scenario, p] of [['CURRENT', c.current], ['PROJECTOR', c.projector]] as const) {
       for (const grp of p.composition) {
-        deps.log(line({ event: 'SITUATION_POTENTIAL_GROUP', scenario, domains: joined(grp.domains), sources: joined(grp.sources), count: grp.count, independent: grp.independent }));
+        deps.log(line({ event: 'SITUATION_POTENTIAL_GROUP', scenario, domains: joined(grp.domains), sources: joined(grp.sources), count: grp.count, sourceIndependent: grp.sourceIndependent }));
       }
-      deps.log(line({ event: 'SITUATION_POTENTIAL', scenario, crossDomain: p.crossDomain, independent: p.independent, eliminatedSameSource: p.eliminatedSameSource }));
+      deps.log(line({ event: 'SITUATION_POTENTIAL', scenario, crossDomain: p.crossDomain, sourceIndependent: p.sourceIndependent, eliminatedSameSource: p.eliminatedSameSource }));
     }
     deps.log(line({ event: 'SITUATION_CONNECTIVITY_SUMMARY', bounded: g.bounded || c.relationshipsBounded, linksCreated: 0, modelCalls: 0 }));
   }
