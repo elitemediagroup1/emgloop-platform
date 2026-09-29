@@ -447,6 +447,7 @@ export { MailContentTriageService } from './services/ai-runtime/mail-content-tri
 export { SituationRepository, SITUATION_RECORD_SCHEMA, situationRecurrenceKey } from './repositories/intelligence/situation.repository';
 export type { SituationOwner, SituationRecord, SituationView } from './repositories/intelligence/situation.repository';
 export { SituationService, situationInputsOf, situationContext, type SituationDiagnosis, type SituationDiagnosisReason, type SituationConnectivity } from './services/intelligence-fabric/situations';
+export { PipelineCompositionRepository, PIPELINE_ACTIVITY_WINDOW_DAYS, type PipelineComposition } from './repositories/intelligence/pipeline-composition.repository';
 export { SituationConnectivityRepository, potentialSituationComponents, DOMAIN_SOURCE, CONNECTIVITY_MEMBER_WINDOW_DAYS, type PotentialSummary, type GovernedConnectivity } from './repositories/intelligence/situation-connectivity.repository';
 export type { SituationPorts, SituationPassReport } from './services/intelligence-fabric/situations';
 // Loop Intelligence Phase G: the Loop Briefing, stored in the person's own work_briefs.
