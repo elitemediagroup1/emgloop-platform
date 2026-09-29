@@ -19,6 +19,7 @@
 
 import {
   INTELLIGENCE_DOMAIN_SUBJECT_REF,
+  intelligenceSignalsRefusals,
   validateAiContextPackage,
   type AiContextItem,
   type AiSupportedEvidence,
@@ -84,6 +85,15 @@ export interface DomainKitPorts {
     readonly templateVersion: string;
     readonly since: Date;
   }) => Promise<boolean>;
+  /** The same question for a provider call that FAILED (MODEL_FAILURE_BACKOFF_MS). Absent: no failure backoff. */
+  readonly modelFailedSince?: (q: {
+    readonly organizationId: string;
+    readonly userId: string | null;
+    readonly taskId: string;
+    readonly taskVersion: string;
+    readonly templateVersion: string;
+    readonly since: Date;
+  }) => Promise<boolean>;
 }
 
 /**
@@ -93,6 +103,15 @@ export interface DomainKitPorts {
  * A new template or task version is a new question and is asked at once.
  */
 export const MODEL_REJECTION_BACKOFF_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * After a provider call FAILED (timeout, 429, 5xx, a ledger that could not record), the same reading is not
+ * attempted again for this long. Without it a failing provider was retried on every pass (every 15 minutes)
+ * for every domain: a hidden loop spending the BACKGROUND lane Telegram hydration shares, since a failed call
+ * still counts as an invocation. At most eight failed attempts per subject per day; the rule reading stands
+ * meanwhile, and the next attempt after the window happens without the evidence having to change.
+ */
+export const MODEL_FAILURE_BACKOFF_MS = 3 * 60 * 60 * 1000;
 
 export interface DomainProducerSpec<C> {
   readonly id: string;
@@ -111,6 +130,33 @@ export interface DomainProducerSpec<C> {
 
 const MAX_SIGNALS = 12;
 
+/** How a producer reads right now: rule only, rule with its task off, or rule plus the task at its versions. */
+function identityOf<C>(spec: DomainProducerSpec<C>, ports: DomainKitPorts): string {
+  if (!spec.model) return 'rule';
+  return ports.reader && ports.modelEnabled(spec.model.task.taskId)
+    ? `model:${spec.model.task.taskId}@${spec.model.task.version}/${spec.model.task.outputSchemaId}/${DOMAIN_READING_TEMPLATE_VERSION}`
+    : `rule;model-off:${spec.model.task.taskId}`;
+}
+
+/**
+ * The rule's signals with the model's appended, each model key prefixed `m.` and kept inside the key grammar
+ * (a key the prefix would push past 64 characters is cut BEFORE prefixing, and a key that then repeats one
+ * already taken is dropped, never renamed), capped at the digest's signal limit. Returns the refusals the
+ * digest contract would give the merged list; empty means it can be stored.
+ */
+export function mergeModelReading(rule: readonly IntelligenceSignal[], model: readonly IntelligenceSignal[], scope: 'PRINCIPAL' | 'ORGANIZATION'): { signals: IntelligenceSignal[]; refusals: string[] } {
+  const taken = new Set(rule.map((s) => s.key));
+  const out: IntelligenceSignal[] = [...rule];
+  for (const s of model) {
+    const key = `m.${s.key.slice(0, 62)}`;
+    if (taken.has(key)) continue;
+    taken.add(key);
+    out.push({ ...s, key });
+  }
+  const signals = out.slice(0, MAX_SIGNALS);
+  return { signals, refusals: intelligenceSignalsRefusals(signals, { scope, producerKind: 'RULE_AND_MODEL' }) };
+}
+
 /** A domain producer from a spec: rule reading always, model reading when activated. */
 export function domainProducer<C>(spec: DomainProducerSpec<C>, ports: DomainKitPorts): IntelligenceProducer<C> {
   return {
@@ -121,12 +167,7 @@ export function domainProducer<C>(spec: DomainProducerSpec<C>, ports: DomainKitP
     kind: spec.model ? 'RULE_AND_MODEL' : 'RULE',
     taskId: spec.model?.task.taskId ?? null,
     gather: (target, now) => spec.gather(target, now),
-    readingIdentity: () =>
-      !spec.model
-        ? 'rule'
-        : ports.reader && ports.modelEnabled(spec.model.task.taskId)
-          ? `model:${spec.model.task.taskId}@${spec.model.task.version}/${spec.model.task.outputSchemaId}/${DOMAIN_READING_TEMPLATE_VERSION}`
-          : `rule;model-off:${spec.model.task.taskId}`,
+    readingIdentity: () => identityOf(spec, ports),
     ...(spec.discover ? { discover: (now: Date) => spec.discover!(now) } : {}),
     async read(target, ctx, fingerprint, now): Promise<IntelligenceReadResult> {
       const rule = spec.rule(ctx, now);
@@ -153,36 +194,49 @@ export function domainProducer<C>(spec: DomainProducerSpec<C>, ports: DomainKitP
           const context = { organizationId: org, viewerUserId: principal.userId, taskId: spec.model.task.taskId, items, sensitivityCeiling: spec.model.task.sensitivityCeiling };
           // Checked here too, so a refusal is named (the gateway reports only CONTEXT_REFUSED) and costs nothing.
           const contextRefusals = validateAiContextPackage(context);
-          // The backoff after a rejected answer. Unreadable: no call now (fail closed), tried again next pass.
+          // The backoffs: after a rejected answer (a day), and after a failed provider call (hours). Unreadable: no
+          // call now (fail closed), tried again next pass.
+          const ask = (since: number) => ({
+            organizationId: target.organizationId,
+            userId: target.scope === 'PRINCIPAL' ? target.userId : null,
+            taskId: spec.model!.task.taskId,
+            taskVersion: spec.model!.task.version,
+            templateVersion: DOMAIN_READING_TEMPLATE_VERSION,
+            since: new Date(now.getTime() - since),
+          });
           const backoff =
             contextRefusals.length > 0 || !ports.modelRejectedSince
               ? false
-              : await ports
-                  .modelRejectedSince({
-                    organizationId: target.organizationId,
-                    userId: target.scope === 'PRINCIPAL' ? target.userId : null,
-                    taskId: spec.model.task.taskId,
-                    taskVersion: spec.model.task.version,
-                    templateVersion: DOMAIN_READING_TEMPLATE_VERSION,
-                    since: new Date(now.getTime() - MODEL_REJECTION_BACKOFF_MS),
-                  })
-                  .catch(() => null);
+              : await ports.modelRejectedSince(ask(MODEL_REJECTION_BACKOFF_MS)).catch(() => null);
+          const failedBackoff =
+            contextRefusals.length > 0 || backoff !== false || !ports.modelFailedSince ? false : await ports.modelFailedSince(ask(MODEL_FAILURE_BACKOFF_MS)).catch(() => null);
           const answer =
             contextRefusals.length > 0
               ? ({ outcome: 'CONTEXT_REFUSED', codes: contextRefusals } as const)
-              : backoff === null
+              : backoff === null || failedBackoff === null
                 ? ({ outcome: 'FAILED', failure: 'BACKOFF_UNREADABLE' } as const)
                 : backoff
                   ? ({ outcome: 'MODEL_BACKOFF' } as const)
-                  : await ports.reader.read(principal, { task: spec.model.task, framing: spec.model.framing, context, evidence: built.evidence });
+                  : failedBackoff
+                    ? ({ outcome: 'MODEL_BACKOFF_FAILED' } as const)
+                    : await ports.reader.read(principal, { task: spec.model.task, framing: spec.model.framing, context, evidence: built.evidence });
           modelStage = modelStageCode(answer);
-          if (answer.outcome === 'READ') {
+          // The merged reading must be one Loop can store: checked HERE, against the same contract the digest
+          // write applies, so an answer that validated alone but cannot merge (two long keys that collide once
+          // prefixed and cut to 64) never costs the rule reading its write. It is then discarded, whole.
+          const merged =
+            answer.outcome === 'READ'
+              ? mergeModelReading(signals, answer.reading.signals, spec.scope)
+              : null;
+          if (answer.outcome === 'READ' && merged && merged.refusals.length > 0) {
+            modelStage = `REJECTED_OUTPUT:MERGE_${merged.refusals[0]}`.slice(0, 96);
+            limitations.push('This is Loop’s rule-based reading; the model reading could not be combined with it.');
+          } else if (answer.outcome === 'READ' && merged) {
             statement = answer.reading.reading.statement;
             status = answer.reading.reading.status;
             confidence = answer.reading.reading.confidence;
             // The rule's MEASURED and OBSERVED facts stay; the model's readings join them, keyed apart.
-            const ruleKeys = new Set(signals.map((s) => s.key));
-            signals = [...signals, ...answer.reading.signals.filter((s) => !ruleKeys.has(`m.${s.key}`)).map((s) => ({ ...s, key: `m.${s.key}`.slice(0, 64) }))];
+            signals = merged.signals;
             limitations.push(...answer.reading.limitations);
             producerKind = 'RULE_AND_MODEL';
             aiInvocationId = answer.provenance.invocationId;
@@ -216,6 +270,9 @@ export function domainProducer<C>(spec: DomainProducerSpec<C>, ports: DomainKitP
           producerVersion: `${spec.id}#${spec.version}`,
           producerKind,
           sources: rule.sources,
+          // How the model stage went (a bounded code) and how this producer reads: what proves, without any
+          // content, whether a reading is the model's and why not when it is not.
+          ...(spec.model ? { modelStage: modelStage ?? 'MODEL_NOT_ACTIVATED', readingIdentity: identityOf(spec, ports) } : {}),
           ...(aiInvocationId ? { aiInvocationId, taskId: spec.model!.task.taskId, taskVersion, schemaId: 'domain-reading.v1' } : {}),
         },
         aiInvocationId,
@@ -247,6 +304,8 @@ export function modelStageCode(answer: { readonly outcome: string; readonly code
       return 'REFUSED_BY_MODEL';
     case 'MODEL_BACKOFF':
       return 'MODEL_BACKOFF:REJECTED_OUTPUT';
+    case 'MODEL_BACKOFF_FAILED':
+      return 'MODEL_BACKOFF:FAILED';
     case 'FAILED':
       return `FAILED:${safe(answer.failure)}`;
     default:

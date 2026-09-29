@@ -78,6 +78,7 @@ export function loopProducers(ports: LoopProducerPorts): IntelligenceProducer<an
     reader: ports.reader,
     principalFor: principalResolver(facts, ports.actingUsers, ports.now),
     modelRejectedSince: (q) => ledger.rejectedSince(q.organizationId, { taskId: q.taskId, taskVersion: q.taskVersion, templateId: DOMAIN_READING_TEMPLATE_ID, templateVersion: q.templateVersion, principalUserId: q.userId, since: q.since }),
+    modelFailedSince: (q) => ledger.failedSince(q.organizationId, { taskId: q.taskId, taskVersion: q.taskVersion, templateId: DOMAIN_READING_TEMPLATE_ID, templateVersion: q.templateVersion, principalUserId: q.userId, since: q.since }),
   };
   const creators = createCreatorDomain(ports.prisma, ports.work);
   const roster = {
