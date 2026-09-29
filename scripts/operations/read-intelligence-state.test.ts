@@ -546,3 +546,56 @@ test('the read step uses the validated values, never the raw inputs', () => {
   assert.equal(read.includes('inputs.organization_slug'), false);
   assert.equal(read.includes('inputs.since'), false);
 });
+
+// --- Domain readings and the AI ledger (2026-09-29) ------------------------------------------------
+const READINGS = {
+  readings: [
+    { scope: 'ORGANIZATION', domain: 'CALLGRID', status: 'CURRENT', producerKind: 'RULE_AND_MODEL', modelStage: 'MODEL_READ', taskId: 'callgrid.domain.reading', digests: 1, withInvocation: 1, linked: 1, ledgerOutcomes: { ANSWERED: 1 }, providers: { anthropic: 1 }, latestGeneratedAt: new Date('2026-09-29T10:00:00Z') },
+    { scope: 'ORGANIZATION', domain: 'PIPELINE', status: 'CURRENT', producerKind: 'RULE', modelStage: 'REJECTED_OUTPUT:UNSUPPORTED_NUMBER_IN_TEXT', taskId: null, digests: 1, withInvocation: 0, linked: 0, ledgerOutcomes: {}, providers: {}, latestGeneratedAt: new Date('2026-09-29T09:00:00Z') },
+    { scope: 'PRINCIPAL', domain: 'CALENDAR', status: 'CURRENT', producerKind: 'RULE_AND_MODEL', modelStage: 'MODEL_READ', taskId: 'calendar.domain.reading', digests: 2, withInvocation: 2, linked: 2, ledgerOutcomes: { ANSWERED: 2 }, providers: { anthropic: 2 }, latestGeneratedAt: new Date('2026-09-29T11:00:00Z') },
+  ],
+  ledger: [
+    { taskId: 'callgrid.domain.reading', providerId: 'anthropic', outcome: 'ANSWERED', lane: 'BACKGROUND', failureClass: null, count: 3 },
+    { taskId: 'pipeline.domain.reading', providerId: 'anthropic', outcome: 'REJECTED_BY_LOOP', lane: 'BACKGROUND', failureClass: null, count: 1 },
+  ],
+  rejections: [{ taskId: 'pipeline.domain.reading', code: 'UNSUPPORTED_NUMBER_IN_TEXT', count: 1 }],
+  bounded: false,
+} as const;
+
+test('domain readings print mode, model stage, task and the ledger call behind each -- counts and codes only, for the requested window', async () => {
+  const w = await world();
+  const asked: [string, string][] = [];
+  await runIntelligenceState({ organizationSlug: 'servicesinmycity-demo', since: '2026-09-19T00:00:00Z' }, { ...w.deps, readings: async (organizationId, since) => (asked.push([organizationId, since.toISOString()]), READINGS as never) });
+  assert.deepEqual(asked, [['org_live_1', '2026-09-19T00:00:00.000Z']], 'the resolved organization and the requested window');
+  assert.deepEqual(w.out.filter((l) => /^event=(INTELLIGENCE_READING|AI_LEDGER)/.test(l)), [
+    'event=INTELLIGENCE_READING scope=ORGANIZATION domain=CALLGRID status=CURRENT kind=RULE_AND_MODEL modelStage=MODEL_READ task=callgrid.domain.reading digests=1 withInvocation=1 ledgerLinked=1 ledgerOutcome=ANSWERED:1 provider=anthropic:1 latestGeneratedAt=2026-09-29T10:00:00.000Z',
+    'event=INTELLIGENCE_READING scope=ORGANIZATION domain=PIPELINE status=CURRENT kind=RULE modelStage=REJECTED_OUTPUT:UNSUPPORTED_NUMBER_IN_TEXT task=- digests=1 withInvocation=0 ledgerLinked=0 ledgerOutcome=- provider=- latestGeneratedAt=2026-09-29T09:00:00.000Z',
+    'event=INTELLIGENCE_READING scope=PRINCIPAL domain=CALENDAR status=CURRENT kind=RULE_AND_MODEL modelStage=MODEL_READ task=calendar.domain.reading digests=2 withInvocation=2 ledgerLinked=2 ledgerOutcome=ANSWERED:2 provider=anthropic:2 latestGeneratedAt=2026-09-29T11:00:00.000Z',
+    'event=AI_LEDGER task=callgrid.domain.reading provider=anthropic outcome=ANSWERED lane=BACKGROUND failureClass=- count=3',
+    'event=AI_LEDGER task=pipeline.domain.reading provider=anthropic outcome=REJECTED_BY_LOOP lane=BACKGROUND failureClass=- count=1',
+    'event=AI_LEDGER_REJECTION task=pipeline.domain.reading code=UNSUPPORTED_NUMBER_IN_TEXT count=1',
+    'event=INTELLIGENCE_READING_SUMMARY readings=4 currentModelBacked=3 ledgerCalls=4 ledgerAnswered=3 bounded=false',
+  ]);
+});
+
+test('domain readings cannot leak: a code field carrying text prints UNRECOGNIZED; no id, statement or provider text appears', async () => {
+  const w = await world();
+  const hostile = { ...READINGS, readings: [{ ...READINGS.readings[0], modelStage: 'FAILED: provider said Acme Insurance Group', taskId: 'org_live_1 task' }], ledger: [{ ...READINGS.ledger[0], failureClass: 'dana@acme.test' }], rejections: [{ taskId: 'x', code: 'Please call me', count: 1 }] };
+  await runIntelligenceState({ organizationSlug: 'servicesinmycity-demo', since: '' }, { ...w.deps, readings: async () => hostile as never });
+  const text = w.out.join('\n');
+  for (const secret of ['Acme', 'org_live_1', 'dana@', 'Please call me', w.matt.id]) assert.equal(text.includes(secret), false, secret);
+  assert.match(text, /modelStage=UNRECOGNIZED task=UNRECOGNIZED/);
+  assert.match(text, /failureClass=UNRECOGNIZED/);
+});
+
+test('domain readings wiring: a read-only client; the reader selects no content, subject, user, prompt or answer and writes nothing', () => {
+  const runner = readFileSync(join(__dirname, 'read-intelligence-state.ts'), 'utf8');
+  assert.match(runner, /const readingState = new IntelligenceReadingStateRepository\(readOnlyClient\(prisma\)\);/);
+  const strip = (path: string) => readFileSync(path, 'utf8').replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
+  const reader = strip(join(__dirname, '..', '..', 'packages', 'database', 'src', 'repositories', 'intelligence', 'intelligence-reading-state.repository.ts'));
+  for (const forbidden of ['.create(', '.update(', '.upsert(', '.delete(', 'createMany(', 'updateMany(', 'deleteMany(', '$executeRaw', '$queryRaw', '$transaction', 'fetch(']) assert.equal(reader.includes(forbidden), false, forbidden);
+  for (const column of ['content: true', 'subjectRef: true', 'userId: true', 'principalUserId: true', 'entityRefs: true', 'contextManifestHash: true', 'providerRequestId: true']) assert.equal(reader.includes(column), false, `never selects ${column}`);
+  const reads = [...reader.matchAll(/\.findMany\(\{\s*where:\s*\{\s*([^,}]+)/g)];
+  assert.equal(reads.length, 3, 'digests, the calls they name, the window of calls');
+  for (const [, first] of reads) assert.equal(first!.trim(), 'organizationId', 'every read is organization-scoped first');
+});
