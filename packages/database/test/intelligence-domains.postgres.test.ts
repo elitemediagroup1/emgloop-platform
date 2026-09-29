@@ -98,7 +98,7 @@ test('the scheduled pass writes ORGANIZATION digests end to end, then skips unch
     const orgWork = only(workDomainProducer(facts, KIT));
     const mineRaw = myWorkProducer(facts, KIT);
     const mine = { ...mineRaw, discover: async () => [{ scope: 'PRINCIPAL' as const, organizationId: a.organizationId, userId: a.users[1]!, domain: 'WORK' as const, subjectKind: 'DOMAIN' as const, subjectRef: 'domain' }] };
-    const registry = new IntelligenceProducerRegistry([pipeline, orgWork, mine] as never, ['pipeline.domain@1', 'work.domain@1', 'work.mine@1']);
+    const registry = new IntelligenceProducerRegistry([pipeline, orgWork, mine] as never, ['pipeline.domain@2', 'work.domain@1', 'work.mine@1']);
     const deps = { registry, queue: new IntelligenceRefreshQueueRepository(prisma), digests: new IntelligenceDigestRepository(prisma), leaseOwner: 'test', now: () => new Date() };
     const opts = { limit: 50, leaseMs: 60_000, maxAttempts: 3, discoverLimit: 10 };
     const first = await runIntelligencePass(deps, opts);

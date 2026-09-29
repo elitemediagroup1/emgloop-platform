@@ -24,7 +24,7 @@ export const INTELLIGENCE_PRODUCER_CATALOG: readonly IntelligenceProducerDescrip
   d('calendar.domain@1', 'CALENDAR', 'PRINCIPAL', 'calendar.domain.reading'),
   d('callgrid.domain@1', 'CALLGRID', 'ORGANIZATION', 'callgrid.domain.reading'),
   d('campaigns.domain@1', 'CAMPAIGNS', 'ORGANIZATION', 'campaigns.domain.reading'),
-  d('pipeline.domain@1', 'PIPELINE', 'ORGANIZATION', 'pipeline.domain.reading'),
+  d('pipeline.domain@2', 'PIPELINE', 'ORGANIZATION', 'pipeline.domain.reading'),
   d('crm.domain@1', 'CRM', 'ORGANIZATION', 'crm.domain.reading'),
   d('creators.domain@1', 'CREATORS', 'ORGANIZATION', 'creators.domain.reading'),
   d('work.domain@1', 'WORK', 'ORGANIZATION', 'work.domain.reading'),

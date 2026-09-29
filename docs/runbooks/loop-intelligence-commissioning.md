@@ -93,7 +93,7 @@ within a minute.
 Set `CONNECTIONS_<STAGE>_INTELLIGENCE_PRODUCERS` to any of:
 
 ```
-calendar.domain@1, callgrid.domain@1, campaigns.domain@1, pipeline.domain@1, crm.domain@1,
+calendar.domain@1, callgrid.domain@1, campaigns.domain@1, pipeline.domain@2, crm.domain@1,
 creators.domain@1, work.domain@1, work.mine@1, website.domain@1
 ```
 
@@ -254,8 +254,10 @@ Their `basis` is VERIFIED only from a durable mark the creating code wrote, HEUR
 UNKNOWN otherwise; a record that only looks like a legacy caller is UNKNOWN. `complete=true` only when every
 read reached its end.
 
-**Reactivating `pipeline.domain@1`** (it is decommissioned in production) is a separate decision. First
-confirm `PIPELINE_INTAKE eligible` matches what you expect. The first pass after reactivation writes a
+**Reactivating Pipeline** (it is decommissioned in production) is a separate decision. The repaired producer
+is `pipeline.domain@2`, a new id on purpose: an activation list that still names `pipeline.domain@1` matches
+nothing, so a deploy can never start it. First confirm the `PIPELINE_INTAKE*` lines. Then add
+`pipeline.domain@2` to `LOOP_INTELLIGENCE_PRODUCERS` and redeploy the worker. The first pass writes a
 version-2 reading (one model call if `pipeline.domain.reading` is on).
 
 **The Briefing's expected coverage.** Every domain Loop is supposed to observe for the person must be

@@ -2,7 +2,7 @@
 // organization's OWN records, read through their repositories (DomainFactsRepository and each domain's
 // own) -- the same records the pages show. Counts, windows and canonical references; no names, no text.
 //
-//   pipeline.domain@1   Intake: ELIGIBLE Intake Records only (IntakeEligibilityRepository -- a verified website
+//   pipeline.domain@2   Intake: ELIGIBLE Intake Records only (IntakeEligibilityRepository -- a verified website
 //                       lead, or a record a person has worked: a CRM note, a status change, a Party link) by
 //                       status; records entering intake this week against last; working records with no
 //                       recorded human work for 14 days. A Customer row is not intake: legacy ingestion residue
@@ -143,10 +143,12 @@ export function pipelineRule(ctx: PipelineContext, now: Date): RuleReading {
 export function pipelineDomainProducer(crm: Pick<CrmRepository, 'windowCounts'>, intake: Pick<IntakeEligibilityRepository, 'read'>, facts: DomainFactsRepository, kit: DomainKitPorts): IntelligenceProducer<PipelineContext> {
   return domainProducer<PipelineContext>(
     {
-      id: 'pipeline.domain@1',
+      // @2 (2026-09-29): intake eligibility and the work clock; a Customer row is no longer intake. A NEW id on
+      // purpose: an activation list that still names pipeline.domain@1 matches nothing, so deploying this can
+      // never start the repaired reading -- running it is an explicit LOOP_INTELLIGENCE_PRODUCERS change.
+      id: 'pipeline.domain@2',
       domain: 'PIPELINE',
       scope: 'ORGANIZATION',
-      // 2 (2026-09-29): intake eligibility and the work clock; a Customer row is no longer intake.
       version: '2',
       provider: null,
       consentBasis: 'LOOP_RECORDS',
