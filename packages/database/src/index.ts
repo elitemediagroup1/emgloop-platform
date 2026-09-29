@@ -446,9 +446,10 @@ export { MailContentTriageService } from './services/ai-runtime/mail-content-tri
 // Loop Intelligence Phase F: connected situations, held as Cases; private ones are one person's alone.
 export { SituationRepository, SITUATION_RECORD_SCHEMA, situationRecurrenceKey } from './repositories/intelligence/situation.repository';
 export type { SituationOwner, SituationRecord, SituationView } from './repositories/intelligence/situation.repository';
-export { SituationService, situationInputsOf, situationContext, type SituationDiagnosis, type SituationDiagnosisReason, type SituationConnectivity } from './services/intelligence-fabric/situations';
+export { SituationService, situationInputsOf, situationContext, type SituationDiagnosis, type SituationDiagnosisReason, type SituationConnectivity, type ConnectivityScenario, type SourceComposition, governedSourcesOf } from './services/intelligence-fabric/situations';
 export { PipelineCompositionRepository, PIPELINE_ACTIVITY_WINDOW_DAYS, type PipelineComposition } from './repositories/intelligence/pipeline-composition.repository';
-export { SituationConnectivityRepository, potentialSituationComponents, DOMAIN_SOURCE, CONNECTIVITY_MEMBER_WINDOW_DAYS, type PotentialSummary, type GovernedConnectivity } from './repositories/intelligence/situation-connectivity.repository';
+export { SituationConnectivityRepository, CONNECTIVITY_MEMBER_WINDOW_DAYS, type GovernedConnectivity } from './repositories/intelligence/situation-connectivity.repository';
+export { GovernedEntityLinkProjector, GOVERNED_LINK_CLASSES, type GovernedLinkClassCount, type ProjectedLink } from './repositories/intelligence/governed-entity-links.repository';
 export type { SituationPorts, SituationPassReport } from './services/intelligence-fabric/situations';
 // Loop Intelligence Phase G: the Loop Briefing, stored in the person's own work_briefs.
 export { BriefingComposer, BRIEFING_RECORD_SCHEMA, BRIEFING_RULE_VERSION, readableOrganizationDomains, ruleBriefing } from './services/intelligence-fabric/briefing';

@@ -2438,38 +2438,64 @@ worker is redeployed on it, and the runtime has been verified in production.
 
 Blueprint: https://claude.ai/artifact/VZuKzXAmCpc2WZsQR32gDS
 
-## Loop Intelligence — Intake eligibility repair — IN REVIEW (draft PR #350, branch `fix/intake-eligibility`, off main `7a5c041`)
+## Loop Intelligence — Situation entity-link projector + independent sources — IN REVIEW (draft PR, branch `feat/situation-entity-projector`, off main `9d8b72b`)
 
-**Production (2026-09-29):**
-- #344, #345, #346, #347, #348 and #349 are merged.
-- `pipeline.domain@1` is decommissioned, and its digest is STALE.
-- Situations stop at INSUFFICIENT_SIGNAL_DOMAINS.
-- The Pipeline composition probe proved the defect: 24,590 records, of which 24,579 are VERIFIED caller-only
-  ingestion with `humanWork=0`, and every one has `lastSeenAt == createdAt`. It read 24,575 "stalled", of
-  which only 1 had any activity (not human).
+**Starting point (production, 2026-09-29):**
+- #350 (intake eligibility) is merged, and `pipeline.domain@2` is commissioned.
+- `PIPELINE_INTAKE eligible=1 basisWebLead=1 basisHumanWork=0 working=0`.
+- The 24,579 CallGrid caller rows are not intake.
+- Situations stop at `INSUFFICIENT_SIGNAL_DOMAINS` with `modelCalls=0`, and the connectivity probe reads 0.
 
-**Repair (one shared definition, `IntakeEligibilityRepository`):**
-- **What counts as intake:** a verified web lead, or a person's explicit work (a HUMAN_AGENT CRM note, an
-  audited status change, a user Party link). An assignment alone doesn't count.
-- **The clock:** the latest human work; `lastSeenAt` is never read.
-- **Missing status:** reads UNSET unless the record is a web lead.
-- **Human actions:** status and assignment changes are now attributed and audited, transactionally.
-- **Surfaces on the new definition:** Home, CRM home, the Intake Board (legacy records shown apart), the
-  organization page, the Pipeline producer (v2) and both probes.
-- **Unchanged:** no migration, and no record is changed.
+**Built:**
+- **Projection.** `GovernedEntityLinkProjector` projects three read-time, organization-scoped classes, with
+  nothing persisted and no migration:
+  - `CUSTOMER_PARTY`: an active Party link to an established Party of the same organization;
+  - `CREATOR_PARTY`: a CreatorProfile's own Party;
+  - `WORK_ORIGIN`: a person's promotion from an ORGANIZATION digest signal.
 
-**Adversarial review (fbf20c2):**
-- Acts must be by a human operator member of the organization (spoofed, AI, creator and non-member actors
-  fail closed).
-- Malformed future acts are ignored; leads enter at their form submission.
-- Party links commit atomically with their audit.
-- The repaired producer is `pipeline.domain@2`, so a deploy cannot start it.
+  Every other shape is rejected with a code.
+- **Independence.** Independence rests on the source registry's lineage: at least 2 distinct registered
+  `sourceId`s. CallGrid + Campaigns is one source. Only independent clusters reach synthesis
+  (`sameSourceOnly` is counted in the pass report).
+- **Pipeline** (`pipeline.domain@2` v3) names up to six stalled eligible records per status.
+- **The probe** prints relationship classes with rejections, `sourceIndependentClusters`, `eliminatedSameSource`,
+  composition, and CURRENT vs PROJECTOR from the real clusterer.
+- **Removed:** the upper-bound estimate and the DOMAIN_SOURCE map.
+
+**Adversarial review (2026-09-29), fixed in the PR:**
+- A signal takes its digest's source only when the digest read exactly one source.
+- Model `m.*` signals are out of clustering.
+- A work origin links only a single-entity signal.
+- Work's overdue and past-return signals each name their own instances (`work.domain` version 2).
+- A projected customer must be the organization's own.
+- The projection follows chains for up to 3 hops.
+- A cluster's identity is its named references, never a union-find root.
+- Source independence is named apart from verification (`sourceIndependent`, `sameSourceOnly`).
+
+**Expected in production after deploy:** zero, or near zero. That is a valid answer:
+- every class at `records=0 links=0` (or a few Party links whose customers aren't intake);
+- `sourceIndependent=0`;
+- reason still `INSUFFICIENT_SIGNAL_DOMAINS`.
 
 **Next (Matt):**
-1. Review and merge; Netlify redeploys the web app.
-2. Redeploy the worker.
-3. Run Read Intelligence State and check the invariants in the runbook.
-4. Only then decide whether to add `pipeline.domain@2` to `LOOP_INTELLIGENCE_PRODUCERS`.
+1. Review and merge.
+2. Redeploy the worker. The Pipeline and Work readings refresh once, and Work's two lateness signals name
+   their own instances.
+3. Run Read Intelligence State.
+4. With `sourceIndependent=0`, change nothing: connectivity grows only through real work (a person linking an
+   intake record to its Party, established creator Parties, promoted Work).
+5. With `sourceIndependent>0` and `WOULD_SYNTHESIZE`, the next decision is whether to commission
+   `situation.synthesis`. That is a separate, recorded decision.
+
+## Loop Intelligence — Intake eligibility repair — MERGED (#350) · `pipeline.domain@2` COMMISSIONED IN PRODUCTION
+
+**Repair:** one shared definition, `IntakeEligibilityRepository`.
+- **What counts as intake:** a verified web lead, or a human operator member's explicit work (a HUMAN_AGENT
+  note, an audited status change, a user Party link). An assignment alone doesn't count, and nothing is
+  migrated.
+- **The clock:** the latest human work; `lastSeenAt` is never read.
+
+**Production:** 1 eligible record (an archived web lead); the 24,579 caller-only rows are excluded.
 
 ## Loop Intelligence — COMPLETE BUILD (Phases A–G) — IN REVIEW (draft PR #341, branch `feat/loop-intelligence-fabric`, off main `d70f737`) · NOTHING COMMISSIONED
 

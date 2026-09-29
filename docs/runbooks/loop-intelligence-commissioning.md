@@ -212,19 +212,49 @@ For Loop's own records (every organization reading), the refresh is the freshnes
 **Situations make no call?** Run Read Intelligence State for the organization. `SITUATION_PASS` replays the
 organization pass read-only, up to the model call. `reason` names the first gate that stopped it:
 `NOT_SELECTED`, `NO_ELIGIBLE_DIGESTS`, `INSUFFICIENT_DOMAINS`, `NO_ELIGIBLE_SIGNALS`,
-`INSUFFICIENT_SIGNAL_DOMAINS`, `NO_SHARED_ENTITY`, `OUTSIDE_TEMPORAL_WINDOW`, `ALL_UNCHANGED` or
-`WOULD_SYNTHESIZE`. It prints counts and codes only and calls no model.
+`INSUFFICIENT_SIGNAL_DOMAINS`, `NO_SHARED_ENTITY`, `OUTSIDE_TEMPORAL_WINDOW`, `NO_INDEPENDENT_SOURCES`,
+`ALL_UNCHANGED` or `WOULD_SYNTHESIZE`. It prints counts and codes only and calls no model.
+
+The `SITUATION_PASS` line carries these counts:
+- `explicitLinks`: persisted `entity_links`.
+- `projectedLinks`: governed links projected for the references in play.
+- `clusters`: cross-domain clusters.
+- `sourceIndependentClusters`: clusters on two or more distinct governed sources. Only these may be synthesized.
+- `eliminatedSameSource`: cross-domain clusters on one source, for example CALLGRID+CAMPAIGNS, which both
+  read `marketplace_calls`.
+
+`SITUATION_PASS_COMPOSITION` lists each cluster's domains, its governed sources, and whether it is
+source-independent.
+
+Source independence is about the evidence (two governed systems). It is not verification, where a different
+model provider checks a synthesized situation. With Anthropic alone a situation can still be synthesized and
+recorded, with verification `UNAVAILABLE`.
 
 The same run also prints what the organization could legitimately connect:
-- governed relationships;
-- CallGrid members with a stable id or only a label;
-- records Pipeline and CRM could name;
-- potential cross-domain components, today (`CURRENT`) and with the proposed entity-link projector
-  (`PROJECTOR`).
+- `SITUATION_RELATIONSHIP linkClass=CUSTOMER_PARTY|CREATOR_PARTY|WORK_ORIGIN records= links= rejected=CODE:n`:
+  every governed record of each class, the links it projects, and each rejection by reason. These come from
+  the same projector the pass uses.
+- `SITUATION_MEMBERS`: CallGrid campaigns and buyers with a stable id or only a label.
+- `SITUATION_NAMEABLE`: the stalled eligible intake records Pipeline names, and the Parties CRM names.
+- `SITUATION_POTENTIAL scenario=CURRENT|PROJECTOR crossDomain= sourceIndependent= eliminatedSameSource=`, with
+  `SITUATION_POTENTIAL_GROUP` per composition. The real clusterer computes these over the pass's own
+  eligible signals, with kind, window and sources applied. `CURRENT` uses persisted links only; `PROJECTOR`
+  adds the governed projection, which is what the pass now uses.
 
-A component is `independent` only when it spans two distinct governed sources. CallGrid and Campaigns both
-rest on `marketplace_calls`, so a pair of those alone is counted in `eliminatedSameSource`. The component
-counts are upper bounds: signal kind and time window are not applied. Nothing is linked.
+Nothing is linked and nothing is written.
+
+**Reading the result.**
+- `sourceIndependent=0` is a valid answer. It means the governed records do not yet prove that two independent
+  sources are talking about the same thing. Do **not** switch on `situation.synthesis` expecting output, and
+  never create links, Party links or work to make the count move.
+- The number grows only through real work:
+  - a person links an intake record to its Party;
+  - a creator's Party is established;
+  - someone promotes a single-entity signal to Work, **and** Work later shows that item late (a step past due,
+    or past its committed return). Promotion alone is a link, never a second source.
+- `sourceIndependent>0` together with `reason=WOULD_SYNTHESIZE` is the precondition for commissioning
+  `situation.synthesis`. It is not a reason to do so: that remains a separate decision, recorded before the
+  task is enabled.
 
 **Intake is eligibility, not rows.** An Intake Record is intake (Pipeline, Home, CRM home, the Intake Board,
 the organization page) only when a governed entry fact exists:

@@ -194,7 +194,10 @@ const DIAGNOSIS = {
     { domain: 'CAMPAIGNS', digests: 1, eligible: 1, signals: 4, clusterable: 2, entityRefs: 2 },
   ],
   signals: 9, clusterableSignals: 3, excluded: { kind: { OPERATIONAL: 5 }, noEntity: 1 }, clusterableDomains: ['CALLGRID', 'CAMPAIGNS'],
-  entityRefs: 3, explicitLinks: 0, sharedAcrossDomains: 0, clusters: 0, unchanged: 0, wouldSynthesize: 0, reason: 'NO_SHARED_ENTITY',
+  entityRefs: 3, explicitLinks: 1, projectedLinks: 2, projection: [{ linkClass: 'CUSTOMER_PARTY', records: 1, links: 1, rejected: {} }], sharedAcrossDomains: 1,
+  clusters: 1, sourceIndependentClusters: 0, eliminatedSameSource: 1,
+  composition: [{ domains: ['CALLGRID', 'CAMPAIGNS'], sources: ['CALLGRID'], count: 1, sourceIndependent: false }],
+  unchanged: 0, wouldSynthesize: 0, reason: 'NO_INDEPENDENT_SOURCES',
 } as const;
 
 test('the situation pass diagnosis prints counts and codes only, for the requested organization', async () => {
@@ -208,7 +211,8 @@ test('the situation pass diagnosis prints counts and codes only, for the request
     'event=SITUATION_INELIGIBLE reason=REFRESH_UNRESOLVED count=1',
     'event=SITUATION_EXCLUDED basis=KIND kind=OPERATIONAL count=5',
     'event=SITUATION_EXCLUDED basis=NO_ENTITY kind=- count=1',
-    'event=SITUATION_PASS scope=ORGANIZATION selected=true digests=3 eligibleDigests=3 eligibleDomains=CALLGRID,CAMPAIGNS,PIPELINE signals=9 clusterableSignals=3 clusterableDomains=CALLGRID,CAMPAIGNS entityRefs=3 explicitLinks=0 sharedAcrossDomains=0 clusters=0 unchanged=0 wouldSynthesize=0 reason=NO_SHARED_ENTITY modelCalls=0',
+    'event=SITUATION_PASS scope=ORGANIZATION selected=true digests=3 eligibleDigests=3 eligibleDomains=CALLGRID,CAMPAIGNS,PIPELINE signals=9 clusterableSignals=3 clusterableDomains=CALLGRID,CAMPAIGNS entityRefs=3 explicitLinks=1 projectedLinks=2 sharedAcrossDomains=1 clusters=1 sourceIndependentClusters=0 eliminatedSameSource=1 unchanged=0 wouldSynthesize=0 reason=NO_INDEPENDENT_SOURCES modelCalls=0',
+    'event=SITUATION_PASS_COMPOSITION domains=CALLGRID+CAMPAIGNS sources=CALLGRID count=1 sourceIndependent=false',
   ]);
   // Absent (a reader without it): the section is simply not printed.
   const x = await world();
@@ -218,11 +222,12 @@ test('the situation pass diagnosis prints counts and codes only, for the request
 
 test('the diagnosis cannot leak: a code field carrying text prints UNRECOGNIZED; ids and statements never appear', async () => {
   const w = await world();
-  const hostile = { ...DIAGNOSIS, eligibleDomains: ['CALLGRID', 'provider member Acme Insurance Group'], ineligible: { 'org_live_1 said no': 1 }, excluded: { kind: { 'Please call me': 2 }, noEntity: 0 }, reason: 'Acme Insurance Group' };
+  const hostile = { ...DIAGNOSIS, eligibleDomains: ['CALLGRID', 'provider member Acme Insurance Group'], ineligible: { 'org_live_1 said no': 1 }, excluded: { kind: { 'Please call me': 2 }, noEntity: 0 }, composition: [{ domains: ['CAMPAIGNS', 'party p1 Dana'], sources: ['dana@acme.test'], count: 1, sourceIndependent: false }], reason: 'Acme Insurance Group' };
   await runIntelligenceState({ organizationSlug: 'servicesinmycity-demo', since: '' }, { ...w.deps, situations: async () => hostile as never });
   const text = w.out.join('\n');
-  for (const secret of ['Acme', 'org_live_1', 'Please call me', w.matt.id]) assert.equal(text.includes(secret), false, secret);
+  for (const secret of ['Acme', 'org_live_1', 'Please call me', 'Dana', 'dana@', w.matt.id]) assert.equal(text.includes(secret), false, secret);
   assert.match(text, /eligibleDomains=CALLGRID,UNRECOGNIZED/);
+  assert.match(text, /SITUATION_PASS_COMPOSITION domains=CAMPAIGNS\+UNRECOGNIZED sources=UNRECOGNIZED count=1 sourceIndependent=false/);
   assert.match(text, /reason=UNRECOGNIZED modelCalls=0/);
 });
 
@@ -237,58 +242,71 @@ test('production wiring: the diagnosis runs on a read-only client with no runtim
 });
 
 const CONNECTIVITY = {
+  relationships: [
+    { linkClass: 'CUSTOMER_PARTY', records: 2, links: 1, rejected: { PARTY_NOT_ESTABLISHED: 1 } },
+    { linkClass: 'CREATOR_PARTY', records: 1, links: 1, rejected: {} },
+    { linkClass: 'WORK_ORIGIN', records: 4, links: 1, rejected: { DIGEST_GONE: 1, PRIVATE_SCOPE: 1, CASE_ORIGIN_NOT_CANONICAL: 1 } },
+  ],
+  relationshipsBounded: false,
   governed: {
-    customerPartyLinks: { active: 1, toEstablishedParty: 1 },
-    creatorProfiles: { total: 1, withEstablishedParty: 1 },
-    workOrigins: [{ kind: 'DIGEST_SIGNAL', scope: 'ORGANIZATION', outcome: 'RESOLVES_TO_ENTITY', count: 1 }],
     members: [
       { dimension: 'campaign', windowDays: 14, stableExternalId: 6, labelOnly: 2, labelOnlyNamedAsRef: 1, unattributedCalls: 4 },
       { dimension: 'buyer', windowDays: 14, stableExternalId: 3, labelOnly: 0, labelOnlyNamedAsRef: 0, unattributedCalls: 9 },
     ],
-    pipeline: { working: 12, stalled: 5, nameable: 5, withActivePartyLink: 1 },
+    pipeline: { working: 12, stalled: 5, nameable: 5 },
     crm: { established: 40, newlyEstablished7d: 2, nameable: 2, awaitingDecision: 7 },
     bounded: false,
   },
-  current: { crossDomain: 1, independent: 0, eliminatedSameSource: 1, groups: [{ domains: ['CALLGRID', 'CAMPAIGNS'], sources: ['CALLGRID'], count: 1, independent: false }] },
-  projector: { crossDomain: 1, independent: 1, eliminatedSameSource: 0, groups: [{ domains: ['CREATORS', 'PIPELINE'], sources: ['LOOP_CREATORS', 'LOOP_INTAKE'], count: 1, independent: true }] },
+  current: { crossDomain: 1, sourceIndependent: 0, eliminatedSameSource: 1, composition: [{ domains: ['CALLGRID', 'CAMPAIGNS'], sources: ['CALLGRID'], count: 1, sourceIndependent: false }] },
+  projector: {
+    crossDomain: 2, sourceIndependent: 1, eliminatedSameSource: 1,
+    composition: [
+      { domains: ['CREATORS', 'PIPELINE'], sources: ['LOOP_CREATORS', 'LOOP_INTAKE'], count: 1, sourceIndependent: true },
+      { domains: ['CALLGRID', 'CAMPAIGNS'], sources: ['CALLGRID'], count: 1, sourceIndependent: false },
+    ],
+  },
 } as const;
 
 test('connectivity prints governed relationships, member identity, nameable records and potential components -- counts and codes only', async () => {
   const w = await world();
   await runIntelligenceState({ organizationSlug: 'servicesinmycity-demo', since: '' }, { ...w.deps, connectivity: async () => CONNECTIVITY as never });
-  const lines = w.out.filter((l) => /^event=(SITUATION_(RELATIONSHIP|WORK_ORIGIN|MEMBERS|NAMEABLE|POTENTIAL|POTENTIAL_GROUP|CONNECTIVITY_SUMMARY)) /.test(l));
+  const lines = w.out.filter((l) => /^event=(SITUATION_(RELATIONSHIP|MEMBERS|NAMEABLE|POTENTIAL|POTENTIAL_GROUP|CONNECTIVITY_SUMMARY)) /.test(l));
   assert.deepEqual(lines, [
-    'event=SITUATION_RELATIONSHIP relationship=CUSTOMER_PARTY_LINK present=true active=1 toEstablishedParty=1',
-    'event=SITUATION_RELATIONSHIP relationship=CREATOR_PARTY present=true profiles=1 withEstablishedParty=1',
-    'event=SITUATION_WORK_ORIGIN present=true kind=DIGEST_SIGNAL scope=ORGANIZATION outcome=RESOLVES_TO_ENTITY count=1',
+    'event=SITUATION_RELATIONSHIP linkClass=CUSTOMER_PARTY records=2 links=1 rejected=PARTY_NOT_ESTABLISHED:1',
+    'event=SITUATION_RELATIONSHIP linkClass=CREATOR_PARTY records=1 links=1 rejected=-',
+    'event=SITUATION_RELATIONSHIP linkClass=WORK_ORIGIN records=4 links=1 rejected=DIGEST_GONE:1,PRIVATE_SCOPE:1,CASE_ORIGIN_NOT_CANONICAL:1',
     'event=SITUATION_MEMBERS provider=CALLGRID dimension=campaign windowDays=14 stableExternalId=6 labelOnly=2 labelOnlyNamedAsRef=1 unattributedCalls=4',
     'event=SITUATION_MEMBERS provider=CALLGRID dimension=buyer windowDays=14 stableExternalId=3 labelOnly=0 labelOnlyNamedAsRef=0 unattributedCalls=9',
-    'event=SITUATION_NAMEABLE domain=PIPELINE kind=customer working=12 stalled=5 nameable=5 withActivePartyLink=1',
+    'event=SITUATION_NAMEABLE domain=PIPELINE kind=customer working=12 stalled=5 nameable=5',
     'event=SITUATION_NAMEABLE domain=CRM kind=party established=40 newlyEstablished7d=2 nameable=2 awaitingDecision=7',
-    'event=SITUATION_POTENTIAL_GROUP scenario=CURRENT domains=CALLGRID+CAMPAIGNS sources=CALLGRID count=1 independent=false',
-    'event=SITUATION_POTENTIAL scenario=CURRENT crossDomain=1 independent=0 eliminatedSameSource=1 bound=UPPER',
-    'event=SITUATION_POTENTIAL_GROUP scenario=PROJECTOR domains=CREATORS+PIPELINE sources=LOOP_CREATORS+LOOP_INTAKE count=1 independent=true',
-    'event=SITUATION_POTENTIAL scenario=PROJECTOR crossDomain=1 independent=1 eliminatedSameSource=0 bound=UPPER',
+    'event=SITUATION_POTENTIAL_GROUP scenario=CURRENT domains=CALLGRID+CAMPAIGNS sources=CALLGRID count=1 sourceIndependent=false',
+    'event=SITUATION_POTENTIAL scenario=CURRENT crossDomain=1 sourceIndependent=0 eliminatedSameSource=1',
+    'event=SITUATION_POTENTIAL_GROUP scenario=PROJECTOR domains=CREATORS+PIPELINE sources=LOOP_CREATORS+LOOP_INTAKE count=1 sourceIndependent=true',
+    'event=SITUATION_POTENTIAL_GROUP scenario=PROJECTOR domains=CALLGRID+CAMPAIGNS sources=CALLGRID count=1 sourceIndependent=false',
+    'event=SITUATION_POTENTIAL scenario=PROJECTOR crossDomain=2 sourceIndependent=1 eliminatedSameSource=1',
     'event=SITUATION_CONNECTIVITY_SUMMARY bounded=false linksCreated=0 modelCalls=0',
   ]);
+  // Either bound reported: the projector's inventory bound counts too.
+  const x = await world();
+  await runIntelligenceState({ organizationSlug: 'servicesinmycity-demo', since: '' }, { ...x.deps, connectivity: async () => ({ ...CONNECTIVITY, relationshipsBounded: true }) as never });
+  assert.ok(x.out.includes('event=SITUATION_CONNECTIVITY_SUMMARY bounded=true linksCreated=0 modelCalls=0'));
 });
 
-test('connectivity cannot leak: a code field carrying text prints UNRECOGNIZED; a relationship not migrated says so', async () => {
+test('connectivity cannot leak: a code field carrying text prints UNRECOGNIZED; no id, name or contact appears', async () => {
   const w = await world();
   const hostile = {
     ...CONNECTIVITY,
-    governed: { ...CONNECTIVITY.governed, customerPartyLinks: null, creatorProfiles: null, workOrigins: [{ kind: 'Acme Insurance Group', scope: 'dana@acme.test', outcome: 'Please call me', count: 1 }] },
-    projector: { ...CONNECTIVITY.projector, groups: [{ domains: ['CREATORS', 'party p1 Dana'], sources: ['org_live_1 x'], count: 1, independent: true }] },
+    relationships: [{ linkClass: 'Acme Insurance Group', records: 1, links: 0, rejected: { 'dana@acme.test': 1 } }],
+    projector: { ...CONNECTIVITY.projector, composition: [{ domains: ['CREATORS', 'party p1 Dana'], sources: ['org_live_1 x'], count: 1, sourceIndependent: true }] },
   };
   await runIntelligenceState({ organizationSlug: 'servicesinmycity-demo', since: '' }, { ...w.deps, connectivity: async () => hostile as never });
   const text = w.out.join('\n');
-  for (const secret of ['Acme', 'dana@', 'Please call me', 'Dana', 'org_live_1', w.matt.id]) assert.equal(text.includes(secret), false, secret);
-  assert.match(text, /relationship=CUSTOMER_PARTY_LINK present=false active=- toEstablishedParty=-/);
-  assert.match(text, /kind=UNRECOGNIZED scope=UNRECOGNIZED outcome=UNRECOGNIZED/);
+  for (const secret of ['Acme', 'dana@', 'Dana', 'org_live_1', w.matt.id]) assert.equal(text.includes(secret), false, secret);
+  assert.match(text, /linkClass=UNRECOGNIZED records=1 links=0 rejected=UNRECOGNIZED:1/);
   assert.match(text, /domains=CREATORS\+UNRECOGNIZED sources=UNRECOGNIZED/);
 });
 
-test('connectivity wiring: the same read-only service, no runtime, no model; the reader has no write path and creates no link', () => {
+test('connectivity wiring: the same read-only service, no runtime, no model; the reader and the projector have no write path and create no link', () => {
   const runner = readFileSync(join(__dirname, 'read-intelligence-state.ts'), 'utf8');
   assert.match(runner, /const connectivity = \(organizationId: string\) => situationService\.connectivity\(organizationId\);/);
   const strip = (path: string) => readFileSync(path, 'utf8').replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
@@ -298,9 +316,20 @@ test('connectivity wiring: the same read-only service, no runtime, no model; the
   }
   for (const column of ['email: true', 'phone: true', 'firstName: true', 'lastName: true', 'displayName: true', 'title: true', 'summary: true']) assert.equal(reader.includes(column), false, `never selects ${column}`);
   // Every query is scoped to the organization.
-  const calls = [...reader.matchAll(/\.(count|findMany|findFirst|groupBy)\(\{\s*(?:by: [^,]+,\s*)?where:\s*([^,}]+)/g)];
-  assert.ok(calls.length >= 9);
-  for (const [, op, where] of calls) assert.match(where!, /org|window|working|stalledWhere|organizationId|\{ \.\.\.org/, `${op} is organization-scoped`);
+  const calls = [...reader.matchAll(/\.(count|findMany|findFirst|groupBy)\(\{\s*(?:by: [^\]]+\],\s*)?where:\s*([^,}]+)/g)];
+  assert.equal(calls.length, 5, 'two member groupings, three Party counts');
+  for (const [, op, where] of calls) assert.match(where!, /^(window|\{ \.\.\.org)/, `${op} is organization-scoped`);
+  assert.match(reader, /const window = \{ \.\.\.org, sourceOccurredAt/);
+  // The governed relationships come from the ONE projector the pass uses: read-only, organization-scoped,
+  // and it selects no name, contact or content column but a digest's own signal list.
+  const projector = strip(join(__dirname, '..', '..', 'packages', 'database', 'src', 'repositories', 'intelligence', 'governed-entity-links.repository.ts'));
+  for (const forbidden of ['.create(', '.update(', '.upsert(', '.delete(', 'createMany(', 'updateMany(', 'deleteMany(', '$executeRaw', '$queryRaw', '$transaction', 'EntityLinkRepository', 'fetch(']) {
+    assert.equal(projector.includes(forbidden), false, `the projector has no ${forbidden}`);
+  }
+  const reads = [...projector.matchAll(/\.(findMany|findFirst|count)\(\{\s*where:\s*\{\s*([^,}]+)/g)];
+  assert.equal(reads.length, 7, 'Parties, Customer links, their Customers, Creator profiles, Work origins, Work instances, digests');
+  for (const [, op, first] of reads) assert.match(first!, /^(\.\.\.org|organizationId)$/, `${op} is organization-scoped first`);
+  for (const column of ['email: true', 'phone: true', 'name: true', 'firstName: true', 'lastName: true', 'displayName: true', 'label: true', 'title: true']) assert.equal(projector.includes(column), false, `never selects ${column}`);
   // Pipeline naming reads intake eligibility -- the same read-only repository every intake surface uses.
   assert.match(reader, /new IntakeEligibilityRepository\(this\.db\)\.read\(organizationId, now\)/);
   const intake = strip(join(__dirname, '..', '..', 'packages', 'database', 'src', 'repositories', 'intake-eligibility.repository.ts'));

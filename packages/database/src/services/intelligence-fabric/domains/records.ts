@@ -5,13 +5,18 @@
 //   pipeline.domain@2   Intake: ELIGIBLE Intake Records only (IntakeEligibilityRepository -- a verified website
 //                       lead, or a record a person has worked: a CRM note, a status change, a Party link) by
 //                       status; records entering intake this week against last; working records with no
-//                       recorded human work for 14 days. A Customer row is not intake: legacy ingestion residue
+//                       recorded human work for 14 days, each stale signal naming its longest-stalled eligible
+//                       records as `customer:<id>` (so a Situation can reach them through a governed link).
+//                       A Customer row is not intake: legacy ingestion residue
 //                       and records nobody has worked are counted apart, never as work. `lastSeenAt` is not read.
 //   crm.domain@1        People: established people and companies; records awaiting a decision; newly
 //                       established this week against last; relationships started and ended.
 //   creators.domain@1   Creator Hub: productions waiting on EMG, waiting on a creator, deliverables due.
 //   work.domain@1       the organization's work: open, unassigned, overdue, past its committed return,
-//                       completed this week against last.   (ORGANIZATION)
+//                       completed this week against last.   (ORGANIZATION) The overdue and past-return signals
+//                       each name only the instances their own fact is about: Work's state. A promoted Work
+//                       item is named only when Work itself says it is late -- the promotion is a link, never
+//                       a second source.
 //   work.mine@1         a person's own assigned work, the same facts for them.   (PRINCIPAL)
 //   website.domain@1    website activity from every connected website evidence source (WEBSITE_READERS):
 //                       sessions, form submissions, appointment requests, this week against last.
@@ -21,7 +26,7 @@
 // `WebsiteEvidenceReader` (and its registry entry) -- the reading merges whatever facts the connected
 // readers return, and says which sources it read. None is implied before it is connected.
 
-import { AI_TASK_CREATORS_DOMAIN_READING, AI_TASK_CRM_DOMAIN_READING, AI_TASK_PIPELINE_DOMAIN_READING, AI_TASK_WEBSITE_DOMAIN_READING, AI_TASK_WORK_DOMAIN_READING, type IntelligenceSignal } from '@emgloop/shared';
+import { SIGNAL_ENTITIES_MAX, entityRefRefusal, AI_TASK_CREATORS_DOMAIN_READING, AI_TASK_CRM_DOMAIN_READING, AI_TASK_PIPELINE_DOMAIN_READING, AI_TASK_WEBSITE_DOMAIN_READING, AI_TASK_WORK_DOMAIN_READING, type IntelligenceSignal } from '@emgloop/shared';
 
 import type { CrmRepository } from '../../../repositories/crm.repository';
 import { INTAKE_STALE_DAYS, INTAKE_WORKING, intakeCountsOf, type IntakeCounts, type IntakeEligibilityRepository, type IntakeRead } from '../../../repositories/intake-eligibility.repository';
@@ -86,6 +91,11 @@ interface PipelineContext {
   readonly entered: { readonly week: number; readonly prior: number };
   /** The latest governed clock (work, or entry) across eligible records; null when there are none. */
   readonly latestClockAt: string | null;
+  /**
+   * The stalled ELIGIBLE records each stale signal names, as `customer:<id>` (longest-stalled first, at most
+   * SIGNAL_ENTITIES_MAX): how a Pipeline reading takes part in a Situation. Never a record that is not intake.
+   */
+  readonly stalledRefs: Readonly<Record<'New' | 'Contacted' | 'Quoted', readonly string[]>>;
   readonly week: { readonly conversations: number; readonly conversationsAssigned: number };
 }
 
@@ -99,7 +109,14 @@ export function pipelineContextOf(read: IntakeRead, now: Date, week: { conversat
     else if (t >= since - WEEK && t < since) entered.prior += 1;
     latest = Math.max(latest, r.clockAt.getTime());
   }
-  return { intake: intakeCountsOf(read), entered, latestClockAt: latest ? new Date(latest).toISOString() : null, week };
+  const stalledRefs = { New: [] as string[], Contacted: [] as string[], Quoted: [] as string[] };
+  const stalled = read.records.filter((r) => r.stalled).sort((a, b) => a.clockAt.getTime() - b.clockAt.getTime() || a.id.localeCompare(b.id));
+  for (const r of stalled) {
+    const list = stalledRefs[r.status as 'New' | 'Contacted' | 'Quoted'];
+    const reference = `customer:${r.id}`;
+    if (list && list.length < SIGNAL_ENTITIES_MAX && entityRefRefusal(reference, 'ORGANIZATION') === null) list.push(reference);
+  }
+  return { intake: intakeCountsOf(read), entered, latestClockAt: latest ? new Date(latest).toISOString() : null, week, stalledRefs };
 }
 
 export function pipelineRule(ctx: PipelineContext, now: Date): RuleReading {
@@ -115,7 +132,8 @@ export function pipelineRule(ctx: PipelineContext, now: Date): RuleReading {
   if (change) signals.push(change);
   for (const status of INTAKE_WORKING) {
     const n = intake.stalled[status as 'New' | 'Contacted' | 'Quoted'];
-    if (n > 0) signals.push({ key: `stale.${status.toLowerCase()}`, kind: 'STALLED', knowledge: 'OBSERVED', statement: `${plural(n, 'intake record')} in ${status} with no recorded work for ${INTAKE_STALE_DAYS} days.`, evidenceRefs: [`intake:stale:${status.toLowerCase()}`], severity: status === 'Quoted' || n >= 10 ? 'HIGH' : 'MEDIUM', asOf: now.toISOString() });
+    const named = ctx.stalledRefs[status as 'New' | 'Contacted' | 'Quoted'];
+    if (n > 0) signals.push({ key: `stale.${status.toLowerCase()}`, kind: 'STALLED', knowledge: 'OBSERVED', statement: `${plural(n, 'intake record')} in ${status} with no recorded work for ${INTAKE_STALE_DAYS} days.`, ...(named.length ? { entities: [...named] } : {}), evidenceRefs: [`intake:stale:${status.toLowerCase()}`], severity: status === 'Quoted' || n >= 10 ? 'HIGH' : 'MEDIUM', asOf: now.toISOString() });
   }
   if (intake.byStatus.UNSET > 0) signals.push({ key: 'status-unset', kind: 'ATTENTION', knowledge: 'OBSERVED', statement: `${plural(intake.byStatus.UNSET, 'worked record')} with no intake status set.`, evidenceRefs: [ref], severity: 'LOW', asOf: now.toISOString() });
   const unassigned = ctx.week.conversations - ctx.week.conversationsAssigned;
@@ -129,6 +147,7 @@ export function pipelineRule(ctx: PipelineContext, now: Date): RuleReading {
       signals,
       limitations,
       sourceId: 'LOOP_INTAKE',
+      entityRefs: [...new Set(INTAKE_WORKING.flatMap((s) => ctx.stalledRefs[s as 'New' | 'Contacted' | 'Quoted']))],
       sourceRefs: [ref, 'intake:entered:7d', 'conversations:7d', ...INTAKE_WORKING.map((s) => `intake:stale:${s.toLowerCase()}`)],
       evidenceCount: intake.eligible,
       now,
@@ -149,7 +168,8 @@ export function pipelineDomainProducer(crm: Pick<CrmRepository, 'windowCounts'>,
       id: 'pipeline.domain@2',
       domain: 'PIPELINE',
       scope: 'ORGANIZATION',
-      version: '2',
+      // 3 (2026-09-29): stale signals name their stalled eligible records (`customer:<id>`) for Situations.
+      version: '3',
       provider: null,
       consentBasis: 'LOOP_RECORDS',
       discover: async () => (await facts.organizationsWithCustomers()).map((id) => organizationTarget(id, 'PIPELINE')),
@@ -160,7 +180,7 @@ export function pipelineDomainProducer(crm: Pick<CrmRepository, 'windowCounts'>,
         // No eligible record: there is no intake to read (the rows that exist are not intake work).
         if (read.records.length === 0) return { status: 'NO_EVIDENCE' };
         const context = pipelineContextOf(read, now, { conversations: week.conversations, conversationsAssigned: week.conversationsAssigned });
-        return { status: 'READY', context, fingerprint: fingerprintOf('PIPELINE', ['v2', now.toISOString().slice(0, 10), context]) };
+        return { status: 'READY', context, fingerprint: fingerprintOf('PIPELINE', ['v3', now.toISOString().slice(0, 10), context]) };
       },
       rule: pipelineRule,
       model: organizationModelStage(AI_TASK_PIPELINE_DOMAIN_READING, { domainDescription: "the organization's intake records -- those that arrived as website leads or that people have worked -- and their statuses", audience: 'ORGANIZATION', lookFor: ['records that are stuck', 'whether new demand is rising or falling', 'conversations nobody owns'] }),
@@ -295,9 +315,13 @@ interface WorkContext extends WorkFacts {
 export function workRule(ctx: WorkContext, now: Date): RuleReading {
   const you = ctx.personal;
   const signals: IntelligenceSignal[] = [measured('open', `${plural(ctx.openStages, 'open step')}${you ? ' assigned to you' : ''} across ${plural(ctx.activeInstances, 'piece of work', 'pieces of work')}.`, 'work_stages:open', 'open_steps', ctx.openStages, now)];
-  const refs = ctx.overdueInstanceIds.map((id) => safeRef(`work_instance:${id}`)).filter((r): r is string => !!r);
-  if (ctx.overdue > 0) signals.push({ key: 'overdue', kind: 'RISK', knowledge: 'OBSERVED', statement: `${plural(ctx.overdue, 'step')} past due.`, entities: refs, evidenceRefs: ['work_stages:overdue'], severity: 'HIGH', asOf: now.toISOString(), ...(you ? { kind: 'OBLIGATION' as const, owedBy: 'VIEWER' as const } : {}) });
-  if (ctx.pastReturn > 0) signals.push({ key: 'past-return', kind: 'RISK', knowledge: 'OBSERVED', statement: `${plural(ctx.pastReturn, 'piece of work', 'pieces of work')} past the date it was committed to return.`, entities: refs, evidenceRefs: ['work_instances:past-return'], severity: 'HIGH', asOf: now.toISOString() });
+  // Each signal names only the work its own fact is about -- Work's state, never a promoted origin's claim.
+  const named = (ids: readonly string[]) => ids.map((id) => safeRef(`work_instance:${id}`)).filter((r): r is string => !!r);
+  const overdueRefs = named(ctx.overdueInstanceIds);
+  const pastReturnRefs = named(ctx.pastReturnInstanceIds);
+  const refs = [...new Set([...overdueRefs, ...pastReturnRefs])];
+  if (ctx.overdue > 0) signals.push({ key: 'overdue', kind: 'RISK', knowledge: 'OBSERVED', statement: `${plural(ctx.overdue, 'step')} past due.`, ...(overdueRefs.length ? { entities: overdueRefs } : {}), evidenceRefs: ['work_stages:overdue'], severity: 'HIGH', asOf: now.toISOString(), ...(you ? { kind: 'OBLIGATION' as const, owedBy: 'VIEWER' as const } : {}) });
+  if (ctx.pastReturn > 0) signals.push({ key: 'past-return', kind: 'RISK', knowledge: 'OBSERVED', statement: `${plural(ctx.pastReturn, 'piece of work', 'pieces of work')} past the date it was committed to return.`, ...(pastReturnRefs.length ? { entities: pastReturnRefs } : {}), evidenceRefs: ['work_instances:past-return'], severity: 'HIGH', asOf: now.toISOString() });
   if (ctx.dueSoon > 0) signals.push({ key: 'due-soon', kind: 'UPCOMING', knowledge: 'OBSERVED', statement: `${plural(ctx.dueSoon, 'step')} due in the next day.`, evidenceRefs: ['work_stages:due-soon'], severity: 'MEDIUM', asOf: now.toISOString() });
   if (!you && ctx.unassigned > 0) signals.push({ key: 'unassigned', kind: 'ATTENTION', knowledge: 'OBSERVED', statement: `${plural(ctx.unassigned, 'ready step')} with no owner.`, evidenceRefs: ['work_stages:unassigned'], severity: ctx.unassigned >= 5 ? 'HIGH' : 'MEDIUM', asOf: now.toISOString() });
   const change = weekChange('throughput', 'Completed steps are', ctx.completed7d, ctx.completedPrior7d, 'work_stages:completed-7d', now);
@@ -330,7 +354,8 @@ export function workDomainProducer(facts: DomainFactsRepository, kit: DomainKitP
       id: 'work.domain@1',
       domain: 'WORK',
       scope: 'ORGANIZATION',
-      version: '1',
+      // 2 (2026-09-29): overdue and past-return each name only their own instances (they shared one list).
+      version: '2',
       provider: null,
       consentBasis: 'LOOP_RECORDS',
       discover: async () => (await facts.organizationsWithActiveWork()).map((id) => organizationTarget(id, 'WORK')),
@@ -349,7 +374,8 @@ export function myWorkProducer(facts: DomainFactsRepository, kit: DomainKitPorts
       id: 'work.mine@1',
       domain: 'WORK',
       scope: 'PRINCIPAL',
-      version: '1',
+      // 2 (2026-09-29): overdue and past-return each name only their own instances (they shared one list).
+      version: '2',
       provider: null,
       consentBasis: 'LOOP_RECORDS',
       discover: async () => (await facts.principalsWithOpenWork()).map((p) => ({ scope: 'PRINCIPAL', organizationId: p.organizationId, userId: p.userId, domain: 'WORK', subjectKind: 'DOMAIN', subjectRef: 'domain' }) as const),

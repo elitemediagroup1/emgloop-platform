@@ -189,10 +189,100 @@ evidence of measured movement.
 
 **Candidates** come from `clusterSituationSignals`, which is pure:
 
-- It joins only on a shared canonical entity or an explicit entity link, within 14 days, across at least
+- It joins only on a shared canonical entity or a governed link (below), within 14 days, across at least
   two domains.
 - A plain measurement does not start a cluster.
 - Time alone never connects two signals.
+
+**Governed entity links.** Two entities are joined only by a record that proves it. Nothing else can join
+them: no phone number, caller id, name, email, label, timestamp, campaign coincidence, heuristic or model.
+There are two kinds:
+- persisted `entity_links`, which are explicit and never MODEL;
+- links that `GovernedEntityLinkProjector` projects at read time from governed records. These are not
+  persisted and are scoped to the organization.
+
+The projector recognises exactly three classes:
+
+| Class | Record | Link | Rejected (code) |
+|---|---|---|---|
+| `CUSTOMER_PARTY` | an **active** `customer_party_links` row whose customer is the organization's | `customer:<id>` ↔ `party:<id>` | `CUSTOMER_NOT_IN_ORGANIZATION`; `PARTY_NOT_ESTABLISHED` (the Party is unestablished, superseded, archived, missing or in another organization). A reversed link is not a record. |
+| `CREATOR_PARTY` | `creator_profiles.partyId` | `creator:<id>` ↔ `party:<id>` | `NO_PARTY`, `PARTY_NOT_ESTABLISHED` |
+| `WORK_ORIGIN` | a person's `work_origins` promotion from an ORGANIZATION digest signal naming **exactly one** entity | `work_instance:<id>` ↔ that entity | `SIGNAL_NAMES_SEVERAL`, `PRIVATE_SCOPE`, `CASE_ORIGIN_NOT_CANONICAL`, `WORK_ITEM_ORIGIN`, `DIGEST_GONE`, `SIGNAL_GONE`, `SIGNAL_NAMES_NO_ENTITY`, `WORK_NOT_IN_ORGANIZATION` |
+
+**A link is a bridge, never evidence.** A link only says two references are the same thing, or that one is
+about the other. It carries no source. So a promoted Work item adds nothing to independence just by existing:
+a cluster gains `LOOP_WORK` only when the Work **reading** names the instance. Work names an instance only for
+its own state:
+- `overdue` names instances with a step past due;
+- `past-return` names instances past the return committed in Work.
+
+A promoted item's committed return may start from its origin signal's due date. The person confirms that date
+at promotion, and the fact Work adds is that the work is still not done when the date passes. Promoting a
+Campaigns, Pipeline or Creators signal with no such state therefore never makes a Situation.
+
+**One entity per origin.** A signal that names several entities is about a set, for example "3 records stalled
+in Quoted". It is not a relationship among its members. Linking the work to every member would join them all
+permanently, so such an origin is rejected (`SIGNAL_NAMES_SEVERAL`).
+
+**Chains.** The pass projects from the references its signals name, then from what those links reach, for up to
+`GOVERNED_LINK_HOPS` (3) hops. For example: a work item, the customer it was promoted from, that customer's
+Party, and a creator on the same Party. A Party is only ever reached, never expanded ("every record on this
+Party" is never read). So a broad Party joins only entities the signals already name, and the window and kind
+rules still apply.
+
+A projected link does not outlive its record. A reversed Party link stops projecting. A work origin whose origin
+digest has been purged by retention reads `DIGEST_GONE` and stops bridging. Until then a stale or expired origin
+digest still bridges, because the person's promotion remains true, but its signals are evidence only while that
+digest is eligible. Keeping the bridge for good would mean storing the origin entity on `work_origins` at
+promotion time, which is a migration. That has not been decided.
+
+**Not projected:**
+- CallGrid callers to Customers. A caller row is not intake: it is never named, so its Party link, if it has
+  one, joins nothing.
+- Case origins.
+- Private work origins.
+- CRM campaigns and opportunities.
+
+Pipeline names only its stalled **eligible** intake records (`customer:<id>`, at most six per status, longest
+stalled first with ties broken by id).
+
+**Source lineage and the independence gate.** Provenance is recorded per digest, but a claim is made by a
+signal:
+- A signal inherits its digest's registered `sourceId` only when the digest read **exactly one** governed source
+  (`signalSourcesOf`).
+- A digest that read several sources (Website, once it has more than one reader) cannot say which source each
+  signal came from. Its signals claim none: they can connect, but never count as a source.
+- An unregistered id counts for nothing.
+- A model's `m.*` addition to a rule reading restates the rule's facts and could pick any combination of the
+  supplied references, so it does not enter clustering at all.
+
+| Producer | Governed source of each signal |
+|---|---|
+| CallGrid, Campaigns | `CALLGRID` (both read `marketplace_calls`) |
+| Pipeline | `LOOP_INTAKE` |
+| CRM | `LOOP_CRM` |
+| Creators | `LOOP_CREATORS` |
+| Work (organization and personal) | `LOOP_WORK` |
+| Website | `WEBSITE_EVENTS` today; none per signal once a second reader connects |
+| Calendar, Mail, Chats (personal) | `GOOGLE_CALENDAR`, `GMAIL`, `TELEGRAM` |
+
+A cluster is **source-independent** only when its kept signals span at least `SITUATION_MIN_SOURCES` (2)
+distinct sources. **Only source-independent clusters reach `situation.synthesis`.** The others are counted
+(`sameSourceOnly`) and cost no call. CallGrid + Campaigns is one source seen twice.
+
+This is not *verification* independence:
+- Source independence is about the evidence: two governed systems.
+- Verification independence is about the checker: a different model provider re-reads the claims.
+
+A source-independent situation with no second provider is still recorded, with verification `UNAVAILABLE`.
+
+Three ordering rules keep the result deterministic:
+- Independent clusters rank first.
+- The signal cap keeps each source's strongest signal first.
+- A cluster's identity is the **named** references that join it, never a union-find root, so an unrelated link
+  elsewhere in the entity graph cannot make a decided cluster look new.
+
+The eligibility, kind and 14-day rules apply unchanged.
 
 `situation_candidates` stores each cluster's last decided fingerprint. An unchanged cluster, including one
 the model said was nothing, never costs another call.

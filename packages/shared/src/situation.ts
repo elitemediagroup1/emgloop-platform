@@ -32,6 +32,13 @@ export function situationVisibility(scopes: readonly ('PRINCIPAL' | 'ORGANIZATIO
 export const SITUATION_TEMPORAL_WINDOW_DAYS = 14;
 /** A cluster becomes a situation candidate only across at least this many domains. */
 export const SITUATION_MIN_DOMAINS = 2;
+/**
+ * ...and it may reach synthesis only when its evidence rests on at least this many DISTINCT GOVERNED SOURCES
+ * (the registered source ids its digests' provenance names). Two domains read from one source -- CallGrid and
+ * Campaigns both read the one CALLGRID source (marketplace_calls) -- are two views of the same evidence, never
+ * independent corroboration. A signal whose digest names no registered source contributes nothing here.
+ */
+export const SITUATION_MIN_SOURCES = 2;
 export const SITUATION_MAX_SIGNALS = 16;
 export const SITUATION_MAX_OPEN_CANDIDATES = 5;
 
@@ -45,7 +52,10 @@ export type SituationVerificationState = (typeof SITUATION_VERIFICATION_STATES)[
 // canonical entity (or two entities an explicit, non-model entity_link joins) and happened within the
 // temporal window of each other. A signal that names no entity joins nothing -- co-occurrence in time
 // alone is never a connection. A candidate must span at least SITUATION_MIN_DOMAINS domains (a single
-// domain's reading already says what its own signals mean).
+// domain's reading already says what its own signals mean). Each candidate also says which governed sources
+// its evidence rests on and whether that is INDEPENDENT (SITUATION_MIN_SOURCES distinct sources): a
+// same-source candidate is still returned -- diagnostics see it -- but only an independent one may reach
+// synthesis, and independent candidates are ranked first so same-source ones can never crowd them out.
 
 
 export interface SituationSignalInput {
@@ -61,16 +71,33 @@ export interface SituationSignalInput {
    */
   readonly coverage?: 'CONNECTED_SUFFICIENT' | 'CONNECTED_PARTIAL';
   readonly limitations?: readonly string[];
+  /**
+   * The governed sources the signal's digest rests on: the REGISTERED source ids its provenance names. Absent
+   * or empty: the signal can still connect, but contributes nothing to independence (fail closed).
+   */
+  readonly sources?: readonly string[];
 }
 
 export interface SituationClusterCandidate {
-  /** Stable identity of the cluster: its sorted canonical entity roots. Hash it for storage. */
+  /**
+   * Stable identity of the cluster: the sorted canonical references its signals name that join them (named
+   * references only, so the identity does not move when links elsewhere in the entity graph change). Hash it.
+   */
   readonly clusterBasis: string;
   /** Everything that should change the model's answer. Hash it for storage. */
   readonly fingerprintBasis: string;
   readonly items: readonly SituationSignalInput[];
   readonly refs: readonly string[];
   readonly domains: readonly string[];
+  /** The distinct governed sources the kept signals rest on, sorted. */
+  readonly sources: readonly string[];
+  /**
+   * EVIDENCE-SOURCE independence: at least SITUATION_MIN_SOURCES distinct governed sources -- the only kind of
+   * candidate synthesis may read. Not to be confused with independent VERIFICATION (a different model provider
+   * checking a synthesized situation, SituationVerificationState): that is a separate, later control, and a
+   * source-independent situation with no second provider is still recorded, verification UNAVAILABLE.
+   */
+  readonly sourceIndependent: boolean;
   readonly windowStart: number;
   readonly windowEnd: number;
 }
@@ -80,8 +107,13 @@ const SEVERITY_RANK: Readonly<Record<string, number>> = Object.freeze({ HIGH: 3,
 /** The signal kinds a situation is made of. A plain measurement supports a claim; it does not start one. */
 export const SITUATION_SIGNAL_KINDS: readonly string[] = Object.freeze(['CHANGE', 'ATTENTION', 'OPPORTUNITY', 'RISK', 'OBLIGATION', 'DECISION_PENDING', 'UNRESOLVED', 'STALLED', 'QUIET', 'UPCOMING']);
 
-export function clusterSituationSignals(inputs: readonly SituationSignalInput[], links: readonly (readonly [string, string])[]): SituationClusterCandidate[] {
-  // Entity roots: explicit links join entities; nothing else does.
+export function clusterSituationSignals(
+  inputs: readonly SituationSignalInput[],
+  links: readonly (readonly [string, string])[],
+  options: { readonly limit?: number } = {},
+): SituationClusterCandidate[] {
+  // Entity roots: links join entities -- explicit entity_links and links projected from governed records
+  // (GovernedEntityLinkProjector); nothing else does. Never a model, never a name, phone or email.
   const parent = new Map<string, string>();
   const find = (x: string): string => {
     let r = x;
@@ -125,25 +157,34 @@ export function clusterSituationSignals(inputs: readonly SituationSignalInput[],
   for (const group of groups.values()) {
     const domains = [...new Set(group.map((g) => g.domain))].sort();
     if (domains.length < SITUATION_MIN_DOMAINS) continue;
-    const kept = [...group]
-      .sort((a, b) => (SEVERITY_RANK[b.signal.severity ?? ''] ?? 0) - (SEVERITY_RANK[a.signal.severity ?? ''] ?? 0) || b.at - a.at || a.ref.localeCompare(b.ref))
-      .slice(0, SITUATION_MAX_SIGNALS)
-      .sort((a, b) => a.ref.localeCompare(b.ref));
-    // Refs that joined this group: shared roots among its members.
+    const ranked = [...group].sort((a, b) => (SEVERITY_RANK[b.signal.severity ?? ''] ?? 0) - (SEVERITY_RANK[a.signal.severity ?? ''] ?? 0) || b.at - a.at || a.ref.localeCompare(b.ref));
+    // Keep each governed source's (and each domain's) strongest signal first, so the signal cap can never drop
+    // the only evidence from a second source; then fill by strength.
+    const first = new Map<string, SituationSignalInput>();
+    for (const g of ranked) for (const k of [...(g.sources ?? []).map((s) => `s:${s}`), `d:${g.domain}`]) if (!first.has(k)) first.set(k, g);
+    const kept = [...new Set([...first.values(), ...ranked])].slice(0, SITUATION_MAX_SIGNALS).sort((a, b) => a.ref.localeCompare(b.ref));
+    // The cluster's identity: the references its signals NAME whose entity is shared by more than one kept signal.
+    // Named references, never the union-find root -- which root a component gets depends on which other links are
+    // in play (an entity no signal names can become it), and an identity that moved with unrelated links would
+    // make an unchanged cluster look new and pay for a synthesis it already had.
     const counts = new Map<string, number>();
     for (const g of kept) for (const e of new Set(g.signal.entities!.map(find))) counts.set(e, (counts.get(e) ?? 0) + 1);
-    const roots = [...counts.entries()].filter(([, n]) => n > 1).map(([e]) => e).sort();
+    const shared = new Set([...counts.entries()].filter(([, n]) => n > 1).map(([e]) => e));
+    const basis = [...new Set(kept.flatMap((g) => g.signal.entities!).filter((e) => shared.has(find(e))))].sort();
     const refs = [...new Set(kept.flatMap((g) => g.signal.entities!))].sort();
+    const sources = [...new Set(kept.flatMap((g) => g.sources ?? []))].sort();
     out.push({
-      clusterBasis: roots.join('|'),
+      clusterBasis: basis.join('|'),
       fingerprintBasis: JSON.stringify(kept.map((g) => [g.ref, g.signal.kind, g.signal.statement, g.signal.severity ?? null, g.signal.metric?.value ?? null, g.coverage ?? null])),
       items: kept,
       refs,
-      domains,
+      domains: [...new Set(kept.map((g) => g.domain))].sort(),
+      sources,
+      sourceIndependent: sources.length >= SITUATION_MIN_SOURCES,
       windowStart: Math.min(...kept.map((g) => g.at)),
       windowEnd: Math.max(...kept.map((g) => g.at)),
     });
   }
-  const weight = (c: SituationClusterCandidate) => c.domains.length * 10 + Math.max(...c.items.map((i) => SEVERITY_RANK[i.signal.severity ?? ''] ?? 0));
-  return out.sort((a, b) => weight(b) - weight(a) || a.clusterBasis.localeCompare(b.clusterBasis)).slice(0, SITUATION_MAX_OPEN_CANDIDATES);
+  const weight = (c: SituationClusterCandidate) => (c.sourceIndependent ? 1000 : 0) + c.domains.length * 10 + Math.max(...c.items.map((i) => SEVERITY_RANK[i.signal.severity ?? ''] ?? 0));
+  return out.sort((a, b) => weight(b) - weight(a) || a.clusterBasis.localeCompare(b.clusterBasis)).slice(0, options.limit ?? SITUATION_MAX_OPEN_CANDIDATES);
 }
