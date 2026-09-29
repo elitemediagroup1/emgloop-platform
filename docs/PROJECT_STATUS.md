@@ -2456,24 +2456,35 @@ Blueprint: https://claude.ai/artifact/VZuKzXAmCpc2WZsQR32gDS
   Every other shape is rejected with a code.
 - **Independence.** Independence rests on the source registry's lineage: at least 2 distinct registered
   `sourceId`s. CallGrid + Campaigns is one source. Only independent clusters reach synthesis
-  (`notIndependent` is counted in the pass report).
+  (`sameSourceOnly` is counted in the pass report).
 - **Pipeline** (`pipeline.domain@2` v3) names up to six stalled eligible records per status.
-- **The probe** prints relationship classes with rejections, `independentClusters`, `eliminatedSameSource`,
+- **The probe** prints relationship classes with rejections, `sourceIndependentClusters`, `eliminatedSameSource`,
   composition, and CURRENT vs PROJECTOR from the real clusterer.
 - **Removed:** the upper-bound estimate and the DOMAIN_SOURCE map.
 
+**Adversarial review (2026-09-29), fixed in the PR:**
+- A signal takes its digest's source only when the digest read exactly one source.
+- Model `m.*` signals are out of clustering.
+- A work origin links only a single-entity signal.
+- Work's overdue and past-return signals each name their own instances (`work.domain` version 2).
+- A projected customer must be the organization's own.
+- The projection follows chains for up to 3 hops.
+- A cluster's identity is its named references, never a union-find root.
+- Source independence is named apart from verification (`sourceIndependent`, `sameSourceOnly`).
+
 **Expected in production after deploy:** zero, or near zero. That is a valid answer:
 - every class at `records=0 links=0` (or a few Party links whose customers aren't intake);
-- `independent=0`;
+- `sourceIndependent=0`;
 - reason still `INSUFFICIENT_SIGNAL_DOMAINS`.
 
 **Next (Matt):**
 1. Review and merge.
-2. Redeploy the worker. The Pipeline fingerprint changes, so there is one refresh.
+2. Redeploy the worker. The Pipeline and Work readings refresh once, and Work's two lateness signals name
+   their own instances.
 3. Run Read Intelligence State.
-4. With `independent=0`, change nothing: connectivity grows only through real work (a person linking an
+4. With `sourceIndependent=0`, change nothing: connectivity grows only through real work (a person linking an
    intake record to its Party, established creator Parties, promoted Work).
-5. With `independent>0` and `WOULD_SYNTHESIZE`, the next decision is whether to commission
+5. With `sourceIndependent>0` and `WOULD_SYNTHESIZE`, the next decision is whether to commission
    `situation.synthesis`. That is a separate, recorded decision.
 
 ## Loop Intelligence — Intake eligibility repair — MERGED (#350) · `pipeline.domain@2` COMMISSIONED IN PRODUCTION
