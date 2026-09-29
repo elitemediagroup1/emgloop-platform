@@ -189,10 +189,50 @@ evidence of measured movement.
 
 **Candidates** come from `clusterSituationSignals`, which is pure:
 
-- It joins only on a shared canonical entity or an explicit entity link, within 14 days, across at least
+- It joins only on a shared canonical entity or a governed link (below), within 14 days, across at least
   two domains.
 - A plain measurement does not start a cluster.
 - Time alone never connects two signals.
+
+**Governed entity links.** Two entities are joined only by a record that proves it. Nothing else can join
+them: no phone number, caller id, name, email, label, timestamp, campaign coincidence, heuristic or model.
+There are two kinds:
+- persisted `entity_links`, which are explicit and never MODEL;
+- links that `GovernedEntityLinkProjector` projects at read time from governed records. These are not
+  persisted and are scoped to the organization.
+
+The projector recognises exactly three classes:
+
+| Class | Record | Link | Rejected (code) |
+|---|---|---|---|
+| `CUSTOMER_PARTY` | an **active** `customer_party_links` row | `customer:<id>` ↔ `party:<id>` | Party not established, superseded, archived, missing or in another organization (`PARTY_NOT_ESTABLISHED`). A reversed link is not a record. |
+| `CREATOR_PARTY` | `creator_profiles.partyId` | `creator:<id>` ↔ `party:<id>` | `NO_PARTY`, `PARTY_NOT_ESTABLISHED` |
+| `WORK_ORIGIN` | a person's `work_origins` promotion from an ORGANIZATION digest signal | `work_instance:<id>` ↔ each entity that signal names | `PRIVATE_SCOPE`, `CASE_ORIGIN_NOT_CANONICAL`, `WORK_ITEM_ORIGIN`, `DIGEST_GONE`, `SIGNAL_GONE`, `SIGNAL_NAMES_NO_ENTITY`, `WORK_NOT_IN_ORGANIZATION` |
+
+**Not projected:**
+- CallGrid callers to Customers. A caller row is not intake: it is never named, so its Party link, if it has
+  one, joins nothing.
+- Case origins.
+- Private work origins.
+- CRM campaigns and opportunities.
+
+Pipeline names only its stalled **eligible** intake records (`customer:<id>`, at most six per status). An
+ingested caller row therefore never enters a Situation through a Party.
+
+**Source lineage and the independence gate.** A signal carries its digest's governed sources: the
+**registered** `sourceId`s in the digest's `provenance.sources` (`governedSourcesOf`). An unregistered or
+missing id counts for nothing. A cluster is **independent** only when its kept signals span at least
+`SITUATION_MIN_SOURCES` (2) distinct sources. **Only independent clusters reach `situation.synthesis`.** The
+others are counted (`notIndependent` in the pass report) and cost no call.
+
+Lineage is the source registry's, not the domain's. CallGrid and Campaigns both read `marketplace_calls`
+(sourceId `CALLGRID`), so a cluster of the two is one source seen twice, however many domains it spans.
+
+Three ordering rules protect independent evidence:
+- Independent clusters rank first.
+- The signal cap keeps each source's strongest signal before filling by severity, so a second source's
+  evidence is never dropped by the cap.
+- The eligibility, kind and 14-day rules above apply unchanged.
 
 `situation_candidates` stores each cluster's last decided fingerprint. An unchanged cluster, including one
 the model said was nothing, never costs another call.
