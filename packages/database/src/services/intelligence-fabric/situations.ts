@@ -47,6 +47,7 @@ import {
 import { DigestSourceStateRepository } from '../../repositories/intelligence/digest-source-state.repository';
 import { EntityLinkRepository, type EntityLinkOwner } from '../../repositories/intelligence/entity-link.repository';
 import { IntelligenceDigestRepository, type IntelligenceDigestRecord } from '../../repositories/intelligence/intelligence-digest.repository';
+import { DOMAIN_SOURCE, SituationConnectivityRepository, potentialSituationComponents, type ConnectivityDomainRefs, type GovernedConnectivity, type PotentialSummary } from '../../repositories/intelligence/situation-connectivity.repository';
 import { SituationRepository, SITUATION_RECORD_SCHEMA, type SituationOwner, type SituationRecord, type SituationView } from '../../repositories/intelligence/situation.repository';
 import type { AiPrincipal, AiRuntimeGateway } from '../ai-runtime/gateway';
 import {
@@ -217,6 +218,18 @@ export interface SituationDiagnosis {
   readonly reason: SituationDiagnosisReason;
 }
 
+/**
+ * What an organization could legitimately connect: the governed relationships as counts, and the potential
+ * cross-domain components TODAY (the domains' current references and explicit links) and IF the proposed
+ * entity-link projector existed (plus Pipeline naming `customer:<id>`, CRM naming `party:<id>`, and the links
+ * governed records already state) -- each with and without the two-distinct-sources requirement.
+ */
+export interface SituationConnectivity {
+  readonly governed: Omit<GovernedConnectivity, 'scenario'>;
+  readonly current: PotentialSummary;
+  readonly projector: PotentialSummary;
+}
+
 export class SituationService {
   constructor(private readonly ports: SituationPorts) {}
 
@@ -233,6 +246,45 @@ export class SituationService {
     const links = entities.length ? await new EntityLinkRepository(this.ports.prisma).linksFor(linkOwner, entities) : [];
     const clusters = clusterSituationSignals(inputs, links.map((l) => [l.fromRef, l.toRef] as const));
     return { digests, sources, inputs, entities, links, clusters };
+  }
+
+  /**
+   * READ-ONLY: what this organization could legitimately connect (SituationConnectivity). The domains' current
+   * references come from the SAME prepare step as the pass (eligible digests, situation-kind signals naming an
+   * entity); a domain's source is what its digest's provenance names. No model, no write, no link is created.
+   */
+  async connectivity(organizationId: string): Promise<SituationConnectivity> {
+    const owner = { scope: 'ORGANIZATION', organizationId } as const;
+    const now = this.ports.now();
+    const { digests, inputs, links } = await this.prepare(owner, now);
+    const sourceOf = new Map<string, string>();
+    for (const d of digests) {
+      const ids = ((d.provenance as { sources?: { sourceId?: unknown }[] } | undefined)?.sources ?? []).map((x) => x.sourceId).filter((x): x is string => typeof x === 'string');
+      sourceOf.set(d.domain, [...new Set([...(sourceOf.get(d.domain)?.split('+') ?? []), ...ids])].filter(Boolean).sort().join('+'));
+    }
+    const refsOf = new Map<string, Set<string>>();
+    for (const i of inputs) {
+      if (!SITUATION_SIGNAL_KINDS.includes(i.signal.kind)) continue;
+      for (const e of i.signal.entities ?? []) refsOf.set(i.domain, (refsOf.get(i.domain) ?? new Set()).add(e));
+    }
+    const domainRefs = (domain: string, extra: readonly string[] = []): ConnectivityDomainRefs => ({
+      domain,
+      source: sourceOf.get(domain) || DOMAIN_SOURCE[domain] || domain,
+      refs: [...new Set([...(refsOf.get(domain) ?? []), ...extra])],
+    });
+    const current = [...refsOf.keys()].map((d) => domainRefs(d));
+    const explicit = links.map((l) => [l.fromRef, l.toRef] as const);
+    const { scenario, ...governed } = await new SituationConnectivityRepository(this.ports.prisma).read(organizationId, now);
+    const withNaming = [
+      ...current.filter((d) => d.domain !== 'PIPELINE' && d.domain !== 'CRM'),
+      domainRefs('PIPELINE', scenario.pipelineRefs),
+      domainRefs('CRM', scenario.crmRefs),
+    ];
+    return {
+      governed,
+      current: potentialSituationComponents(current, explicit),
+      projector: potentialSituationComponents(withNaming, [...explicit, ...scenario.links]),
+    };
   }
 
   /**

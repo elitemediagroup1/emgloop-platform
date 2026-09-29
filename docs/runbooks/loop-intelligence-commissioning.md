@@ -215,6 +215,17 @@ organization pass read-only, up to the model call. `reason` names the first gate
 `INSUFFICIENT_SIGNAL_DOMAINS`, `NO_SHARED_ENTITY`, `OUTSIDE_TEMPORAL_WINDOW`, `ALL_UNCHANGED` or
 `WOULD_SYNTHESIZE`. It prints counts and codes only and calls no model.
 
+The same run also prints what the organization could legitimately connect:
+- governed relationships;
+- CallGrid members with a stable id or only a label;
+- records Pipeline and CRM could name;
+- potential cross-domain components, today (`CURRENT`) and with the proposed entity-link projector
+  (`PROJECTOR`).
+
+A component is `independent` only when it spans two distinct governed sources. CallGrid and Campaigns both
+rest on `marketplace_calls`, so a pair of those alone is counted in `eliminatedSameSource`. The component
+counts are upper bounds: signal kind and time window are not applied. Nothing is linked.
+
 **The Briefing's expected coverage.** Every domain Loop is supposed to observe for the person must be
 present and current before "nothing pressing" can appear. That set is:
 

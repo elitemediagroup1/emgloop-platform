@@ -6,8 +6,10 @@
 # moment; the outbox by domain and status; whether any relationship event qualifies for the
 # creator review; delivery and subscription state; per member, calendar attendee-key coverage and
 # identity suggestions by state; and the intelligence refresh queue, aggregated by domain, scope,
-# state, attempts and hold/retry outcome code; and the organization's situation pass, diagnosed read-only
-# (it calls no model). It writes nothing (no retry, no purge, no stale transition): the reader runs on a client that
+# state, attempts and hold/retry outcome code; the organization's situation pass, diagnosed read-only
+# (it calls no model); and what the organization could legitimately connect (governed relationships,
+# CallGrid member identity, nameable records, potential cross-domain components with and without two
+# distinct sources). It writes nothing and creates no link (no retry, no purge, no stale transition): the reader runs on a client that
 # can only read.
 #
 # It prints Case ids, rule ids, states, times and counts. It never prints a title, a buyer,
@@ -133,4 +135,5 @@ jobs:
           echo "- \`EMPLOYEE\` - per person (\`ref\`, as the cycles log it): calendar events holding attendee keys, and identity suggestions by state. Counts only." >> "$GITHUB_STEP_SUMMARY"
           echo "- \`INTELLIGENCE_REFRESH\` - refresh requests still in the queue, identical ones aggregated: domain, scope, state, attempts, \`reason\` (the last hold/retry outcome code, e.g. FINGERPRINT_MISMATCH), count, oldest createdAt, latest updatedAt. Never a user, subject, source or fingerprint." >> "$GITHUB_STEP_SUMMARY"
           echo "- \`SITUATION_PASS\` / \`SITUATION_DOMAIN\` / \`SITUATION_EXCLUDED\` / \`SITUATION_INELIGIBLE\` - the organization Situation pass, replayed read-only up to the model call: whether the scheduled pass visits the organization, digests and eligible domains, signals entering clustering and those that can cluster (a situation kind naming an entity), entity refs, explicit links, cross-domain clusters, already-decided ones, and \`reason\` - the first gate that stops it (e.g. NO_SHARED_ENTITY). \`modelCalls=0\` always: no model is called. Counts and codes only." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`SITUATION_RELATIONSHIP\` / \`SITUATION_WORK_ORIGIN\` / \`SITUATION_MEMBERS\` / \`SITUATION_NAMEABLE\` / \`SITUATION_POTENTIAL\` - what the organization could legitimately connect: governed relationships (active intake-record->Party links, creators with an established Party, promoted work that resolves to an entity), CallGrid campaigns and buyers with a stable provider id vs a label-only key, intake records and Parties that could be named, and potential cross-domain components today (\`CURRENT\`) and with the proposed link projector (\`PROJECTOR\`). \`independent\` needs two distinct governed sources; \`eliminatedSameSource\` counts pairs like CALLGRID+CAMPAIGNS that rest on the one marketplace_calls source. \`bound=UPPER\`: signal kind and time window are not applied. No link is created; counts and codes only." >> "$GITHUB_STEP_SUMMARY"
           echo "- \`bounded=true\` or \`truncated=true\` - that part is incomplete; do not act on it." >> "$GITHUB_STEP_SUMMARY"
