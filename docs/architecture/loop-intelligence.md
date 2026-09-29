@@ -94,7 +94,7 @@ repository. They never call Prisma from a service.
 | `calendar.domain@1` | PRINCIPAL | work_events, the person's zone, waiting threads | calendar.domain.reading |
 | `callgrid.domain@1` | ORG | marketplace_calls aggregates, 7 days against the prior 7 | callgrid.domain.reading |
 | `campaigns.domain@1` | ORG | the same, per campaign | campaigns.domain.reading |
-| `pipeline.domain@1` | ORG | Intake statuses, stale records, unassigned conversations | pipeline.domain.reading |
+| `pipeline.domain@1` | ORG | ELIGIBLE intake only (a verified web lead, or a record a person worked: CRM note, status change, Party link): statuses, stalled by the work clock (never `lastSeenAt`), unassigned conversations; the rest counted apart, never as work (`IntakeEligibilityRepository`, shared with Home, CRM home, the Intake Board and the organization page) | pipeline.domain.reading |
 | `crm.domain@1` | ORG | established parties, relationships started or ended | crm.domain.reading |
 | `creators.domain@1` | ORG | Creator Hub roster: waiting on EMG or on a creator, due | creators.domain.reading |
 | `work.domain@1` / `work.mine@1` | ORG / PRINCIPAL | open, overdue, past return, unowned, throughput | work.domain.reading / rule only |
