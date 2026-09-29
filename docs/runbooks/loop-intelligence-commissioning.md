@@ -126,7 +126,29 @@ is reported as unknown. See D.
 
 3. Redeploy.
 
-**Read back:**
+**Provider activation is already Anthropic.** `CONNECTIONS_<STAGE>_AI_PROVIDERS` blank means the default,
+`anthropic`: the stack sets `LOOP_AI_PROVIDERS=anthropic` and references only `anthropic_api_key`. Setting it
+explicitly to `anthropic` synthesizes the identical template. OpenAI is constructed only when listed, and is
+never approved without its own recorded provider policy (section C).
+
+**Prove it with Read Intelligence State** (codes and counts only):
+
+- `INTELLIGENCE_READING scope= domain= status= kind= modelStage= task= digests= withInvocation= ledgerLinked=
+  ledgerOutcome= provider= latestGeneratedAt=`, one line per group of readings.
+  - `kind=RULE_AND_MODEL modelStage=MODEL_READ ledgerOutcome=ANSWERED:1 provider=anthropic:1` is the whole
+    path: the reading is the model's, and the ledger holds the call that made it.
+  - `kind=RULE` with a `modelStage` says why not: `MODEL_NOT_ACTIVATED`, `NO_PRINCIPAL`,
+    `REFUSED_BY_LOOP:<codes>` (policy, budget, activation), `REJECTED_OUTPUT:<codes>`, `FAILED:<class>`, or
+    `MODEL_BACKOFF:<why>`.
+  - `modelStage=-` is a reading written before this code was recorded.
+- `AI_LEDGER task= provider= outcome= lane= failureClass= count=` covers every call in the window, and
+  `AI_LEDGER_REJECTION task= code= count=` the rules the rejected answers broke.
+- `INTELLIGENCE_READING_SUMMARY readings= currentModelBacked= ledgerCalls= ledgerAnswered= bounded=`.
+
+A domain with no `INTELLIGENCE_READING` line has no reading: its producer found no evidence (for example CRM
+with no established Party). That is an answer, not a failure.
+
+**Also read back:**
 
 - the digest's provenance says `RULE_AND_MODEL`, and its signals carry an `m.` prefix;
 - `ai_invocations` rows appear in the BACKGROUND lane;
@@ -144,6 +166,12 @@ configuration. After that, unchanged passes make no calls.
 A model stage refused by Loop, or failed at the provider, leaves an honest RULE reading and is tried again
 on the next pass. A refusal costs no reservation. Disabling a task replaces the model reading with a RULE
 reading on the next pass.
+
+A provider **failure** (timeout, 429, 5xx) is not re-asked for that subject for **3 hours**
+(`MODEL_BACKOFF:FAILED`). It is then tried again even if the evidence is unchanged. An organization reading
+the model made less than **6 hours** ago stands while its evidence moves (the loop's `MODEL_INTERVAL`), so each
+organization domain costs at most 4 calls a day. Seven organization domains cost at most 28 calls a day,
+inside the BACKGROUND lane (60 calls, $2) that Telegram hydration shares.
 
 An answer Loop **rejects** (paid, then discarded) is not re-asked on unchanged evidence. It is also not
 re-asked for that subject for **24 hours** under the same task and template version, however much the
