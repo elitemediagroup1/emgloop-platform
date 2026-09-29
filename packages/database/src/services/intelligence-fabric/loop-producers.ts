@@ -20,6 +20,7 @@ import { createCreatorDomain } from '../../creator';
 import { absentUntilMigrated } from '../../creator/until-migrated';
 import { AiUsageLedgerRepository } from '../../repositories/ai-usage-ledger.repository';
 import { CrmRepository } from '../../repositories/crm.repository';
+import { IntakeEligibilityRepository } from '../../repositories/intake-eligibility.repository';
 import { DomainFactsRepository } from '../../repositories/intelligence/domain-facts.repository';
 import type { IntelligenceRefreshTarget } from '../../repositories/intelligence/intelligence-refresh-queue.repository';
 import { MarketplaceCallRepository } from '../../repositories/marketplace-call.repository';
@@ -87,7 +88,7 @@ export function loopProducers(ports: LoopProducerPorts): IntelligenceProducer<an
     calendarDomainProducer(facts, kit),
     callgridDomainProducer(new MarketplaceCallRepository(ports.prisma), kit),
     campaignsDomainProducer(new MarketplaceCallRepository(ports.prisma), kit),
-    pipelineDomainProducer(new CrmRepository(ports.prisma), facts, kit),
+    pipelineDomainProducer(new CrmRepository(ports.prisma), new IntakeEligibilityRepository(ports.prisma), facts, kit),
     crmDomainProducer(facts, kit),
     creatorsDomainProducer(roster, facts, kit),
     workDomainProducer(facts, kit),

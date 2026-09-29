@@ -32,11 +32,11 @@ type SP = {
 // change required. Each renders as a one-click chip.
 const SAVED_VIEWS: { label: string; sp: Partial<SP> }[] = [
   { label: 'All customers', sp: {} },
-  { label: 'New leads', sp: { status: 'New', sort: 'createdAt', dir: 'desc' } },
+  // A records filter, not a claim: most records with status New are legacy ingestion residue, not leads.
+  { label: 'Status: New', sp: { status: 'New', sort: 'createdAt', dir: 'desc' } },
   { label: 'Hot leads', sp: { tag: 'Hot Lead' } },
   { label: 'Booked', sp: { status: 'Booked' } },
   { label: 'VIPs', sp: { tag: 'VIP' } },
-  { label: 'Recently active', sp: { sort: 'lastSeenAt', dir: 'desc' } },
 ];
 
 function buildQuery(base: SP, override: Partial<SP>): string {
@@ -71,7 +71,8 @@ export default async function CustomersPage({
     ? (sp.status as PipelineStatus)
     : null;
   const tagFilter = sp.tag ?? null;
-  const sort = (['createdAt', 'lastSeenAt', 'name', 'status'].includes(
+  // Not lastSeenAt: it is not an activity clock (it never moves after creation), so no URL may sort by it.
+  const sort = (['createdAt', 'name', 'status'].includes(
     sp.sort ?? '',
   )
     ? sp.sort
@@ -101,7 +102,7 @@ export default async function CustomersPage({
       crmRepos.crm.listTags(organizationId),
       // Counted with the same search and tag as the list, so each status chip's
       // number is exactly the total that chip opens.
-      crmRepos.crm.statusCounts(organizationId, { search: q, tag: tagFilter }),
+      crmRepos.crm.recordStatusCounts(organizationId, { search: q, tag: tagFilter }),
     ]);
     return { empty: false as const, list, tags, counts };
   });
@@ -232,7 +233,9 @@ export default async function CustomersPage({
               <th>Email</th>
               <th>City / State</th>
               <th>{sortLink('status', 'Status')}</th>
-              <th>{sortLink('lastSeenAt', 'Last interaction')}</th>
+              {/* Not sortable: the only stored field behind a sort here was lastSeenAt, which is not an activity
+                  clock (it never moves after creation), so sorting by it presented creation order as activity. */}
+              <th>Last interaction</th>
               <th>Assigned AI</th>
               <th>Assigned human</th>
               <th>{sortLink('createdAt', 'Created')}</th>

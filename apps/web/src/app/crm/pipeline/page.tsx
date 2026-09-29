@@ -10,13 +10,18 @@ import { OrganizationReadingSection } from '../../../intelligence/domain-reading
 // Intake Board — customer intake statuses (Customer.attributes.pipelineStatus),
 // not the canonical Opportunity pipeline.
 //
-// crm.kanbanBoard() gives each column an exact count of everyone in that status
-// and its most recently active people as cards. A column with more people than
-// cards says so; the count is never the number of cards. Each card carries a
-// compact status picker that posts movePipelineAction — no client JS or drag
-// library.
+// ONLY INTAKE. crm.kanbanBoard() reads intake eligibility: a record is on the board
+// when it arrived as a verified website lead or a person has worked it (a CRM note,
+// a status change, a Party link). A Customer row is not intake work, so the records
+// nobody has worked -- most created by the retired automatic call ingestion -- are
+// never columns here; they are counted apart, unchanged, and linked to the records
+// list. Each column's count is exact; its cards are the most recently WORKED
+// records. Moving a card is a person's status change: attributed and audited.
+// No client JS or drag library.
 
 export const dynamic = 'force-dynamic';
+
+const COLUMN_LABEL: Record<string, string> = { UNSET: 'Status not set' };
 
 const COLUMN_ACCENT: Record<string, string> = {
   New: 'var(--crm-blue)',
@@ -38,14 +43,11 @@ export default async function PipelinePage() {
   await requirePermission('pipeline', 'view');
   const { organizationId } = await requireCrmContext();
 
-  const result = await loadOrFallback(async () => {
-    const columns = await crmRepos.crm.kanbanBoard(organizationId);
-    return { empty: false as const, columns };
-  });
+  const result = await loadOrFallback(async () => crmRepos.crm.kanbanBoard(organizationId, new Date()));
 
   if (!result.ok) return <DataUnavailable />;
 
-  const columns = result.data.empty ? [] : result.data.columns;
+  const { columns, notIntake, complete } = result.data;
   const totalPeople = columns.reduce((n, c) => n + c.count, 0);
 
   return (
@@ -53,7 +55,7 @@ export default async function PipelinePage() {
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: '1rem' }}>
         <div>
           <h1 className="crm-h1">Intake Board</h1>
-          <p className="crm-sub">{totalPeople.toLocaleString('en-US')} intake records across {PIPELINE_STATUSES.length} intake statuses. This is customer intake, not the Opportunity pipeline.</p>
+          <p className="crm-sub">{totalPeople.toLocaleString('en-US')} {totalPeople === 1 ? 'record' : 'records'} in intake: website leads and records someone has worked. This is customer intake, not the Opportunity pipeline.{complete ? '' : ' Not every record could be read; these counts are a lower bound.'}</p>
         </div>
         <span style={{ marginLeft: 'auto' }}>
           <Link className="crm-btn crm-btn-ghost" href="/crm/customers">
@@ -63,9 +65,19 @@ export default async function PipelinePage() {
       </div>
       <OrganizationReadingSection domain="PIPELINE" title="Intake reading" />
 
+      {notIntake > 0 ? (
+        <div className="crm-panel" style={{ marginTop: '1rem' }}>
+          <strong>{notIntake.toLocaleString('en-US')} {notIntake === 1 ? 'record is' : 'records are'} not in intake.</strong>{' '}
+          Nobody has worked {notIntake === 1 ? 'it' : 'them'} and {notIntake === 1 ? 'it' : 'they'} did not arrive as a website lead; most were
+          created by the retired automatic call ingestion. {notIntake === 1 ? 'It is' : 'They are'} unchanged and not counted as work. A note, a status
+          change or a Party link brings a record into intake.{' '}
+          <Link href="/crm/customers">Open the records list</Link>
+        </div>
+      ) : null}
+
       {totalPeople === 0 ? (
         <div className="crm-panel crm-empty" style={{ marginTop: '1rem' }}>
-          No intake records yet.
+          No records in intake yet.
         </div>
       ) : (
         <div className="crm-board">
@@ -76,13 +88,12 @@ export default async function PipelinePage() {
                   className="crm-col-dot"
                   style={{ background: COLUMN_ACCENT[col.status] ?? 'var(--crm-faint)' }}
                 />
-                <span className="crm-col-name">{col.status}</span>
+                <span className="crm-col-name">{COLUMN_LABEL[col.status] ?? col.status}</span>
                 <span className="crm-col-count">{col.count.toLocaleString('en-US')}</span>
               </header>
               {col.cards.length < col.count ? (
                 <p className="crm-faint crm-col-empty">
-                  Showing the {col.cards.length} most recently active of {col.count.toLocaleString('en-US')}.{' '}
-                  <Link href={'/crm/customers?status=' + encodeURIComponent(col.status)}>See all</Link>
+                  Showing the {col.cards.length} most recently worked of {col.count.toLocaleString('en-US')}.
                 </p>
               ) : null}
               <div className="crm-col-body">
@@ -106,14 +117,14 @@ export default async function PipelinePage() {
                         {!card.assignedHuman && !card.assignedAI ? 'Unassigned' : ''}
                       </div>
                       <div className="crm-kcard-meta crm-faint">
-                        {relTime(card.lastInteractionAt)}
+                        {card.lastWorkedAt ? 'Worked ' + relTime(card.lastWorkedAt) : 'Not worked yet'}
                       </div>
                       <form action={movePipelineAction} className="crm-kcard-move">
                         <input type="hidden" name="customerId" value={card.id} />
                         <select
                           className="crm-select crm-select-sm"
                           name="status"
-                          defaultValue={col.status}
+                          defaultValue={col.status === 'UNSET' ? undefined : col.status}
                         >
                           {PIPELINE_STATUSES.map((s) => (
                             <option key={s} value={s}>

@@ -84,15 +84,25 @@ export async function addNoteAction(formData: FormData): Promise<void> {
   refresh(customerId);
 }
 
+/**
+ * The signed-in person an intake edit is attributed to -- from the session, never the form. Status and
+ * assignment writes are audited with it (a person's status change is intake work; an assignment is only
+ * routing), and an AI employee's login is recorded as AI, never as a person.
+ */
+function actorOf(ctx: Awaited<ReturnType<typeof requireCrmContext>>) {
+  return { userId: ctx.userId, name: ctx.session.name, systemRole: ctx.systemRole };
+}
+
 /** Set the customer's pipeline status (stored in attributes.pipelineStatus). */
 export async function setStatusAction(formData: FormData): Promise<void> {
   const customerId = String(formData.get('customerId') ?? '').trim();
   const status = String(formData.get('status') ?? '') as PipelineStatus;
   if (!customerId || !PIPELINE_STATUSES.includes(status)) return;
   await requirePermission('pipeline', 'update');
-  const { organizationId } = await requireCrmContext();
+  const ctx = await requireCrmContext();
+  const { organizationId } = ctx;
   if (!(await customerBelongsToOrg(organizationId, customerId))) return;
-  await crmRepos.crm.setPipelineStatus(organizationId, customerId, status);
+  await crmRepos.crm.setPipelineStatus(organizationId, customerId, status, actorOf(ctx));
   refresh(customerId);
   revalidatePath('/crm/pipeline');
 }
@@ -137,12 +147,13 @@ export async function setAssignmentAction(formData: FormData): Promise<void> {
     ? String(formData.get('aiName') ?? '').trim()
     : undefined;
   await requirePermission('customers', 'update');
-  const { organizationId } = await requireCrmContext();
+  const ctx = await requireCrmContext();
+  const { organizationId } = ctx;
   if (!(await customerBelongsToOrg(organizationId, customerId))) return;
   await crmRepos.crm.setAssignment(organizationId, customerId, {
     ...(humanName !== undefined ? { humanName: humanName || null } : {}),
     ...(aiName !== undefined ? { aiName: aiName || null } : {}),
-  });
+  }, actorOf(ctx));
   refresh(customerId);
 }
 
@@ -187,8 +198,9 @@ export async function bulkSetStatusAction(formData: FormData): Promise<void> {
   const status = String(formData.get('status') ?? '') as PipelineStatus;
   if (ids.length === 0 || !PIPELINE_STATUSES.includes(status)) return;
   await requirePermission('pipeline', 'update');
-  const { organizationId } = await requireCrmContext();
-  await crmRepos.crm.bulkSetStatus(organizationId, ids, status);
+  const ctx = await requireCrmContext();
+  const { organizationId } = ctx;
+  await crmRepos.crm.bulkSetStatus(organizationId, ids, status, actorOf(ctx));
   refreshLists();
 }
 
@@ -214,11 +226,12 @@ export async function bulkAssignAction(formData: FormData): Promise<void> {
     ? String(formData.get('aiName') ?? '').trim()
     : undefined;
   await requirePermission('customers', 'update');
-  const { organizationId } = await requireCrmContext();
+  const ctx = await requireCrmContext();
+  const { organizationId } = ctx;
   await crmRepos.crm.bulkAssign(organizationId, ids, {
     ...(humanName !== undefined ? { humanName: humanName || null } : {}),
     ...(aiName !== undefined ? { aiName: aiName || null } : {}),
-  });
+  }, actorOf(ctx));
   refreshLists();
 }
 
@@ -231,9 +244,10 @@ export async function movePipelineAction(formData: FormData): Promise<void> {
   const status = String(formData.get('status') ?? '') as PipelineStatus;
   if (!customerId || !PIPELINE_STATUSES.includes(status)) return;
   await requirePermission('pipeline', 'update');
-  const { organizationId } = await requireCrmContext();
+  const ctx = await requireCrmContext();
+  const { organizationId } = ctx;
   if (!(await customerBelongsToOrg(organizationId, customerId))) return;
-  await crmRepos.crm.setPipelineStatus(organizationId, customerId, status);
+  await crmRepos.crm.setPipelineStatus(organizationId, customerId, status, actorOf(ctx));
   revalidatePath('/crm/pipeline');
   revalidatePath('/crm/customers');
   refresh(customerId);

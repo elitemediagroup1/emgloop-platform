@@ -150,7 +150,9 @@ describe('The People page uses that selection, and only it', () => {
       const body = actions.slice(actions.indexOf(`export async function ${fn}`), actions.indexOf('\n}', actions.indexOf(`export async function ${fn}`)));
       assert.match(body, /const ids = parseIds\(formData\);/, fn);
       assert.ok(body.includes(perm), `${fn} authorizes`);
-      assert.match(body, /const \{ organizationId \} = await requireCrmContext\(\);/, `${fn} takes the organization from the session`);
+      assert.match(body, /const \{ organizationId \} = (?:await requireCrmContext\(\)|ctx);/, `${fn} takes the organization from the session`);
+      // Status and assignment are attributed to the signed-in person (the session), never to the form.
+      if (fn !== 'bulkAddTagAction') assert.match(body, /const ctx = await requireCrmContext\(\);[\s\S]*actorOf\(ctx\)/, `${fn} attributes the edit`);
     }
   });
 });

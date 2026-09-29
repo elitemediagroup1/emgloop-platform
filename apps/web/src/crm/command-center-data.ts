@@ -10,7 +10,7 @@ import { startOfZonedDay } from '@emgloop/shared';
 
 export type CommandCenterRepos = Pick<
   Repositories,
-  'organizations' | 'customers' | 'crm' | 'conversationsInbox' | 'audit'
+  'organizations' | 'customers' | 'crm' | 'intake' | 'conversationsInbox' | 'audit'
 >;
 
 export interface CommandCenterAccess {
@@ -37,15 +37,17 @@ export async function loadCommandCenter(
   clock: CommandCenterClock,
 ) {
   const { now } = clock;
-  const [org, customerCount, statusCounts, weekCounts, conversationCounts, recentActivity, recentAudit] =
+  // Intake is ELIGIBLE records only (a verified website lead, or a record a person has worked): a Customer
+  // row is not intake work, so legacy ingestion residue never reads as active intake here.
+  const [org, customerCount, intake, weekCounts, conversationCounts, recentActivity, recentAudit] =
     await Promise.all([
       repos.organizations.findById(organizationId),
       repos.customers.countByOrganization(organizationId),
-      repos.crm.statusCounts(organizationId),
+      repos.intake.counts(organizationId, now),
       repos.crm.windowCounts(organizationId, weekStart(clock), now),
       repos.conversationsInbox.listConversations(organizationId, {}),
       repos.crm.inboxFeed(organizationId, 8),
       access.canViewAudit ? repos.audit.list(organizationId, { take: 10 }) : Promise.resolve(null),
     ]);
-  return { org, customerCount, statusCounts, weekCounts, conversationCounts, recentActivity, recentAudit };
+  return { org, customerCount, intake, weekCounts, conversationCounts, recentActivity, recentAudit };
 }

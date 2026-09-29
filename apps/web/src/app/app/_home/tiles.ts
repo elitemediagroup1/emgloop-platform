@@ -59,8 +59,8 @@ export interface TilesInput {
   readonly chats: TileRead<ChatsIntelligence> | null;
   /** The viewer's work posture, from the Work OS rows the seat read; `ok: false` when that read failed. */
   readonly work: { readonly kind: 'ADMIN' | 'EMPLOYEE'; readonly posture: TileRead<WorkPosture> } | null;
-  /** Intake records per status, from the CRM repository's own count. */
-  readonly intake: TileRead<Readonly<Record<string, number>>> | null;
+  /** Intake counts (IntakeEligibilityRepository): eligible records by status, and how many are not intake. */
+  readonly intake: TileRead<IntakeTileInput> | null;
   /** The creator roster; `value: null` while the Creator Hub migration has not reached this database. */
   readonly creators: TileRead<readonly RosterRowInput[] | null> | null;
   readonly callgrid: TileRead<HomeKpiStrip> | null;
@@ -274,6 +274,17 @@ function workTile(input: TilesInput): HomeTile | null {
 
 // --- Intake Board ------------------------------------------------------------------------------------
 
+/**
+ * What the intake tile reads: ELIGIBLE Intake Records by the status they read as (a verified website lead, or a
+ * record a person has worked -- never every Customer row), and how many records are not intake.
+ */
+export interface IntakeTileInput {
+  readonly byStatus: Readonly<Record<string, number>>;
+  readonly eligible: number;
+  readonly excluded: number;
+  readonly complete: boolean;
+}
+
 /** The later intake statuses the tile names, in board order; the rest are counted into the total only. */
 const INTAKE_LATER: readonly string[] = Object.freeze(['Contacted', 'Quoted', 'Booked']);
 
@@ -282,9 +293,9 @@ function intakeTile(input: TilesInput, item: TileNavItem): HomeTile | null {
   const read = input.intake;
   if (read === null) return null;
   if (!read.ok) return { ...base, metric: null, lines: [], state: 'UNAVAILABLE', stateLine: 'Could not be read' };
-  const counts = read.value;
-  const total = Object.values(counts).reduce((sum, n) => sum + n, 0);
-  if (total === 0) return { ...base, metric: null, lines: [], state: 'EMPTY', stateLine: 'No intake records yet.' };
+  const { byStatus: counts, eligible, excluded, complete } = read.value;
+  const notIntake = excluded > 0 ? `${counted(excluded, 'other record', 'other records')} not counted as intake` : null;
+  if (eligible === 0) return { ...base, metric: null, lines: notIntake ? [notIntake] : [], state: 'EMPTY', stateLine: 'No records in intake yet.' };
   const fresh = counts.New;
   const later = INTAKE_LATER.flatMap((status) => {
     const n = counts[status];
@@ -292,9 +303,14 @@ function intakeTile(input: TilesInput, item: TileNavItem): HomeTile | null {
   });
   return {
     ...base,
-    // The board's own statuses, interpreted: a record still "New" has not been contacted.
-    metric: fresh !== undefined ? { value: fresh.toLocaleString('en-US'), label: fresh === 1 ? 'new record awaits first contact' : 'new records await first contact' } : null,
-    lines: [later.length > 0 ? `Further along: ${later.join(' · ')}` : null, `${counted(total, 'record', 'records')} on the board`].filter((x): x is string => x !== null),
+    // The board's own status, stated -- not interpreted: a worked record can still carry a historical New.
+    metric: fresh !== undefined ? { value: fresh.toLocaleString('en-US'), label: fresh === 1 ? 'intake record in New' : 'intake records in New' } : null,
+    lines: [
+      later.length > 0 ? `Further along: ${later.join(' · ')}` : null,
+      `${counted(eligible, 'record', 'records')} in intake`,
+      notIntake,
+      complete ? null : 'Not every record could be read; these counts are a lower bound',
+    ].filter((x): x is string => x !== null),
     state: 'OK',
     stateLine: null,
   };

@@ -185,7 +185,7 @@ function tilesInput(over: Partial<TilesInput> = {}): TilesInput {
     mail: MAIL_READING,
     chats: chats(),
     work: { kind: 'ADMIN', posture: { ok: true, value: { assigned: 4, readyNow: 2, blocked: 1, overdue: 1, dueToday: 2, datesPartial: false } } },
-    intake: { ok: true, value: { New: 12, Contacted: 5, Quoted: 2, Booked: 1, Completed: 40, Archived: 9 } },
+    intake: { ok: true, value: { byStatus: { New: 12, Contacted: 5, Quoted: 2, Booked: 1, Completed: 40, Archived: 9, UNSET: 0 }, eligible: 69, excluded: 0, complete: true } },
     creators: { ok: true, value: [{ needsEmg: 2, needsCreator: 1, inProduction: 3, dueSoon: 1 }, { needsEmg: 0, needsCreator: 0, inProduction: 0, dueSoon: 0 }] },
     callgrid: { ok: true, value: strip() },
     callgridBrief: { ok: true, value: BRIEF },
@@ -461,7 +461,13 @@ describe('Your tools & spaces: a tile only where the rail leads, each its domain
     assert.deepEqual([none.state, none.stateLine], ['EMPTY', 'No work is assigned to you.']);
     assert.match(tileByKey(tilesInput({ work: { kind: 'ADMIN', posture: { ok: true, value: { assigned: 9, readyNow: 0, blocked: 0, overdue: 2, dueToday: 0, datesPartial: true } } } }), 'work')!.lines[0]!, /^at least 2 overdue$/);
     const intake = tileByKey(tilesInput(), 'intake')!;
-    assert.deepEqual([intake.metric, intake.lines], [{ value: '12', label: 'new records await first contact' }, ['Further along: 5 contacted · 2 quoted · 1 booked', '69 records on the board']]);
+    assert.deepEqual([intake.metric, intake.lines], [{ value: '12', label: 'intake records in New' }, ['Further along: 5 contacted · 2 quoted · 1 booked', '69 records in intake']]);
+    // Production's shape: 24,587 legacy records nobody has worked and one web lead -- never 23,726 "new records
+    // await first contact". The legacy population is said as not counted, never as work.
+    const prod = tileByKey(tilesInput({ intake: { ok: true, value: { byStatus: { New: 1, Contacted: 0, Quoted: 0, Booked: 0, Completed: 0, Archived: 0, UNSET: 0 }, eligible: 1, excluded: 24_589, complete: true } } }), 'intake')!;
+    assert.deepEqual([prod.metric, prod.lines], [{ value: '1', label: 'intake record in New' }, ['1 record in intake', '24,589 other records not counted as intake']]);
+    const legacyOnly = tileByKey(tilesInput({ intake: { ok: true, value: { byStatus: { New: 0, Contacted: 0, Quoted: 0, Booked: 0, Completed: 0, Archived: 0, UNSET: 0 }, eligible: 0, excluded: 24_590, complete: true } } }), 'intake')!;
+    assert.deepEqual([legacyOnly.state, legacyOnly.metric, legacyOnly.stateLine, legacyOnly.lines], ['EMPTY', null, 'No records in intake yet.', ['24,590 other records not counted as intake']]);
     const campaigns = tileByKey(tilesInput(), 'campaigns')!;
     assert.deepEqual(campaigns.metric, { value: '2', label: 'active today so far' });
     assert.equal(campaigns.lines[0], 'Campaign 1 is earning the most today so far');
@@ -484,7 +490,7 @@ describe('Your tools & spaces: a tile only where the rail leads, each its domain
     assert.equal(tileByKey(tilesInput({ chats: null }), 'chats'), null, 'not offered, not read: no tile');
     assert.equal(tileByKey(tilesInput({ today: today({ calendar: { state: 'NOT_CONFIGURED' } }) }), 'calendar'), null, 'not set up at all: nothing is said');
     assert.deepEqual([tileByKey(tilesInput({ intake: { ok: false } }), 'intake')!.state, tileByKey(tilesInput({ intake: { ok: false } }), 'intake')!.metric], ['UNAVAILABLE', null]);
-    assert.deepEqual([tileByKey(tilesInput({ intake: { ok: true, value: {} } }), 'intake')!.state, tileByKey(tilesInput({ intake: { ok: true, value: {} } }), 'intake')!.metric], ['EMPTY', null]);
+    assert.deepEqual([tileByKey(tilesInput({ intake: { ok: true, value: { byStatus: {}, eligible: 0, excluded: 0, complete: true } } }), 'intake')!.state, tileByKey(tilesInput({ intake: { ok: true, value: { byStatus: {}, eligible: 0, excluded: 0, complete: true } } }), 'intake')!.metric], ['EMPTY', null]);
     assert.deepEqual([tileByKey(tilesInput({ creators: { ok: true, value: null } }), 'creators')!.state, tileByKey(tilesInput({ creators: { ok: true, value: null } }), 'creators')!.stateLine], ['NOT_AVAILABLE', 'Not available on this deployment yet.']);
     assert.deepEqual([tileByKey(tilesInput({ creators: { ok: true, value: [] } }), 'creators')!.state, tileByKey(tilesInput({ creators: { ok: true, value: [] } }), 'creators')!.stateLine], ['EMPTY', 'No creators yet.']);
     assert.deepEqual([tileByKey(tilesInput({ work: { kind: 'ADMIN', posture: { ok: false } } }), 'work')!.state, tileByKey(tilesInput({ work: { kind: 'ADMIN', posture: { ok: false } } }), 'work')!.metric], ['UNAVAILABLE', null]);
@@ -524,7 +530,7 @@ describe('the front door’s reads are gated by the rail and scoped by the sessi
     // The executive row is the contract's own rule over that context -- Home chooses the figures, never the arithmetic.
     assert.match(data, /const kpis = callGridKpis\(\{\s*metrics: ctx\.report\.metrics,\s*comparison: ctx\.report\.comparison,\s*series: ctx\.facts\?\.series \?\? \[\],\s*comparisonWithheld: ctx\.window !== ctx\.selection\.window,\s*keys: HOME_KPI_KEYS,\s*\}\);\s*return \{ ok: true, value: projectHomeKpis\(\{ \.\.\.ctx, kpis \}\) \};/);
     assert.match(data, /navOffers\(groups, TILE_PATHS\.chats\) \? settle\(\(\) => loadChatsInput\(\{ session, principal, now: time\.now \}\)\)/);
-    assert.match(data, /navOffers\(groups, TILE_PATHS\.intake\) \? settle\(\(\) => crmRepos\.crm\.statusCounts\(organizationId\)\)/);
+    assert.match(data, /navOffers\(groups, TILE_PATHS\.intake\) \? settle\(\(\) => crmRepos\.intake\.counts\(organizationId, new Date\(\)\)\)/);
     assert.match(data, /input\.executive && navOffers\(groups, TILE_PATHS\.creators\)\s*\? settle\(\(\) => absentUntilMigrated\(creatorDomain\(\)\.records\.roster\(organizationId\)\)\)/);
     assert.match(data, /const organizationId = principal\.organizationId;/);
     for (const forbidden of ['searchParams', 'formData', 'params.', 'headers.get(', 'request.', 'prisma.', 'LIVE_ORG_SLUG', 'SourceObservationRepository', 'sourceConnections(']) assert.equal(data.includes(forbidden), false, forbidden);

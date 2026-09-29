@@ -125,12 +125,15 @@ function makeDb(customers: Row[]) {
       return { ...r };
     },
   };
-  const db = {
+  const audit: Row[] = [];
+  const db: Record<string, unknown> = {
     customer,
     interaction: { async findMany() { return []; } },
-    async $transaction(ops: Promise<unknown>[]) { return Promise.all(ops); },
+    auditLog: { async create({ data }: any) { audit.push(data); return data; } },
+    // Both forms: a batch of queries, or an interactive transaction (the attributed status/assignment write).
+    async $transaction(arg: Promise<unknown>[] | ((tx: unknown) => Promise<unknown>)) { return typeof arg === 'function' ? arg(db) : Promise.all(arg); },
   };
-  return { db: db as unknown as PrismaClient, calls, customers };
+  return { db: db as unknown as PrismaClient, calls, customers, audit };
 }
 
 // ---- Pinning the fake to Postgres --------------------------------------------
@@ -219,22 +222,22 @@ function truthCounts(rows: Row[], filter: (r: Row) => boolean = () => true) {
   return counts;
 }
 
-test('statusCounts are exact counts of every customer, past the old 5,000 cap, and never read rows', async () => {
+test('recordStatusCounts (the records list) are exact counts of every customer, past the old 5,000 cap, and never read rows', async () => {
   const { db, calls, customers } = makeDb(book());
-  const counts = await new CrmRepository(db).statusCounts(ORG);
+  const counts = await new CrmRepository(db).recordStatusCounts(ORG);
   const truth = truthCounts(customers);
   assert.deepEqual(counts, truth);
   assert.equal(Object.values(counts).reduce((a, b) => a + b, 0), 6000, 'they sum to the organization\'s customers');
   assert.ok(truth.New > 0 && truth.Contacted > 0 && truth.Archived > 0);
   assert.equal(calls.some((c) => c.op === 'findMany'), false, 'counts are COUNT queries, not a bounded fetch');
-  // Command Center's Active Intake is New + Contacted + Quoted of these counts.
-  assert.equal(counts.New + counts.Contacted + counts.Quoted, truth.New + truth.Contacted + truth.Quoted);
+  // These are RECORDS, not intake: Command Center, Home and the Intake Board read intake eligibility
+  // (intake-eligibility.postgres.test.ts), never these counts.
 });
 
 test('a status filter reports the full population as its total and pages through all of it', async () => {
   const { db, customers } = makeDb(book());
   const repo = new CrmRepository(db);
-  const counts = await repo.statusCounts(ORG);
+  const counts = await repo.recordStatusCounts(ORG);
   for (const status of PIPELINE_STATUSES) {
     const first = await repo.listCustomers(ORG, { status, pageSize: 25 });
     assert.equal(first.total, counts[status], `${status}: list total equals its chip`);
@@ -252,7 +255,7 @@ test('a status filter reports the full population as its total and pages through
 test('status chips count within the current search and tag, so each equals the list it opens', async () => {
   const { db, customers } = makeDb(book());
   const repo = new CrmRepository(db);
-  const counts = await repo.statusCounts(ORG, { tag: 'VIP', search: 'person1' });
+  const counts = await repo.recordStatusCounts(ORG, { tag: 'VIP', search: 'person1' });
   const inView = (r: Row) => r.tags.includes('VIP') && String(r.firstName).toLowerCase().includes('person1');
   assert.deepEqual(counts, truthCounts(customers, inView));
   for (const status of PIPELINE_STATUSES) {
@@ -278,36 +281,26 @@ test('sorting by status is exact at any size and orders by status, then newest f
   }
 });
 
-test('the Intake Board counts every customer per status and discloses when it shows fewer cards', async () => {
-  const { db, customers } = makeDb(book());
-  const board = await new CrmRepository(db).kanbanBoard(ORG);
-  const truth = truthCounts(customers);
-  assert.deepEqual(board.map((c) => [c.status, c.count]), PIPELINE_STATUSES.map((s) => [s, truth[s]]));
-  assert.equal(board.reduce((n, c) => n + c.count, 0), 6000);
-  for (const col of board) {
-    assert.equal(col.cards.length, Math.min(col.count, KANBAN_CARD_LIMIT), col.status);
-    // The cards are the most recently active of THAT status, not of a 2,000-row slice.
-    const expected = sortRows(customers.filter((r) => r.organizationId === ORG && readPipelineStatus(r as never) === col.status), { lastSeenAt: 'desc' })
-      .slice(0, KANBAN_CARD_LIMIT).map((r) => r.id);
-    assert.deepEqual(col.cards.map((c) => c.id), expected, col.status);
-  }
-  const page = (await import('node:fs')).readFileSync(new URL('../../../apps/web/src/app/crm/pipeline/page.tsx', import.meta.url), 'utf8');
-  assert.match(page, /\{col\.cards\.length < col\.count \? \(/);
-  assert.match(page, /Showing the \{col\.cards\.length\} most recently active of \{col\.count\.toLocaleString\('en-US'\)\}/);
-});
+// The Intake Board shows ELIGIBLE intake only (a verified website lead, or a record a person has worked), so
+// its counts and cards are proven against real Postgres in intake-eligibility.postgres.test.ts -- the
+// production-shaped regression that ~24.5k legacy caller records never become board columns.
 
 test('bulk writes touch exactly the posted IDs that belong to the organization, each once', async () => {
   for (const op of ['status', 'tag', 'assign'] as const) {
-    const { db, customers } = makeDb(book());
+    const { db, customers, audit } = makeDb(book());
     const repo = new CrmRepository(db);
+    const actor = { userId: 'user_charlie', name: 'Charlie', systemRole: 'EMPLOYEE' };
     const posted = ['c0001', 'c0002', 'c0001', 'x1', 'does-not-exist'];
     const n =
-      op === 'status' ? await repo.bulkSetStatus(ORG, posted, 'Booked')
+      op === 'status' ? await repo.bulkSetStatus(ORG, posted, 'Booked', actor)
       : op === 'tag' ? await repo.bulkAddTag(ORG, posted, 'Priority')
-      : await repo.bulkAssign(ORG, posted, { humanName: 'Charlie' });
+      : await repo.bulkAssign(ORG, posted, { humanName: 'Charlie' }, actor);
     assert.equal(n, 2, op);
     const touched = customers.filter((r) => r.updates).map((r) => [r.id, r.updates]);
     assert.deepEqual(touched, [['c0001', 1], ['c0002', 1]], `${op}: only the selection, once each, never another organization's row`);
+    // Status and assignment are attributed per record (the evidence intake eligibility reads); tags are not intake edits.
+    const expectedAction = op === 'status' ? 'customer.status_changed' : op === 'assign' ? 'customer.assignment_changed' : null;
+    assert.deepEqual(audit.map((a) => [a.organizationId, a.action, a.userId, a.entityId]), expectedAction ? [[ORG, expectedAction, 'user_charlie', 'c0001'], [ORG, expectedAction, 'user_charlie', 'c0002']] : [], op);
   }
 });
 

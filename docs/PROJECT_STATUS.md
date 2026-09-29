@@ -2438,31 +2438,38 @@ worker is redeployed on it, and the runtime has been verified in production.
 
 Blueprint: https://claude.ai/artifact/VZuKzXAmCpc2WZsQR32gDS
 
-## Loop Intelligence — Campaigns INVALID_ENTITY_REFS fix — IN REVIEW (draft PR #346, branch `fix/campaigns-entity-refs`, off main `55d14e3`)
+## Loop Intelligence — Intake eligibility repair — IN REVIEW (draft PR #350, branch `fix/intake-eligibility`, off main `7a5c041`)
 
-**Production (2026-09-28):**
-- Calendar, CallGrid, Campaigns and Pipeline model readings answer (#342, #344 merged).
-- Campaigns: 1 STALE digest, and 3 refresh requests `HELD INVALID_ENTITY_REFS` (read with #345).
-- Situations, Briefing, Mail and OpenAI are OFF.
+**Production (2026-09-29):**
+- #344, #345, #346, #347, #348 and #349 are merged.
+- `pipeline.domain@1` is decommissioned, and its digest is STALE.
+- Situations stop at INSUFFICIENT_SIGNAL_DOMAINS.
+- The Pipeline composition probe proved the defect: 24,590 records, of which 24,579 are VERIFIED caller-only
+  ingestion with `humanWork=0`, and every one has `lastSeenAt == createdAt`. It read 24,575 "stalled", of
+  which only 1 had any activity (not human).
 
-**Root cause (reproduced on the real repository):** `campaignsRule` named a campaign twice in the digest's
-`entityRefs` when it both moved at least 20% and sold nothing. The digest write refuses a repeated reference
-(`DUPLICATE_KEY` → `INVALID_ENTITY_REFS`), and the loop holds that refusal. Each such pass had already paid
-for the Campaigns model call.
+**Repair (one shared definition, `IntakeEligibilityRepository`):**
+- **What counts as intake:** a verified web lead, or a person's explicit work (a HUMAN_AGENT CRM note, an
+  audited status change, a user Party link). An assignment alone doesn't count.
+- **The clock:** the latest human work; `lastSeenAt` is never read.
+- **Missing status:** reads UNSET unless the record is a web lead.
+- **Human actions:** status and assignment changes are now attributed and audited, transactionally.
+- **Surfaces on the new definition:** Home, CRM home, the Intake Board (legacy records shown apart), the
+  organization page, the Pipeline producer (v2) and both probes.
+- **Unchanged:** no migration, and no record is changed.
 
-**Fixed:**
-- Each campaign is named once.
-- Signal keys are always valid and distinct. A key that was already valid is unchanged; an upper-case or
-  over-long campaign id gets a hashed key. This latent `BAD_KEY` defect would otherwise have been refused
-  next as `INVALID_CONTENT`.
+**Adversarial review (fbf20c2):**
+- Acts must be by a human operator member of the organization (spoofed, AI, creator and non-member actors
+  fail closed).
+- Malformed future acts are ignored; leads enter at their form submission.
+- Party links commit atomically with their audit.
+- The repaired producer is `pipeline.domain@2`, so a deploy cannot start it.
 
-**Recovery (no cleanup), self-healing:** a successful refresh (write or re-affirm) resolves the HELD rows of
-its exact target that it supersedes. This runs in one serializable transaction that re-checks the reading
-is CURRENT. The next scheduled pass therefore writes Campaigns CURRENT and clears its 3 HELD rows. Refusals,
-failures, enqueue and claim never clear a barrier. Genuinely unresolved HELD rows keep the 7-day retention.
-
-**Next (Matt):** review, merge, redeploy the worker. Then run Read Intelligence State and check the Campaigns
-digest is CURRENT and no new HELD rows appear.
+**Next (Matt):**
+1. Review and merge; Netlify redeploys the web app.
+2. Redeploy the worker.
+3. Run Read Intelligence State and check the invariants in the runbook.
+4. Only then decide whether to add `pipeline.domain@2` to `LOOP_INTELLIGENCE_PRODUCERS`.
 
 ## Loop Intelligence — COMPLETE BUILD (Phases A–G) — IN REVIEW (draft PR #341, branch `feat/loop-intelligence-fabric`, off main `d70f737`) · NOTHING COMMISSIONED
 

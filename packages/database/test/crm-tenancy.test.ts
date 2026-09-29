@@ -27,6 +27,8 @@ import { WorkflowsRepository } from '../src/repositories/workflows.repository';
 
 const ORG = 'org_emg';
 const OTHER_ORG = 'org_someone_else';
+/** The signed-in person an intake edit is attributed to (the CRM actions build this from the session). */
+const ACTOR = { userId: 'user_dana', name: 'Dana', systemRole: 'OWNER' };
 
 async function world() {
   // THE CRM DELEGATES ARE REQUESTED, NOT ASSUMED. They are off by default so
@@ -70,10 +72,11 @@ test('1. a pipeline move across a tenant boundary writes nothing', async () => {
   const { prisma, crm, theirs } = await world();
   const before = await read(prisma, theirs.id);
 
-  const result = await crm.setPipelineStatus(ORG, theirs.id, 'Quoted');
+  const result = await crm.setPipelineStatus(ORG, theirs.id, 'Quoted', ACTOR);
 
   assert.equal(result, null, 'not-found, never forbidden');
   assert.deepEqual(await read(prisma, theirs.id), before, 'their row is untouched');
+  assert.equal(await prisma.auditLog.count({ where: {} }), 0, 'and no audit entry for a write that did not happen');
 });
 
 test('2. tagging, untagging and assigning across a tenant boundary write nothing', async () => {
@@ -82,7 +85,7 @@ test('2. tagging, untagging and assigning across a tenant boundary write nothing
 
   assert.equal(await crm.addTag(ORG, theirs.id, 'hot'), null);
   assert.equal(await crm.removeTag(ORG, theirs.id, 'lead'), null);
-  assert.equal(await crm.setAssignment(ORG, theirs.id, { humanName: 'Me' }), null);
+  assert.equal(await crm.setAssignment(ORG, theirs.id, { humanName: 'Me' }, ACTOR), null);
 
   assert.deepEqual(await read(prisma, theirs.id), before);
 });
@@ -104,9 +107,9 @@ test('4. the same writes succeed inside the organization', async () => {
   // THE COUNTER-PROPERTY. A guard that refuses everything is safe and useless.
   const { prisma, crm, mine } = await world();
 
-  assert.ok(await crm.setPipelineStatus(ORG, mine.id, 'Quoted'));
+  assert.ok(await crm.setPipelineStatus(ORG, mine.id, 'Quoted', ACTOR));
   assert.ok(await crm.addTag(ORG, mine.id, 'hot'));
-  assert.ok(await crm.setAssignment(ORG, mine.id, { humanName: 'Dana' }));
+  assert.ok(await crm.setAssignment(ORG, mine.id, { humanName: 'Dana' }, ACTOR));
   assert.ok(await crm.updateCustomerFields(ORG, mine.id, { company: 'Acme Inc' }));
 
   const after = await read(prisma, mine.id);
@@ -114,11 +117,17 @@ test('4. the same writes succeed inside the organization', async () => {
   assert.ok((after!.tags as string[]).includes('hot'));
   assert.equal((after!.attributes as Record<string, unknown>).assignedHumanName, 'Dana');
   assert.equal((after!.attributes as Record<string, unknown>).company, 'Acme Inc');
+  // Status and assignment are attributed to the person, each in its own audit entry, inside the organization.
+  const audit = (await prisma.auditLog.findMany({ where: {} })) as { organizationId: string; action: string; userId: string; actorType: string; entityId: string; after: unknown }[];
+  assert.deepEqual(audit.map((a) => [a.organizationId, a.action, a.userId, a.actorType, a.entityId]).sort(), [
+    [ORG, 'customer.assignment_changed', 'user_dana', 'HUMAN_AGENT', mine.id],
+    [ORG, 'customer.status_changed', 'user_dana', 'HUMAN_AGENT', mine.id],
+  ]);
 });
 
 test('5. an unrelated attribute is preserved, not overwritten, by a scoped write', async () => {
   const { prisma, crm, mine } = await world();
-  await crm.setPipelineStatus(ORG, mine.id, 'Contacted');
+  await crm.setPipelineStatus(ORG, mine.id, 'Contacted', ACTOR);
   const after = await read(prisma, mine.id);
   assert.equal((after!.attributes as Record<string, unknown>).company, 'Acme');
 });
@@ -139,7 +148,7 @@ test('7. a bulk operation cannot capture a row from another tenant', async () =>
   const { prisma, crm, mine, theirs } = await world();
   const before = await read(prisma, theirs.id);
 
-  const n = await crm.bulkSetStatus(ORG, [mine.id, theirs.id], 'Booked');
+  const n = await crm.bulkSetStatus(ORG, [mine.id, theirs.id], 'Booked', ACTOR);
 
   assert.equal(n, 1, 'only the row this organization owns');
   assert.deepEqual(await read(prisma, theirs.id), before);

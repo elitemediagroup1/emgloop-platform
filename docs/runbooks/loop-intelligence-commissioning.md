@@ -93,7 +93,7 @@ within a minute.
 Set `CONNECTIONS_<STAGE>_INTELLIGENCE_PRODUCERS` to any of:
 
 ```
-calendar.domain@1, callgrid.domain@1, campaigns.domain@1, pipeline.domain@1, crm.domain@1,
+calendar.domain@1, callgrid.domain@1, campaigns.domain@1, pipeline.domain@2, crm.domain@1,
 creators.domain@1, work.domain@1, work.mine@1, website.domain@1
 ```
 
@@ -226,16 +226,39 @@ A component is `independent` only when it spans two distinct governed sources. C
 rest on `marketplace_calls`, so a pair of those alone is counted in `eliminatedSameSource`. The component
 counts are upper bounds: signal kind and time window are not applied. Nothing is linked.
 
-**What is Pipeline counting?** The `PIPELINE_*` lines measure the Pipeline reading's population by its own
-definitions: working and stalled by raw status, and by provenance with a `basis`. VERIFIED means a durable
-mark the creating code wrote. HEURISTIC is a convention. UNKNOWN is everything else; a record that only looks
-like a legacy caller is UNKNOWN. They also report:
-- human work, only where a row names the actor;
-- how many records' `lastSeenAt` never moved from `createdAt`;
-- records created before and after the Slice 1 cutoff;
-- what real activity the stalled records had in the last 14 days, by kind.
+**Intake is eligibility, not rows.** An Intake Record is intake (Pipeline, Home, CRM home, the Intake Board,
+the organization page) only when a governed entry fact exists:
+- a verified website lead;
+- or explicit work by a person: a CRM note by a HUMAN_AGENT, a status change by a person
+  (`customer.status_changed`), or a Party link made or reversed by a user.
 
-`complete=true` only when every read reached its end.
+Not intake:
+- verified CallGrid ingestion and anonymous-visitor records;
+- heuristic or unknown provenance nobody has worked;
+- an assignment alone (it is audited as `customer.assignment_changed`, but routing is not work);
+- a workflow's status step;
+- anything an AI employee's login did.
+
+The clock is the latest human work, or entry for a lead nobody has worked; `lastSeenAt` is never read.
+A worked record with no status reads UNSET, never New. Records are never changed by this: a legacy record
+enters intake the moment a person works it.
+
+**Proving it after deploy.** Run Read Intelligence State. Two sets of lines matter:
+- `PIPELINE_INTAKE` / `PIPELINE_INTAKE_STATUS` / `PIPELINE_INTAKE_WORK` are the repaired view: eligible,
+  excluded, basis (web lead or human work), the work events behind it, and working/stalled by the work clock.
+- `PIPELINE_STATUS` / `PIPELINE_PROVENANCE` keep the pre-repair (`v1Working`, `v1Stalled`) counts beside
+  `eligible`. `provenance=CALLGRID_INGESTION_CALLER_ONLY ... eligible=` shows how many legacy callers are in
+  intake: only those a person has worked.
+
+Their `basis` is VERIFIED only from a durable mark the creating code wrote, HEURISTIC for a convention, and
+UNKNOWN otherwise; a record that only looks like a legacy caller is UNKNOWN. `complete=true` only when every
+read reached its end.
+
+**Reactivating Pipeline** (it is decommissioned in production) is a separate decision. The repaired producer
+is `pipeline.domain@2`, a new id on purpose: an activation list that still names `pipeline.domain@1` matches
+nothing, so a deploy can never start it. First confirm the `PIPELINE_INTAKE*` lines. Then add
+`pipeline.domain@2` to `LOOP_INTELLIGENCE_PRODUCERS` and redeploy the worker. The first pass writes a
+version-2 reading (one model call if `pipeline.domain.reading` is on).
 
 **The Briefing's expected coverage.** Every domain Loop is supposed to observe for the person must be
 present and current before "nothing pressing" can appear. That set is:

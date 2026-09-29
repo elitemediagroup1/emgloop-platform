@@ -17,27 +17,16 @@
 // activity inbox feed, and the pipeline kanban board — all through Prisma.
 
 import { Prisma } from '@prisma/client';
+import { AuditRepository } from './audit.repository';
+import { actorTypeForRole, type AuthenticatedActor } from './interaction.repository';
+import { CUSTOMER_ASSIGNMENT_CHANGED, CUSTOMER_STATUS_CHANGED, INTAKE_STATUSES, IntakeEligibilityRepository, type IntakeStatus } from './intake-eligibility.repository';
 import type { PrismaClient, Customer } from '@prisma/client';
 import { intakeProvenanceSegment, type IntakeProvenanceSegment } from '@emgloop/shared';
 import { customerDisplayName } from './customer.repository';
 import { interactionActorType } from './interaction.repository';
 
-export type PipelineStatus =
-  | 'New'
-  | 'Contacted'
-  | 'Quoted'
-  | 'Booked'
-  | 'Completed'
-  | 'Archived';
-
-export const PIPELINE_STATUSES: PipelineStatus[] = [
-  'New',
-  'Contacted',
-  'Quoted',
-  'Booked',
-  'Completed',
-  'Archived',
-];
+import { PIPELINE_STATUSES, type PipelineStatus } from './pipeline-status';
+export { PIPELINE_STATUSES, type PipelineStatus };
 
 export type CustomerSortKey =
   | 'createdAt'
@@ -109,10 +98,11 @@ export interface InboxItem {
 
 /** A single column of the pipeline kanban board. */
 export interface KanbanColumn {
-  status: PipelineStatus;
-  /** Every person in this status: an exact count, not the number of cards. */
+  /** An intake status, or UNSET: a worked record whose status was never set (never shown as New). */
+  status: IntakeStatus;
+  /** Every ELIGIBLE record in this status: an exact count, not the number of cards. */
   count: number;
-  /** The most recently active people in this status, at most KANBAN_CARD_LIMIT. */
+  /** The most recently worked eligible records in this status, at most KANBAN_CARD_LIMIT. */
   cards: {
     id: string;
     name: string;
@@ -120,6 +110,8 @@ export interface KanbanColumn {
     assignedHuman: string;
     assignedAI: string;
     lastInteractionAt: string | null;
+    /** The latest governed human work on the record (note, status change, Party link); null if none yet. */
+    lastWorkedAt: string | null;
   }[];
 }
 
@@ -367,7 +359,12 @@ export class CrmRepository {
    * past 5,000 every figure described an arbitrary sample while reading as the
    * whole book.)
    */
-  async statusCounts(
+  /**
+   * EVERY Intake Record by the status it reads as, for the records LIST (search, tag). This is not intake:
+   * it counts records nobody has worked and legacy ingestion residue alike. Anything that presents operational
+   * intake reads IntakeEligibilityRepository instead -- which is why this is not called `statusCounts`.
+   */
+  async recordStatusCounts(
     organizationId: string,
     filters: Pick<CustomerListFilters, 'search' | 'tag'> = {},
   ): Promise<Record<PipelineStatus, number>> {
@@ -496,23 +493,64 @@ export class CrmRepository {
     });
   }
 
-  setPipelineStatus(
+  /**
+   * A person's attributed edit of a record's intake attributes: the change and its audit entry in ONE
+   * transaction, so there is never an unattributed edit and never an audit row for an edit that did not
+   * happen. Resolved within the organization first; another tenant's record is not found (null).
+   */
+  private attributedPatch(
     organizationId: string,
     id: string,
-    status: PipelineStatus,
+    patch: Record<string, unknown>,
+    actor: AuthenticatedActor,
+    action: string,
   ): Promise<Customer | null> {
-    return this.patchAttributes(organizationId, id, { pipelineStatus: status });
+    return this.prisma.$transaction(async (tx) => {
+      const existing = await tx.customer.findFirst({ where: { id, organizationId }, select: { id: true, attributes: true } });
+      if (!existing) return null;
+      const current = existing.attributes && typeof existing.attributes === 'object' ? (existing.attributes as Record<string, unknown>) : {};
+      const updated = await tx.customer.update({ where: { id: existing.id }, data: { attributes: { ...current, ...patch } as object } });
+      await new AuditRepository(this.prisma).record(
+        {
+          organizationId,
+          action,
+          userId: actor.userId,
+          actorType: actorTypeForRole(actor.systemRole),
+          actorName: actor.name,
+          entityType: 'customer',
+          entityId: existing.id,
+          before: Object.fromEntries(Object.keys(patch).map((k) => [k, current[k] ?? null])),
+          after: patch,
+        },
+        tx,
+      );
+      return updated;
+    });
   }
 
+  /**
+   * A person sets a record's intake status. Attributed and audited (customer.status_changed): a person's
+   * status change is work, and it makes the record intake (IntakeEligibilityRepository). A workflow's status
+   * step does not come through here and is not work.
+   */
+  setPipelineStatus(organizationId: string, id: string, status: PipelineStatus, actor: AuthenticatedActor): Promise<Customer | null> {
+    return this.attributedPatch(organizationId, id, { pipelineStatus: status }, actor, CUSTOMER_STATUS_CHANGED);
+  }
+
+  /**
+   * A person assigns a record. Attributed and audited (customer.assignment_changed) for the history -- but
+   * routing is not work: an assignment alone never makes a record intake.
+   */
   setAssignment(
     organizationId: string,
     id: string,
     args: { humanName?: string | null; aiName?: string | null },
+    actor: AuthenticatedActor,
   ): Promise<Customer | null> {
     const patch: Record<string, unknown> = {};
     if (args.humanName !== undefined) patch.assignedHumanName = args.humanName;
     if (args.aiName !== undefined) patch.assignedAIName = args.aiName;
-    return this.patchAttributes(organizationId, id, patch);
+    return this.attributedPatch(organizationId, id, patch, actor, CUSTOMER_ASSIGNMENT_CHANGED);
   }
 
   async addTag(organizationId: string, id: string, tag: string): Promise<Customer | null> {
@@ -594,6 +632,7 @@ export class CrmRepository {
     organizationId: string,
     ids: string[],
     status: PipelineStatus,
+    actor: AuthenticatedActor,
   ): Promise<number> {
     const targets = await this.prisma.customer.findMany({
       where: { organizationId, id: { in: ids } },
@@ -601,7 +640,7 @@ export class CrmRepository {
     });
     let n = 0;
     for (const t of targets) {
-      await this.setPipelineStatus(organizationId, t.id, status);
+      await this.setPipelineStatus(organizationId, t.id, status, actor);
       n += 1;
     }
     return n;
@@ -630,6 +669,7 @@ export class CrmRepository {
     organizationId: string,
     ids: string[],
     args: { humanName?: string | null; aiName?: string | null },
+    actor: AuthenticatedActor,
   ): Promise<number> {
     const targets = await this.prisma.customer.findMany({
       where: { organizationId, id: { in: ids } },
@@ -637,7 +677,7 @@ export class CrmRepository {
     });
     let n = 0;
     for (const t of targets) {
-      await this.setAssignment(organizationId, t.id, args);
+      await this.setAssignment(organizationId, t.id, args, actor);
       n += 1;
     }
     return n;
@@ -719,26 +759,24 @@ export class CrmRepository {
    * (It used to read the 2,000 most recently active customers and count those,
    * so every column count and the board total described that slice.)
    */
-  async kanbanBoard(organizationId: string): Promise<KanbanColumn[]> {
-    const whereFor = (status: PipelineStatus): Prisma.CustomerWhereInput => ({
-      AND: [{ organizationId }, customerStatusWhere(status)],
-    });
-    const [counts, perStatus] = await Promise.all([
-      this.prisma.$transaction(PIPELINE_STATUSES.map((status) => this.prisma.customer.count({ where: whereFor(status) }))),
-      this.prisma.$transaction(
-        PIPELINE_STATUSES.map((status) =>
-          this.prisma.customer.findMany({
-            where: whereFor(status),
-            orderBy: { lastSeenAt: 'desc' },
-            take: KANBAN_CARD_LIMIT,
-          }),
-        ),
-      ),
-    ]);
-    const customers = perStatus.flat();
+  /**
+   * The Intake Board: ELIGIBLE records only (IntakeEligibilityRepository), by intake status, most recently
+   * worked first -- and, apart, how many records are not intake (legacy ingestion residue and records nobody
+   * has worked). An UNSET column appears only when a worked record has no status.
+   */
+  async kanbanBoard(organizationId: string, now: Date = new Date()): Promise<{ columns: KanbanColumn[]; notIntake: number; totalRecords: number; complete: boolean }> {
+    const intake = await new IntakeEligibilityRepository(this.prisma).read(organizationId, now);
+    const byStatus = new Map<IntakeStatus, typeof intake.records[number][]>(INTAKE_STATUSES.map((s) => [s, []]));
+    for (const r of intake.records) byStatus.get(r.status)!.push(r);
+    const shown = INTAKE_STATUSES.filter((s) => s !== 'UNSET' || byStatus.get('UNSET')!.length > 0);
+    const pick = new Map<IntakeStatus, typeof intake.records[number][]>(
+      shown.map((s) => [s, [...byStatus.get(s)!].sort((a, b) => b.clockAt.getTime() - a.clockAt.getTime()).slice(0, KANBAN_CARD_LIMIT)]),
+    );
+    const ids = [...pick.values()].flat().map((r) => r.id);
+    const rows = ids.length ? await this.prisma.customer.findMany({ where: { organizationId, id: { in: ids } } }) : [];
+    const byId = new Map(rows.map((c) => [c.id, c]));
 
     const lastByCustomer = new Map<string, Date>();
-    const ids = customers.map((c) => c.id);
     if (ids.length > 0) {
       const interactions = await this.prisma.interaction.findMany({
         where: { organizationId, customerId: { in: ids } },
@@ -746,26 +784,28 @@ export class CrmRepository {
         select: { customerId: true, occurredAt: true },
       });
       for (const i of interactions) {
-        if (i.customerId && !lastByCustomer.has(i.customerId)) {
-          lastByCustomer.set(i.customerId, i.occurredAt);
-        }
+        if (i.customerId && !lastByCustomer.has(i.customerId)) lastByCustomer.set(i.customerId, i.occurredAt);
       }
     }
 
-    return PIPELINE_STATUSES.map((status, i) => ({
+    const columns = shown.map((status) => ({
       status,
-      count: counts[i] ?? 0,
-      cards: (perStatus[i] ?? []).map((c) => {
+      count: byStatus.get(status)!.length,
+      cards: pick.get(status)!.flatMap((r) => {
+        const c = byId.get(r.id);
+        if (!c) return [];
         const last = lastByCustomer.get(c.id);
-        return {
+        return [{
           id: c.id,
           name: customerDisplayName(c),
           company: attr<string>(c.attributes, 'company') ?? '',
           assignedHuman: attr<string>(c.attributes, 'assignedHumanName') ?? '',
           assignedAI: attr<string>(c.attributes, 'assignedAIName') ?? '',
           lastInteractionAt: last ? last.toISOString() : null,
-        };
+          lastWorkedAt: r.lastWorkedAt ? r.lastWorkedAt.toISOString() : null,
+        }];
       }),
     }));
+    return { columns, notIntake: intake.totalRecords - intake.records.length, totalRecords: intake.totalRecords, complete: intake.complete };
   }
 }

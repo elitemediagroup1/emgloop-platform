@@ -10,7 +10,6 @@
 
 import type { PrismaClient } from '@prisma/client';
 
-import { customerStatusWhere, PIPELINE_STATUSES, type PipelineStatus } from '../crm.repository';
 
 const ACTIVE_STAGE = ['ready', 'in_progress'];
 
@@ -64,14 +63,6 @@ export class DomainFactsRepository {
   /** The people with a connected Google account, as PRINCIPAL targets. */
   async connectedGooglePrincipals(take = 500): Promise<{ organizationId: string; userId: string }[]> {
     return this.prisma.googleConnection.findMany({ where: { status: 'CONNECTED' }, select: { organizationId: true, userId: true }, take });
-  }
-
-  // --- Pipeline (Intake) ---------------------------------------------------------------------------
-
-  /** Records in each status that have seen no activity since `staleBefore`. */
-  async staleByStatus(organizationId: string, statuses: readonly PipelineStatus[], staleBefore: Date): Promise<Record<string, number>> {
-    const counts = await this.prisma.$transaction(statuses.map((s) => this.prisma.customer.count({ where: { AND: [{ organizationId, lastSeenAt: { lt: staleBefore } }, customerStatusWhere(s)] } })));
-    return Object.fromEntries(statuses.map((s, i) => [s, counts[i] ?? 0]));
   }
 
   // --- CRM (People) --------------------------------------------------------------------------------
@@ -168,4 +159,3 @@ export class DomainFactsRepository {
   }
 }
 
-export { PIPELINE_STATUSES };
