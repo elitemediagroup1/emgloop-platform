@@ -103,10 +103,10 @@ test('Intake, People, Creators, Work and Website rules are writable organization
   const creators = creatorsRule({ creators: 3, needsEmg: 2, needsCreator: 1, inProduction: 4, dueSoon: 1, waitingOnEmg: ['creator:p1'] }, NOW);
   assertWritable(creators);
   assert.ok(creators.signals.some((s) => s.kind === 'OBLIGATION' && s.owedBy === 'VIEWER'));
-  const work = workRule({ activeInstances: 5, openStages: 9, unassigned: 2, overdue: 1, dueSoon: 2, pastReturn: 1, completed7d: 4, completedPrior7d: 10, overdueInstanceIds: ['w1'], personal: false }, NOW);
+  const work = workRule({ activeInstances: 5, openStages: 9, unassigned: 2, overdue: 1, dueSoon: 2, pastReturn: 1, completed7d: 4, completedPrior7d: 10, overdueInstanceIds: ['w1'], pastReturnInstanceIds: ['w2'], personal: false }, NOW);
   assertWritable(work);
   assert.equal(work.status, 'ATTENTION');
-  const mine = workRule({ activeInstances: 2, openStages: 3, unassigned: 0, overdue: 1, dueSoon: 0, pastReturn: 0, completed7d: 0, completedPrior7d: 0, overdueInstanceIds: ['w1'], personal: true }, NOW);
+  const mine = workRule({ activeInstances: 2, openStages: 3, unassigned: 0, overdue: 1, dueSoon: 0, pastReturn: 0, completed7d: 0, completedPrior7d: 0, overdueInstanceIds: ['w1'], pastReturnInstanceIds: [], personal: true }, NOW);
   assert.ok(mine.signals.some((s) => s.key === 'overdue' && s.kind === 'OBLIGATION' && s.owedBy === 'VIEWER'));
   assert.ok(!mine.signals.some((s) => s.key === 'unassigned'), 'a person is never told about the org-wide unowned queue');
   const website = websiteRule({ bySource: [{ sourceId: 'WEBSITE_EVENTS', week: { sessions: 120, formSubmits: 3, appointmentRequests: 1 }, prior: { sessions: 200, formSubmits: 3, appointmentRequests: 1 } }] }, NOW);

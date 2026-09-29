@@ -13,7 +13,10 @@
 //                       established this week against last; relationships started and ended.
 //   creators.domain@1   Creator Hub: productions waiting on EMG, waiting on a creator, deliverables due.
 //   work.domain@1       the organization's work: open, unassigned, overdue, past its committed return,
-//                       completed this week against last.   (ORGANIZATION)
+//                       completed this week against last.   (ORGANIZATION) The overdue and past-return signals
+//                       each name only the instances their own fact is about: Work's state. A promoted Work
+//                       item is named only when Work itself says it is late -- the promotion is a link, never
+//                       a second source.
 //   work.mine@1         a person's own assigned work, the same facts for them.   (PRINCIPAL)
 //   website.domain@1    website activity from every connected website evidence source (WEBSITE_READERS):
 //                       sessions, form submissions, appointment requests, this week against last.
@@ -312,9 +315,13 @@ interface WorkContext extends WorkFacts {
 export function workRule(ctx: WorkContext, now: Date): RuleReading {
   const you = ctx.personal;
   const signals: IntelligenceSignal[] = [measured('open', `${plural(ctx.openStages, 'open step')}${you ? ' assigned to you' : ''} across ${plural(ctx.activeInstances, 'piece of work', 'pieces of work')}.`, 'work_stages:open', 'open_steps', ctx.openStages, now)];
-  const refs = ctx.overdueInstanceIds.map((id) => safeRef(`work_instance:${id}`)).filter((r): r is string => !!r);
-  if (ctx.overdue > 0) signals.push({ key: 'overdue', kind: 'RISK', knowledge: 'OBSERVED', statement: `${plural(ctx.overdue, 'step')} past due.`, entities: refs, evidenceRefs: ['work_stages:overdue'], severity: 'HIGH', asOf: now.toISOString(), ...(you ? { kind: 'OBLIGATION' as const, owedBy: 'VIEWER' as const } : {}) });
-  if (ctx.pastReturn > 0) signals.push({ key: 'past-return', kind: 'RISK', knowledge: 'OBSERVED', statement: `${plural(ctx.pastReturn, 'piece of work', 'pieces of work')} past the date it was committed to return.`, entities: refs, evidenceRefs: ['work_instances:past-return'], severity: 'HIGH', asOf: now.toISOString() });
+  // Each signal names only the work its own fact is about -- Work's state, never a promoted origin's claim.
+  const named = (ids: readonly string[]) => ids.map((id) => safeRef(`work_instance:${id}`)).filter((r): r is string => !!r);
+  const overdueRefs = named(ctx.overdueInstanceIds);
+  const pastReturnRefs = named(ctx.pastReturnInstanceIds);
+  const refs = [...new Set([...overdueRefs, ...pastReturnRefs])];
+  if (ctx.overdue > 0) signals.push({ key: 'overdue', kind: 'RISK', knowledge: 'OBSERVED', statement: `${plural(ctx.overdue, 'step')} past due.`, ...(overdueRefs.length ? { entities: overdueRefs } : {}), evidenceRefs: ['work_stages:overdue'], severity: 'HIGH', asOf: now.toISOString(), ...(you ? { kind: 'OBLIGATION' as const, owedBy: 'VIEWER' as const } : {}) });
+  if (ctx.pastReturn > 0) signals.push({ key: 'past-return', kind: 'RISK', knowledge: 'OBSERVED', statement: `${plural(ctx.pastReturn, 'piece of work', 'pieces of work')} past the date it was committed to return.`, ...(pastReturnRefs.length ? { entities: pastReturnRefs } : {}), evidenceRefs: ['work_instances:past-return'], severity: 'HIGH', asOf: now.toISOString() });
   if (ctx.dueSoon > 0) signals.push({ key: 'due-soon', kind: 'UPCOMING', knowledge: 'OBSERVED', statement: `${plural(ctx.dueSoon, 'step')} due in the next day.`, evidenceRefs: ['work_stages:due-soon'], severity: 'MEDIUM', asOf: now.toISOString() });
   if (!you && ctx.unassigned > 0) signals.push({ key: 'unassigned', kind: 'ATTENTION', knowledge: 'OBSERVED', statement: `${plural(ctx.unassigned, 'ready step')} with no owner.`, evidenceRefs: ['work_stages:unassigned'], severity: ctx.unassigned >= 5 ? 'HIGH' : 'MEDIUM', asOf: now.toISOString() });
   const change = weekChange('throughput', 'Completed steps are', ctx.completed7d, ctx.completedPrior7d, 'work_stages:completed-7d', now);
@@ -347,7 +354,8 @@ export function workDomainProducer(facts: DomainFactsRepository, kit: DomainKitP
       id: 'work.domain@1',
       domain: 'WORK',
       scope: 'ORGANIZATION',
-      version: '1',
+      // 2 (2026-09-29): overdue and past-return each name only their own instances (they shared one list).
+      version: '2',
       provider: null,
       consentBasis: 'LOOP_RECORDS',
       discover: async () => (await facts.organizationsWithActiveWork()).map((id) => organizationTarget(id, 'WORK')),
@@ -366,7 +374,8 @@ export function myWorkProducer(facts: DomainFactsRepository, kit: DomainKitPorts
       id: 'work.mine@1',
       domain: 'WORK',
       scope: 'PRINCIPAL',
-      version: '1',
+      // 2 (2026-09-29): overdue and past-return each name only their own instances (they shared one list).
+      version: '2',
       provider: null,
       consentBasis: 'LOOP_RECORDS',
       discover: async () => (await facts.principalsWithOpenWork()).map((p) => ({ scope: 'PRINCIPAL', organizationId: p.organizationId, userId: p.userId, domain: 'WORK', subjectKind: 'DOMAIN', subjectRef: 'domain' }) as const),

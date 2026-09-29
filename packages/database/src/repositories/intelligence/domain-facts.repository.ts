@@ -22,8 +22,13 @@ export interface WorkFacts {
   readonly pastReturn: number;
   readonly completed7d: number;
   readonly completedPrior7d: number;
-  /** Ids of the overdue and past-return instances, oldest commitment first (for canonical references). */
+  /**
+   * For canonical references, each signal naming only the work its own fact is about (at most 6, a stable order):
+   * instances with an open step past its due date, earliest due first; and instances past the return committed
+   * in Work, earliest commitment first. Work's own state -- never anything carried in from a promoted origin.
+   */
   readonly overdueInstanceIds: readonly string[];
+  readonly pastReturnInstanceIds: readonly string[];
 }
 
 export class DomainFactsRepository {
@@ -89,7 +94,7 @@ export class DomainFactsRepository {
     const instance = { organizationId, status: 'active' };
     const own = userId ? { ownerUserId: userId } : {};
     const open = { ...own, status: { in: ACTIVE_STAGE }, workInstance: instance };
-    const [activeInstances, openStages, unassigned, overdue, dueSoon, pastReturn, completed7d, completedPrior7d, overdueRows] = await Promise.all([
+    const [activeInstances, openStages, unassigned, overdue, dueSoon, pastReturn, completed7d, completedPrior7d, overdueStages, pastReturnRows] = await Promise.all([
       userId ? this.prisma.workInstance.count({ where: { ...instance, stages: { some: open } } }) : this.prisma.workInstance.count({ where: instance }),
       this.prisma.workStage.count({ where: open }),
       userId ? Promise.resolve(0) : this.prisma.workStage.count({ where: { ownerUserId: null, status: 'ready', workInstance: instance } }),
@@ -98,14 +103,20 @@ export class DomainFactsRepository {
       this.prisma.workInstance.count({ where: { ...instance, expectedReturnAt: { lt: now }, ...(userId ? { stages: { some: open } } : {}) } }),
       this.prisma.workStage.count({ where: { ...(userId ? { completedByUserId: userId } : {}), status: 'completed', completedAt: { gte: since, lt: now }, workInstance: { organizationId } } }),
       this.prisma.workStage.count({ where: { ...(userId ? { completedByUserId: userId } : {}), status: 'completed', completedAt: { gte: priorSince, lt: since }, workInstance: { organizationId } } }),
+      this.prisma.workStage.findMany({
+        where: { ...open, dueAt: { lt: now } },
+        orderBy: [{ dueAt: 'asc' }, { workInstanceId: 'asc' }],
+        take: 64,
+        select: { workInstanceId: true },
+      }),
       this.prisma.workInstance.findMany({
-        where: { ...instance, OR: [{ expectedReturnAt: { lt: now } }, { stages: { some: { ...open, dueAt: { lt: now } } } }], ...(userId ? { stages: { some: open } } : {}) },
-        orderBy: [{ expectedReturnAt: 'asc' }, { createdAt: 'asc' }],
+        where: { ...instance, expectedReturnAt: { lt: now }, ...(userId ? { stages: { some: open } } : {}) },
+        orderBy: [{ expectedReturnAt: 'asc' }, { id: 'asc' }],
         take: 6,
         select: { id: true },
       }),
     ]);
-    return { activeInstances, openStages, unassigned, overdue, dueSoon, pastReturn, completed7d, completedPrior7d, overdueInstanceIds: overdueRows.map((r) => r.id) };
+    return { activeInstances, openStages, unassigned, overdue, dueSoon, pastReturn, completed7d, completedPrior7d, overdueInstanceIds: [...new Set(overdueStages.map((r) => r.workInstanceId))].slice(0, 6), pastReturnInstanceIds: pastReturnRows.map((r) => r.id) };
   }
 
   /** Organizations with active work, and the people with open assigned stages -- ids only, for a pass. */
