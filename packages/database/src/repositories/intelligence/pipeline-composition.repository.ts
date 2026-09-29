@@ -1,11 +1,15 @@
 // What the Pipeline reading is actually counting -- a read-only diagnostic (2026-09-29). Production reported
-// 24,587 "working" intake records, 24,575 of them "stalled". This measures that population by the Pipeline
-// producer's OWN semantics, and separates what can be proven about each record from what cannot.
+// 24,587 "working" intake records, 24,575 of them "stalled". This measures the population two ways, side by
+// side, and separates what can be proven about each record from what cannot:
 //
-// PIPELINE SEMANTICS, REUSED EXACTLY. Working = the status reads as New, Contacted or Quoted (a missing or
-// unrecognised status reads as New: `customerStatusWhere`). Stalled = working and `lastSeenAt` older than 14
-// days (DomainFactsRepository.staleByStatus). The raw status is bucketed as ABSENT, one of the six known
-// values, or OTHER.
+// THE PRE-REPAIR (v1) DEFINITION, kept for comparison: working = the status reads as New, Contacted or Quoted
+// (a missing or unrecognised status reads as New: `customerStatusWhere`); stalled = working and `lastSeenAt`
+// older than 14 days. The raw status is bucketed as ABSENT, one of the six known values, or OTHER.
+//
+// THE REPAIRED DEFINITION, the one every surface now uses: intake eligibility (IntakeEligibilityRepository --
+// a verified website lead, or a record a person has worked), its basis and work events, the intake statuses
+// (UNSET where no status may be inferred), and stalled by the WORK clock. Per provenance and per raw status it
+// reports how many records are eligible -- so a deployment can prove the legacy population left intake.
 //
 // PROVENANCE, WITH ITS BASIS. VERIFIED only from marks the creating code wrote at creation and nothing
 // rewrites afterwards (no code path updates `metadata` or `externalId`):
@@ -29,6 +33,7 @@ import { Prisma, type PrismaClient } from '@prisma/client';
 import { entityRefRefusal } from '@emgloop/shared';
 
 import { customerStatusWhere, PIPELINE_STATUSES, type PipelineStatus } from '../crm.repository';
+import { INTAKE_WORK_EVENTS, IntakeEligibilityRepository, intakeCountsOf, type IntakeCounts } from '../intake-eligibility.repository';
 
 const DAY = 24 * 60 * 60 * 1000;
 export const PIPELINE_COMPOSITION_PAGE = 2_000;
@@ -69,8 +74,16 @@ export interface PipelineCounts {
 
 export interface PipelineComposition {
   readonly records: number;
-  readonly byStatus: readonly ({ readonly status: string } & PipelineCounts)[];
-  readonly byProvenance: readonly ({ readonly provenance: PipelineProvenance; readonly basis: string; readonly humanWork: number } & PipelineCounts)[];
+  readonly byStatus: readonly ({ readonly status: string; readonly eligible: number } & PipelineCounts)[];
+  readonly byProvenance: readonly ({ readonly provenance: PipelineProvenance; readonly basis: string; readonly humanWork: number; readonly eligible: number } & PipelineCounts)[];
+  /** The REPAIRED definition: intake eligibility, its basis and work events, and the operational intake counts. */
+  readonly intake: {
+    readonly counts: IntakeCounts;
+    readonly byWorkEvent: Readonly<Record<string, number>>;
+    /** Eligible records with recorded human work, and those whose clock is still their entry (never worked). */
+    readonly worked: number;
+    readonly neverWorked: number;
+  };
   /** Records with at least one deterministic human-work signal (all time), per signal and overall. */
   readonly humanWork: { readonly bySignal: Readonly<Record<string, number>>; readonly any: number; readonly stalledAny: number };
   /** lastSeenAt against createdAt, over all records and over the stalled ones. */
@@ -129,6 +142,10 @@ export class PipelineCompositionRepository {
   async read(organizationId: string, now: Date, slice1At: Date): Promise<PipelineComposition> {
     const org = { organizationId };
     const incomplete: string[] = [];
+    // The repaired definition, read by the SAME repository every surface uses.
+    const intakeRead = await new IntakeEligibilityRepository(this.db, this.opts.maxRows ? { maxRows: this.opts.maxRows } : {}).read(organizationId, now);
+    if (!intakeRead.complete) incomplete.push('INTAKE_ELIGIBILITY');
+    const eligibleIds = new Set(intakeRead.records.map((r) => r.id));
     const set = async (code: string, delegate: Finder, where: Record<string, unknown>, field = 'id', onRow?: (row: IdRow) => void, extra?: Record<string, boolean>) => {
       const r = await this.collect(delegate, where, field, onRow, extra);
       if (!r.complete) incomplete.push(code);
@@ -181,8 +198,8 @@ export class PipelineCompositionRepository {
     activity.set('WORKFLOW_RUN', runCustomers);
 
     // The records themselves: timestamps only.
-    const byStatus = new Map<string, { total: number; working: number; stalled: number }>(PIPELINE_STATUS_BUCKETS.map((s) => [s, { total: 0, working: 0, stalled: 0 }]));
-    const byProvenance = new Map<PipelineProvenance, { total: number; working: number; stalled: number; humanWork: number }>(PIPELINE_PROVENANCE.map((p) => [p.code, { total: 0, working: 0, stalled: 0, humanWork: 0 }]));
+    const byStatus = new Map<string, { total: number; working: number; stalled: number; eligible: number }>(PIPELINE_STATUS_BUCKETS.map((s) => [s, { total: 0, working: 0, stalled: 0, eligible: 0 }]));
+    const byProvenance = new Map<PipelineProvenance, { total: number; working: number; stalled: number; humanWork: number; eligible: number }>(PIPELINE_PROVENANCE.map((p) => [p.code, { total: 0, working: 0, stalled: 0, humanWork: 0, eligible: 0 }]));
     const humanBySignal = zero(HUMAN_WORK_SIGNALS);
     let humanAny = 0;
     let stalledHuman = 0;
@@ -226,9 +243,14 @@ export class PipelineCompositionRepository {
       };
       let status = 'OTHER';
       for (const [bucket, ids] of statusSets) if (ids.has(id)) status = bucket;
-      bump(byStatus.get(status)!);
+      const statusRow = byStatus.get(status)!;
+      bump(statusRow);
       const prov = byProvenance.get(provenanceOf(id))!;
       bump(prov);
+      if (eligibleIds.has(id)) {
+        statusRow.eligible += 1;
+        prov.eligible += 1;
+      }
       const signals = HUMAN_WORK_SIGNALS.filter((s) => (s === 'HUMAN_NOTE' ? humanNote : s === 'USER_ACTION' ? userAction : userPartyLink).has(id));
       for (const s of signals) humanBySignal[s]! += 1;
       if (signals.length) {
@@ -275,6 +297,12 @@ export class PipelineCompositionRepository {
       months: [...listed.sort((a, b) => a.month.localeCompare(b.month)), ...(older.total ? [{ month: 'EARLIER', ...older }] : [])],
       stalledActivity: { windowDays: PIPELINE_ACTIVITY_WINDOW_DAYS, byKind: activityByKind, any: stalledAny, human: stalledHumanActivity, none: stalledCount - stalledAny },
       nameable: { stalled: stalledCount, nameable },
+      intake: {
+        counts: intakeCountsOf(intakeRead),
+        byWorkEvent: Object.fromEntries(INTAKE_WORK_EVENTS.map((e) => [e, intakeRead.records.filter((r) => r.workEvents.includes(e)).length])),
+        worked: intakeRead.records.filter((r) => r.lastWorkedAt !== null).length,
+        neverWorked: intakeRead.records.filter((r) => r.lastWorkedAt === null).length,
+      },
       complete: incomplete.length === 0,
       incomplete,
     };

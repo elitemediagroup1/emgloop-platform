@@ -331,8 +331,18 @@ export async function runIntelligenceState(
   // 11. What the Pipeline reading is counting -- counts and codes; no id, name, contact or status value.
   if (deps.pipeline) {
     const p = await deps.pipeline(org.id, new Date(SLICE1_MERGED_AT));
-    for (const r of p.byStatus) deps.log(line({ event: 'PIPELINE_STATUS', status: token(r.status), total: r.total, working: r.working, stalled: r.stalled }));
-    for (const r of p.byProvenance) deps.log(line({ event: 'PIPELINE_PROVENANCE', provenance: token(r.provenance), basis: token(r.basis), total: r.total, working: r.working, stalled: r.stalled, humanWork: r.humanWork }));
+    // `v1Working`/`v1Stalled`: the PRE-REPAIR definition (every row, lastSeenAt), kept for comparison only.
+    // `eligible`: the repaired definition -- how many of these records are operational intake now.
+    for (const r of p.byStatus) deps.log(line({ event: 'PIPELINE_STATUS', status: token(r.status), total: r.total, v1Working: r.working, v1Stalled: r.stalled, eligible: r.eligible }));
+    for (const r of p.byProvenance) deps.log(line({ event: 'PIPELINE_PROVENANCE', provenance: token(r.provenance), basis: token(r.basis), total: r.total, v1Working: r.working, v1Stalled: r.stalled, humanWork: r.humanWork, eligible: r.eligible }));
+    // The repaired definition, as every surface now reads it.
+    const ic = p.intake.counts;
+    deps.log(line({ event: 'PIPELINE_INTAKE', eligible: ic.eligible, excluded: ic.excluded, basisWebLead: ic.byBasis.WEB_LEAD, basisHumanWork: ic.byBasis.HUMAN_WORK, working: ic.working, complete: ic.complete }));
+    for (const [status, count] of Object.entries(ic.byStatus)) {
+      const stalled = status === 'New' || status === 'Contacted' || status === 'Quoted' ? ic.stalled[status] : null;
+      deps.log(line({ event: 'PIPELINE_INTAKE_STATUS', status: token(status.toUpperCase()), count, stalled }));
+    }
+    deps.log(line({ event: 'PIPELINE_INTAKE_WORK', clock: 'WORK', staleDays: 14, ...Object.fromEntries(Object.entries(p.intake.byWorkEvent).map(([k, v]) => [token(k) ?? 'UNRECOGNIZED', v])), worked: p.intake.worked, neverWorked: p.intake.neverWorked }));
     deps.log(line({ event: 'PIPELINE_HUMAN_WORK', ...Object.fromEntries(Object.entries(p.humanWork.bySignal).map(([k, v]) => [token(k) ?? 'UNRECOGNIZED', v])), any: p.humanWork.any, stalledAny: p.humanWork.stalledAny }));
     for (const [scope, c] of [['ALL', p.clock.all], ['STALLED', p.clock.stalled]] as const) {
       deps.log(line({ event: 'PIPELINE_CLOCK', scope, lastSeenEqualsCreated: c.lastSeenEqualsCreated, lastSeenAfterCreated: c.lastSeenAfterCreated, lastSeenBeforeCreated: c.lastSeenBeforeCreated }));

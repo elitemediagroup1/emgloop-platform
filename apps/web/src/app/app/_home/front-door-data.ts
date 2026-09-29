@@ -42,7 +42,7 @@ import { executiveBrief, loadExecutiveReading } from '../admin/marketplace/execu
 import { headlineSituation, type HeadlineSituation, type HeadlineView } from '@emgloop/shared';
 import { HOME_KPI_KEYS, projectHomeKpis, type HomeKpiStrip } from './kpis';
 import { settle, type Settled } from './settle';
-import { TILE_PATHS, type HomeTile, type RosterRowInput } from './tiles';
+import { TILE_PATHS, type HomeTile, type IntakeTileInput, type RosterRowInput } from './tiles';
 import { loadOrganizationReading, loadPrincipalReading } from '../../../intelligence/domain-reading';
 import type { DomainProjection, IntelligenceDomain } from '@emgloop/shared';
 import { loadSituations, type SituationsRead } from '../../../intelligence/situations';
@@ -67,8 +67,8 @@ export interface FrontDoorReads {
    * their obligations; null when Chats is not offered.
    */
   readonly chats: Settled<ChatsIntelligenceInput> | null;
-  /** Intake records per status; null when the Intake Board is not offered. */
-  readonly intake: Settled<Readonly<Record<string, number>>> | null;
+  /** Intake counts (eligible records by status, and how many are not intake); null when the Intake Board is not offered. */
+  readonly intake: Settled<IntakeTileInput> | null;
   /** The creator roster; `value: null` while its migration has not reached this database; null when not offered. */
   readonly creators: Settled<readonly RosterRowInput[] | null> | null;
   /**
@@ -130,7 +130,7 @@ export async function loadFrontDoor(input: {
       ? settle(() => loadCommandContextFor(organizationId, undefined, { session, canAct: async () => false }))
       : Promise.resolve(null),
     navOffers(groups, TILE_PATHS.chats) ? settle(() => loadChatsInput({ session, principal, now: time.now })) : Promise.resolve(null),
-    navOffers(groups, TILE_PATHS.intake) ? settle(() => crmRepos.crm.statusCounts(organizationId)) : Promise.resolve(null),
+    navOffers(groups, TILE_PATHS.intake) ? settle(() => crmRepos.intake.counts(organizationId, new Date())) : Promise.resolve(null),
     input.executive && navOffers(groups, TILE_PATHS.creators)
       ? settle(() => absentUntilMigrated(creatorDomain().records.roster(organizationId)))
       : Promise.resolve(null),

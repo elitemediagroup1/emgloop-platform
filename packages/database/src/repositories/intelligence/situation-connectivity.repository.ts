@@ -9,8 +9,8 @@
 //                       and through it the entities that signal names
 // No name, label, email, phone or string similarity joins anything.
 //
-// NAMEABLE RECORDS. What a record domain could name as a stable canonical reference: a stalled intake record
-// as `customer:<id>`, a newly established Party as `party:<id>` -- only ids that pass the entity-ref grammar.
+// NAMEABLE RECORDS. What a record domain could name as a stable canonical reference: a stalled ELIGIBLE intake
+// record (intake eligibility and the work clock) as `customer:<id>`, a newly established Party as `party:<id>` -- only ids that pass the entity-ref grammar.
 // CallGrid members are counted by whether they carry a stable provider id or only a label (a label-keyed
 // reference is a name, and moves when the member is renamed).
 //
@@ -22,14 +22,11 @@ import type { PrismaClient } from '@prisma/client';
 import { entityRefRefusal } from '@emgloop/shared';
 
 import { absentUntilMigrated } from '../../creator/until-migrated';
-import { customerStatusWhere, type PipelineStatus } from '../crm.repository';
+import { INTAKE_WORKING, IntakeEligibilityRepository } from '../intake-eligibility.repository';
 
 const DAY = 24 * 60 * 60 * 1000;
 /** The window CallGrid members are counted over: the two 7-day windows the CallGrid and Campaigns readings compare. */
 export const CONNECTIVITY_MEMBER_WINDOW_DAYS = 14;
-/** Pipeline's stall threshold (records.ts STALE_DAYS) and working statuses. */
-const STALE_DAYS = 14;
-const WORKING: readonly PipelineStatus[] = ['New', 'Contacted', 'Quoted'];
 /** Records read into memory per question. More than this and the answer says it is bounded. */
 export const CONNECTIVITY_BOUND = 2_000;
 
@@ -255,16 +252,15 @@ export class SituationConnectivityRepository {
       memberCounts('buyer', buyerGroups.map((g) => ({ externalId: g.buyerExternalId, label: g.buyerLabel, calls: g._count._all }))),
     ];
 
-    // 5. Pipeline: the stalled working records (the subjects of its STALLED signals) as `customer:<id>`.
-    const inWorking = { OR: WORKING.map((s) => customerStatusWhere(s)) };
-    const stalledWhere = { AND: [org, { lastSeenAt: { lt: new Date(now.getTime() - STALE_DAYS * DAY) } }, inWorking] };
-    const [workingCount, stalledCount, stalledRows] = await Promise.all([
-      this.db.customer.count({ where: { AND: [org, inWorking] } }),
-      this.db.customer.count({ where: stalledWhere }),
-      this.db.customer.findMany({ where: stalledWhere, select: { id: true }, orderBy: { lastSeenAt: 'asc' }, take: bound + 1 }),
-    ]);
-    if (stalledRows.length > bound) bounded = true;
-    const pipelineIds = stalledRows.slice(0, bound).map((r) => r.id).filter((id) => nameable(`customer:${id}`));
+    // 5. Pipeline: the STALLED ELIGIBLE intake records (the subjects of its STALLED signals) as `customer:<id>`
+    //    -- intake eligibility and the work clock (IntakeEligibilityRepository), never every Customer row.
+    const intake = await new IntakeEligibilityRepository(this.db).read(organizationId, now);
+    if (!intake.complete) bounded = true;
+    const workingCount = intake.records.filter((r) => (INTAKE_WORKING as readonly string[]).includes(r.status)).length;
+    const stalledRecords = intake.records.filter((r) => r.stalled);
+    const stalledCount = stalledRecords.length;
+    const pipelineIds = stalledRecords.slice(0, bound).map((r) => r.id).filter((id) => nameable(`customer:${id}`));
+    if (stalledRecords.length > bound) bounded = true;
     let withActivePartyLink = 0;
     for (const id of pipelineIds) {
       const party = partyOfCustomer.get(id);

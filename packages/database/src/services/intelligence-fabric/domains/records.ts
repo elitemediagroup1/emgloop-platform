@@ -2,8 +2,11 @@
 // organization's OWN records, read through their repositories (DomainFactsRepository and each domain's
 // own) -- the same records the pages show. Counts, windows and canonical references; no names, no text.
 //
-//   pipeline.domain@1   Intake: records by status; new records this week against last; records stuck in a
-//                       working status with no activity for 14 days.
+//   pipeline.domain@1   Intake: ELIGIBLE Intake Records only (IntakeEligibilityRepository -- a verified website
+//                       lead, or a record a person has worked: a CRM note, a status change, a Party link) by
+//                       status; records entering intake this week against last; working records with no
+//                       recorded human work for 14 days. A Customer row is not intake: legacy ingestion residue
+//                       and records nobody has worked are counted apart, never as work. `lastSeenAt` is not read.
 //   crm.domain@1        People: established people and companies; records awaiting a decision; newly
 //                       established this week against last; relationships started and ended.
 //   creators.domain@1   Creator Hub: productions waiting on EMG, waiting on a creator, deliverables due.
@@ -20,7 +23,8 @@
 
 import { AI_TASK_CREATORS_DOMAIN_READING, AI_TASK_CRM_DOMAIN_READING, AI_TASK_PIPELINE_DOMAIN_READING, AI_TASK_WEBSITE_DOMAIN_READING, AI_TASK_WORK_DOMAIN_READING, type IntelligenceSignal } from '@emgloop/shared';
 
-import type { CrmRepository, PipelineStatus } from '../../../repositories/crm.repository';
+import type { CrmRepository } from '../../../repositories/crm.repository';
+import { INTAKE_STALE_DAYS, INTAKE_WORKING, intakeCountsOf, type IntakeCounts, type IntakeEligibilityRepository, type IntakeRead } from '../../../repositories/intake-eligibility.repository';
 import type { DomainFactsRepository, WorkFacts } from '../../../repositories/intelligence/domain-facts.repository';
 import type { WebsiteAnalyticsRepository } from '../../../repositories/website-analytics.repository';
 import type { IntelligenceProducer } from '../producer';
@@ -28,8 +32,6 @@ import { domainProducer, type DomainKitPorts, type RuleReading } from '../domain
 import { comparableChange, DAY_MS, fingerprintOf, organizationModelStage, organizationTarget, plural, safeRef } from './organization-kit';
 
 const WEEK = 7 * DAY_MS;
-const STALE_DAYS = 14;
-const WORKING: readonly PipelineStatus[] = ['New', 'Contacted', 'Quoted'];
 
 function hourKey(now: Date): string {
   return now.toISOString().slice(0, 13);
@@ -79,66 +81,87 @@ function weekChange(key: string, noun: string, current: number, prior: number, r
 // --- Intake --------------------------------------------------------------------------------------
 
 interface PipelineContext {
-  readonly counts: Record<PipelineStatus, number>;
-  readonly week: { newCustomers: number; conversations: number; conversationsAssigned: number };
-  readonly prior: { newCustomers: number };
-  readonly stale: Record<string, number>;
+  readonly intake: IntakeCounts;
+  /** Records that entered intake in the last 7 days, and in the 7 before. */
+  readonly entered: { readonly week: number; readonly prior: number };
+  /** The latest governed clock (work, or entry) across eligible records; null when there are none. */
+  readonly latestClockAt: string | null;
+  readonly week: { readonly conversations: number; readonly conversationsAssigned: number };
+}
+
+export function pipelineContextOf(read: IntakeRead, now: Date, week: { conversations: number; conversationsAssigned: number }): PipelineContext {
+  const since = now.getTime() - WEEK;
+  const entered = { week: 0, prior: 0 };
+  let latest = 0;
+  for (const r of read.records) {
+    const t = r.enteredAt.getTime();
+    if (t >= since && t < now.getTime()) entered.week += 1;
+    else if (t >= since - WEEK && t < since) entered.prior += 1;
+    latest = Math.max(latest, r.clockAt.getTime());
+  }
+  return { intake: intakeCountsOf(read), entered, latestClockAt: latest ? new Date(latest).toISOString() : null, week };
 }
 
 export function pipelineRule(ctx: PipelineContext, now: Date): RuleReading {
-  const ref = 'customers:status';
-  const working = WORKING.reduce((n, s) => n + (ctx.counts[s] ?? 0), 0);
-  const staleTotal = Object.values(ctx.stale).reduce((a, b) => a + b, 0);
+  const ref = 'intake:status';
+  const { intake } = ctx;
+  const stalledTotal = INTAKE_WORKING.reduce((n, s) => n + intake.stalled[s as 'New' | 'Contacted' | 'Quoted'], 0);
   const signals: IntelligenceSignal[] = [
-    measured('working', `${plural(working, 'record')} in a working status (New, Contacted or Quoted).`, ref, 'working_records', working, now),
-    measured('new-week', `${plural(ctx.week.newCustomers, 'record')} added this week.`, 'customers:7d', 'new_records', ctx.week.newCustomers, now),
-    measured('booked', `${plural(ctx.counts.Booked ?? 0, 'record')} booked.`, ref, 'booked_records', ctx.counts.Booked ?? 0, now),
+    measured('working', `${plural(intake.working, 'intake record')} in a working status (New, Contacted or Quoted).`, ref, 'working_records', intake.working, now),
+    measured('entered-week', `${plural(ctx.entered.week, 'record')} entered intake this week.`, 'intake:entered:7d', 'entered_records', ctx.entered.week, now),
+    measured('booked', `${plural(intake.byStatus.Booked, 'intake record')} booked.`, ref, 'booked_records', intake.byStatus.Booked, now),
   ];
-  const change = weekChange('new-change', 'New records are', ctx.week.newCustomers, ctx.prior.newCustomers, 'customers:7d', now);
+  const change = weekChange('entered-change', 'Records entering intake are', ctx.entered.week, ctx.entered.prior, 'intake:entered:7d', now);
   if (change) signals.push(change);
-  for (const status of WORKING) {
-    const n = ctx.stale[status] ?? 0;
-    if (n > 0) signals.push({ key: `stale.${status.toLowerCase()}`, kind: 'STALLED', knowledge: 'OBSERVED', statement: `${plural(n, 'record')} in ${status} with no activity for ${STALE_DAYS} days.`, evidenceRefs: [`customers:stale:${status.toLowerCase()}`], severity: status === 'Quoted' || n >= 10 ? 'HIGH' : 'MEDIUM', asOf: now.toISOString() });
+  for (const status of INTAKE_WORKING) {
+    const n = intake.stalled[status as 'New' | 'Contacted' | 'Quoted'];
+    if (n > 0) signals.push({ key: `stale.${status.toLowerCase()}`, kind: 'STALLED', knowledge: 'OBSERVED', statement: `${plural(n, 'intake record')} in ${status} with no recorded work for ${INTAKE_STALE_DAYS} days.`, evidenceRefs: [`intake:stale:${status.toLowerCase()}`], severity: status === 'Quoted' || n >= 10 ? 'HIGH' : 'MEDIUM', asOf: now.toISOString() });
   }
+  if (intake.byStatus.UNSET > 0) signals.push({ key: 'status-unset', kind: 'ATTENTION', knowledge: 'OBSERVED', statement: `${plural(intake.byStatus.UNSET, 'worked record')} with no intake status set.`, evidenceRefs: [ref], severity: 'LOW', asOf: now.toISOString() });
   const unassigned = ctx.week.conversations - ctx.week.conversationsAssigned;
   if (ctx.week.conversations > 0 && unassigned > 0) signals.push({ key: 'unassigned-conversations', kind: 'ATTENTION', knowledge: 'OBSERVED', statement: `${plural(unassigned, 'conversation')} opened this week with no one assigned.`, evidenceRefs: ['conversations:7d'], severity: unassigned >= 5 ? 'HIGH' : 'MEDIUM', asOf: now.toISOString() });
-  return reading({
-    statement: `${plural(working, 'record')} in progress, ${ctx.week.newCustomers} new this week${staleTotal ? `; ${staleTotal} with no activity for ${STALE_DAYS} days` : ''}.`,
-    signals,
-    sourceId: 'LOOP_INTAKE',
-    sourceRefs: [ref, 'customers:7d', 'conversations:7d', ...WORKING.map((s) => `customers:stale:${s.toLowerCase()}`)],
-    evidenceCount: working + (ctx.counts.Booked ?? 0),
-    now,
-    windowStart: new Date(now.getTime() - WEEK),
-  });
+  const limitations: string[] = [];
+  if (intake.excluded > 0) limitations.push(`${plural(intake.excluded, 'other record')} ${intake.excluded === 1 ? 'is' : 'are'} not counted as intake: nobody has worked ${intake.excluded === 1 ? 'it' : 'them'} and ${intake.excluded === 1 ? 'it' : 'they'} did not arrive as a website lead.`);
+  if (!intake.complete) limitations.push('Not every intake record could be read, so these counts are a lower bound.');
+  return {
+    ...reading({
+      statement: `${plural(intake.working, 'intake record')} in progress, ${ctx.entered.week} new this week${stalledTotal ? `; ${stalledTotal} with no recorded work for ${INTAKE_STALE_DAYS} days` : ''}.`,
+      signals,
+      limitations,
+      sourceId: 'LOOP_INTAKE',
+      sourceRefs: [ref, 'intake:entered:7d', 'conversations:7d', ...INTAKE_WORKING.map((s) => `intake:stale:${s.toLowerCase()}`)],
+      evidenceCount: intake.eligible,
+      now,
+      windowStart: new Date(now.getTime() - WEEK),
+    }),
+    // Evidence is as recent as the latest governed work or entry -- never the time of the read.
+    lastEvidenceAt: ctx.latestClockAt ? new Date(ctx.latestClockAt) : null,
+    ...(intake.complete ? {} : { coverage: 'CONNECTED_PARTIAL' as const }),
+  };
 }
 
-export function pipelineDomainProducer(crm: Pick<CrmRepository, 'statusCounts' | 'windowCounts'>, facts: DomainFactsRepository, kit: DomainKitPorts): IntelligenceProducer<PipelineContext> {
+export function pipelineDomainProducer(crm: Pick<CrmRepository, 'windowCounts'>, intake: Pick<IntakeEligibilityRepository, 'read'>, facts: DomainFactsRepository, kit: DomainKitPorts): IntelligenceProducer<PipelineContext> {
   return domainProducer<PipelineContext>(
     {
       id: 'pipeline.domain@1',
       domain: 'PIPELINE',
       scope: 'ORGANIZATION',
-      version: '1',
+      // 2 (2026-09-29): intake eligibility and the work clock; a Customer row is no longer intake.
+      version: '2',
       provider: null,
       consentBasis: 'LOOP_RECORDS',
       discover: async () => (await facts.organizationsWithCustomers()).map((id) => organizationTarget(id, 'PIPELINE')),
       async gather(target, now) {
         if (target.scope !== 'ORGANIZATION') return { status: 'NOT_PERMITTED', reason: 'ORGANIZATION_ONLY' };
         const org = target.organizationId;
-        const since = new Date(now.getTime() - WEEK);
-        const [counts, week, prior, stale] = await Promise.all([
-          crm.statusCounts(org),
-          crm.windowCounts(org, since, now),
-          crm.windowCounts(org, new Date(since.getTime() - WEEK), since),
-          facts.staleByStatus(org, WORKING, new Date(now.getTime() - STALE_DAYS * DAY_MS)),
-        ]);
-        if (Object.values(counts).every((n) => n === 0)) return { status: 'NO_EVIDENCE' };
-        const context = { counts, week, prior: { newCustomers: prior.newCustomers }, stale };
-        return { status: 'READY', context, fingerprint: fingerprintOf('PIPELINE', [now.toISOString().slice(0, 10), context]) };
+        const [read, week] = await Promise.all([intake.read(org, now), crm.windowCounts(org, new Date(now.getTime() - WEEK), now)]);
+        // No eligible record: there is no intake to read (the rows that exist are not intake work).
+        if (read.records.length === 0) return { status: 'NO_EVIDENCE' };
+        const context = pipelineContextOf(read, now, { conversations: week.conversations, conversationsAssigned: week.conversationsAssigned });
+        return { status: 'READY', context, fingerprint: fingerprintOf('PIPELINE', ['v2', now.toISOString().slice(0, 10), context]) };
       },
       rule: pipelineRule,
-      model: organizationModelStage(AI_TASK_PIPELINE_DOMAIN_READING, { domainDescription: "the organization's intake records and their statuses", audience: 'ORGANIZATION', lookFor: ['records that are stuck', 'whether new demand is rising or falling', 'conversations nobody owns'] }),
+      model: organizationModelStage(AI_TASK_PIPELINE_DOMAIN_READING, { domainDescription: "the organization's intake records -- those that arrived as website leads or that people have worked -- and their statuses", audience: 'ORGANIZATION', lookFor: ['records that are stuck', 'whether new demand is rising or falling', 'conversations nobody owns'] }),
     },
     kit,
   );

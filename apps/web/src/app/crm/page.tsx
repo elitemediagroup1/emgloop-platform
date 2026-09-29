@@ -60,7 +60,7 @@ export default async function CrmCommandCenter() {
   const {
     org,
     customerCount,
-    statusCounts,
+    intake,
     weekCounts,
     conversationCounts,
     recentActivity,
@@ -71,10 +71,11 @@ export default async function CrmCommandCenter() {
   // The reader's own clock, not the organization's or the server's (Loop Time Authority).
   const clock = { greeting: time.greeting(), date: time.format(time.now, 'weekdayDate') };
 
-  // Intake status summary from Customer.status (not canonical Opportunity pipeline).
-  const activeIntake = (statusCounts.New ?? 0) + (statusCounts.Contacted ?? 0) + (statusCounts.Quoted ?? 0);
-  const booked = statusCounts.Booked ?? 0;
-  const completed = statusCounts.Completed ?? 0;
+  // Intake: ELIGIBLE records only (a verified website lead, or a record a person has worked), by the status
+  // they read as -- never every Customer row. Not the canonical Opportunity pipeline.
+  const activeIntake = intake.working;
+  const booked = intake.byStatus.Booked;
+  const completed = intake.byStatus.Completed;
 
   // Conversation summary
   const openConvos = conversationCounts.counts?.OPEN ?? 0;
@@ -164,18 +165,29 @@ export default async function CrmCommandCenter() {
             <Link href="/crm/pipeline" className="more">Intake board <span aria-hidden="true">→</span></Link>
           </div>
           <div className="ds-card-body">
-            {customerCount === 0 ? (
-              <EmptyCard icon="columns" title="No intake data" line="No intake records yet." />
+            {intake.eligible === 0 ? (
+              <EmptyCard icon="columns" title="Nothing in intake" line={intake.excluded > 0 ? `No record is in intake yet. ${fmtNum(intake.excluded)} ${intake.excluded === 1 ? 'record is' : 'records are'} not counted: nobody has worked ${intake.excluded === 1 ? 'it' : 'them'} and ${intake.excluded === 1 ? 'it' : 'they'} did not arrive as a website lead.` : 'No intake records yet.'} />
             ) : (
               <div className="cc-pipeline">
                 {(['New', 'Contacted', 'Quoted', 'Booked', 'Completed'] as const).map((s) => (
                   <div key={s} className="cc-pipeline__row">
                     <span className={'cc-pipeline__dot cc-pipeline__dot--' + s.toLowerCase()} aria-hidden="true" />
                     <span className="cc-pipeline__label">{s}</span>
-                    <span className="cc-pipeline__count">{fmtNum(statusCounts[s] ?? 0)}</span>
+                    <span className="cc-pipeline__count">{fmtNum(intake.byStatus[s])}</span>
                   </div>
                 ))}
-                <p className="cc-helper">Current intake statuses. Canonical Opportunity pipeline arrives with the Opportunity domain.</p>
+                {intake.byStatus.UNSET > 0 ? (
+                  <div className="cc-pipeline__row">
+                    <span className="cc-pipeline__dot" aria-hidden="true" />
+                    <span className="cc-pipeline__label">Status not set</span>
+                    <span className="cc-pipeline__count">{fmtNum(intake.byStatus.UNSET)}</span>
+                  </div>
+                ) : null}
+                <p className="cc-helper">
+                  Intake records that arrived as website leads or that someone has worked.
+                  {intake.excluded > 0 ? ` ${fmtNum(intake.excluded)} other ${intake.excluded === 1 ? 'record is' : 'records are'} not counted as intake.` : ''}
+                  {intake.complete ? '' : ' Not every record could be read; these counts are a lower bound.'} Canonical Opportunity pipeline arrives with the Opportunity domain.
+                </p>
               </div>
             )}
           </div>

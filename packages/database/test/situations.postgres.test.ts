@@ -501,7 +501,8 @@ test('CONNECTIVITY: governed relationships as counts; stable vs label-only membe
     const c1 = await stalled('dana@secret.test');
     const c2 = await stalled('other@secret.test');
     await prisma.customer.create({ data: { organizationId, email: 'fresh@secret.test', attributes: { pipelineStatus: 'New' }, lastSeenAt: at(0) } });
-    await prisma.customerPartyLink.create({ data: { organizationId, customerId: c1.id, partyId: party.id, basis: 'MANUAL', activeCustomerId: c1.id } });
+    // A person linked c1 to its Party 30 days ago: that is intake work (eligible), and stalled by the work clock.
+    await prisma.customerPartyLink.create({ data: { organizationId, customerId: c1.id, partyId: party.id, basis: 'MANUAL', activeCustomerId: c1.id, linkedByUserId: userId, linkedAt: at(-30) } });
     await prisma.customerPartyLink.create({ data: { organizationId, customerId: c2.id, partyId: party.id, basis: 'MANUAL', linkedAt: at(-3), reversedAt: at(-1) } });
     const creator = await prisma.creatorProfile.create({ data: { organizationId, partyId: party.id, displayName: 'Secret Creator' } });
     assert.equal((await digests.upsertOrganization(organizationId, withSource(digest('CREATORS', 'needs-emg', 'Secret creator statement.', `creator:${creator.id}`), 'LOOP_CREATORS'))).outcome, 'WRITTEN');
@@ -530,7 +531,9 @@ test('CONNECTIVITY: governed relationships as counts; stable vs label-only membe
       { dimension: 'campaign', windowDays: 14, stableExternalId: 1, labelOnly: 2, labelOnlyNamedAsRef: 1, unattributedCalls: 1 },
       { dimension: 'buyer', windowDays: 14, stableExternalId: 1, labelOnly: 1, labelOnlyNamedAsRef: 1, unattributedCalls: 3 },
     ]);
-    assert.deepEqual(c.governed.pipeline, { working: 3, stalled: 2, nameable: 2, withActivePartyLink: 1 });
+    // Intake eligibility, not every row: only c1 (worked) is intake; c2 (a reversal nobody made) and the fresh
+    // unmarked record are not, whatever status they carry.
+    assert.deepEqual(c.governed.pipeline, { working: 1, stalled: 1, nameable: 1, withActivePartyLink: 1 });
     assert.deepEqual(c.governed.crm, { established: 2, newlyEstablished7d: 1, nameable: 1, awaitingDecision: 1 });
 
     // TODAY: CallGrid + Campaigns share the campaign -- one source, so the two-source rule removes it.

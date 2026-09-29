@@ -8,7 +8,7 @@ import { digestContentRefusals, entityRefRefusal, INTELLIGENCE_DOMAIN_REGISTRY }
 import { INTELLIGENCE_PRODUCER_CATALOG } from '../src/services/intelligence-fabric/catalog';
 import { calendarDomainProducer } from '../src/services/intelligence-fabric/domains/calendar';
 import { callgridRule, campaignsRule, callgridDomainProducer } from '../src/services/intelligence-fabric/domains/callgrid';
-import { creatorsRule, crmRule, pipelineRule, websiteRule, workRule, websiteDomainProducer, type WebsiteEvidenceReader } from '../src/services/intelligence-fabric/domains/records';
+import { creatorsRule, crmRule, pipelineContextOf, pipelineRule, websiteRule, workRule, websiteDomainProducer, type WebsiteEvidenceReader } from '../src/services/intelligence-fabric/domains/records';
 import { comparableChange } from '../src/services/intelligence-fabric/domains/organization-kit';
 import { trimQuotedHistory } from '../src/services/intelligence-fabric/domains/mail-read-through';
 import { loopProducers, parseActingUsers, principalResolver } from '../src/services/intelligence-fabric/loop-producers';
@@ -78,10 +78,25 @@ test('Campaigns rule: sharp movers, a campaign gone quiet, and calls nobody boug
 });
 
 test('Intake, People, Creators, Work and Website rules are writable organization content with MEASURED metrics', () => {
-  const pipeline = pipelineRule({ counts: { New: 5, Contacted: 3, Quoted: 4, Booked: 2, Completed: 1, Archived: 0 }, week: { newCustomers: 5, conversations: 6, conversationsAssigned: 2 }, prior: { newCustomers: 12 }, stale: { New: 0, Contacted: 1, Quoted: 3 } }, NOW);
+  // Intake is ELIGIBLE records only; 24,584 other records exist and are said as not counted, never as work.
+  const days = (n: number) => new Date(NOW.getTime() - n * 864e5);
+  let k = 0;
+  const rec = (status: string, stalled: boolean, basis: 'WEB_LEAD' | 'HUMAN_WORK' = 'HUMAN_WORK') => ({ id: `r${(k += 1)}`, basis, workEvents: basis === 'HUMAN_WORK' ? ['STATUS_CHANGE' as const] : [], status: status as never, enteredAt: days(stalled ? 30 : 2), lastWorkedAt: basis === 'HUMAN_WORK' ? days(stalled ? 30 : 2) : null, clockAt: days(stalled ? 30 : 2), stalled });
+  const records = [
+    ...Array.from({ length: 5 }, () => rec('New', false, 'WEB_LEAD')),
+    rec('Contacted', true), rec('Contacted', false), rec('Contacted', false),
+    rec('Quoted', true), rec('Quoted', true), rec('Quoted', true), rec('Quoted', false),
+    rec('Booked', false), rec('Booked', false), rec('Completed', false), rec('UNSET', false),
+  ];
+  const pipeline = pipelineRule(pipelineContextOf({ complete: true, totalRecords: 16 + 24_584, records }, NOW, { conversations: 6, conversationsAssigned: 2 }), NOW);
   assertWritable(pipeline);
-  assert.ok(pipeline.signals.some((s) => s.key === 'stale.quoted' && s.kind === 'STALLED' && s.severity === 'HIGH'));
+  assert.ok(pipeline.signals.some((s) => s.key === 'stale.quoted' && s.kind === 'STALLED' && s.severity === 'HIGH' && /3 intake records in Quoted with no recorded work for 14 days/.test(s.statement)));
+  assert.ok(pipeline.signals.some((s) => s.key === 'stale.contacted' && /1 intake record in Contacted/.test(s.statement)));
+  assert.ok(!pipeline.signals.some((s) => s.key === 'stale.new'), 'web leads entered two days ago are not stalled');
+  assert.ok(pipeline.signals.some((s) => s.key === 'status-unset'));
   assert.ok(pipeline.signals.some((s) => s.key === 'unassigned-conversations'));
+  assert.equal(pipeline.signals.find((s) => s.key === 'working')!.metric!.value, 12);
+  assert.match(pipeline.limitations.join(' '), /24584 other records are not counted as intake/);
   const crm = crmRule({ people: 40, companies: 10, awaiting: 30, newEstablished: 2, priorEstablished: 10, active: 12, started: 1, ended: 3 }, NOW);
   assertWritable(crm);
   assert.ok(crm.signals.some((s) => s.kind === 'DECISION_PENDING'));

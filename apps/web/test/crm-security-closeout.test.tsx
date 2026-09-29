@@ -119,10 +119,11 @@ describe('Audit authorization', () => {
       organizations: { findById: rec('organizations.findById', { id: ORG_A, name: 'A', timezone: 'UTC' }) },
       customers: { countByOrganization: rec('customers.countByOrganization', 3) },
       crm: {
-        statusCounts: rec('crm.statusCounts', {}),
         windowCounts: rec('crm.windowCounts', { newCustomers: 0, conversations: 0 }),
         inboxFeed: rec('crm.inboxFeed', []),
       },
+      // Intake is eligible records only (a verified website lead, or a record a person has worked).
+      intake: { counts: rec('intake.counts', { complete: true, totalRecords: 3, eligible: 0, excluded: 3, byStatus: { New: 0, Contacted: 0, Quoted: 0, Booked: 0, Completed: 0, Archived: 0, UNSET: 0 }, byBasis: { WEB_LEAD: 0, HUMAN_WORK: 0 }, working: 0, stalled: { New: 0, Contacted: 0, Quoted: 0 } }) },
       conversationsInbox: { listConversations: rec('conversationsInbox.listConversations', { rows: [], total: 0, counts: {} }) },
       audit: { list: rec('audit.list', [{ id: 'a1', action: 'customer.updated' }]) },
     } as unknown as CommandCenterRepos;

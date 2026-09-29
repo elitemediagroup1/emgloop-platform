@@ -24,7 +24,7 @@ export interface AuthenticatedActor {
 }
 
 /** A machine principal is recorded as AI. Every other signed-in user is a person. */
-function actorTypeForRole(systemRole: string): 'AI_AGENT' | 'HUMAN_AGENT' {
+export function actorTypeForRole(systemRole: string): 'AI_AGENT' | 'HUMAN_AGENT' {
   return systemRole === 'AI_EMPLOYEE' ? 'AI_AGENT' : 'HUMAN_AGENT';
 }
 

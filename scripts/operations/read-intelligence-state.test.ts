@@ -299,26 +299,45 @@ test('connectivity wiring: the same read-only service, no runtime, no model; the
   for (const column of ['email: true', 'phone: true', 'firstName: true', 'lastName: true', 'displayName: true', 'title: true', 'summary: true']) assert.equal(reader.includes(column), false, `never selects ${column}`);
   // Every query is scoped to the organization.
   const calls = [...reader.matchAll(/\.(count|findMany|findFirst|groupBy)\(\{\s*(?:by: [^,]+,\s*)?where:\s*([^,}]+)/g)];
-  assert.ok(calls.length >= 12);
+  assert.ok(calls.length >= 9);
   for (const [, op, where] of calls) assert.match(where!, /org|window|working|stalledWhere|organizationId|\{ \.\.\.org/, `${op} is organization-scoped`);
+  // Pipeline naming reads intake eligibility -- the same read-only repository every intake surface uses.
+  assert.match(reader, /new IntakeEligibilityRepository\(this\.db\)\.read\(organizationId, now\)/);
+  const intake = strip(join(__dirname, '..', '..', 'packages', 'database', 'src', 'repositories', 'intake-eligibility.repository.ts'));
+  for (const forbidden of ['.create(', '.update(', '.upsert(', '.delete(', 'createMany(', 'updateMany(', 'deleteMany(', '$executeRaw', '$queryRaw', '$transaction', 'lastSeenAt']) {
+    assert.equal(intake.includes(forbidden), false, `intake eligibility has no ${forbidden}`);
+  }
+  for (const [, op, where] of intake.matchAll(/\.(count|findMany)\(\{\s*where:\s*([^,}]+)/g)) {
+    if (where!.startsWith('after ?')) continue; // the pager composes its caller's where -- checked just below
+    assert.match(where!, /org|organizationId/, `${op} is organization-scoped`);
+  }
+  const paged = [...intake.matchAll(/await this\.page\(\s*[^,]+,\s*(\{[^\n]*)/g)];
+  assert.equal(paged.length, 4, 'notes, status changes, Party links, web leads');
+  for (const [, where] of paged) assert.match(where!, /\.\.\.org|AND: \[org/, 'every paged read is organization-scoped');
 });
 
 const COMPOSITION = {
   records: 24_590,
   byStatus: [
-    { status: 'ABSENT', total: 3, working: 3, stalled: 3 },
-    { status: 'NEW', total: 16_380, working: 16_380, stalled: 16_372 },
-    { status: 'CONTACTED', total: 8_195, working: 8_195, stalled: 8_190 },
-    { status: 'QUOTED', total: 9, working: 9, stalled: 9 },
-    { status: 'BOOKED', total: 2, working: 0, stalled: 0 },
-    { status: 'COMPLETED', total: 0, working: 0, stalled: 0 },
-    { status: 'ARCHIVED', total: 1, working: 0, stalled: 0 },
-    { status: 'OTHER', total: 0, working: 0, stalled: 0 },
+    { status: 'ABSENT', total: 3, working: 3, stalled: 3, eligible: 0 },
+    { status: 'NEW', total: 16_380, working: 16_380, stalled: 16_372, eligible: 1 },
+    { status: 'CONTACTED', total: 8_195, working: 8_195, stalled: 8_190, eligible: 0 },
+    { status: 'QUOTED', total: 9, working: 9, stalled: 9, eligible: 0 },
+    { status: 'BOOKED', total: 2, working: 0, stalled: 0, eligible: 0 },
+    { status: 'COMPLETED', total: 0, working: 0, stalled: 0, eligible: 0 },
+    { status: 'ARCHIVED', total: 1, working: 0, stalled: 0, eligible: 0 },
+    { status: 'OTHER', total: 0, working: 0, stalled: 0, eligible: 0 },
   ],
   byProvenance: [
-    { provenance: 'CALLGRID_INGESTION_CALLER_ONLY', basis: 'VERIFIED', total: 24_570, working: 24_569, stalled: 24_560, humanWork: 0 },
-    { provenance: 'UNKNOWN', basis: 'UNKNOWN', total: 20, working: 18, stalled: 15, humanWork: 2 },
+    { provenance: 'CALLGRID_INGESTION_CALLER_ONLY', basis: 'VERIFIED', total: 24_570, working: 24_569, stalled: 24_560, humanWork: 0, eligible: 0 },
+    { provenance: 'UNKNOWN', basis: 'UNKNOWN', total: 20, working: 18, stalled: 15, humanWork: 2, eligible: 1 },
   ],
+  intake: {
+    counts: { complete: true, totalRecords: 24_590, eligible: 1, excluded: 24_589, byStatus: { New: 1, Contacted: 0, Quoted: 0, Booked: 0, Completed: 0, Archived: 0, UNSET: 0 }, byBasis: { WEB_LEAD: 1, HUMAN_WORK: 0 }, working: 1, stalled: { New: 1, Contacted: 0, Quoted: 0 } },
+    byWorkEvent: { HUMAN_NOTE: 0, STATUS_CHANGE: 0, PARTY_LINK: 0 },
+    worked: 0,
+    neverWorked: 1,
+  },
   humanWork: { bySignal: { HUMAN_NOTE: 0, USER_ACTION: 2, USER_PARTY_LINK: 0 }, any: 2, stalledAny: 1 },
   clock: { all: { lastSeenEqualsCreated: 24_589, lastSeenAfterCreated: 1, lastSeenBeforeCreated: 0 }, stalled: { lastSeenEqualsCreated: 24_574, lastSeenAfterCreated: 1, lastSeenBeforeCreated: 0 } },
   cutoff: { at: '2026-09-15T13:49:40.000Z', createdBefore: { total: 24_580, working: 24_577, stalled: 24_575 }, createdAfter: { total: 10, working: 10, stalled: 0 }, afterWithIngestionMark: 3 },
@@ -336,13 +355,18 @@ test('pipeline composition prints status, provenance with basis, human work, clo
   assert.equal((cutoff as Date | null)?.toISOString(), '2026-09-15T13:49:40.000Z', 'the governed Slice 1 cutoff (#239 merged), never one invented here');
   const lines = w.out.filter((l) => l.startsWith('event=PIPELINE_'));
   assert.deepEqual(lines.slice(0, 3), [
-    'event=PIPELINE_STATUS status=ABSENT total=3 working=3 stalled=3',
-    'event=PIPELINE_STATUS status=NEW total=16380 working=16380 stalled=16372',
-    'event=PIPELINE_STATUS status=CONTACTED total=8195 working=8195 stalled=8190',
+    'event=PIPELINE_STATUS status=ABSENT total=3 v1Working=3 v1Stalled=3 eligible=0',
+    'event=PIPELINE_STATUS status=NEW total=16380 v1Working=16380 v1Stalled=16372 eligible=1',
+    'event=PIPELINE_STATUS status=CONTACTED total=8195 v1Working=8195 v1Stalled=8190 eligible=0',
   ]);
   for (const expected of [
-    'event=PIPELINE_PROVENANCE provenance=CALLGRID_INGESTION_CALLER_ONLY basis=VERIFIED total=24570 working=24569 stalled=24560 humanWork=0',
-    'event=PIPELINE_PROVENANCE provenance=UNKNOWN basis=UNKNOWN total=20 working=18 stalled=15 humanWork=2',
+    'event=PIPELINE_PROVENANCE provenance=CALLGRID_INGESTION_CALLER_ONLY basis=VERIFIED total=24570 v1Working=24569 v1Stalled=24560 humanWork=0 eligible=0',
+    'event=PIPELINE_PROVENANCE provenance=UNKNOWN basis=UNKNOWN total=20 v1Working=18 v1Stalled=15 humanWork=2 eligible=1',
+    'event=PIPELINE_INTAKE eligible=1 excluded=24589 basisWebLead=1 basisHumanWork=0 working=1 complete=true',
+    'event=PIPELINE_INTAKE_STATUS status=NEW count=1 stalled=1',
+    'event=PIPELINE_INTAKE_STATUS status=CONTACTED count=0 stalled=0',
+    'event=PIPELINE_INTAKE_STATUS status=UNSET count=0 stalled=-',
+    'event=PIPELINE_INTAKE_WORK clock=WORK staleDays=14 HUMAN_NOTE=0 STATUS_CHANGE=0 PARTY_LINK=0 worked=0 neverWorked=1',
     'event=PIPELINE_HUMAN_WORK HUMAN_NOTE=0 USER_ACTION=2 USER_PARTY_LINK=0 any=2 stalledAny=1',
     'event=PIPELINE_CLOCK scope=ALL lastSeenEqualsCreated=24589 lastSeenAfterCreated=1 lastSeenBeforeCreated=0',
     'event=PIPELINE_CLOCK scope=STALLED lastSeenEqualsCreated=24574 lastSeenAfterCreated=1 lastSeenBeforeCreated=0',
@@ -356,7 +380,7 @@ test('pipeline composition prints status, provenance with basis, human work, clo
 
 test('pipeline composition cannot leak or overclaim: text prints UNRECOGNIZED; an incomplete read is bounded=true with its codes', async () => {
   const w = await world();
-  const hostile = { ...COMPOSITION, byProvenance: [{ provenance: 'dana@acme.test', basis: 'Acme Insurance Group', total: 1, working: 1, stalled: 1, humanWork: 0 }], complete: false, incomplete: ['RECORDS', 'Please call me'] };
+  const hostile = { ...COMPOSITION, byProvenance: [{ provenance: 'dana@acme.test', basis: 'Acme Insurance Group', total: 1, working: 1, stalled: 1, humanWork: 0, eligible: 0 }], complete: false, incomplete: ['RECORDS', 'Please call me'] };
   await runIntelligenceState({ organizationSlug: 'servicesinmycity-demo', since: '' }, { ...w.deps, pipeline: async () => hostile as never });
   const text = w.out.join('\n');
   for (const secret of ['dana@', 'Acme', 'Please call me']) assert.equal(text.includes(secret), false, secret);

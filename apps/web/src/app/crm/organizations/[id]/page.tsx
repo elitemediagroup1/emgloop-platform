@@ -71,14 +71,15 @@ export default async function OrganizationDetailPage({
     crmRepos.organizations.findById(params.id),
     crmRepos.iam.listUsers(params.id),
     crmRepos.crm.listCustomers(params.id, { pageSize: 10, sort: 'createdAt', direction: 'desc' }),
-    crmRepos.crm.statusCounts(params.id),
+    // Intake: eligible records only (a verified website lead, or a record a person has worked).
+    crmRepos.intake.counts(params.id, new Date()),
     canViewAudit ? crmRepos.audit.list(params.id, { take: 10 }) : Promise.resolve(null),
     crmRepos.crm.inboxFeed(params.id, 10),
   ]));
 
   if (!result.ok) return <CrmLoadError failure={result} surface="This workspace organization" />;
 
-  const [org, members, customerResult, statusCounts, recentAudit, recentActivity] = result.data;
+  const [org, members, customerResult, intake, recentAudit, recentActivity] = result.data;
 
   if (!org) notFound();
 
@@ -274,10 +275,21 @@ export default async function OrganizationDetailPage({
                   <div key={s} className="cc-pipeline__row">
                     <span className={'cc-pipeline__dot cc-pipeline__dot--' + s.toLowerCase()} aria-hidden="true" />
                     <span className="cc-pipeline__label">{s}</span>
-                    <span className="cc-pipeline__count">{(statusCounts[s] ?? 0).toLocaleString()}</span>
+                    <span className="cc-pipeline__count">{intake.byStatus[s].toLocaleString()}</span>
                   </div>
                 ))}
-                <p className="cc-helper">Current intake statuses. Canonical Opportunity pipeline arrives with the Opportunity domain.</p>
+                {intake.byStatus.UNSET > 0 ? (
+                  <div className="cc-pipeline__row">
+                    <span className="cc-pipeline__dot" aria-hidden="true" />
+                    <span className="cc-pipeline__label">Status not set</span>
+                    <span className="cc-pipeline__count">{intake.byStatus.UNSET.toLocaleString()}</span>
+                  </div>
+                ) : null}
+                <p className="cc-helper">
+                  Intake records that arrived as website leads or that someone has worked.
+                  {intake.excluded > 0 ? ` ${intake.excluded.toLocaleString()} other ${intake.excluded === 1 ? 'record is' : 'records are'} not counted as intake.` : ''}
+                  {intake.complete ? '' : ' Not every record could be read; these counts are a lower bound.'} Canonical Opportunity pipeline arrives with the Opportunity domain.
+                </p>
               </div>
             </div>
           </section>

@@ -15,6 +15,7 @@ import { DomainFactsRepository } from '../src/repositories/intelligence/domain-f
 import { IntelligenceDigestRepository } from '../src/repositories/intelligence/intelligence-digest.repository';
 import { IntelligenceRefreshQueueRepository } from '../src/repositories/intelligence/intelligence-refresh-queue.repository';
 import { pipelineDomainProducer, myWorkProducer, workDomainProducer } from '../src/services/intelligence-fabric/domains/records';
+import { IntakeEligibilityRepository } from '../src/repositories/intake-eligibility.repository';
 import { IntelligenceProducerRegistry } from '../src/services/intelligence-fabric/producer';
 import { runIntelligencePass } from '../src/services/intelligence-fabric/intelligence-pass';
 
@@ -60,7 +61,6 @@ test('domain facts are scoped to their organization: another tenant never moves 
     await work(prisma, b.organizationId, b.users[0]!, null, -1);
     await work(prisma, b.organizationId, b.users[0]!, null, -1);
     const facts = new DomainFactsRepository(prisma);
-    assert.deepEqual(await facts.staleByStatus(a.organizationId, ['Quoted'], new Date(NOW.getTime() - 14 * DAY)), { Quoted: 2 });
     const wa = await facts.workFacts(a.organizationId, null, NOW, new Date(NOW.getTime() + DAY), new Date(NOW.getTime() - 7 * DAY), new Date(NOW.getTime() - 14 * DAY));
     assert.equal(wa.activeInstances, 1);
     assert.equal(wa.overdue, 1);
@@ -83,12 +83,18 @@ test('the scheduled pass writes ORGANIZATION digests end to end, then skips unch
   const prisma = new PrismaClient({ datasources: { db: { url: URL } } });
   try {
     const a = await tenant(prisma, 'pass');
-    await customers(prisma, a.organizationId, 3, 'Quoted', 30);
+    // Three Quoted records a person worked 30 days ago (a CRM note) -- intake, and stalled by the WORK clock --
+    // and one Quoted record nobody worked, which is not intake at all.
+    await customers(prisma, a.organizationId, 4, 'Quoted', 30);
+    const quoted = await prisma.customer.findMany({ where: { organizationId: a.organizationId }, select: { id: true }, orderBy: { id: 'asc' } });
+    for (const c of quoted.slice(0, 3)) {
+      await prisma.interaction.create({ data: { organizationId: a.organizationId, customerId: c.id, channel: 'OTHER', kind: 'NOTE', direction: 'INTERNAL', occurredAt: new Date(NOW.getTime() - 30 * DAY), payload: { loopKind: 'crm_note', actorType: 'HUMAN_AGENT', actorUserId: a.users[0], actorName: 'DOM', body: 'n' } } as never });
+    }
     await work(prisma, a.organizationId, a.users[0]!, a.users[1]!, -2);
     const facts = new DomainFactsRepository(prisma);
     // Discovery narrowed to this tenant so a shared test database's other rows do not enter the pass.
     const only = <T extends { discover?: unknown }>(p: T) => ({ ...p, discover: async () => [{ scope: 'ORGANIZATION', organizationId: a.organizationId, domain: (p as unknown as { domain: string }).domain, subjectKind: 'DOMAIN', subjectRef: 'domain' }] });
-    const pipeline = only(pipelineDomainProducer(new CrmRepository(prisma), facts, KIT));
+    const pipeline = only(pipelineDomainProducer(new CrmRepository(prisma), new IntakeEligibilityRepository(prisma), facts, KIT));
     const orgWork = only(workDomainProducer(facts, KIT));
     const mineRaw = myWorkProducer(facts, KIT);
     const mine = { ...mineRaw, discover: async () => [{ scope: 'PRINCIPAL' as const, organizationId: a.organizationId, userId: a.users[1]!, domain: 'WORK' as const, subjectKind: 'DOMAIN' as const, subjectRef: 'domain' }] };
@@ -103,7 +109,8 @@ test('the scheduled pass writes ORGANIZATION digests end to end, then skips unch
     assert.ok(intake, 'an organization Intake digest exists');
     assert.equal(intake!.scope, 'ORGANIZATION');
     assert.equal(intake!.userId, null);
-    assert.match(JSON.stringify(intake!.content), /3 records in Quoted with no activity/);
+    assert.match(JSON.stringify(intake!.content), /3 intake records in Quoted with no recorded work for 14 days/);
+    assert.match(JSON.stringify(intake!.content), /1 other record is not counted as intake/);
     const personal = await digests.current({ organizationId: a.organizationId, userId: a.users[1]! }, 'WORK', { now: new Date() });
     assert.ok(personal, 'the person’s own Work digest exists');
     assert.equal(await digests.current({ organizationId: a.organizationId, userId: a.users[0]! }, 'WORK', { now: new Date() }), null, 'nobody else’s');

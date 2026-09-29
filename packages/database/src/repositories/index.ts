@@ -405,6 +405,8 @@ export interface Repositories {
   messages: MessageRepository;
   aiEmployees: AIEmployeeRepository;
   crm: CrmRepository;
+  /** Which Intake Records are operational intake (eligibility, the work clock). Counts for surfaces. */
+  intake: IntakeEligibilityRepository;
   auth: AuthRepository;
   iam: IamRepository;
   /** CRM P0.2b. Written with every User lifecycle write; not yet read for authority. */
@@ -437,6 +439,7 @@ export interface Repositories {
 }
 
 import { WorkReactivationService } from '../services/work-reactivation.service';
+import { IntakeEligibilityRepository } from './intake-eligibility.repository';
 
 export function createRepositories(prisma: PrismaClient): Repositories {
   return {
@@ -450,6 +453,7 @@ export function createRepositories(prisma: PrismaClient): Repositories {
     messages: new MessageRepository(prisma),
     aiEmployees: new AIEmployeeRepository(prisma),
     crm: new CrmRepository(prisma),
+    intake: new IntakeEligibilityRepository(prisma),
     auth: new AuthRepository(prisma),
     iam: new IamRepository(prisma),
     memberships: new MembershipRepository(prisma),
@@ -543,3 +547,17 @@ export type {
   IntelligenceStateEmployee,
   IntelligenceStateWriteTable,
 } from './intelligence-state.repository';
+
+export {
+  IntakeEligibilityRepository,
+  intakeCountsOf,
+  intakeStatusOf,
+  INTAKE_STATUSES,
+  INTAKE_WORKING,
+  INTAKE_STALE_DAYS,
+  CUSTOMER_STATUS_CHANGED,
+  CUSTOMER_ASSIGNMENT_CHANGED,
+  type IntakeCounts,
+  type IntakeStatus,
+  type IntakeBasis,
+} from './intake-eligibility.repository';
