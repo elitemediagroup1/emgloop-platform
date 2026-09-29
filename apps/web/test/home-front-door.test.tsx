@@ -461,11 +461,11 @@ describe('Your tools & spaces: a tile only where the rail leads, each its domain
     assert.deepEqual([none.state, none.stateLine], ['EMPTY', 'No work is assigned to you.']);
     assert.match(tileByKey(tilesInput({ work: { kind: 'ADMIN', posture: { ok: true, value: { assigned: 9, readyNow: 0, blocked: 0, overdue: 2, dueToday: 0, datesPartial: true } } } }), 'work')!.lines[0]!, /^at least 2 overdue$/);
     const intake = tileByKey(tilesInput(), 'intake')!;
-    assert.deepEqual([intake.metric, intake.lines], [{ value: '12', label: 'new records await first contact' }, ['Further along: 5 contacted · 2 quoted · 1 booked', '69 records in intake']]);
+    assert.deepEqual([intake.metric, intake.lines], [{ value: '12', label: 'intake records in New' }, ['Further along: 5 contacted · 2 quoted · 1 booked', '69 records in intake']]);
     // Production's shape: 24,587 legacy records nobody has worked and one web lead -- never 23,726 "new records
     // await first contact". The legacy population is said as not counted, never as work.
     const prod = tileByKey(tilesInput({ intake: { ok: true, value: { byStatus: { New: 1, Contacted: 0, Quoted: 0, Booked: 0, Completed: 0, Archived: 0, UNSET: 0 }, eligible: 1, excluded: 24_589, complete: true } } }), 'intake')!;
-    assert.deepEqual([prod.metric, prod.lines], [{ value: '1', label: 'new record awaits first contact' }, ['1 record in intake', '24,589 other records not counted as intake']]);
+    assert.deepEqual([prod.metric, prod.lines], [{ value: '1', label: 'intake record in New' }, ['1 record in intake', '24,589 other records not counted as intake']]);
     const legacyOnly = tileByKey(tilesInput({ intake: { ok: true, value: { byStatus: { New: 0, Contacted: 0, Quoted: 0, Booked: 0, Completed: 0, Archived: 0, UNSET: 0 }, eligible: 0, excluded: 24_590, complete: true } } }), 'intake')!;
     assert.deepEqual([legacyOnly.state, legacyOnly.metric, legacyOnly.stateLine, legacyOnly.lines], ['EMPTY', null, 'No records in intake yet.', ['24,590 other records not counted as intake']]);
     const campaigns = tileByKey(tilesInput(), 'campaigns')!;

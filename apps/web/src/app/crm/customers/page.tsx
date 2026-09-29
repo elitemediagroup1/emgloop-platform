@@ -71,7 +71,8 @@ export default async function CustomersPage({
     ? (sp.status as PipelineStatus)
     : null;
   const tagFilter = sp.tag ?? null;
-  const sort = (['createdAt', 'lastSeenAt', 'name', 'status'].includes(
+  // Not lastSeenAt: it is not an activity clock (it never moves after creation), so no URL may sort by it.
+  const sort = (['createdAt', 'name', 'status'].includes(
     sp.sort ?? '',
   )
     ? sp.sort

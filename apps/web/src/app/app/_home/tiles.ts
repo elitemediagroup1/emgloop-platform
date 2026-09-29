@@ -303,8 +303,8 @@ function intakeTile(input: TilesInput, item: TileNavItem): HomeTile | null {
   });
   return {
     ...base,
-    // The board's own statuses, interpreted: an eligible record still "New" has not been contacted.
-    metric: fresh !== undefined ? { value: fresh.toLocaleString('en-US'), label: fresh === 1 ? 'new record awaits first contact' : 'new records await first contact' } : null,
+    // The board's own status, stated -- not interpreted: a worked record can still carry a historical New.
+    metric: fresh !== undefined ? { value: fresh.toLocaleString('en-US'), label: fresh === 1 ? 'intake record in New' : 'intake records in New' } : null,
     lines: [
       later.length > 0 ? `Further along: ${later.join(' · ')}` : null,
       `${counted(eligible, 'record', 'records')} in intake`,

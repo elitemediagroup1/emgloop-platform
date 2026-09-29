@@ -10,7 +10,6 @@
 
 import type { PrismaClient } from '@prisma/client';
 
-import { PIPELINE_STATUSES } from '../crm.repository';
 
 const ACTIVE_STAGE = ['ready', 'in_progress'];
 
@@ -160,4 +159,3 @@ export class DomainFactsRepository {
   }
 }
 
-export { PIPELINE_STATUSES };
