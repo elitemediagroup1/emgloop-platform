@@ -13,8 +13,23 @@
 //                                                  established and neither archived nor superseded.
 //   CREATOR_PARTY   creator:<id>  <-> party:<id>   CreatorProfile.partyId, to such a Party.
 //   WORK_ORIGIN     work_instance:<id> <-> <ref>   a WorkOrigin a person confirmed (Promote to Work) from an
-//                                                  ORGANIZATION digest signal, to each canonical entity that
-//                                                  signal names -- only while that digest and signal still exist.
+//                                                  ORGANIZATION digest signal naming exactly ONE canonical entity,
+//                                                  to that entity -- while that digest and signal still exist.
+//
+// A LINK IS A BRIDGE, NEVER EVIDENCE. A projected link only says two references are the same thing (or one is
+// about the other); it carries no source. A promoted Work item therefore adds no independence by existing: a
+// cluster gains the LOOP_WORK source only when the Work READING names the instance, which it does only for
+// Work's own state (a step past due, work past its committed return) -- see work.domain.
+//
+// ONE ENTITY PER ORIGIN. A signal that names several entities is about a set ("3 records stalled in Quoted", "5
+// productions waiting on EMG"), not a relationship among its members. Linking the work to all of them would join
+// every member to every other, permanently and for any signal -- so such an origin is rejected
+// (SIGNAL_NAMES_SEVERAL), never fanned out.
+//
+// CHAINS. For a pass, the projection starts from the references its signals name and follows what it reaches, a
+// bounded number of hops (GOVERNED_LINK_HOPS): work -> the customer it came from -> that customer's Party <- a
+// creator on it. A Party is only ever reached, never expanded: nothing here asks "every record on this Party", so
+// a broad Party joins only entities the signals already name or that a governed record reaches from them.
 //
 // NOT PROJECTED, BY DESIGN (see docs/architecture/loop-intelligence.md, "Governed entity links"): a CallGrid
 // caller to an Intake Record (no governed record proves it; a phone, name, email, label, time or campaign
@@ -46,6 +61,8 @@ export type GovernedLinkRejection =
   | 'DIGEST_GONE'
   | 'SIGNAL_GONE'
   | 'SIGNAL_NAMES_NO_ENTITY'
+  | 'SIGNAL_NAMES_SEVERAL'
+  | 'CUSTOMER_NOT_IN_ORGANIZATION'
   | 'OTHER_ORIGIN';
 
 export interface ProjectedLink {
@@ -73,6 +90,10 @@ export interface GovernedProjection {
 /** Records one projection may read per class before it stops and says so. */
 export const GOVERNED_LINK_BOUND = 5_000;
 const CHUNK = 1_000;
+/** How far a pass's projection follows what it reaches: work -> origin entity -> its Party covers every chain. */
+export const GOVERNED_LINK_HOPS = 3;
+/** Reference kinds a governed record projects FROM (a Party is only ever a target). */
+const EXPANDABLE = ['customer:', 'creator:', 'work_instance:'];
 const ESTABLISHED = { establishedAt: { not: null }, supersededAt: null, archivedAt: null } as const;
 const ref = (kind: string, id: string) => `${kind}:${id}`;
 const isRef = (r: string) => entityRefRefusal(r, 'ORGANIZATION') === null;
@@ -97,6 +118,40 @@ export class GovernedEntityLinkProjector {
    * records always project the same links.
    */
   async project(organizationId: string, refs: readonly string[] | null): Promise<GovernedProjection> {
+    if (refs === null || !organizationId) return this.projectOnce(organizationId, refs);
+    // A pass: from the references in play, then from what they reach -- each record read once, bounded.
+    const seen = new Set(refs);
+    const links: ProjectedLink[] = [];
+    const linkKeys = new Set<string>();
+    const totals = new Map<GovernedLinkClass, { records: number; links: number; rejected: Partial<Record<GovernedLinkRejection, number>> }>();
+    let bounded = false;
+    let frontier: readonly string[] = refs;
+    for (let hop = 0; frontier.length > 0; hop += 1) {
+      if (hop === GOVERNED_LINK_HOPS) {
+        bounded = true;
+        break;
+      }
+      const round = await this.projectOnce(organizationId, frontier);
+      bounded ||= round.bounded;
+      for (const c of round.classes) {
+        const t = totals.get(c.linkClass) ?? { records: 0, links: 0, rejected: {} };
+        t.records += c.records;
+        t.links += c.links;
+        for (const [code, n] of Object.entries(c.rejected)) t.rejected[code as GovernedLinkRejection] = (t.rejected[code as GovernedLinkRejection] ?? 0) + (n ?? 0);
+        totals.set(c.linkClass, t);
+      }
+      const next: string[] = [];
+      for (const l of round.links) {
+        const k = `${l.fromRef}|${l.toRef}`;
+        if (!linkKeys.has(k)) (linkKeys.add(k), links.push(l));
+        for (const r of [l.fromRef, l.toRef]) if (!seen.has(r) && EXPANDABLE.some((p) => r.startsWith(p))) (seen.add(r), next.push(r));
+      }
+      frontier = next;
+    }
+    return { links, classes: GOVERNED_LINK_CLASSES.map((linkClass) => ({ linkClass, ...(totals.get(linkClass) ?? { records: 0, links: 0, rejected: {} }) })), bounded };
+  }
+
+  private async projectOnce(organizationId: string, refs: readonly string[] | null): Promise<GovernedProjection> {
     if (!organizationId) return { links: [], classes: GOVERNED_LINK_CLASSES.map((linkClass) => ({ linkClass, records: 0, links: 0, rejected: {} })), bounded: false };
     const org = { organizationId };
     const links: ProjectedLink[] = [];
@@ -114,11 +169,18 @@ export class GovernedEntityLinkProjector {
       if (rows.length > GOVERNED_LINK_BOUND) bounded = true;
       const kept = rows.slice(0, GOVERNED_LINK_BOUND);
       const parties = await this.establishedParties(organizationId, kept.map((r) => r.partyId));
+      // The link row is the organization's, but nothing in the schema ties its customer to the same organization.
+      const customers = new Set<string>();
+      const wantedCustomers = [...new Set(kept.map((r) => r.customerId))];
+      for (let i = 0; i < wantedCustomers.length; i += CHUNK) {
+        for (const c of await this.db.customer.findMany({ where: { ...org, id: { in: wantedCustomers.slice(i, i + CHUNK) } }, select: { id: true } })) customers.add(c.id);
+      }
       const rejected: Partial<Record<GovernedLinkRejection, number>> = {};
       let n = 0;
       for (const r of kept) {
         const [a, b] = [ref('customer', r.customerId), ref('party', r.partyId)];
-        if (!parties.has(r.partyId)) reject(rejected, 'PARTY_NOT_ESTABLISHED');
+        if (!customers.has(r.customerId)) reject(rejected, 'CUSTOMER_NOT_IN_ORGANIZATION');
+        else if (!parties.has(r.partyId)) reject(rejected, 'PARTY_NOT_ESTABLISHED');
         else if (!isRef(a) || !isRef(b)) reject(rejected, 'NOT_A_REFERENCE');
         else {
           links.push({ fromRef: a, toRef: b, linkClass: 'CUSTOMER_PARTY' });
@@ -192,15 +254,16 @@ export class GovernedEntityLinkProjector {
           const at = r.originRef.indexOf('#');
           const signals = at > 0 ? signalsOf.get(r.originRef.slice(0, at)) : undefined;
           const signal = signals?.find((s) => s.key === r.originRef.slice(at + 1));
-          const entities = Array.isArray(signal?.entities) ? (signal!.entities as unknown[]).filter((e): e is string => typeof e === 'string' && isRef(e)) : [];
+          const entities = Array.isArray(signal?.entities) ? [...new Set((signal!.entities as unknown[]).filter((e): e is string => typeof e === 'string' && isRef(e)))] : [];
           const from = ref('work_instance', r.workInstanceId);
           if (!signals) reject(rejected, 'DIGEST_GONE');
           else if (!signal) reject(rejected, 'SIGNAL_GONE');
           else if (entities.length === 0) reject(rejected, 'SIGNAL_NAMES_NO_ENTITY');
+          else if (entities.length > 1) reject(rejected, 'SIGNAL_NAMES_SEVERAL');
           else if (!isRef(from)) reject(rejected, 'NOT_A_REFERENCE');
           else {
-            for (const e of entities) links.push({ fromRef: from, toRef: e, linkClass: 'WORK_ORIGIN' });
-            n += entities.length;
+            links.push({ fromRef: from, toRef: entities[0]!, linkClass: 'WORK_ORIGIN' });
+            n += 1;
           }
         }
       }
