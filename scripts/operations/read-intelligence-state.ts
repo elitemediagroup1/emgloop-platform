@@ -8,7 +8,10 @@
 // state; and the intelligence refresh queue, aggregated by domain, scope, state, attempts and the
 // hold/retry outcome code (why a refresh is HELD); and the organization's situation pass, diagnosed
 // read-only (digests, eligibility, signals, entity refs, links, clusters, decided, and the first gate that
-// stopped it) -- it calls no model. It writes nothing -- no retry, no purge, no stale
+// stopped it) -- it calls no model; and what the organization could legitimately connect (governed
+// relationships, stable vs label-only CallGrid members, nameable records, and potential cross-domain
+// components today and with the proposed link projector, with and without two distinct sources). It writes
+// nothing and creates no link -- no retry, no purge, no stale
 // transition: the reader is built on a client that can only read
 // (`readOnlyClient`), and nothing here names a write.
 //
@@ -22,7 +25,7 @@
 // NO SCHEDULE, NO PUSH, NO PULL_REQUEST, NO WORKFLOW_CALL. Reading production is still touching
 // production, and a human should be the one asking.
 
-import type { IntelligenceState, SituationDiagnosis } from '@emgloop/database';
+import type { IntelligenceState, SituationConnectivity, SituationDiagnosis } from '@emgloop/database';
 import { employeeRef } from './cycle-employee-sources';
 
 export interface IntelligenceStateReader {
@@ -37,6 +40,12 @@ export interface IntelligenceStateDeps {
    * with no runtime: no model can be called). Absent: the section is not printed.
    */
   situations?: (organizationId: string) => Promise<SituationDiagnosis>;
+  /**
+   * What the organization could legitimately connect (SituationService.connectivity on the same read-only
+   * client): governed relationships as counts, and potential cross-domain components today and with the
+   * proposed entity-link projector, with and without the two-source requirement. Absent: not printed.
+   */
+  connectivity?: (organizationId: string) => Promise<SituationConnectivity>;
   now: () => Date;
   log: (line: string) => void;
 }
@@ -287,6 +296,30 @@ export async function runIntelligenceState(
     }));
   }
 
+  // 10. What the organization could legitimately connect -- counts and codes; no link is created.
+  if (deps.connectivity) {
+    const c = await deps.connectivity(org.id);
+    const joined = (xs: readonly string[]) => (xs.length ? xs.map((x) => token(x)).join('+') : null);
+    const g = c.governed;
+    deps.log(line({ event: 'SITUATION_RELATIONSHIP', relationship: 'CUSTOMER_PARTY_LINK', present: g.customerPartyLinks !== null, active: g.customerPartyLinks?.active ?? null, toEstablishedParty: g.customerPartyLinks?.toEstablishedParty ?? null }));
+    deps.log(line({ event: 'SITUATION_RELATIONSHIP', relationship: 'CREATOR_PARTY', present: g.creatorProfiles !== null, profiles: g.creatorProfiles?.total ?? null, withEstablishedParty: g.creatorProfiles?.withEstablishedParty ?? null }));
+    if (g.workOrigins === null) deps.log(line({ event: 'SITUATION_WORK_ORIGIN', present: false }));
+    else if (g.workOrigins.length === 0) deps.log(line({ event: 'SITUATION_WORK_ORIGIN', present: true, count: 0 }));
+    else for (const o of g.workOrigins) deps.log(line({ event: 'SITUATION_WORK_ORIGIN', present: true, kind: token(o.kind), scope: token(o.scope), outcome: token(o.outcome), count: o.count }));
+    for (const m of g.members) {
+      deps.log(line({ event: 'SITUATION_MEMBERS', provider: 'CALLGRID', dimension: token(m.dimension), windowDays: m.windowDays, stableExternalId: m.stableExternalId, labelOnly: m.labelOnly, labelOnlyNamedAsRef: m.labelOnlyNamedAsRef, unattributedCalls: m.unattributedCalls }));
+    }
+    deps.log(line({ event: 'SITUATION_NAMEABLE', domain: 'PIPELINE', kind: 'customer', working: g.pipeline.working, stalled: g.pipeline.stalled, nameable: g.pipeline.nameable, withActivePartyLink: g.pipeline.withActivePartyLink }));
+    deps.log(line({ event: 'SITUATION_NAMEABLE', domain: 'CRM', kind: 'party', established: g.crm.established, newlyEstablished7d: g.crm.newlyEstablished7d, nameable: g.crm.nameable, awaitingDecision: g.crm.awaitingDecision }));
+    for (const [scenario, p] of [['CURRENT', c.current], ['PROJECTOR', c.projector]] as const) {
+      for (const grp of p.groups) {
+        deps.log(line({ event: 'SITUATION_POTENTIAL_GROUP', scenario, domains: joined(grp.domains), sources: joined(grp.sources), count: grp.count, independent: grp.independent }));
+      }
+      deps.log(line({ event: 'SITUATION_POTENTIAL', scenario, crossDomain: p.crossDomain, independent: p.independent, eliminatedSameSource: p.eliminatedSameSource, bound: 'UPPER' }));
+    }
+    deps.log(line({ event: 'SITUATION_CONNECTIVITY_SUMMARY', bounded: g.bounded, linksCreated: 0, modelCalls: 0 }));
+  }
+
   deps.log(line({
     event: 'SUMMARY',
     cases: state.cases.rows.length,
@@ -321,7 +354,8 @@ async function main(): Promise<number> {
     // The situation diagnosis: the same read-only client, NO runtime and no task enabled -- it cannot call a model.
     const situationService = new SituationService({ prisma: readOnlyClient(prisma), runtime: null, modelEnabled: () => false, principalFor: async () => null, now: () => new Date() });
     const situations = (organizationId: string) => situationService.diagnose({ scope: 'ORGANIZATION', organizationId });
-    const result = await runIntelligenceState({ organizationSlug: args.organization, since: args.since }, { reader, situations, now: () => new Date(), log });
+    const connectivity = (organizationId: string) => situationService.connectivity(organizationId);
+    const result = await runIntelligenceState({ organizationSlug: args.organization, since: args.since }, { reader, situations, connectivity, now: () => new Date(), log });
     return result.overall === 'READ' ? 0 : 1;
   } finally {
     await prisma.$disconnect();

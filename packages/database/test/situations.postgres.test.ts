@@ -463,3 +463,92 @@ test('DIAGNOSIS: counts and the first gate that stops the pass -- NO_SHARED_ENTI
     await prisma.$disconnect();
   }
 });
+
+// --- What an organization could legitimately connect (2026-09-29) --------------------------------------
+test('CONNECTIVITY: governed relationships as counts; stable vs label-only members; nameable records; potential components today and with the projector, with the same-source pair eliminated -- read-only, no identifiers', { skip }, async () => {
+  const prisma = new PrismaClient({ datasources: { db: { url: URL } } });
+  forgetIntelligenceFabricPresence();
+  const { readOnlyClient } = await import('../src/repositories/read-only-client');
+  const organizationId = `0conn_${randomUUID()}`;
+  try {
+    await prisma.organization.create({ data: { id: organizationId, name: 'CONN', slug: organizationId } });
+    const userId = `user_conn_${randomUUID()}`;
+    await prisma.user.create({ data: { id: userId, organizationId, email: `${userId}@example.test`, name: 'CONN', status: 'ACTIVE', metadata: { systemRole: 'OWNER' } } });
+    const digests = new IntelligenceDigestRepository(prisma);
+    const CAMP = 'provider_member:callgrid:campaign:camp-1';
+    const withSource = (d: IntelligenceDigestInput, sourceId: string): IntelligenceDigestInput => ({ ...d, provenance: { ...d.provenance, sources: [{ sourceId, asOf: at(-1).toISOString(), coverage: 'CONNECTED_SUFFICIENT' }] } });
+    // CallGrid and Campaigns both name the same campaign: one source (marketplace_calls), two readings.
+    assert.equal((await digests.upsertOrganization(organizationId, withSource(digest('CALLGRID', 'calls-change', 'Secret callgrid statement.', CAMP), 'CALLGRID'))).outcome, 'WRITTEN');
+    const campaigns = await digests.upsertOrganization(organizationId, withSource(digest('CAMPAIGNS', 'campaign.camp-1', 'Secret campaign statement.', CAMP), 'CALLGRID'));
+    assert.equal(campaigns.outcome, 'WRITTEN');
+    const campaignsDigestId = (campaigns as { digest: { id: string } }).digest.id;
+
+    // Work: an overdue instance, named by the Work reading, promoted (by a person) from the Campaigns signal.
+    const w1 = await prisma.workInstance.create({ data: { organizationId, title: 'Secret work title', createdByUserId: userId } });
+    assert.equal((await digests.upsertOrganization(organizationId, withSource(digest('WORK', 'overdue', 'Secret work statement.', `work_instance:${w1.id}`), 'LOOP_WORK'))).outcome, 'WRITTEN');
+    const origin = (patch: Record<string, unknown>) =>
+      prisma.workOrigin.create({ data: { organizationId, workInstanceId: w1.id, originKind: 'DIGEST_SIGNAL', originScope: 'ORGANIZATION', originRef: `${campaignsDigestId}#campaign.camp-1`, originFingerprint: 'f', promotedByUserId: userId, promotedAt: at(-1), sharedFields: [], submissionKey: `sub_${randomUUID()}`, ...patch } });
+    await origin({});
+    await origin({ originRef: 'nodigest#k' });
+    await origin({ originScope: 'PRINCIPAL', originUserId: userId });
+    await origin({ originKind: 'CASE', originRef: 'case_x' });
+
+    // Parties, intake records, a governed link, a reversed one, and a creator on the same Party.
+    const party = await prisma.cognitiveIdentity.create({ data: { organizationId, entityType: 'PERSON', canonicalKey: `conn:${randomUUID()}`, establishedAt: at(-30), establishmentBasis: 'MANUAL' } });
+    await prisma.cognitiveIdentity.create({ data: { organizationId, entityType: 'COMPANY', canonicalKey: `conn:${randomUUID()}`, establishedAt: at(-2), establishmentBasis: 'MANUAL' } });
+    await prisma.cognitiveIdentity.create({ data: { organizationId, entityType: 'PERSON', canonicalKey: `conn:${randomUUID()}` } });
+    const stalled = (email: string) => prisma.customer.create({ data: { organizationId, email, phone: '+15550100', firstName: 'Dana', attributes: { pipelineStatus: 'Quoted' }, lastSeenAt: at(-30) } });
+    const c1 = await stalled('dana@secret.test');
+    const c2 = await stalled('other@secret.test');
+    await prisma.customer.create({ data: { organizationId, email: 'fresh@secret.test', attributes: { pipelineStatus: 'New' }, lastSeenAt: at(0) } });
+    await prisma.customerPartyLink.create({ data: { organizationId, customerId: c1.id, partyId: party.id, basis: 'MANUAL', activeCustomerId: c1.id } });
+    await prisma.customerPartyLink.create({ data: { organizationId, customerId: c2.id, partyId: party.id, basis: 'MANUAL', linkedAt: at(-3), reversedAt: at(-1) } });
+    const creator = await prisma.creatorProfile.create({ data: { organizationId, partyId: party.id, displayName: 'Secret Creator' } });
+    assert.equal((await digests.upsertOrganization(organizationId, withSource(digest('CREATORS', 'needs-emg', 'Secret creator statement.', `creator:${creator.id}`), 'LOOP_CREATORS'))).outcome, 'WRITTEN');
+
+    // CallGrid members: a stable id, a label-only key that passes as a reference, one that does not, none.
+    const call = (patch: Record<string, unknown>) => prisma.marketplaceCall.create({ data: { organizationId, provider: 'callgrid', externalId: `call_${randomUUID()}`, sourceOccurredAt: at(-1), ...patch } as never });
+    await call({ campaignExternalId: 'CAMP-1', campaignLabel: 'Secret Campaign', buyerExternalId: 'B-1', buyerLabel: 'Secret Buyer' });
+    await call({ campaignExternalId: 'CAMP-1', campaignLabel: 'Secret Campaign', buyerLabel: 'buyer-acme' });
+    await call({ campaignLabel: 'acme-solar' });
+    await call({ campaignLabel: 'Glow Cosmetics' });
+    await call({});
+
+    const before = await Promise.all([prisma.entityLink.count(), prisma.intelligenceDigest.count({ where: { organizationId } }), prisma.aiInvocation.count(), prisma.situationCandidate.count()]);
+    const service = new SituationService({ prisma: readOnlyClient(prisma), runtime: null, modelEnabled: () => false, principalFor: async () => null, now: () => new Date() });
+    const c = await service.connectivity(organizationId);
+
+    assert.deepEqual(c.governed.customerPartyLinks, { active: 1, toEstablishedParty: 1 }, 'ACTIVE links to established Parties only');
+    assert.deepEqual(c.governed.creatorProfiles, { total: 1, withEstablishedParty: 1 });
+    assert.deepEqual(c.governed.workOrigins, [
+      { kind: 'CASE', scope: 'ORGANIZATION', outcome: 'CASE_ORIGIN', count: 1 },
+      { kind: 'DIGEST_SIGNAL', scope: 'ORGANIZATION', outcome: 'DIGEST_GONE', count: 1 },
+      { kind: 'DIGEST_SIGNAL', scope: 'PRINCIPAL', outcome: 'PRIVATE_SCOPE', count: 1 },
+      { kind: 'DIGEST_SIGNAL', scope: 'ORGANIZATION', outcome: 'RESOLVES_TO_ENTITY', count: 1 },
+    ]);
+    assert.deepEqual(c.governed.members, [
+      { dimension: 'campaign', windowDays: 14, stableExternalId: 1, labelOnly: 2, labelOnlyNamedAsRef: 1, unattributedCalls: 1 },
+      { dimension: 'buyer', windowDays: 14, stableExternalId: 1, labelOnly: 1, labelOnlyNamedAsRef: 1, unattributedCalls: 3 },
+    ]);
+    assert.deepEqual(c.governed.pipeline, { working: 3, stalled: 2, nameable: 2, withActivePartyLink: 1 });
+    assert.deepEqual(c.governed.crm, { established: 2, newlyEstablished7d: 1, nameable: 1, awaitingDecision: 1 });
+
+    // TODAY: CallGrid + Campaigns share the campaign -- one source, so the two-source rule removes it.
+    assert.deepEqual(c.current, { crossDomain: 1, independent: 0, eliminatedSameSource: 1, groups: [{ domains: ['CALLGRID', 'CAMPAIGNS'], sources: ['CALLGRID'], count: 1, independent: false }] });
+    // WITH THE PROJECTOR: the WorkOrigin joins Work to that campaign (now independent: LOOP_WORK), and the
+    // CustomerPartyLink + CreatorProfile join a stalled intake record and a creator through one Party.
+    assert.deepEqual([c.projector.crossDomain, c.projector.independent, c.projector.eliminatedSameSource], [2, 2, 0]);
+    assert.deepEqual(c.projector.groups.map((g) => [g.domains.join('+'), g.sources.join('+'), g.count, g.independent]).sort(), [
+      ['CALLGRID+CAMPAIGNS+WORK', 'CALLGRID+LOOP_WORK', 1, true],
+      ['CREATORS+PIPELINE', 'LOOP_CREATORS+LOOP_INTAKE', 1, true],
+    ]);
+
+    // Metadata only, and nothing was written: no link, no digest, no ledger row, no candidate.
+    const text = JSON.stringify(c);
+    for (const secret of ['Secret', 'dana@', '+1555', 'Dana', 'acme', 'Glow', 'CAMP-1', 'camp-1', c1.id, party.id, creator.id, w1.id, organizationId, userId]) assert.equal(text.includes(secret), false, secret);
+    assert.deepEqual(await Promise.all([prisma.entityLink.count(), prisma.intelligenceDigest.count({ where: { organizationId } }), prisma.aiInvocation.count(), prisma.situationCandidate.count()]), before);
+  } finally {
+    await prisma.organization.delete({ where: { id: organizationId } }).catch(() => undefined);
+    await prisma.$disconnect();
+  }
+});
