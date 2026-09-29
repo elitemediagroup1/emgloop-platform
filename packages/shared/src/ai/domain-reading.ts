@@ -74,7 +74,7 @@ export const DOMAIN_READING_SCHEMA = Object.freeze({
       additionalProperties: false,
       required: ['statement', 'status', 'confidence'],
       properties: {
-        statement: { type: 'string', description: 'One sentence: what matters in this domain now. No quotes.' },
+        statement: { type: 'string', description: 'One plain sentence, at most 200 characters: what materially changed or matters in this domain now. No quotes, no advice.' },
         status: { type: 'string', enum: [...INTELLIGENCE_READING_STATUS] },
         confidence: ordinal,
       },
@@ -96,11 +96,11 @@ export const DOMAIN_READING_SCHEMA = Object.freeze({
           dueAt: nullable({ type: 'string', description: 'A UTC instant copied exactly from a source (YYYY-MM-DDTHH:MM:SS.sssZ), or null. Never a date alone.' }),
           confidence: ordinal,
           severity: ordinal,
-          owedBy: nullable({ type: 'string', enum: [...INTELLIGENCE_OWED_BY] }),
+          owedBy: nullable({ type: 'string', enum: [...INTELLIGENCE_OWED_BY], description: 'Only on an OBLIGATION. On every other kind, null.' }),
         },
       },
     },
-    limitations: { type: 'array', items: { type: 'string' } },
+    limitations: { type: 'array', items: { type: 'string', description: 'One sentence, at most 280 characters.' }, description: 'At most 8. Only gaps that change what the reading means.' },
   },
 });
 

@@ -137,8 +137,8 @@ test('root cause, pinned: an answer written as template v1 instructed (dueAt as 
   assert.deepEqual(rec.rejectionCodes, ['UNSUPPORTED_DATE_IN_TEXT']);
 });
 
-test('template v2 asks for the shape the contract accepts: occurredAt/dueAt copied as instants, never a date alone; no clock times; no quotes', () => {
-  assert.equal(DOMAIN_READING_TEMPLATE_VERSION, '2', 'a changed prompt is a new version (and a new reading identity)');
+test('the template (v2 on, now v3) asks for the shape the contract accepts: occurredAt/dueAt copied as instants, never a date alone; no clock times; no quotes', () => {
+  assert.equal(DOMAIN_READING_TEMPLATE_VERSION, '3', 'a changed prompt is a new version (and a new reading identity)');
   const text = renderDomainReadingInstructions({ domainDescription: 'x', audience: 'PRINCIPAL', lookFor: [] }, ['work_event:ev1'], []);
   assert.match(text, /`occurredAt` and `dueAt` are instants: copy one exactly as a source writes it \(YYYY-MM-DDTHH:MM:SS\.sssZ\)/);
   assert.match(text, /Never a date alone/);
@@ -240,7 +240,7 @@ test('the backoff is per subject and per question: another person, another task 
   const q = { organizationId: ORG, userId: USER, taskId: 'calendar.domain.reading', taskVersion: h.ledger.calls[0]!.taskVersion, templateVersion: DOMAIN_READING_TEMPLATE_VERSION, since: T0 };
   assert.equal(await port(q), true);
   assert.equal(await port({ ...q, userId: 'someone_else' }), false, 'another person');
-  assert.equal(await port({ ...q, templateVersion: '3' }), false, 'a fixed template is a new question');
+  assert.equal(await port({ ...q, templateVersion: String(Number(DOMAIN_READING_TEMPLATE_VERSION) + 1) }), false, 'a fixed template is a new question');
   assert.equal(await port({ ...q, taskVersion: `${q.taskVersion}.next` }), false, 'a new task version too');
   assert.equal(await port({ ...q, organizationId: 'other-org' }), false, 'never across organizations');
   // A ledger that cannot be read: no call (fail closed), and the stage retries next pass.

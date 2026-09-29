@@ -26,7 +26,7 @@
 // NO SCHEDULE, NO PUSH, NO PULL_REQUEST, NO WORKFLOW_CALL. Reading production is still touching
 // production, and a human should be the one asking.
 
-import type { IntelligenceState, PipelineComposition, SituationConnectivity, SituationDiagnosis } from '@emgloop/database';
+import type { IntelligenceState, PipelineComposition, ReadingState, SituationConnectivity, SituationDiagnosis } from '@emgloop/database';
 import { SLICE1_MERGED_AT } from './read-people-population';
 import { employeeRef } from './cycle-employee-sources';
 
@@ -54,6 +54,11 @@ export interface IntelligenceStateDeps {
    * months, real activity of the stalled records, and nameable ids. Absent: not printed.
    */
   pipeline?: (organizationId: string, slice1At: Date) => Promise<PipelineComposition>;
+  /**
+   * Whether the domain readings are the model's, and the AI ledger behind them
+   * (IntelligenceReadingStateRepository on the read-only client). Absent: not printed.
+   */
+  readings?: (organizationId: string, since: Date, now: Date) => Promise<ReadingState>;
   now: () => Date;
   log: (line: string) => void;
 }
@@ -335,7 +340,38 @@ export async function runIntelligenceState(
     deps.log(line({ event: 'SITUATION_CONNECTIVITY_SUMMARY', bounded: g.bounded || c.relationshipsBounded, linksCreated: 0, modelCalls: 0 }));
   }
 
-  // 11. What the Pipeline reading is counting -- counts and codes; no id, name, contact or status value.
+  // 11. The domain readings and the AI ledger: whether each reading is the model's, why not when it is not, and
+  //     every call in the window -- codes and counts only; no content, subject, user, prompt or answer.
+  if (deps.readings) {
+    const r = await deps.readings(org.id, window.since, deps.now());
+    const tally = (m: Readonly<Record<string, number>>) => Object.entries(m).map(([k, n]) => `${token(k)}:${n}`).sort().join(',') || null;
+    for (const g of r.readings) {
+      deps.log(line({
+        event: 'INTELLIGENCE_READING',
+        scope: token(g.scope),
+        domain: token(g.domain),
+        status: token(g.status),
+        kind: token(g.producerKind),
+        modelStage: token(g.modelStage),
+        task: token(g.taskId),
+        digests: g.digests,
+        withInvocation: g.withInvocation,
+        ledgerLinked: g.linked,
+        ledgerOutcome: tally(g.ledgerOutcomes),
+        provider: tally(g.providers),
+        latestGeneratedAt: iso(g.latestGeneratedAt),
+      }));
+    }
+    for (const l of r.ledger) {
+      deps.log(line({ event: 'AI_LEDGER', task: token(l.taskId), provider: token(l.providerId), outcome: token(l.outcome), lane: token(l.lane), failureClass: token(l.failureClass), count: l.count }));
+    }
+    for (const x of r.rejections) deps.log(line({ event: 'AI_LEDGER_REJECTION', task: token(x.taskId), code: token(x.code), count: x.count }));
+    const modelBacked = r.readings.filter((g) => g.producerKind === 'RULE_AND_MODEL' && g.status === 'CURRENT').reduce((n, g) => n + g.digests, 0);
+    const answered = r.ledger.filter((l) => l.outcome === 'ANSWERED').reduce((n, l) => n + l.count, 0);
+    deps.log(line({ event: 'INTELLIGENCE_READING_SUMMARY', readings: r.readings.reduce((n, g) => n + g.digests, 0), currentModelBacked: modelBacked, ledgerCalls: r.ledger.reduce((n, l) => n + l.count, 0), ledgerAnswered: answered, bounded: r.bounded }));
+  }
+
+  // 12. What the Pipeline reading is counting -- counts and codes; no id, name, contact or status value.
   if (deps.pipeline) {
     const p = await deps.pipeline(org.id, new Date(SLICE1_MERGED_AT));
     // `v1Working`/`v1Stalled`: the PRE-REPAIR definition (every row, lastSeenAt), kept for comparison only.
@@ -399,7 +435,7 @@ async function main(): Promise<number> {
     return 2;
   }
 
-  const { prisma, readOnlyClient, IntelligenceStateRepository, SituationService, PipelineCompositionRepository } = await import('@emgloop/database');
+  const { prisma, readOnlyClient, IntelligenceStateRepository, SituationService, PipelineCompositionRepository, IntelligenceReadingStateRepository } = await import('@emgloop/database');
   try {
     // The reader gets a client that can only read. Its own `$disconnect` stays with this wiring.
     const reader = new IntelligenceStateRepository(readOnlyClient(prisma));
@@ -409,7 +445,9 @@ async function main(): Promise<number> {
     const connectivity = (organizationId: string) => situationService.connectivity(organizationId);
     const composition = new PipelineCompositionRepository(readOnlyClient(prisma));
     const pipeline = (organizationId: string, slice1At: Date) => composition.read(organizationId, new Date(), slice1At);
-    const result = await runIntelligenceState({ organizationSlug: args.organization, since: args.since }, { reader, situations, connectivity, pipeline, now: () => new Date(), log });
+    const readingState = new IntelligenceReadingStateRepository(readOnlyClient(prisma));
+    const readings = (organizationId: string, since: Date, now: Date) => readingState.read(organizationId, since, now);
+    const result = await runIntelligenceState({ organizationSlug: args.organization, since: args.since }, { reader, situations, connectivity, pipeline, readings, now: () => new Date(), log });
     return result.overall === 'READ' ? 0 : 1;
   } finally {
     await prisma.$disconnect();

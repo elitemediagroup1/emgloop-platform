@@ -116,3 +116,27 @@ test('Chats v5: listing openai beside telegram.content.triage no longer refuses 
   assert.doesNotThrow(() => assertWorkerProvidersVerified(['anthropic', 'openai'], ['telegram.content.triage']));
   assert.doesNotThrow(() => assertWorkerProvidersVerified(['anthropic', 'openai'], ['not.a.task']), 'an unknown task names no schema');
 });
+
+// --- Commissioning Anthropic across the domain readings (2026-09-29) ---------------------------------
+// What the worker constructs is decided by LOOP_AI_PROVIDERS alone (the stack sets it; a blank
+// CONNECTIONS_<STAGE>_AI_PROVIDERS already synthesizes `anthropic` -- infra/connections/test/stack.test.ts).
+// `enabled` needs a CONFIGURED client on the triage route, so it shows which client exists.
+test('provider activation: blank constructs no client; anthropic constructs only Anthropic; an unknown provider or a missing key fails closed', () => {
+  const TRIAGE = { ...ON, LOOP_AI_TASKS: 'telegram.content.triage,callgrid.domain.reading' };
+  assert.equal(createWorkerAiRuntime(NO_DB, { env: { ...TRIAGE, LOOP_AI_PROVIDERS: '' } }).enabled, false, 'blank: no client at all');
+  assert.equal(createWorkerAiRuntime(NO_DB, { env: { ...TRIAGE } }).enabled, true, 'anthropic with its key: a client');
+  assert.equal(createWorkerAiRuntime(NO_DB, { env: { ...TRIAGE, LOOP_AI_PROVIDERS: 'mistral' } }).enabled, false, 'unknown: nothing constructed, nothing guessed');
+  assert.equal(createWorkerAiRuntime(NO_DB, { env: { ...TRIAGE, ANTHROPIC_API_KEY: undefined } }).enabled, false, 'missing key: not configured');
+  assert.equal(createWorkerAiRuntime(NO_DB, { env: { ...TRIAGE, LOOP_AI_PROVIDERS: 'openai' } }).enabled, false, 'openai listed without its key: nothing -- and the Anthropic key is never used for it');
+  assert.deepEqual(workerListedProviders({ LOOP_AI_PROVIDERS: 'anthropic' }), ['anthropic'], 'listing anthropic never lists openai');
+  // The domain tasks ride the SAME gateway: activated exactly as listed, and nothing else.
+  assert.deepEqual([...createWorkerAiRuntime(NO_DB, { env: TRIAGE }).activatedTasks], ['telegram.content.triage', 'callgrid.domain.reading']);
+  assert.deepEqual([...createWorkerAiRuntime(NO_DB, { env: { ...TRIAGE, LOOP_AI_ENABLED: 'false' } }).activatedTasks], [], 'off: no task is activated');
+});
+
+test('the credential never leaves the factory: no key value in any field of the assembled runtime', () => {
+  const rt = createWorkerAiRuntime(NO_DB, { env: { ...ON, LOOP_AI_TASKS: 'telegram.content.triage' } });
+  const seen = new WeakSet();
+  const text = JSON.stringify(rt, (_k, v) => (typeof v === 'object' && v !== null ? (seen.has(v) ? undefined : (seen.add(v), v)) : v));
+  assert.equal(text.includes('sk-ant-test-not-a-real-key'), false);
+});

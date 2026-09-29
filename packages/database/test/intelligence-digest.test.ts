@@ -156,8 +156,10 @@ test('the repository has no organization-wide read of digests and no role bypass
   const counts = bodyOf('organizationCounts');
   assert.match(counts, /groupBy\(\{\s*by: \['scope', 'domain', 'status', 'coverage'\]/);
   assert.doesNotMatch(counts, /userId|content|subjectRef|provenance|findMany|findFirst|select:/, 'no identity, no content, no row read');
-  // The fingerprint lookup selects three columns and nothing else.
-  assert.match(bodyOf('storedFingerprint'), /select: \{ fingerprint: true, status: true, version: true \}/);
+  // The fingerprint lookup selects its columns and the provenance (producer kind and reading identity, for the
+  // model-read interval) -- never the content or the subject.
+  assert.match(bodyOf('storedFingerprint'), /select: \{ fingerprint: true, status: true, version: true, generatedAt: true, provenance: true \}/);
+  assert.doesNotMatch(bodyOf('storedFingerprint'), /content: true|subjectRef: true|entityRefs: true/);
   // Merge-safe: no read or write in this file returns a whole row.
   for (const call of code.matchAll(/intelligenceDigest\.(findFirst|findMany|create|update)\(\{[\s\S]*?\}\);/g)) {
     assert.match(call[0], /select/, `${call[1]} names its columns`);

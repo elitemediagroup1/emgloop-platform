@@ -2438,6 +2438,44 @@ worker is redeployed on it, and the runtime has been verified in production.
 
 Blueprint: https://claude.ai/artifact/VZuKzXAmCpc2WZsQR32gDS
 
+## Loop Intelligence — Anthropic commissioning across domain readings — IN REVIEW (draft PR, branch `fix/intelligence-anthropic-commissioning`, off main `20fc667`)
+
+**Root cause.** Anthropic was not switched off. A blank `CONNECTIONS_PRODUCTION_AI_PROVIDERS` means the
+default, `anthropic`: the production synth on 2026-09-29 sets `LOOP_AI_PROVIDERS=anthropic` and references
+`anthropic_api_key`. What was actually wrong:
+- **Unprovable.** No record said whether a reading was the model's or why not; the stage code lived only in
+  CloudWatch logs.
+- **Unbounded spend.** A failing provider was re-asked every 15-minute pass. CallGrid and Campaigns
+  re-asked about 24 times a day each (an hour key over a sliding window), enough to exhaust the BACKGROUND lane
+  (60 calls) that Telegram hydration shares.
+- **Contradictory prompt.** Template v2 told the model "owedBy ... otherwise UNKNOWN", which the contract
+  refuses.
+
+**Fixed in the PR:**
+- `modelStage` and `readingIdentity` are stored on digest provenance.
+- Read Intelligence State shows `INTELLIGENCE_READING`, `AI_LEDGER` and `AI_LEDGER_REJECTION`: digests
+  joined to `ai_invocations`, codes only.
+- A 3-hour failure backoff and a 6-hour model-read interval for organization readings.
+- A merge guard.
+- Template v3: the contract stated, plus a concision and honest-silence standard.
+
+**Production facts (run logs):**
+- Anthropic policy ACTIVE up to COMMUNICATION_CONTENT; OpenAI NONE.
+- `operating.initial.1` is recorded (BACKGROUND $2 and 60 calls, breaker 10 an hour).
+- The acting operator is named.
+- CRM has 0 established Parties, so it has no reading.
+- **`situation.synthesis` and `situation.verify` are ALREADY in `CONNECTIONS_PRODUCTION_AI_TASKS`, with
+  `INTELLIGENCE_SITUATIONS=organization`.** Synthesis would run by itself the moment a source-independent
+  cluster appears (0 today).
+
+**Next (Matt):**
+1. Review and merge. No migration.
+2. Optional but advised: remove `situation.synthesis,situation.verify` from `CONNECTIONS_PRODUCTION_AI_TASKS`
+   until Situations are commissioned deliberately.
+3. Redeploy the worker (Connections infra deploy, production). Template v3 is a new reading identity, so every
+   domain with evidence makes one model read on the next pass.
+4. After about 20 minutes, dispatch Read Intelligence State and read the `INTELLIGENCE_READING` lines.
+
 ## Loop Intelligence — Situation entity-link projector + independent sources — IN REVIEW (draft PR, branch `feat/situation-entity-projector`, off main `9d8b72b`)
 
 **Starting point (production, 2026-09-29):**

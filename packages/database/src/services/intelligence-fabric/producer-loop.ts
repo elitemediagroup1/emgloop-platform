@@ -71,6 +71,14 @@ const HOLD_REFUSALS = new Set([
  * The fingerprint the cost gate compares: the gathered evidence fingerprint bound to how the producer would
  * read (its reading identity). Same prefix, so a stored row stays recognisable; no identity, no change.
  */
+/**
+ * The least time between two MODEL readings of one ORGANIZATION target: at most four a day per domain, whatever
+ * the evidence does. The rule floor is unaffected when no model reading stands (a RULE digest is refreshed as
+ * before). Budget arithmetic: 7 organization domains x 4 = 28 domain-reading calls a day at most, inside the
+ * recorded BACKGROUND lane (60 calls, $2) beside Telegram hydration.
+ */
+export const MODEL_READING_MIN_INTERVAL_MS = 6 * 60 * 60 * 1000;
+
 export function effectiveFingerprint(evidence: string, identity: string | null): string {
   if (!identity) return evidence;
   const prefix = (evidence.split(':')[0] ?? 'fp').replace(/[^A-Za-z0-9._-]/g, '').slice(0, 32) || 'fp';
@@ -85,9 +93,11 @@ export function effectiveFingerprint(evidence: string, identity: string | null):
  * MODEL_BACKOFF (the kit declined to spend again after a rejected answer): the rule reading stands until the
  * evidence changes after the backoff.
  */
-function modelStageSatisfied(stage: string | undefined): boolean {
+export function modelStageSatisfied(stage: string | undefined): boolean {
   if (!stage) return true;
-  return stage === 'MODEL_READ' || stage === 'MODEL_NOT_ACTIVATED' || stage === 'REFUSED_BY_MODEL' || stage === 'EMPTY_CONTEXT' || stage.startsWith('REJECTED_OUTPUT') || stage.startsWith('MODEL_BACKOFF');
+  // MODEL_BACKOFF:FAILED is NOT satisfied: the provider failed, nothing was answered, and once the failure window
+  // passes the reading is attempted again even if the evidence has not changed.
+  return stage === 'MODEL_READ' || stage === 'MODEL_NOT_ACTIVATED' || stage === 'REFUSED_BY_MODEL' || stage === 'EMPTY_CONTEXT' || stage.startsWith('REJECTED_OUTPUT') || stage === 'MODEL_BACKOFF:REJECTED_OUTPUT';
 }
 
 export async function runIntelligenceProducerCycle(deps: ProducerLoopDeps, options: ProducerLoopOptions): Promise<ProducerLoopReport> {
@@ -201,6 +211,27 @@ export async function runIntelligenceProducerCycle(deps: ProducerLoopDeps, optio
         // The stored reading stands for this evidence. (A re-affirm that did not land leaves it STALE, and the
         // repository's CURRENT check then resolves nothing.)
         await resolveSuperseded(t, expected, refreshStartedAt);
+        continue;
+      }
+
+      // THE MODEL-READ INTERVAL. An ORGANIZATION reading the model made under this same reading identity less
+      // than MODEL_READING_MIN_INTERVAL_MS ago stands, even though the evidence moved: CallGrid and Campaigns
+      // re-key every hour over a sliding window and every call moves them, so without this each would ask the
+      // model on nearly every pass -- about 24 calls a day apiece, the whole BACKGROUND lane with two domains.
+      // Nothing is written and the request completes; the stored reading still says the window it read. A new
+      // reading identity (a template or task version) is read at once. Personal readings (Calendar) are
+      // event-driven and are not held.
+      if (
+        t.scope === 'ORGANIZATION' &&
+        stored &&
+        stored.status === 'CURRENT' &&
+        stored.producerKind === 'RULE_AND_MODEL' &&
+        identity !== null &&
+        stored.readingIdentity === identity &&
+        deps.now().getTime() - stored.generatedAt.getTime() < MODEL_READING_MIN_INTERVAL_MS
+      ) {
+        note('MODEL_INTERVAL');
+        await deps.queue.complete(claim);
         continue;
       }
 

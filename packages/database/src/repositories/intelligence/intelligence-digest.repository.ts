@@ -173,7 +173,17 @@ export interface DigestProvenance {
   readonly producerKind?: IntelligenceProducerKind;
   /** Stamped by the repository when absent: the participation contract version the digest was checked against. */
   readonly contractVersion?: string;
+  /**
+   * For a producer with a model stage: how that stage went this read, as a bounded code (MODEL_READ,
+   * MODEL_NOT_ACTIVATED, NO_PRINCIPAL, REFUSED_BY_LOOP:<codes>, REJECTED_OUTPUT:<codes>, FAILED:<class>,
+   * MODEL_BACKOFF:<why>, ...), and the reading identity it read under. Codes only: never content.
+   */
+  readonly modelStage?: string;
+  readonly readingIdentity?: string;
 }
+
+/** A model-stage code or reading identity: a bounded token, never text. */
+const PROVENANCE_CODE = /^[A-Za-z0-9_.:;+@\/-]{1,200}$/;
 
 export interface IntelligenceDigestInput {
   /** Defaults to PRINCIPAL. `upsert` refuses ORGANIZATION: that is `upsertOrganization`. */
@@ -338,6 +348,10 @@ function inputIsValid(input: IntelligenceDigestInput, subjectRef: string): boole
   }
   if (p.producerKind !== undefined && !(INTELLIGENCE_PRODUCER_KINDS as readonly string[]).includes(p.producerKind)) return false;
   if (p.contractVersion !== undefined && !nonBlankString(p.contractVersion, 64)) return false;
+  for (const key of ['modelStage', 'readingIdentity'] as const) {
+    const v = p[key];
+    if (v !== undefined && !(typeof v === 'string' && PROVENANCE_CODE.test(v))) return false;
+  }
   return true;
 }
 
@@ -356,6 +370,8 @@ function storedProvenance(p: DigestProvenance, basis: IntelligenceConsentBasis):
     // PR A producer's new row keep exactly the provenance they always had.
     ...(p.sources ? { sources: p.sources.map((u) => ({ sourceId: u.sourceId, asOf: u.asOf, coverage: u.coverage })) } : {}),
     ...(p.producerKind ? { producerKind: p.producerKind, contractVersion: p.contractVersion ?? INTELLIGENCE_CONTRACT_VERSION } : {}),
+    ...(p.modelStage ? { modelStage: p.modelStage } : {}),
+    ...(p.readingIdentity ? { readingIdentity: p.readingIdentity } : {}),
   };
 }
 
@@ -696,17 +712,33 @@ export class IntelligenceDigestRepository {
   async storedFingerprint(
     owner: { readonly scope: 'PRINCIPAL'; readonly principal: IntelligencePrincipal } | { readonly scope: 'ORGANIZATION'; readonly organizationId: string },
     target: { readonly domain: IntelligenceDomain; readonly subjectKind: IntelligenceSubjectKind; readonly subjectRef: string },
-  ): Promise<{ readonly fingerprint: string; readonly status: IntelligenceDigestStatus; readonly version: number } | null> {
+  ): Promise<{
+    readonly fingerprint: string;
+    readonly status: IntelligenceDigestStatus;
+    readonly version: number;
+    /** When the stored reading was made, whether a model made it, and under which reading identity (the model-read interval). */
+    readonly generatedAt: Date;
+    readonly producerKind: string | null;
+    readonly readingIdentity: string | null;
+  } | null> {
     const where =
       owner.scope === 'PRINCIPAL'
         ? { ...workScope(owner.principal), scope: 'PRINCIPAL' }
         : { organizationId: owner.organizationId, scope: 'ORGANIZATION', userId: null };
     const row = await this.db.intelligenceDigest.findFirst({
       where: { ...where, domain: target.domain, subjectKind: target.subjectKind, subjectRef: target.subjectRef },
-      select: { fingerprint: true, status: true, version: true },
+      select: { fingerprint: true, status: true, version: true, generatedAt: true, provenance: true },
     });
     if (!row) return null;
-    return { fingerprint: row.fingerprint, status: ((INTELLIGENCE_DIGEST_STATUSES as readonly string[]).includes(row.status) ? row.status : 'STALE') as IntelligenceDigestStatus, version: row.version };
+    const p = (row.provenance && typeof row.provenance === 'object' ? row.provenance : {}) as { producerKind?: unknown; readingIdentity?: unknown };
+    return {
+      fingerprint: row.fingerprint,
+      status: ((INTELLIGENCE_DIGEST_STATUSES as readonly string[]).includes(row.status) ? row.status : 'STALE') as IntelligenceDigestStatus,
+      version: row.version,
+      generatedAt: row.generatedAt,
+      producerKind: typeof p.producerKind === 'string' ? p.producerKind : null,
+      readingIdentity: typeof p.readingIdentity === 'string' ? p.readingIdentity : null,
+    };
   }
 
   /**

@@ -83,8 +83,34 @@ Every domain is built with the **domain kit** (`domain-kit.ts`):
 - An answer Loop rejected satisfies the gate (no repeat on unchanged evidence) and backs off that subject
   for 24 hours under the same task and template version (`MODEL_REJECTION_BACKOFF_MS`, read from the AI
   ledger), so a persistent invalid shape costs at most one call per subject per task per day.
-- The domain-reading template (v2) asks for `occurredAt`/`dueAt` as instants copied from a source, the
-  shape the signal contract accepts; no clock times, no quotation marks.
+- **Failure backoff.** A provider call that FAILED (timeout, 429, 5xx) is not attempted again for that subject
+  for 3 hours (`MODEL_FAILURE_BACKOFF_MS`, from the ledger). The stage is `MODEL_BACKOFF:FAILED`, it is
+  unsatisfied, and it retries after the window even when the evidence is unchanged. Without the backoff a
+  failing provider was asked on every pass, spending the BACKGROUND lane.
+- **Model-read interval.** An ORGANIZATION reading the model made under the same reading identity less than
+  6 hours ago stands while the evidence moves (`MODEL_READING_MIN_INTERVAL_MS`; the loop notes
+  `MODEL_INTERVAL`, writes nothing, and completes the request). That caps each domain at 4 calls a day.
+  Without it, CallGrid and Campaigns, which re-key hourly over a sliding window, asked the model about 24
+  times a day each. A new reading identity is read at once. Personal (Calendar) readings are event-driven and
+  are not held.
+- **Proof on the digest.** Every reading from a producer with a model stage stores `modelStage` (the bounded
+  code) and `readingIdentity` in its provenance. A model-backed one also names the `aiInvocationId` of the
+  `ai_invocations` row that made it. Read Intelligence State joins the two.
+- **Merge guard.** The model's signals are appended under `m.` (the key is cut before prefixing, and a repeat
+  is dropped). The merged list is checked against the digest contract before it replaces the rule floor, so
+  an answer that validated alone can never cost the rule reading its write.
+- **The domain-reading template (v3)** says what the contract enforces:
+  - `occurredAt` and `dueAt` are instants copied from a source; no clock times;
+  - `owedBy` only on an OBLIGATION and null otherwise (v2 said "otherwise UNKNOWN", which the contract
+    refuses);
+  - every number is copied exactly (no rounding, abbreviating or arithmetic);
+  - the bounds: 280 characters, 6 entities, 8 limitations, unique keys;
+  - no quotation marks.
+
+  It also sets the concision standard. The reading is one plain sentence of at most 200 characters on what
+  materially changed or matters in this one domain: no advice, no preamble, and no restating the supplied
+  signals. Zero added signals is a good answer, and "nothing material changed" or "not enough evidence" is
+  correct and never filled.
 
 The organization domain producers read through the scoped `DomainFactsRepository` or the domain's own
 repository. They never call Prisma from a service.

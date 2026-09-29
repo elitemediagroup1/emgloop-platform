@@ -245,6 +245,22 @@ export class AiUsageLedgerRepository {
     organizationId: string,
     q: { readonly taskId: string; readonly taskVersion: string; readonly templateId: string; readonly templateVersion: string; readonly principalUserId: string | null; readonly since: Date },
   ): Promise<boolean> {
+    return this.outcomeSince(organizationId, 'REJECTED_BY_LOOP', q);
+  }
+
+  /** The same question for a call that FAILED (a provider or ledger failure): the domain kit's failure backoff. */
+  async failedSince(
+    organizationId: string,
+    q: { readonly taskId: string; readonly taskVersion: string; readonly templateId: string; readonly templateVersion: string; readonly principalUserId: string | null; readonly since: Date },
+  ): Promise<boolean> {
+    return this.outcomeSince(organizationId, 'FAILED', q);
+  }
+
+  private async outcomeSince(
+    organizationId: string,
+    outcome: 'REJECTED_BY_LOOP' | 'FAILED',
+    q: { readonly taskId: string; readonly taskVersion: string; readonly templateId: string; readonly templateVersion: string; readonly principalUserId: string | null; readonly since: Date },
+  ): Promise<boolean> {
     const row = await this.prisma.aiInvocation.findFirst({
       where: {
         organizationId,
@@ -252,7 +268,7 @@ export class AiUsageLedgerRepository {
         taskVersion: q.taskVersion,
         templateId: q.templateId,
         templateVersion: q.templateVersion,
-        outcome: 'REJECTED_BY_LOOP',
+        outcome,
         requestedAt: { gte: q.since },
         ...(q.principalUserId ? { principalUserId: q.principalUserId } : {}),
       },
