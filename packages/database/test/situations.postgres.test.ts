@@ -44,6 +44,9 @@ async function tenant(prisma: PrismaClient, label: string) {
   return { organizationId, owner: users[0]!, a: users[1]!, b: users[2]! };
 }
 
+/** Each domain's REAL governed source (its producer's provenance): CallGrid and Campaigns share CALLGRID. */
+const SOURCE_OF: Record<string, string> = { CALLGRID: 'CALLGRID', CAMPAIGNS: 'CALLGRID', WORK: 'LOOP_WORK', PIPELINE: 'LOOP_INTAKE', CRM: 'LOOP_CRM', CREATORS: 'LOOP_CREATORS', WEBSITE: 'WEBSITE_EVENTS' };
+
 const digest = (domain: IntelligenceDigestInput['domain'], key: string, statement: string, entity: string, patch: Partial<IntelligenceDigestInput> = {}): IntelligenceDigestInput => ({
   domain,
   subjectKind: 'DOMAIN',
@@ -55,7 +58,7 @@ const digest = (domain: IntelligenceDigestInput['domain'], key: string, statemen
   windowEnd: at(0),
   evidenceCount: 5,
   lastEvidenceAt: at(-1),
-  provenance: { sourceRefs: [`${domain.toLowerCase()}:x`], producerVersion: `${domain.toLowerCase()}.domain@1#1`, producerKind: 'RULE', sources: [{ sourceId: domain === 'WORK' ? 'LOOP_WORK' : 'CALLGRID', asOf: at(-1).toISOString(), coverage: 'CONNECTED_SUFFICIENT' }] },
+  provenance: { sourceRefs: [`${domain.toLowerCase()}:x`], producerVersion: `${domain.toLowerCase()}.domain@1#1`, producerKind: 'RULE', sources: [{ sourceId: SOURCE_OF[domain] ?? 'CALLGRID', asOf: at(-1).toISOString(), coverage: 'CONNECTED_SUFFICIENT' }] },
   aiInvocationId: null,
   entityRefs: [entity],
   fingerprint: `${domain.toLowerCase()}:${key.replace(/[^a-z0-9]/gi, '')}${statement.length}`,
@@ -96,7 +99,8 @@ test('an ORGANIZATION pass clusters, synthesizes, records a Case, degrades hones
   try {
     const t = await tenant(prisma, 'org');
     const digests = new IntelligenceDigestRepository(prisma);
-    assert.equal((await digests.upsertOrganization(t.organizationId, digest('CALLGRID', 'calls-change', 'Calls are down on one campaign.', 'provider_member:callgrid:campaign:c1'))).outcome, 'WRITTEN');
+    // Two INDEPENDENT governed sources naming the same campaign: Work (LOOP_WORK) and Campaigns (CALLGRID).
+    assert.equal((await digests.upsertOrganization(t.organizationId, digest('WORK', 'calls-change', 'Calls are down on one campaign.', 'provider_member:callgrid:campaign:c1'))).outcome, 'WRITTEN');
     assert.equal((await digests.upsertOrganization(t.organizationId, digest('CAMPAIGNS', 'campaign.c1', 'A campaign carried calls nobody bought.', 'provider_member:callgrid:campaign:c1'))).outcome, 'WRITTEN');
     const calls: { taskId: string; subjectProvider?: string }[] = [];
     const service = (verify: boolean) =>
@@ -116,7 +120,7 @@ test('an ORGANIZATION pass clusters, synthesizes, records a Case, degrades hones
     const open = await new SituationRepository(prisma).open({ scope: 'ORGANIZATION', organizationId: t.organizationId });
     assert.equal(open.length, 1);
     assert.equal(open[0]!.record!.verification.state, 'UNAVAILABLE');
-    assert.deepEqual(open[0]!.record!.domains, ['CALLGRID', 'CAMPAIGNS']);
+    assert.deepEqual(open[0]!.record!.domains, ['CAMPAIGNS', 'WORK']);
     // It is an ordinary organization Case: the Case authority sees it.
     const kase = await new OperationalPriorityRepository(prisma).findById(t.organizationId, open[0]!.id);
     assert.equal(kase?.sourceSystem, SITUATION_SOURCE);
@@ -135,7 +139,7 @@ test('an independent check that supports no claim records no situation; a model 
   try {
     const t = await tenant(prisma, 'dispute');
     const digests = new IntelligenceDigestRepository(prisma);
-    await digests.upsertOrganization(t.organizationId, digest('CALLGRID', 'k1', 'Calls are down on one campaign.', 'provider_member:callgrid:campaign:c2'));
+    await digests.upsertOrganization(t.organizationId, digest('WORK', 'k1', 'Calls are down on one campaign.', 'provider_member:callgrid:campaign:c2'));
     await digests.upsertOrganization(t.organizationId, digest('CAMPAIGNS', 'k2', 'A campaign went quiet.', 'provider_member:callgrid:campaign:c2'));
     const calls: { taskId: string }[] = [];
     const off = await new SituationService({ prisma, runtime: fakeRuntime({}, calls), modelEnabled: () => false, principalFor: async () => ({ organizationId: t.organizationId, userId: t.owner }), now: () => NOW }).pass({ scope: 'ORGANIZATION', organizationId: t.organizationId });
@@ -274,7 +278,7 @@ test('ELIGIBILITY: INSUFFICIENT, STALE-marked and ERROR digests never synthesize
     for (const variant of ['INSUFFICIENT', 'STALE', 'ERROR'] as const) {
       const t = await tenant(prisma, `inel_${variant.toLowerCase()}`);
       const digests = new IntelligenceDigestRepository(prisma);
-      await digests.upsertOrganization(t.organizationId, digest('CALLGRID', 'k1', 'Calls are down on one campaign.', 'provider_member:callgrid:campaign:e1'));
+      await digests.upsertOrganization(t.organizationId, digest('WORK', 'k1', 'Calls are down on one campaign.', 'provider_member:callgrid:campaign:e1'));
       const second = digest('CAMPAIGNS', 'k2', 'A campaign went quiet.', 'provider_member:callgrid:campaign:e1', variant === 'INSUFFICIENT' ? { coverage: 'CONNECTED_INSUFFICIENT' } : {});
       assert.equal((await digests.upsertOrganization(t.organizationId, second)).outcome, 'WRITTEN');
       if (variant === 'STALE') await prisma.intelligenceDigest.updateMany({ where: { organizationId: t.organizationId, domain: 'CAMPAIGNS' }, data: { status: 'STALE' } });
@@ -340,7 +344,7 @@ test('ELIGIBILITY: PARTIAL is permitted explicitly -- synthesis sees its coverag
   try {
     const t = await tenant(prisma, 'elig_partial');
     const digests = new IntelligenceDigestRepository(prisma);
-    const partial = digest('CALLGRID', 'calls-change', 'Calls are down on one campaign.', 'provider_member:callgrid:campaign:p1', { coverage: 'CONNECTED_PARTIAL' });
+    const partial = digest('WORK', 'calls-change', 'Calls are down on one campaign.', 'provider_member:callgrid:campaign:p1', { coverage: 'CONNECTED_PARTIAL' });
     const withLimit = { ...partial, content: { ...partial.content, limitations: ['Only some calls reported revenue.'] } };
     assert.equal((await digests.upsertOrganization(t.organizationId, withLimit)).outcome, 'WRITTEN');
     assert.equal((await digests.upsertOrganization(t.organizationId, digest('CAMPAIGNS', 'campaign.p1', 'A campaign carried calls nobody bought.', 'provider_member:callgrid:campaign:p1'))).outcome, 'WRITTEN');
@@ -349,7 +353,7 @@ test('ELIGIBILITY: PARTIAL is permitted explicitly -- synthesis sees its coverag
     const first = await service.pass({ scope: 'ORGANIZATION', organizationId: t.organizationId });
     assert.deepEqual(first.decisions, { NEW: 1 });
     const items = requests[0].context.items.map((i: { content: string }) => JSON.parse(i.content));
-    const partialItem = items.find((i: { part: string }) => i.part === 'CALLGRID');
+    const partialItem = items.find((i: { part: string }) => i.part === 'WORK');
     assert.equal(partialItem.coverage, 'CONNECTED_PARTIAL', 'the model is told the reading is partial');
     assert.ok(partialItem.limitations.includes(PARTIAL_COVERAGE_LIMITATION) && partialItem.limitations.includes('Only some calls reported revenue.'));
     assert.match(requests[0].instructions, /CONNECTED_PARTIAL was read only in part/);
@@ -373,7 +377,7 @@ test('ELIGIBILITY: PARTIAL is permitted explicitly -- synthesis sees its coverag
 // SituationService.diagnose replays the pass's deterministic half (the SAME prepare step) on a read-only
 // client and says, in counts and codes, where it stops.
 
-test('DIAGNOSIS: counts and the first gate that stops the pass -- NO_SHARED_ENTITY, then WOULD_SYNTHESIZE, ALL_UNCHANGED, via an explicit link, NOT_SELECTED -- read-only, no model, no identifiers', { skip }, async () => {
+test('DIAGNOSIS: counts and the first gate that stops the pass -- NO_SHARED_ENTITY, NO_INDEPENDENT_SOURCES (CallGrid + Campaigns, one source), WOULD_SYNTHESIZE (a second source), ALL_UNCHANGED, NOT_SELECTED -- read-only, no model, no identifiers', { skip }, async () => {
   const prisma = new PrismaClient({ datasources: { db: { url: URL } } });
   forgetIntelligenceFabricPresence();
   const { readOnlyClient } = await import('../src/repositories/read-only-client');
@@ -386,8 +390,6 @@ test('DIAGNOSIS: counts and the first gate that stops the pass -- NO_SHARED_ENTI
     const digests = new IntelligenceDigestRepository(prisma);
     const BUYER = 'provider_member:callgrid:buyer:b-secret-1';
     const CAMPAIGN = 'provider_member:callgrid:campaign:c-secret-2';
-    // The production shape: CallGrid names a buyer, Campaigns names a campaign, Pipeline names nothing; each
-    // also carries a MEASURED/OPERATIONAL figure that can never start a situation.
     const measured = (domain: 'CALLGRID' | 'CAMPAIGNS' | 'PIPELINE') => ({ key: `${domain.toLowerCase()}.calls`, kind: 'OPERATIONAL', knowledge: 'MEASURED', statement: 'Secret figure statement 41.', evidenceRefs: [`${domain.toLowerCase()}:x`], metric: { name: 'calls', value: 41, unit: 'count' }, asOf: at(-1).toISOString() });
     const withMeasured = (d: IntelligenceDigestInput, domain: 'CALLGRID' | 'CAMPAIGNS' | 'PIPELINE'): IntelligenceDigestInput => ({ ...d, content: { ...d.content, signals: [...d.content.signals, measured(domain)] } });
     assert.equal((await digests.upsertOrganization(orgA, withMeasured(digest('CALLGRID', 'buyer-concentration', 'Secret buyer statement.', BUYER), 'CALLGRID'))).outcome, 'WRITTEN');
@@ -401,59 +403,61 @@ test('DIAGNOSIS: counts and the first gate that stops the pass -- NO_SHARED_ENTI
     const counts = async () => Promise.all([prisma.intelligenceDigest.count(), prisma.situationCandidate.count(), prisma.operationalPriority.count(), prisma.entityLink.count(), prisma.aiInvocation.count()]);
     const before = await counts();
 
-    // 1. Production's shape: no entity is named in two domains, and no explicit link joins them.
+    // 1. Production's shape: no entity is named in two domains, and nothing links them.
     const d1 = await service.diagnose(owner);
     assert.deepEqual(
       { ...d1, domains: undefined },
       {
         selected: true, digests: 3, eligibleDigests: 3, eligibleDomains: ['CALLGRID', 'CAMPAIGNS', 'PIPELINE'], ineligible: {}, domains: undefined,
         signals: 6, clusterableSignals: 2, excluded: { kind: { OPERATIONAL: 3 }, noEntity: 1 }, clusterableDomains: ['CALLGRID', 'CAMPAIGNS'],
-        entityRefs: 2, explicitLinks: 0, sharedAcrossDomains: 0, clusters: 0, unchanged: 0, wouldSynthesize: 0, reason: 'NO_SHARED_ENTITY',
+        entityRefs: 2, explicitLinks: 0, projectedLinks: 0,
+        projection: [{ linkClass: 'CUSTOMER_PARTY', records: 0, links: 0, rejected: {} }, { linkClass: 'CREATOR_PARTY', records: 0, links: 0, rejected: {} }, { linkClass: 'WORK_ORIGIN', records: 0, links: 0, rejected: {} }],
+        sharedAcrossDomains: 0, clusters: 0, independentClusters: 0, eliminatedSameSource: 0, composition: [], unchanged: 0, wouldSynthesize: 0, reason: 'NO_SHARED_ENTITY',
       },
     );
-    assert.deepEqual(d1.domains, [
-      { domain: 'CALLGRID', digests: 1, eligible: 1, signals: 2, clusterable: 1, entityRefs: 1 },
-      { domain: 'CAMPAIGNS', digests: 1, eligible: 1, signals: 2, clusterable: 1, entityRefs: 1 },
-      { domain: 'PIPELINE', digests: 1, eligible: 1, signals: 2, clusterable: 0, entityRefs: 0 },
-    ]);
-    // Metadata only: no statement, entity, organization id or figure in what leaves the diagnosis.
-    const text = JSON.stringify(d1);
-    for (const secret of ['Secret', 'b-secret-1', 'c-secret-2', orgA, 'provider_member']) assert.equal(text.includes(secret), false, secret);
+    // Metadata only.
+    for (const secret of ['Secret', 'b-secret-1', 'c-secret-2', orgA, 'provider_member']) assert.equal(JSON.stringify(d1).includes(secret), false, secret);
 
-    // 2. An explicit link joins the buyer and the campaign: one cross-domain cluster that would need synthesis.
+    // 2. An explicit link joins the buyer and the campaign: a cross-domain cluster -- but CallGrid and Campaigns
+    //    are ONE governed source (CALLGRID). Not independent: the pass never reads it.
     const links = new EntityLinkRepository(prisma);
     assert.equal((await links.declare({ scope: 'ORGANIZATION', organizationId: orgA }, { fromRef: BUYER, toRef: CAMPAIGN, relation: 'PART_OF', basis: 'RULE', source: 'diag-test', effectiveFrom: at(-2) })).outcome, 'LINKED');
     const d2 = await service.diagnose(owner);
-    assert.deepEqual([d2.explicitLinks, d2.sharedAcrossDomains, d2.clusters, d2.unchanged, d2.wouldSynthesize, d2.reason], [1, 0, 1, 0, 1, 'WOULD_SYNTHESIZE']);
+    assert.deepEqual([d2.explicitLinks, d2.clusters, d2.independentClusters, d2.eliminatedSameSource, d2.wouldSynthesize, d2.reason], [1, 1, 0, 1, 0, 'NO_INDEPENDENT_SOURCES']);
+    assert.deepEqual(d2.composition, [{ domains: ['CALLGRID', 'CAMPAIGNS'], sources: ['CALLGRID'], count: 1, independent: false }]);
+    const calls: string[] = [];
+    const runtime = { run: async (_p: unknown, req: { task: { taskId: string } }) => (calls.push(req.task.taskId), { outcome: 'REFUSED_BY_LOOP', refusals: ['TEST'] }) } as never;
+    const pass = await new SituationService({ prisma, runtime, modelEnabled: () => true, principalFor: async () => ({ organizationId: orgA, userId: 'u' }), now: () => new Date() }).pass(owner);
+    assert.deepEqual([pass.candidates, pass.notIndependent, pass.unchanged, pass.notAsked], [1, 1, 0, 0]);
+    assert.deepEqual(calls, [], 'a same-source cluster never reaches the model, even with every task enabled');
 
-    // The diagnosis is what the pass sees: the pass (no runtime) finds the same cluster and asks nothing.
-    const pass = await new SituationService({ prisma, runtime: null, modelEnabled: () => false, principalFor: async () => null, now: () => new Date() }).pass(owner);
-    assert.deepEqual([pass.candidates, pass.unchanged, pass.notAsked], [1, 0, 1]);
+    // 3. Pipeline (a SECOND governed source, LOOP_INTAKE) names the campaign in a stalled signal: independent.
+    const named = digest('PIPELINE', 'stalled', 'Secret pipeline statement.', CAMPAIGN, { fingerprint: 'pipeline:named' });
+    const stalled = { ...named, content: { ...named.content, signals: [{ ...named.content.signals[0]!, kind: 'STALLED' }] } } as IntelligenceDigestInput;
+    assert.equal((await digests.upsertOrganization(orgA, stalled)).outcome, 'WRITTEN');
+    const d3 = await service.diagnose(owner);
+    assert.deepEqual([d3.clusters, d3.independentClusters, d3.eliminatedSameSource, d3.wouldSynthesize, d3.reason], [1, 1, 0, 1, 'WOULD_SYNTHESIZE']);
+    assert.deepEqual(d3.composition, [{ domains: ['CALLGRID', 'CAMPAIGNS', 'PIPELINE'], sources: ['CALLGRID', 'LOOP_INTAKE'], count: 1, independent: true }]);
 
-    // 3. Once decided at this fingerprint, the cluster is unchanged: ALL_UNCHANGED, nothing would be asked.
-    const [cluster] = (await import('@emgloop/shared')).clusterSituationSignals(
-      (await import('../src/services/intelligence-fabric/situations')).situationInputsOf(
-        await digests.organizationForDomain(orgA, 'CALLGRID', { now: new Date() }).then(async (a) => [...a, ...(await digests.organizationForDomain(orgA, 'CAMPAIGNS', { now: new Date() })), ...(await digests.organizationForDomain(orgA, 'PIPELINE', { now: new Date() }))]),
-        new Map([...(await prisma.intelligenceDigest.findMany({ where: { organizationId: orgA }, select: { id: true } }))].map((r) => [r.id, { connectionLive: true, sourceLastEvidenceAt: null, refreshUnresolved: false }])),
-        new Date(),
-      ),
-      [[BUYER, CAMPAIGN]],
-    );
+    // 4. Once decided at this fingerprint: ALL_UNCHANGED.
+    const shared = await import('@emgloop/shared');
+    const { situationInputsOf } = await import('../src/services/intelligence-fabric/situations');
+    const records = (await Promise.all(['CALLGRID', 'CAMPAIGNS', 'PIPELINE'].map((d) => digests.organizationForDomain(orgA, d as never, { now: new Date() })))).flat();
+    const [cluster] = shared.clusterSituationSignals(situationInputsOf(records, new Map(records.map((r) => [r.id, { connectionLive: true, sourceLastEvidenceAt: null, refreshUnresolved: false }])), new Date()), [[BUYER, CAMPAIGN]]);
+    assert.equal(cluster!.independent, true);
     const { createHash } = await import('node:crypto');
     const sha = (v: string) => createHash('sha256').update(v).digest('hex');
     await new SituationRepository(prisma).recordCandidate(owner, { clusterKey: `sc_${sha(cluster!.clusterBasis).slice(0, 32)}`, fingerprint: `situation:${sha(cluster!.fingerprintBasis)}`, decision: 'NONE', caseId: null, verification: null, at: new Date() });
-    const d3 = await service.diagnose(owner);
-    assert.deepEqual([d3.clusters, d3.unchanged, d3.wouldSynthesize, d3.reason], [1, 1, 0, 'ALL_UNCHANGED']);
+    const d4 = await service.diagnose(owner);
+    assert.deepEqual([d4.independentClusters, d4.unchanged, d4.wouldSynthesize, d4.reason], [1, 1, 0, 'ALL_UNCHANGED']);
 
-    // 4. An organization with a reading in one domain is never visited by the scheduled pass.
+    // 5. An organization with a reading in one domain is never visited by the scheduled pass.
     assert.equal((await digests.upsertOrganization(orgB, digest('CALLGRID', 'k', 'Secret.', BUYER))).outcome, 'WRITTEN');
-    const d4 = await service.diagnose({ scope: 'ORGANIZATION', organizationId: orgB });
-    assert.deepEqual([d4.selected, d4.reason], [false, 'NOT_SELECTED']);
+    const d5 = await service.diagnose({ scope: 'ORGANIZATION', organizationId: orgB });
+    assert.deepEqual([d5.selected, d5.reason], [false, 'NOT_SELECTED']);
 
-    // Read-only throughout (the writes above are the test's own): the diagnosis changed no table and called no model.
     const after = await counts();
-    assert.deepEqual([after[0], after[3], after[4]], [before[0] + 1, before[3] + 1, before[4]], 'only the test’s own digest and link were added; no ledger row');
-    assert.equal(after[1], before[1] + 1, 'only the test’s own candidate');
+    assert.equal(after[4], before[4], 'no ledger row: no model call');
   } finally {
     for (const id of [orgA, orgB]) {
       await prisma.situationCandidate.deleteMany({ where: { organizationId: id } }).catch(() => undefined);
@@ -465,7 +469,7 @@ test('DIAGNOSIS: counts and the first gate that stops the pass -- NO_SHARED_ENTI
 });
 
 // --- What an organization could legitimately connect (2026-09-29) --------------------------------------
-test('CONNECTIVITY: governed relationships as counts; stable vs label-only members; nameable records; potential components today and with the projector, with the same-source pair eliminated -- read-only, no identifiers', { skip }, async () => {
+test('CONNECTIVITY: governed relationship classes from the projector; stable vs label-only members; nameable records; CURRENT vs PROJECTOR from the real clusterer, the same-source pair eliminated -- read-only, no identifiers', { skip }, async () => {
   const prisma = new PrismaClient({ datasources: { db: { url: URL } } });
   forgetIntelligenceFabricPresence();
   const { readOnlyClient } = await import('../src/repositories/read-only-client');
@@ -517,33 +521,34 @@ test('CONNECTIVITY: governed relationships as counts; stable vs label-only membe
     await call({ campaignLabel: 'Glow Cosmetics' });
     await call({});
 
+    // Pipeline names its stalled eligible record (c1, worked through a person's Party link) -- LOOP_INTAKE.
+    const p = digest('PIPELINE', 'stale.quoted', 'Secret pipeline statement.', `customer:${c1.id}`);
+    assert.equal((await digests.upsertOrganization(organizationId, { ...p, content: { ...p.content, signals: [{ ...p.content.signals[0]!, kind: 'STALLED' }] } } as IntelligenceDigestInput)).outcome, 'WRITTEN');
+
     const before = await Promise.all([prisma.entityLink.count(), prisma.intelligenceDigest.count({ where: { organizationId } }), prisma.aiInvocation.count(), prisma.situationCandidate.count()]);
     const service = new SituationService({ prisma: readOnlyClient(prisma), runtime: null, modelEnabled: () => false, principalFor: async () => null, now: () => new Date() });
     const c = await service.connectivity(organizationId);
 
-    assert.deepEqual(c.governed.customerPartyLinks, { active: 1, toEstablishedParty: 1 }, 'ACTIVE links to established Parties only');
-    assert.deepEqual(c.governed.creatorProfiles, { total: 1, withEstablishedParty: 1 });
-    assert.deepEqual(c.governed.workOrigins, [
-      { kind: 'CASE', scope: 'ORGANIZATION', outcome: 'CASE_ORIGIN', count: 1 },
-      { kind: 'DIGEST_SIGNAL', scope: 'ORGANIZATION', outcome: 'DIGEST_GONE', count: 1 },
-      { kind: 'DIGEST_SIGNAL', scope: 'PRINCIPAL', outcome: 'PRIVATE_SCOPE', count: 1 },
-      { kind: 'DIGEST_SIGNAL', scope: 'ORGANIZATION', outcome: 'RESOLVES_TO_ENTITY', count: 1 },
+    // The governed relationship classes over the whole organization, from the ONE projector the pass uses.
+    assert.deepEqual(c.relationships, [
+      { linkClass: 'CUSTOMER_PARTY', records: 1, links: 1, rejected: {} }, // c2's link is reversed: not a record here
+      { linkClass: 'CREATOR_PARTY', records: 1, links: 1, rejected: {} },
+      { linkClass: 'WORK_ORIGIN', records: 4, links: 1, rejected: { DIGEST_GONE: 1, PRIVATE_SCOPE: 1, CASE_ORIGIN_NOT_CANONICAL: 1 } },
     ]);
     assert.deepEqual(c.governed.members, [
       { dimension: 'campaign', windowDays: 14, stableExternalId: 1, labelOnly: 2, labelOnlyNamedAsRef: 1, unattributedCalls: 1 },
       { dimension: 'buyer', windowDays: 14, stableExternalId: 1, labelOnly: 1, labelOnlyNamedAsRef: 1, unattributedCalls: 3 },
     ]);
-    // Intake eligibility, not every row: only c1 (worked) is intake; c2 (a reversal nobody made) and the fresh
-    // unmarked record are not, whatever status they carry.
-    assert.deepEqual(c.governed.pipeline, { working: 1, stalled: 1, nameable: 1, withActivePartyLink: 1 });
+    // Intake eligibility, not every row: only c1 (worked) is intake.
+    assert.deepEqual(c.governed.pipeline, { working: 1, stalled: 1, nameable: 1 });
     assert.deepEqual(c.governed.crm, { established: 2, newlyEstablished7d: 1, nameable: 1, awaitingDecision: 1 });
 
-    // TODAY: CallGrid + Campaigns share the campaign -- one source, so the two-source rule removes it.
-    assert.deepEqual(c.current, { crossDomain: 1, independent: 0, eliminatedSameSource: 1, groups: [{ domains: ['CALLGRID', 'CAMPAIGNS'], sources: ['CALLGRID'], count: 1, independent: false }] });
-    // WITH THE PROJECTOR: the WorkOrigin joins Work to that campaign (now independent: LOOP_WORK), and the
-    // CustomerPartyLink + CreatorProfile join a stalled intake record and a creator through one Party.
+    // CURRENT (persisted entity_links only): CallGrid + Campaigns share the campaign -- one source, not independent.
+    assert.deepEqual(c.current, { crossDomain: 1, independent: 0, eliminatedSameSource: 1, composition: [{ domains: ['CALLGRID', 'CAMPAIGNS'], sources: ['CALLGRID'], count: 1, independent: false }] });
+    // PROJECTOR (plus the governed projection): the WorkOrigin joins Work to that campaign (LOOP_WORK makes it
+    // independent), and the Party link + CreatorProfile join the stalled intake record and the creator.
     assert.deepEqual([c.projector.crossDomain, c.projector.independent, c.projector.eliminatedSameSource], [2, 2, 0]);
-    assert.deepEqual(c.projector.groups.map((g) => [g.domains.join('+'), g.sources.join('+'), g.count, g.independent]).sort(), [
+    assert.deepEqual(c.projector.composition.map((g) => [g.domains.join('+'), g.sources.join('+'), g.count, g.independent]).sort(), [
       ['CALLGRID+CAMPAIGNS+WORK', 'CALLGRID+LOOP_WORK', 1, true],
       ['CREATORS+PIPELINE', 'LOOP_CREATORS+LOOP_INTAKE', 1, true],
     ]);

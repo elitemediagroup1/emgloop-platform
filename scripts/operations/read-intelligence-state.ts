@@ -295,13 +295,17 @@ export async function runIntelligenceState(
       clusterableDomains: list(d.clusterableDomains),
       entityRefs: d.entityRefs,
       explicitLinks: d.explicitLinks,
+      projectedLinks: d.projectedLinks,
       sharedAcrossDomains: d.sharedAcrossDomains,
       clusters: d.clusters,
+      independentClusters: d.independentClusters,
+      eliminatedSameSource: d.eliminatedSameSource,
       unchanged: d.unchanged,
       wouldSynthesize: d.wouldSynthesize,
       reason: token(d.reason),
       modelCalls: 0,
     }));
+    for (const g of d.composition) deps.log(line({ event: 'SITUATION_PASS_COMPOSITION', domains: list(g.domains)?.replace(/,/g, '+') ?? null, sources: list(g.sources)?.replace(/,/g, '+') ?? null, count: g.count, independent: g.independent }));
   }
 
   // 10. What the organization could legitimately connect -- counts and codes; no link is created.
@@ -309,23 +313,26 @@ export async function runIntelligenceState(
     const c = await deps.connectivity(org.id);
     const joined = (xs: readonly string[]) => (xs.length ? xs.map((x) => token(x)).join('+') : null);
     const g = c.governed;
-    deps.log(line({ event: 'SITUATION_RELATIONSHIP', relationship: 'CUSTOMER_PARTY_LINK', present: g.customerPartyLinks !== null, active: g.customerPartyLinks?.active ?? null, toEstablishedParty: g.customerPartyLinks?.toEstablishedParty ?? null }));
-    deps.log(line({ event: 'SITUATION_RELATIONSHIP', relationship: 'CREATOR_PARTY', present: g.creatorProfiles !== null, profiles: g.creatorProfiles?.total ?? null, withEstablishedParty: g.creatorProfiles?.withEstablishedParty ?? null }));
-    if (g.workOrigins === null) deps.log(line({ event: 'SITUATION_WORK_ORIGIN', present: false }));
-    else if (g.workOrigins.length === 0) deps.log(line({ event: 'SITUATION_WORK_ORIGIN', present: true, count: 0 }));
-    else for (const o of g.workOrigins) deps.log(line({ event: 'SITUATION_WORK_ORIGIN', present: true, kind: token(o.kind), scope: token(o.scope), outcome: token(o.outcome), count: o.count }));
+    // The governed relationship classes over the whole organization, from the ONE projector the pass uses:
+    // records examined, links they project, and every rejection by reason code.
+    for (const r of c.relationships) {
+      const rejected = Object.entries(r.rejected).map(([code, n]) => `${token(code)}:${n}`).join(',');
+      deps.log(line({ event: 'SITUATION_RELATIONSHIP', linkClass: token(r.linkClass), records: r.records, links: r.links, rejected: rejected || null }));
+    }
     for (const m of g.members) {
       deps.log(line({ event: 'SITUATION_MEMBERS', provider: 'CALLGRID', dimension: token(m.dimension), windowDays: m.windowDays, stableExternalId: m.stableExternalId, labelOnly: m.labelOnly, labelOnlyNamedAsRef: m.labelOnlyNamedAsRef, unattributedCalls: m.unattributedCalls }));
     }
-    deps.log(line({ event: 'SITUATION_NAMEABLE', domain: 'PIPELINE', kind: 'customer', working: g.pipeline.working, stalled: g.pipeline.stalled, nameable: g.pipeline.nameable, withActivePartyLink: g.pipeline.withActivePartyLink }));
+    deps.log(line({ event: 'SITUATION_NAMEABLE', domain: 'PIPELINE', kind: 'customer', working: g.pipeline.working, stalled: g.pipeline.stalled, nameable: g.pipeline.nameable }));
     deps.log(line({ event: 'SITUATION_NAMEABLE', domain: 'CRM', kind: 'party', established: g.crm.established, newlyEstablished7d: g.crm.newlyEstablished7d, nameable: g.crm.nameable, awaitingDecision: g.crm.awaitingDecision }));
+    // CURRENT: persisted entity_links only. PROJECTOR: plus the governed projection (what the pass now uses).
+    // Both from the real clusterer over the pass's own eligible signals: kind, window and sources applied.
     for (const [scenario, p] of [['CURRENT', c.current], ['PROJECTOR', c.projector]] as const) {
-      for (const grp of p.groups) {
+      for (const grp of p.composition) {
         deps.log(line({ event: 'SITUATION_POTENTIAL_GROUP', scenario, domains: joined(grp.domains), sources: joined(grp.sources), count: grp.count, independent: grp.independent }));
       }
-      deps.log(line({ event: 'SITUATION_POTENTIAL', scenario, crossDomain: p.crossDomain, independent: p.independent, eliminatedSameSource: p.eliminatedSameSource, bound: 'UPPER' }));
+      deps.log(line({ event: 'SITUATION_POTENTIAL', scenario, crossDomain: p.crossDomain, independent: p.independent, eliminatedSameSource: p.eliminatedSameSource }));
     }
-    deps.log(line({ event: 'SITUATION_CONNECTIVITY_SUMMARY', bounded: g.bounded, linksCreated: 0, modelCalls: 0 }));
+    deps.log(line({ event: 'SITUATION_CONNECTIVITY_SUMMARY', bounded: g.bounded || c.relationshipsBounded, linksCreated: 0, modelCalls: 0 }));
   }
 
   // 11. What the Pipeline reading is counting -- counts and codes; no id, name, contact or status value.
