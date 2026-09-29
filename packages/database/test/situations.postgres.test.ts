@@ -474,6 +474,8 @@ test('CONNECTIVITY: governed relationships as counts; stable vs label-only membe
     await prisma.organization.create({ data: { id: organizationId, name: 'CONN', slug: organizationId } });
     const userId = `user_conn_${randomUUID()}`;
     await prisma.user.create({ data: { id: userId, organizationId, email: `${userId}@example.test`, name: 'CONN', status: 'ACTIVE', metadata: { systemRole: 'OWNER' } } });
+    // A human operator of this organization: the only kind of user whose acts are intake work.
+    await prisma.organizationMembership.create({ data: { organizationId, userId, systemRole: 'OWNER', status: 'ACTIVE', effectiveFrom: new Date('2026-01-01T00:00:00Z') } });
     const digests = new IntelligenceDigestRepository(prisma);
     const CAMP = 'provider_member:callgrid:campaign:camp-1';
     const withSource = (d: IntelligenceDigestInput, sourceId: string): IntelligenceDigestInput => ({ ...d, provenance: { ...d.provenance, sources: [{ sourceId, asOf: at(-1).toISOString(), coverage: 'CONNECTED_SUFFICIENT' }] } });

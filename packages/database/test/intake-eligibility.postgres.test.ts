@@ -24,6 +24,12 @@ const skip = !URL ? 'LOOP_TEST_POSTGRES_URL is not set' : !LOCAL(URL) ? 'refusin
 const DAY = 864e5;
 const KIT = { modelEnabled: () => false, reader: null, principalFor: async () => null };
 
+/** A user with a membership in the organization, in the given role (the authority eligibility reads). */
+async function member(prisma: PrismaClient, organizationId: string, userId: string, role: 'OWNER' | 'EMPLOYEE' | 'AI_EMPLOYEE' | 'CREATOR') {
+  await prisma.user.create({ data: { id: userId, organizationId, email: `${userId}@example.test`, name: role, status: 'ACTIVE', metadata: { systemRole: role } } });
+  await prisma.organizationMembership.create({ data: { organizationId, userId, systemRole: role, status: 'ACTIVE', effectiveFrom: new Date('2026-01-01T00:00:00Z') } });
+}
+
 test('the status an eligible record reads as: explicit if known; New only for a web lead; otherwise UNSET, never New', () => {
   assert.equal(intakeStatusOf('Quoted', 'HUMAN_WORK'), 'Quoted');
   assert.equal(intakeStatusOf(undefined, 'WEB_LEAD'), 'New');
@@ -39,8 +45,8 @@ test('PRODUCTION SHAPE: 24,579 legacy caller records, visitors and unproven reco
     await prisma.organization.create({ data: { id: organizationId, name: 'INTAKE', slug: organizationId } });
     const person = `user_intake_${randomUUID()}`;
     const aiLogin = `user_intake_ai_${randomUUID()}`;
-    await prisma.user.create({ data: { id: person, organizationId, email: `${person}@example.test`, name: 'Dana', status: 'ACTIVE', metadata: { systemRole: 'OWNER' } } });
-    await prisma.user.create({ data: { id: aiLogin, organizationId, email: `${aiLogin}@example.test`, name: 'Ava', status: 'ACTIVE', metadata: { systemRole: 'AI_EMPLOYEE' } } });
+    await member(prisma, organizationId, person, 'OWNER');
+    await member(prisma, organizationId, aiLogin, 'AI_EMPLOYEE');
     const now = new Date();
     const ago = (d: number) => new Date(now.getTime() - d * DAY);
     const old = ago(60);
@@ -145,4 +151,209 @@ test('PRODUCTION SHAPE: 24,579 legacy caller records, visitors and unproven reco
     await prisma.organization.delete({ where: { id: organizationId } }).catch(() => undefined);
     await prisma.$disconnect();
   }
+});
+
+test('ADVERSARIAL: only a human operator of THIS organization qualifies -- spoofed payloads, AI and creator members, non-members, missing actors, integrations, workflows and assignment never do', { skip }, async () => {
+  const prisma = new PrismaClient({ datasources: { db: { url: URL } } });
+  const organizationId = `org_intake_adv_${randomUUID()}`;
+  const otherOrg = `org_intake_adv_other_${randomUUID()}`;
+  try {
+    for (const id of [organizationId, otherOrg]) await prisma.organization.create({ data: { id, name: 'ADV', slug: id } });
+    const human = `u_h_${randomUUID()}`;
+    const ai = `u_ai_${randomUUID()}`;
+    const creator = `u_cr_${randomUUID()}`;
+    const outsider = `u_out_${randomUUID()}`;
+    await member(prisma, organizationId, human, 'EMPLOYEE');
+    await member(prisma, organizationId, ai, 'AI_EMPLOYEE');
+    await member(prisma, organizationId, creator, 'CREATOR');
+    await member(prisma, otherOrg, outsider, 'OWNER');
+    const now = new Date();
+    const ago = (d: number) => new Date(now.getTime() - d * DAY);
+    const record = async (org = organizationId) => (await prisma.customer.create({ data: { organizationId: org, phone: '+15550000000', metadata: { createdFrom: 'callgrid' }, attributes: { pipelineStatus: 'New' }, createdAt: ago(60), lastSeenAt: ago(60), updatedAt: ago(60) } })).id;
+    const note = (customerId: string, payload: Record<string, unknown>, extra: Record<string, unknown> = {}, org = organizationId) =>
+      prisma.interaction.create({ data: { organizationId: org, customerId, channel: 'OTHER', kind: 'NOTE', direction: 'INTERNAL', occurredAt: ago(1), payload, ...extra } as never });
+    const audit = (entityId: string, data: Record<string, unknown>, org = organizationId) =>
+      prisma.auditLog.create({ data: { organizationId: org, action: 'customer.status_changed', entityType: 'customer', entityId, createdAt: ago(1), ...data } as never });
+
+    const crmNote = (userId: string, actorType = 'HUMAN_AGENT') => ({ loopKind: 'crm_note', actorType, actorUserId: userId, actorName: 'x', body: 'b' });
+    const cases: Record<string, string> = {};
+    cases.aiSpoofedHuman = await record(); await note(cases.aiSpoofedHuman, crmNote(ai, 'HUMAN_AGENT')); //   an AI member's id under a HUMAN_AGENT claim
+    cases.creatorNote = await record(); await note(cases.creatorNote, crmNote(creator));
+    cases.outsiderNote = await record(); await note(cases.outsiderNote, crmNote(outsider)); //               a user of another organization
+    cases.noActor = await record(); await note(cases.noActor, { loopKind: 'crm_note', actorType: 'HUMAN_AGENT', body: 'b' });
+    cases.legacyHumanNote = await record(); await note(cases.legacyHumanNote, { loopKind: 'human_note', actorType: 'HUMAN_AGENT', body: 'b' });
+    cases.integration = await record(); await note(cases.integration, crmNote(human), { provider: 'website', externalId: `x_${randomUUID()}` }); // an integration's payload posing as a CRM note
+    cases.workflowNote = await record(); await note(cases.workflowNote, { source: 'workflow' });
+    cases.systemAudit = await record(); await audit(cases.systemAudit, { actorType: 'SYSTEM', userId: null });
+    cases.nullUserAudit = await record(); await audit(cases.nullUserAudit, { actorType: 'HUMAN_AGENT', userId: null });
+    cases.aiAudit = await record(); await audit(cases.aiAudit, { actorType: 'HUMAN_AGENT', userId: ai }); // a human claim on an AI member
+    cases.creatorAudit = await record(); await audit(cases.creatorAudit, { actorType: 'HUMAN_AGENT', userId: creator });
+    cases.outsiderAudit = await record(); await audit(cases.outsiderAudit, { actorType: 'HUMAN_AGENT', userId: outsider });
+    cases.assignmentOnly = await record(); await audit(cases.assignmentOnly, { action: 'customer.assignment_changed', actorType: 'HUMAN_AGENT', userId: human });
+    const party = await prisma.cognitiveIdentity.create({ data: { organizationId, entityType: 'PERSON', canonicalKey: `adv:${randomUUID()}`, establishedAt: ago(40), establishmentBasis: 'MANUAL' } });
+    cases.aiLink = await record();
+    await prisma.customerPartyLink.create({ data: { organizationId, customerId: cases.aiLink, partyId: party.id, basis: 'MANUAL', activeCustomerId: cases.aiLink, linkedByUserId: ai, linkedAt: ago(1) } });
+    // Tenancy: org B's human writes evidence naming org A's record; org A's record is untouched by it, and org B
+    // cannot make a record it does not hold eligible.
+    const otherHuman = `u_bh_${randomUUID()}`;
+    await member(prisma, otherOrg, otherHuman, 'OWNER');
+    cases.crossTenant = await record();
+    await note(cases.crossTenant, crmNote(otherHuman), {}, otherOrg);
+    await audit(cases.crossTenant, { actorType: 'HUMAN_AGENT', userId: otherHuman }, otherOrg);
+
+    // And the ones that DO qualify, for contrast, with clock guards:
+    const worked = await record(); await note(worked, crmNote(human)); // a human operator's note, one day ago
+    // Assignment by the same human today never advances the clock of a record worked 20 days ago.
+    const stale = await record();
+    await prisma.interaction.create({ data: { organizationId, customerId: stale, channel: 'OTHER', kind: 'NOTE', direction: 'INTERNAL', occurredAt: ago(20), payload: crmNote(human) } as never });
+    await audit(stale, { action: 'customer.assignment_changed', actorType: 'HUMAN_AGENT', userId: human, createdAt: now });
+    // An AI's status change and a workflow note today do not advance it either.
+    await audit(stale, { actorType: 'AI_AGENT', userId: ai, createdAt: now });
+    await note(stale, { source: 'workflow' }, { occurredAt: now });
+
+    const read = await new IntakeEligibilityRepository(prisma).read(organizationId, now);
+    const ids = new Set(read.records.map((r) => r.id));
+    for (const [name, id] of Object.entries(cases)) assert.equal(ids.has(id), false, `${name} must not be intake`);
+    assert.deepEqual([...ids].sort(), [worked, stale].sort());
+    const s = read.records.find((r) => r.id === stale)!;
+    assert.equal(s.lastWorkedAt!.getTime(), ago(20).getTime(), 'assignment, AI and workflow acts do not move the work clock');
+    assert.equal(s.stalled, true);
+    // Org B holds no such record: its evidence makes nothing eligible there.
+    assert.equal((await new IntakeEligibilityRepository(prisma).read(otherOrg, now)).records.length, 0);
+  } finally {
+    for (const id of [organizationId, otherOrg]) await prisma.organization.delete({ where: { id } }).catch(() => undefined);
+    await prisma.$disconnect();
+  }
+});
+
+test('TIME: exactly 14 days is not stalled, one second more is; future acts beyond the skew allowance are ignored; a web lead enters at its form submission, never lastSeenAt', { skip }, async () => {
+  const prisma = new PrismaClient({ datasources: { db: { url: URL } } });
+  const organizationId = `org_intake_time_${randomUUID()}`;
+  try {
+    await prisma.organization.create({ data: { id: organizationId, name: 'TIME', slug: organizationId } });
+    const human = `u_t_${randomUUID()}`;
+    await member(prisma, organizationId, human, 'OWNER');
+    const now = new Date('2026-09-29T12:00:00.000Z');
+    const at = (ms: number) => new Date(now.getTime() + ms);
+    const rec = async (data: Record<string, unknown> = {}) => (await prisma.customer.create({ data: { organizationId, metadata: { createdFrom: 'callgrid' }, attributes: { pipelineStatus: 'Contacted' }, createdAt: at(-90 * DAY), lastSeenAt: at(-90 * DAY), ...data } as never })).id;
+    const noteAt = (customerId: string, when: Date) => prisma.interaction.create({ data: { organizationId, customerId, channel: 'OTHER', kind: 'NOTE', direction: 'INTERNAL', occurredAt: when, payload: { loopKind: 'crm_note', actorType: 'HUMAN_AGENT', actorUserId: human, actorName: 'x', body: 'b' } } as never });
+    const exactly14 = await rec(); await noteAt(exactly14, at(-14 * DAY));
+    const past14 = await rec(); await noteAt(past14, at(-14 * DAY - 1000));
+    const farFuture = await rec(); await noteAt(farFuture, at(DAY)); //           malformed: only act is a day ahead
+    const skewed = await rec(); await noteAt(skewed, at(60_000)); //             within the 5-minute allowance
+    const futurePlusOld = await rec(); await noteAt(futurePlusOld, at(-20 * DAY)); await noteAt(futurePlusOld, at(30 * DAY));
+    // A web lead created (ingested) 2 days ago from a form submitted 20 days ago; its lastSeenAt says now.
+    const lead = await rec({ metadata: { createdFrom: 'website' }, attributes: { pipelineStatus: 'New' }, createdAt: at(-2 * DAY), lastSeenAt: now });
+    await prisma.interaction.create({ data: { organizationId, customerId: lead, channel: 'WEB_CHAT', kind: 'FORM_SUBMISSION', direction: 'INBOUND', provider: 'website', externalId: `f_${randomUUID()}`, occurredAt: at(-20 * DAY) } as never });
+    const leadNoForm = await rec({ metadata: { createdFrom: 'website' }, attributes: {}, createdAt: at(-3 * DAY), lastSeenAt: at(-100 * DAY) });
+
+    const read = await new IntakeEligibilityRepository(prisma).read(organizationId, now);
+    const by = new Map(read.records.map((r) => [r.id, r]));
+    assert.equal(by.get(exactly14)!.stalled, false, 'exactly 14 days is not stalled');
+    assert.equal(by.get(past14)!.stalled, true, '14 days and a second is');
+    assert.equal(by.has(farFuture), false, 'an act dated a day ahead is malformed: not evidence');
+    assert.equal(by.get(skewed)!.lastWorkedAt!.getTime(), now.getTime(), 'within the skew allowance it counts as now, never later');
+    assert.deepEqual([by.get(futurePlusOld)!.lastWorkedAt!.getTime(), by.get(futurePlusOld)!.stalled], [at(-20 * DAY).getTime(), true], 'a future act cannot keep a record fresh');
+    assert.deepEqual([by.get(lead)!.enteredAt.getTime(), by.get(lead)!.clockAt.getTime(), by.get(lead)!.stalled], [at(-20 * DAY).getTime(), at(-20 * DAY).getTime(), true], 'entered at its submission; lastSeenAt ignored');
+    assert.deepEqual([by.get(leadNoForm)!.enteredAt.getTime(), by.get(leadNoForm)!.status, by.get(leadNoForm)!.stalled], [at(-3 * DAY).getTime(), 'New', false], 'no submission attached: the creator stamp; a missing status on a lead reads New');
+  } finally {
+    await prisma.organization.delete({ where: { id: organizationId } }).catch(() => undefined);
+    await prisma.$disconnect();
+  }
+});
+
+test('CONSISTENCY: once a person works a record, every surface reads the same intake at once; excluded records stay reachable as records', { skip }, async () => {
+  const prisma = new PrismaClient({ datasources: { db: { url: URL } } });
+  const organizationId = `org_intake_cons_${randomUUID()}`;
+  try {
+    await prisma.organization.create({ data: { id: organizationId, name: 'CONS', slug: organizationId } });
+    const human = `u_c_${randomUUID()}`;
+    await member(prisma, organizationId, human, 'OWNER');
+    const now = new Date();
+    const old = new Date(now.getTime() - 60 * DAY);
+    await prisma.customer.createMany({ data: Array.from({ length: 40 }, () => ({ organizationId, metadata: { createdFrom: 'callgrid' }, attributes: { pipelineStatus: 'New' }, createdAt: old, lastSeenAt: old, updatedAt: old })) });
+    const crm = new CrmRepository(prisma);
+    const intake = new IntakeEligibilityRepository(prisma);
+    const first = (await prisma.customer.findFirst({ where: { organizationId }, select: { id: true } }))!.id;
+    await crm.setPipelineStatus(organizationId, first, 'Quoted', { userId: human, name: 'Dana', systemRole: 'OWNER' });
+
+    const counts = await intake.counts(organizationId, now);
+    assert.deepEqual([counts.eligible, counts.excluded, counts.working, counts.byStatus.Quoted], [1, 39, 1, 1], 'Home, CRM home and the organization page read exactly this');
+    const board = await crm.kanbanBoard(organizationId, now);
+    assert.deepEqual([board.columns.find((c) => c.status === 'Quoted')!.count, board.columns.reduce((n, c) => n + c.count, 0), board.notIntake], [1, 1, 39]);
+    const { pipelineContextOf } = await import('../src/services/intelligence-fabric/domains/records');
+    const ctx = pipelineContextOf(await intake.read(organizationId, now), now, { conversations: 0, conversationsAssigned: 0 });
+    assert.deepEqual(ctx.intake, counts, 'the Pipeline reading counts exactly what the surfaces show');
+    const probe = await new PipelineCompositionRepository(readOnlyClient(prisma)).read(organizationId, now, new Date(now.getTime() - 14 * DAY));
+    assert.deepEqual(probe.intake.counts, counts, 'and so does the diagnostic');
+    // Excluded records are records: the list and its counts still hold all 40, untouched.
+    const list = await crm.listCustomers(organizationId, { pageSize: 50 });
+    assert.equal(list.total, 40);
+    assert.equal(Object.values(await crm.recordStatusCounts(organizationId)).reduce((a, b) => a + b, 0), 40);
+  } finally {
+    await prisma.organization.delete({ where: { id: organizationId } }).catch(() => undefined);
+    await prisma.$disconnect();
+  }
+});
+
+test('ATOMIC: a Party link or reversal whose audit entry fails is rolled back -- no link without its trail', { skip }, async () => {
+  const prisma = new PrismaClient({ datasources: { db: { url: URL } } });
+  const organizationId = `org_intake_atom_${randomUUID()}`;
+  try {
+    await prisma.organization.create({ data: { id: organizationId, name: 'ATOM', slug: organizationId } });
+    const human = `u_a_${randomUUID()}`;
+    await member(prisma, organizationId, human, 'OWNER');
+    const party = await prisma.cognitiveIdentity.create({ data: { organizationId, entityType: 'PERSON', canonicalKey: `atom:${randomUUID()}`, establishedAt: new Date(), establishmentBasis: 'MANUAL' } });
+    const customer = await prisma.customer.create({ data: { organizationId, metadata: { createdFrom: 'callgrid' }, attributes: { pipelineStatus: 'New' } } });
+    const { CustomerPartyLinkService } = await import('../src/services/customer-party-link.service');
+    const { AuditRepository } = await import('../src/repositories/audit.repository');
+    const deps = { iam: { can: async () => true, getUser: async () => null } as never, references: { requireReferenceable: async () => ({ ok: true, reference: { partyId: party.id } }) } as never };
+    const failing = new CustomerPartyLinkService(prisma, { ...deps, audit: { record: async () => { throw new Error('audit store unavailable'); } } });
+    await assert.rejects(failing.link(organizationId, human, { customerId: customer.id, partyId: party.id }));
+    assert.equal(await prisma.customerPartyLink.count({ where: { organizationId } }), 0, 'the link rolled back with its audit');
+    assert.equal((await new IntakeEligibilityRepository(prisma).read(organizationId, new Date())).records.length, 0, 'so it cannot make the record intake');
+
+    const working = new CustomerPartyLinkService(prisma, { ...deps, audit: new AuditRepository(prisma) });
+    assert.equal((await working.link(organizationId, human, { customerId: customer.id, partyId: party.id })).outcome, 'LINKED');
+    assert.equal(await prisma.auditLog.count({ where: { organizationId, action: 'customer.party_linked', entityId: customer.id, userId: human } }), 1);
+    await assert.rejects(failing.reverse(organizationId, human, { customerId: customer.id, reason: 'wrong person' }));
+    assert.equal(await prisma.customerPartyLink.count({ where: { organizationId, reversedAt: null } }), 1, 'the reversal rolled back with its audit');
+    assert.equal((await working.reverse(organizationId, human, { customerId: customer.id, reason: 'wrong person' })).outcome, 'REVERSED');
+    assert.equal(await prisma.auditLog.count({ where: { organizationId, action: 'customer.party_link_reversed' } }), 1);
+  } finally {
+    await prisma.organization.delete({ where: { id: organizationId } }).catch(() => undefined);
+    await prisma.$disconnect();
+  }
+});
+
+test('ONE SOURCE OF TRUTH: no surface reconstructs intake -- status filters live only in the records list and the labelled v1 diagnostic, and nothing reads lastSeenAt as activity', async () => {
+  const { readdirSync, readFileSync, statSync } = await import('node:fs');
+  const { join, relative } = await import('node:path');
+  const root = join(__dirname, '..', '..', '..');
+  const files: string[] = [];
+  const walk = (dir: string) => {
+    for (const name of readdirSync(dir)) {
+      if (name === 'node_modules' || name === 'test' || name === '.next' || name === 'dist') continue;
+      const p = join(dir, name);
+      if (statSync(p).isDirectory()) walk(p);
+      else if (/\.(ts|tsx)$/.test(name) && !/\.test\.|verification\.ts$/.test(name)) files.push(p);
+    }
+  };
+  for (const d of ['apps/web/src', 'apps/connections-worker/src', 'packages/database/src', 'packages/intelligence/src', 'packages/shared/src']) walk(join(root, d));
+  const code = (p: string) => readFileSync(p, 'utf8').replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
+  const using = (re: RegExp) => files.filter((f) => re.test(code(f))).map((f) => relative(root, f)).sort();
+  // The per-status filter: the records list (CrmRepository) and the diagnostic's labelled pre-repair view only.
+  assert.deepEqual(using(/customerStatusWhere\(/), ['packages/database/src/repositories/crm.repository.ts', 'packages/database/src/repositories/intelligence/pipeline-composition.repository.ts']);
+  // All-records status counts: defined in the CRM repository, read only by the records list.
+  assert.deepEqual(using(/recordStatusCounts\(/), ['apps/web/src/app/crm/customers/page.tsx', 'packages/database/src/repositories/crm.repository.ts']);
+  assert.deepEqual(using(/\.statusCounts\(/), [], 'the old everyone-by-status read is gone');
+  // Intake reads go through the one repository.
+  for (const surface of ['apps/web/src/app/app/_home/front-door-data.ts', 'apps/web/src/crm/command-center-data.ts', 'apps/web/src/app/crm/organizations/[id]/page.tsx']) {
+    assert.match(code(join(root, surface)), /intake\.counts\(/, surface);
+  }
+  // lastSeenAt: never in a web surface's logic; in the database package only where it is not activity (the
+  // records-list sort type, the customer upsert, the v1 diagnostic comparison, a revenue scan order).
+  assert.deepEqual(using(/lastSeenAt/).filter((f) => f.startsWith('apps/web/')), []);
+  assert.equal(/lastSeenAt/.test(code(join(root, 'packages/database/src/repositories/intake-eligibility.repository.ts'))), false);
+  assert.equal(/lastSeenAt/.test(code(join(root, 'packages/database/src/services/intelligence-fabric/domains/records.ts'))), false);
 });

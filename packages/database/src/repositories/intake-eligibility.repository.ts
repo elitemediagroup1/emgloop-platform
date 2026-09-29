@@ -7,12 +7,18 @@
 // only when a GOVERNED ENTRY FACT exists:
 //
 //   WEB_LEAD     the retired creator's verified mark of a website form submission (metadata.createdFrom =
-//                'website', not an anonymous visitor): a person asked to be contacted. Entered at createdAt.
+//                'website', not an anonymous visitor): a person asked to be contacted. Entered at the time of
+//                that submission -- the earliest website FORM_SUBMISSION the creator attached to the record --
+//                and at the creator's createdAt only when no such interaction exists. Never lastSeenAt.
 //   HUMAN_WORK   an explicit act of work by a signed-in person, each attributed and timestamped:
-//                  HUMAN_NOTE      a CRM note written by a HUMAN_AGENT (interactions, loopKind crm_note)
+//                  HUMAN_NOTE      a CRM note written by a HUMAN_AGENT (interactions, loopKind crm_note, no
+//                                  provider -- an integration's interaction can never pose as one)
 //                  STATUS_CHANGE   an intake status set by a person (audit customer.status_changed, HUMAN_AGENT)
 //                  PARTY_LINK      a Party link made or reversed by a user (customer_party_links)
-//                Entered at the first such act.
+//                AND THE ACTOR MUST BE A HUMAN OPERATOR OF THIS ORGANIZATION: a user holding a membership here
+//                with a human role (OWNER, ADMIN, MANAGER, EMPLOYEE, READ_ONLY). An AI employee's login, a
+//                creator, an unknown or service role, a user of another organization, or no actor at all never
+//                qualifies -- whatever a payload or an audit row claims. Entered at the first such act.
 //
 // NOT ELIGIBLE, BY DESIGN: verified CallGrid ingestion and anonymous-visitor records; records whose origin
 // is heuristic or unknown (fail closed); an ASSIGNMENT alone (routing is audited, but it is not evidence that
@@ -21,7 +27,9 @@
 //
 // THE CLOCK IS WORK, NOT `lastSeenAt`. lastWorkedAt = the latest HUMAN_WORK act; a record's clock is
 // lastWorkedAt, or its entry time if nobody has worked it yet. A working record is STALLED when its clock is
-// older than 14 days. `lastSeenAt` is never read.
+// older than 14 days (exactly 14 days is not stalled). `lastSeenAt` is never read. An act dated more than five
+// minutes in the future is malformed and ignored (fail closed); one within that clock-skew allowance counts as
+// now, so a skewed clock can never keep a record fresh.
 //
 // STATUS. An explicit, known status applies once a record is eligible. A missing or unrecognised one reads as
 // New ONLY for a WEB_LEAD (a submitted lead awaits first contact); otherwise it is UNSET -- never New.
@@ -40,6 +48,11 @@ const PAGE = 2_000;
 const CHUNK = 1_000;
 /** Rows any one evidence read may page through before it stops and says so. */
 export const INTAKE_MAX_ROWS = 500_000;
+/** Clock skew tolerated on an act's timestamp; beyond it the act is malformed and ignored. */
+export const INTAKE_FUTURE_SKEW_MS = 5 * 60 * 1000;
+/** The roles whose acts are a person's work. Everything else -- AI_EMPLOYEE, CREATOR, anything unknown -- is not. */
+export const HUMAN_OPERATOR_ROLES = ['OWNER', 'ADMIN', 'MANAGER', 'EMPLOYEE', 'READ_ONLY'] as const;
+const ACTOR_CHUNK = 200;
 
 /** The audit actions the CRM writes for a person's intake edits. Only the status change is work. */
 export const CUSTOMER_STATUS_CHANGED = 'customer.status_changed';
@@ -139,9 +152,17 @@ export class IntakeEligibilityRepository {
   async read(organizationId: string, now: Date): Promise<IntakeRead> {
     const org = { organizationId };
     let complete = true;
+    const latestAllowed = now.getTime() + INTAKE_FUTURE_SKEW_MS;
+    /** An act's time, clamped to now within the skew allowance; null when it is malformed (future) or absent. */
+    const actTime = (at: unknown): Date | null => {
+      if (!(at instanceof Date) || Number.isNaN(at.getTime())) return null;
+      if (at.getTime() > latestAllowed) return null;
+      return at.getTime() > now.getTime() ? now : at;
+    };
     const work = new Map<string, { events: Set<IntakeWorkEvent>; first: Date; last: Date }>();
-    const worked = (customerId: unknown, event: IntakeWorkEvent, at: unknown) => {
-      if (typeof customerId !== 'string' || !(at instanceof Date)) return;
+    const worked = (customerId: unknown, event: IntakeWorkEvent, rawAt: unknown) => {
+      const at = actTime(rawAt);
+      if (typeof customerId !== 'string' || !at) return;
       const w = work.get(customerId);
       if (!w) work.set(customerId, { events: new Set([event]), first: at, last: at });
       else {
@@ -151,30 +172,39 @@ export class IntakeEligibilityRepository {
       }
     };
 
-    // HUMAN_NOTE: a CRM note by a person.
-    if (!(await this.page(
-      this.prisma.interaction as unknown as Finder,
-      { ...org, kind: 'NOTE', customerId: { not: null }, AND: [{ payload: { path: ['loopKind'], equals: 'crm_note' } }, { payload: { path: ['actorType'], equals: 'HUMAN_AGENT' } }] },
-      { customerId: true, occurredAt: true },
-      (r) => worked(r.customerId, 'HUMAN_NOTE', r.occurredAt),
-    ))) complete = false;
-    // STATUS_CHANGE: an intake status a person set (the audit the CRM writes; workflows write none).
-    if (!(await this.page(
-      this.prisma.auditLog as unknown as Finder,
-      { ...org, entityType: 'customer', action: CUSTOMER_STATUS_CHANGED, userId: { not: null }, actorType: 'HUMAN_AGENT', entityId: { not: null } },
-      { entityId: true, createdAt: true },
-      (r) => worked(r.entityId, 'STATUS_CHANGE', r.createdAt),
-    ))) complete = false;
-    // PARTY_LINK: a Party link made, or reversed, by a user.
-    if (!(await this.page(
-      this.prisma.customerPartyLink as unknown as Finder,
-      { ...org, OR: [{ linkedByUserId: { not: null } }, { reversedByUserId: { not: null } }] },
-      { customerId: true, linkedAt: true, linkedByUserId: true, reversedAt: true, reversedByUserId: true },
-      (r) => {
-        if (r.linkedByUserId) worked(r.customerId, 'PARTY_LINK', r.linkedAt);
-        if (r.reversedByUserId) worked(r.customerId, 'PARTY_LINK', r.reversedAt);
-      },
-    ))) complete = false;
+    // The people whose acts are work: human operator members of THIS organization (any membership status --
+    // an act by someone since deactivated was still a person's work).
+    const members = await this.prisma.organizationMembership.findMany({ where: { ...org, systemRole: { in: [...HUMAN_OPERATOR_ROLES] } }, select: { userId: true } });
+    const humans = [...new Set(members.map((m) => m.userId))];
+    const humanSet = new Set(humans);
+
+    for (let i = 0; i < humans.length; i += ACTOR_CHUNK) {
+      const actors = humans.slice(i, i + ACTOR_CHUNK);
+      // HUMAN_NOTE: a CRM note by a person -- written through the CRM (no provider), by a human operator here.
+      if (!(await this.page(
+        this.prisma.interaction as unknown as Finder,
+        { ...org, kind: 'NOTE', provider: null, customerId: { not: null }, AND: [{ payload: { path: ['loopKind'], equals: 'crm_note' } }, { payload: { path: ['actorType'], equals: 'HUMAN_AGENT' } }, { OR: actors.map((id) => ({ payload: { path: ['actorUserId'], equals: id } })) }] },
+        { customerId: true, occurredAt: true },
+        (r) => worked(r.customerId, 'HUMAN_NOTE', r.occurredAt),
+      ))) complete = false;
+      // STATUS_CHANGE: an intake status a person set (the audit the CRM writes; workflows write none).
+      if (!(await this.page(
+        this.prisma.auditLog as unknown as Finder,
+        { ...org, entityType: 'customer', action: CUSTOMER_STATUS_CHANGED, actorType: 'HUMAN_AGENT', userId: { in: actors }, entityId: { not: null } },
+        { entityId: true, createdAt: true },
+        (r) => worked(r.entityId, 'STATUS_CHANGE', r.createdAt),
+      ))) complete = false;
+      // PARTY_LINK: a Party link made, or reversed, by a person.
+      if (!(await this.page(
+        this.prisma.customerPartyLink as unknown as Finder,
+        { ...org, OR: [{ linkedByUserId: { in: actors } }, { reversedByUserId: { in: actors } }] },
+        { customerId: true, linkedAt: true, linkedByUserId: true, reversedAt: true, reversedByUserId: true },
+        (r) => {
+          if (typeof r.linkedByUserId === 'string' && humanSet.has(r.linkedByUserId)) worked(r.customerId, 'PARTY_LINK', r.linkedAt);
+          if (typeof r.reversedByUserId === 'string' && humanSet.has(r.reversedByUserId)) worked(r.customerId, 'PARTY_LINK', r.reversedAt);
+        },
+      ))) complete = false;
+    }
 
     // WEB_LEAD: the verified website-form mark, not an anonymous visitor.
     const leads = new Map<string, { createdAt: Date; status: unknown }>();
@@ -185,6 +215,21 @@ export class IntakeEligibilityRepository {
       { createdAt: true, attributes: true },
       (r) => leads.set(r.id, { createdAt: r.createdAt as Date, status: (r.attributes as Record<string, unknown> | null)?.pipelineStatus }),
     ))) complete = false;
+    // A lead entered when its form was submitted: the earliest website FORM_SUBMISSION the creator attached.
+    const submittedAt = new Map<string, Date>();
+    const leadIds = [...leads.keys()];
+    for (let i = 0; i < leadIds.length; i += CHUNK) {
+      const rows = await this.prisma.interaction.findMany({
+        where: { organizationId, customerId: { in: leadIds.slice(i, i + CHUNK) }, kind: 'FORM_SUBMISSION', provider: 'website' },
+        select: { customerId: true, occurredAt: true },
+      });
+      for (const r of rows) {
+        const at = actTime(r.occurredAt);
+        if (!r.customerId || !at) continue;
+        const prior = submittedAt.get(r.customerId);
+        if (!prior || at < prior) submittedAt.set(r.customerId, at);
+      }
+    }
 
     // The worked records themselves (they must exist in this organization), with their status.
     const workedRows = new Map<string, unknown>();
@@ -199,7 +244,8 @@ export class IntakeEligibilityRepository {
     const add = (id: string, basis: IntakeBasis, rawStatus: unknown, entered: Date) => {
       const w = work.get(id);
       const status = intakeStatusOf(rawStatus, basis);
-      const clockAt = w?.last ?? entered;
+      // The later of entry and the latest work: work never moves a record's clock backwards.
+      const clockAt = w && w.last.getTime() > entered.getTime() ? w.last : entered;
       records.push({
         id,
         basis,
@@ -208,10 +254,13 @@ export class IntakeEligibilityRepository {
         enteredAt: entered,
         lastWorkedAt: w?.last ?? null,
         clockAt,
-        stalled: (INTAKE_WORKING as readonly string[]).includes(status) && clockAt < staleBefore,
+        stalled: (INTAKE_WORKING as readonly string[]).includes(status) && clockAt.getTime() < staleBefore.getTime(),
       });
     };
-    for (const [id, lead] of leads) add(id, 'WEB_LEAD', lead.status, lead.createdAt);
+    for (const [id, lead] of leads) {
+      const entered = submittedAt.get(id) ?? actTime(lead.createdAt) ?? lead.createdAt;
+      add(id, 'WEB_LEAD', lead.status, entered);
+    }
     for (const [id, status] of workedRows) add(id, 'HUMAN_WORK', status, work.get(id)!.first);
 
     const totalRecords = await this.prisma.customer.count({ where: org });
