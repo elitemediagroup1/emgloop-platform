@@ -303,6 +303,82 @@ test('connectivity wiring: the same read-only service, no runtime, no model; the
   for (const [, op, where] of calls) assert.match(where!, /org|window|working|stalledWhere|organizationId|\{ \.\.\.org/, `${op} is organization-scoped`);
 });
 
+const COMPOSITION = {
+  records: 24_590,
+  byStatus: [
+    { status: 'ABSENT', total: 3, working: 3, stalled: 3 },
+    { status: 'NEW', total: 16_380, working: 16_380, stalled: 16_372 },
+    { status: 'CONTACTED', total: 8_195, working: 8_195, stalled: 8_190 },
+    { status: 'QUOTED', total: 9, working: 9, stalled: 9 },
+    { status: 'BOOKED', total: 2, working: 0, stalled: 0 },
+    { status: 'COMPLETED', total: 0, working: 0, stalled: 0 },
+    { status: 'ARCHIVED', total: 1, working: 0, stalled: 0 },
+    { status: 'OTHER', total: 0, working: 0, stalled: 0 },
+  ],
+  byProvenance: [
+    { provenance: 'CALLGRID_INGESTION_CALLER_ONLY', basis: 'VERIFIED', total: 24_570, working: 24_569, stalled: 24_560, humanWork: 0 },
+    { provenance: 'UNKNOWN', basis: 'UNKNOWN', total: 20, working: 18, stalled: 15, humanWork: 2 },
+  ],
+  humanWork: { bySignal: { HUMAN_NOTE: 0, USER_ACTION: 2, USER_PARTY_LINK: 0 }, any: 2, stalledAny: 1 },
+  clock: { all: { lastSeenEqualsCreated: 24_589, lastSeenAfterCreated: 1, lastSeenBeforeCreated: 0 }, stalled: { lastSeenEqualsCreated: 24_574, lastSeenAfterCreated: 1, lastSeenBeforeCreated: 0 } },
+  cutoff: { at: '2026-09-15T13:49:40.000Z', createdBefore: { total: 24_580, working: 24_577, stalled: 24_575 }, createdAfter: { total: 10, working: 10, stalled: 0 }, afterWithIngestionMark: 3 },
+  months: [{ month: '2026-07', total: 12_591, working: 12_590, stalled: 12_589 }],
+  stalledActivity: { windowDays: 14, byKind: { ROW_UPDATED: 4, INTERACTION: 0, HUMAN_NOTE: 0, CONVERSATION: 0, BOOKING: 0, ORDER: 0, SERVICE_REQUEST: 0, USER_ACTION: 0, SYSTEM_AUDIT: 0, WORKFLOW_RUN: 0, PARTY_LINK: 0 }, any: 4, human: 0, none: 24_571 },
+  nameable: { stalled: 24_575, nameable: 24_575 },
+  complete: true,
+  incomplete: [],
+} as const;
+
+test('pipeline composition prints status, provenance with basis, human work, clock, cutoff, months, stalled activity and nameable -- counts only', async () => {
+  const w = await world();
+  let cutoff: Date | null = null;
+  await runIntelligenceState({ organizationSlug: 'servicesinmycity-demo', since: '' }, { ...w.deps, pipeline: async (_org, slice1At) => ((cutoff = slice1At), COMPOSITION as never) });
+  assert.equal((cutoff as Date | null)?.toISOString(), '2026-09-15T13:49:40.000Z', 'the governed Slice 1 cutoff (#239 merged), never one invented here');
+  const lines = w.out.filter((l) => l.startsWith('event=PIPELINE_'));
+  assert.deepEqual(lines.slice(0, 3), [
+    'event=PIPELINE_STATUS status=ABSENT total=3 working=3 stalled=3',
+    'event=PIPELINE_STATUS status=NEW total=16380 working=16380 stalled=16372',
+    'event=PIPELINE_STATUS status=CONTACTED total=8195 working=8195 stalled=8190',
+  ]);
+  for (const expected of [
+    'event=PIPELINE_PROVENANCE provenance=CALLGRID_INGESTION_CALLER_ONLY basis=VERIFIED total=24570 working=24569 stalled=24560 humanWork=0',
+    'event=PIPELINE_PROVENANCE provenance=UNKNOWN basis=UNKNOWN total=20 working=18 stalled=15 humanWork=2',
+    'event=PIPELINE_HUMAN_WORK HUMAN_NOTE=0 USER_ACTION=2 USER_PARTY_LINK=0 any=2 stalledAny=1',
+    'event=PIPELINE_CLOCK scope=ALL lastSeenEqualsCreated=24589 lastSeenAfterCreated=1 lastSeenBeforeCreated=0',
+    'event=PIPELINE_CLOCK scope=STALLED lastSeenEqualsCreated=24574 lastSeenAfterCreated=1 lastSeenBeforeCreated=0',
+    'event=PIPELINE_CUTOFF basis=SLICE1_MERGED_AT at=2026-09-15T13:49:40.000Z createdBefore=24580 workingBefore=24577 stalledBefore=24575 createdAfter=10 workingAfter=10 stalledAfter=0 afterWithIngestionMark=3',
+    'event=PIPELINE_MONTH month=2026-07 created=12591 working=12590 stalled=12589',
+    'event=PIPELINE_STALLED_ACTIVITY windowDays=14 ROW_UPDATED=4 INTERACTION=0 HUMAN_NOTE=0 CONVERSATION=0 BOOKING=0 ORDER=0 SERVICE_REQUEST=0 USER_ACTION=0 SYSTEM_AUDIT=0 WORKFLOW_RUN=0 PARTY_LINK=0 any=4 human=0 none=24571',
+    'event=PIPELINE_NAMEABLE stalled=24575 nameable=24575',
+    'event=PIPELINE_COMPOSITION_SUMMARY records=24590 complete=true bounded=false incomplete=-',
+  ]) assert.ok(lines.includes(expected), expected);
+});
+
+test('pipeline composition cannot leak or overclaim: text prints UNRECOGNIZED; an incomplete read is bounded=true with its codes', async () => {
+  const w = await world();
+  const hostile = { ...COMPOSITION, byProvenance: [{ provenance: 'dana@acme.test', basis: 'Acme Insurance Group', total: 1, working: 1, stalled: 1, humanWork: 0 }], complete: false, incomplete: ['RECORDS', 'Please call me'] };
+  await runIntelligenceState({ organizationSlug: 'servicesinmycity-demo', since: '' }, { ...w.deps, pipeline: async () => hostile as never });
+  const text = w.out.join('\n');
+  for (const secret of ['dana@', 'Acme', 'Please call me']) assert.equal(text.includes(secret), false, secret);
+  assert.match(text, /provenance=UNRECOGNIZED basis=UNRECOGNIZED/);
+  assert.match(text, /complete=false bounded=true incomplete=RECORDS,UNRECOGNIZED/);
+});
+
+test('pipeline composition wiring and reader: read-only client, the governed cutoff, no write, and no content column ever selected', () => {
+  const runner = readFileSync(join(__dirname, 'read-intelligence-state.ts'), 'utf8');
+  assert.match(runner, /import \{ SLICE1_MERGED_AT \} from '\.\/read-people-population';/);
+  assert.match(runner, /new PipelineCompositionRepository\(readOnlyClient\(prisma\)\)/);
+  const strip = (path: string) => readFileSync(path, 'utf8').replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
+  const reader = strip(join(__dirname, '..', '..', 'packages', 'database', 'src', 'repositories', 'intelligence', 'pipeline-composition.repository.ts'));
+  for (const forbidden of ['.create(', '.update(', '.upsert(', '.delete(', 'createMany(', 'updateMany(', 'deleteMany(', '$executeRaw', '$queryRaw', '$transaction', 'fetch(']) assert.equal(reader.includes(forbidden), false, forbidden);
+  // Customer fields are matched in the query; the only values ever selected are ids, timestamps and a run's input.
+  for (const column of ['email: true', 'phone: true', 'firstName: true', 'lastName: true', 'attributes: true', 'metadata: true', 'tags: true', 'externalId: true', 'payload: true', 'body: true']) {
+    assert.equal(reader.includes(column), false, `never selects ${column}`);
+  }
+  // Every read names the organization.
+  assert.equal((reader.match(/\{ \.\.\.org,|inOrg\(|, org, 'id'/g) ?? []).length >= 20, true);
+});
+
 test('a value that is not a code token prints as UNRECOGNIZED, never as itself', () => {
   assert.equal(token('volume-drop'), 'volume-drop');
   assert.equal(token('daily:2026-09-19..2026-09-20'), 'daily:2026-09-19..2026-09-20');

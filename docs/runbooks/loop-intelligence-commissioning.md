@@ -226,6 +226,17 @@ A component is `independent` only when it spans two distinct governed sources. C
 rest on `marketplace_calls`, so a pair of those alone is counted in `eliminatedSameSource`. The component
 counts are upper bounds: signal kind and time window are not applied. Nothing is linked.
 
+**What is Pipeline counting?** The `PIPELINE_*` lines measure the Pipeline reading's population by its own
+definitions: working and stalled by raw status, and by provenance with a `basis`. VERIFIED means a durable
+mark the creating code wrote. HEURISTIC is a convention. UNKNOWN is everything else; a record that only looks
+like a legacy caller is UNKNOWN. They also report:
+- human work, only where a row names the actor;
+- how many records' `lastSeenAt` never moved from `createdAt`;
+- records created before and after the Slice 1 cutoff;
+- what real activity the stalled records had in the last 14 days, by kind.
+
+`complete=true` only when every read reached its end.
+
 **The Briefing's expected coverage.** Every domain Loop is supposed to observe for the person must be
 present and current before "nothing pressing" can appear. That set is:
 

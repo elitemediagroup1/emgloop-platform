@@ -11,7 +11,8 @@
 // stopped it) -- it calls no model; and what the organization could legitimately connect (governed
 // relationships, stable vs label-only CallGrid members, nameable records, and potential cross-domain
 // components today and with the proposed link projector, with and without two distinct sources). It writes
-// nothing and creates no link -- no retry, no purge, no stale
+// nothing and creates no link; and what the Pipeline reading is counting (status, provenance with its basis,
+// human work, the lastSeenAt clock, the Slice 1 cutoff, real activity of stalled records) -- no retry, no purge, no stale
 // transition: the reader is built on a client that can only read
 // (`readOnlyClient`), and nothing here names a write.
 //
@@ -25,7 +26,8 @@
 // NO SCHEDULE, NO PUSH, NO PULL_REQUEST, NO WORKFLOW_CALL. Reading production is still touching
 // production, and a human should be the one asking.
 
-import type { IntelligenceState, SituationConnectivity, SituationDiagnosis } from '@emgloop/database';
+import type { IntelligenceState, PipelineComposition, SituationConnectivity, SituationDiagnosis } from '@emgloop/database';
+import { SLICE1_MERGED_AT } from './read-people-population';
 import { employeeRef } from './cycle-employee-sources';
 
 export interface IntelligenceStateReader {
@@ -46,6 +48,12 @@ export interface IntelligenceStateDeps {
    * proposed entity-link projector, with and without the two-source requirement. Absent: not printed.
    */
   connectivity?: (organizationId: string) => Promise<SituationConnectivity>;
+  /**
+   * What the Pipeline reading is counting (PipelineCompositionRepository on the read-only client): status,
+   * provenance with its basis, deterministic human work, the lastSeenAt clock, the Slice 1 cutoff, creation
+   * months, real activity of the stalled records, and nameable ids. Absent: not printed.
+   */
+  pipeline?: (organizationId: string, slice1At: Date) => Promise<PipelineComposition>;
   now: () => Date;
   log: (line: string) => void;
 }
@@ -320,6 +328,33 @@ export async function runIntelligenceState(
     deps.log(line({ event: 'SITUATION_CONNECTIVITY_SUMMARY', bounded: g.bounded, linksCreated: 0, modelCalls: 0 }));
   }
 
+  // 11. What the Pipeline reading is counting -- counts and codes; no id, name, contact or status value.
+  if (deps.pipeline) {
+    const p = await deps.pipeline(org.id, new Date(SLICE1_MERGED_AT));
+    for (const r of p.byStatus) deps.log(line({ event: 'PIPELINE_STATUS', status: token(r.status), total: r.total, working: r.working, stalled: r.stalled }));
+    for (const r of p.byProvenance) deps.log(line({ event: 'PIPELINE_PROVENANCE', provenance: token(r.provenance), basis: token(r.basis), total: r.total, working: r.working, stalled: r.stalled, humanWork: r.humanWork }));
+    deps.log(line({ event: 'PIPELINE_HUMAN_WORK', ...Object.fromEntries(Object.entries(p.humanWork.bySignal).map(([k, v]) => [token(k) ?? 'UNRECOGNIZED', v])), any: p.humanWork.any, stalledAny: p.humanWork.stalledAny }));
+    for (const [scope, c] of [['ALL', p.clock.all], ['STALLED', p.clock.stalled]] as const) {
+      deps.log(line({ event: 'PIPELINE_CLOCK', scope, lastSeenEqualsCreated: c.lastSeenEqualsCreated, lastSeenAfterCreated: c.lastSeenAfterCreated, lastSeenBeforeCreated: c.lastSeenBeforeCreated }));
+    }
+    deps.log(line({
+      event: 'PIPELINE_CUTOFF',
+      basis: 'SLICE1_MERGED_AT',
+      at: token(p.cutoff.at),
+      createdBefore: p.cutoff.createdBefore.total,
+      workingBefore: p.cutoff.createdBefore.working,
+      stalledBefore: p.cutoff.createdBefore.stalled,
+      createdAfter: p.cutoff.createdAfter.total,
+      workingAfter: p.cutoff.createdAfter.working,
+      stalledAfter: p.cutoff.createdAfter.stalled,
+      afterWithIngestionMark: p.cutoff.afterWithIngestionMark,
+    }));
+    for (const m of p.months) deps.log(line({ event: 'PIPELINE_MONTH', month: token(m.month), created: m.total, working: m.working, stalled: m.stalled }));
+    deps.log(line({ event: 'PIPELINE_STALLED_ACTIVITY', windowDays: p.stalledActivity.windowDays, ...Object.fromEntries(Object.entries(p.stalledActivity.byKind).map(([k, v]) => [token(k) ?? 'UNRECOGNIZED', v])), any: p.stalledActivity.any, human: p.stalledActivity.human, none: p.stalledActivity.none }));
+    deps.log(line({ event: 'PIPELINE_NAMEABLE', stalled: p.nameable.stalled, nameable: p.nameable.nameable }));
+    deps.log(line({ event: 'PIPELINE_COMPOSITION_SUMMARY', records: p.records, complete: p.complete, bounded: !p.complete, incomplete: p.incomplete.length ? p.incomplete.map((c) => token(c)).join(',') : null }));
+  }
+
   deps.log(line({
     event: 'SUMMARY',
     cases: state.cases.rows.length,
@@ -347,7 +382,7 @@ async function main(): Promise<number> {
     return 2;
   }
 
-  const { prisma, readOnlyClient, IntelligenceStateRepository, SituationService } = await import('@emgloop/database');
+  const { prisma, readOnlyClient, IntelligenceStateRepository, SituationService, PipelineCompositionRepository } = await import('@emgloop/database');
   try {
     // The reader gets a client that can only read. Its own `$disconnect` stays with this wiring.
     const reader = new IntelligenceStateRepository(readOnlyClient(prisma));
@@ -355,7 +390,9 @@ async function main(): Promise<number> {
     const situationService = new SituationService({ prisma: readOnlyClient(prisma), runtime: null, modelEnabled: () => false, principalFor: async () => null, now: () => new Date() });
     const situations = (organizationId: string) => situationService.diagnose({ scope: 'ORGANIZATION', organizationId });
     const connectivity = (organizationId: string) => situationService.connectivity(organizationId);
-    const result = await runIntelligenceState({ organizationSlug: args.organization, since: args.since }, { reader, situations, connectivity, now: () => new Date(), log });
+    const composition = new PipelineCompositionRepository(readOnlyClient(prisma));
+    const pipeline = (organizationId: string, slice1At: Date) => composition.read(organizationId, new Date(), slice1At);
+    const result = await runIntelligenceState({ organizationSlug: args.organization, since: args.since }, { reader, situations, connectivity, pipeline, now: () => new Date(), log });
     return result.overall === 'READ' ? 0 : 1;
   } finally {
     await prisma.$disconnect();
