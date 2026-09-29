@@ -2458,11 +2458,18 @@ Blueprint: https://claude.ai/artifact/VZuKzXAmCpc2WZsQR32gDS
   organization page, the Pipeline producer (v2) and both probes.
 - **Unchanged:** no migration, and no record is changed.
 
+**Adversarial review (fbf20c2):**
+- Acts must be by a human operator member of the organization (spoofed, AI, creator and non-member actors
+  fail closed).
+- Malformed future acts are ignored; leads enter at their form submission.
+- Party links commit atomically with their audit.
+- The repaired producer is `pipeline.domain@2`, so a deploy cannot start it.
+
 **Next (Matt):**
 1. Review and merge; Netlify redeploys the web app.
 2. Redeploy the worker.
-3. Run Read Intelligence State and confirm `PIPELINE_INTAKE`.
-4. Only then decide whether to reactivate Pipeline.
+3. Run Read Intelligence State and check the invariants in the runbook.
+4. Only then decide whether to add `pipeline.domain@2` to `LOOP_INTELLIGENCE_PRODUCERS`.
 
 ## Loop Intelligence — COMPLETE BUILD (Phases A–G) — IN REVIEW (draft PR #341, branch `feat/loop-intelligence-fabric`, off main `d70f737`) · NOTHING COMMISSIONED
 
