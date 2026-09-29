@@ -2438,7 +2438,7 @@ worker is redeployed on it, and the runtime has been verified in production.
 
 Blueprint: https://claude.ai/artifact/VZuKzXAmCpc2WZsQR32gDS
 
-## Loop Intelligence — Intake eligibility repair — IN REVIEW (draft PR, branch `fix/intake-eligibility`, off main `7a5c041`)
+## Loop Intelligence — Intake eligibility repair — IN REVIEW (draft PR #350, branch `fix/intake-eligibility`, off main `7a5c041`)
 
 **Production (2026-09-29):**
 - #344, #345, #346, #347, #348 and #349 are merged.
