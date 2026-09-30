@@ -27,20 +27,99 @@ export const WEB_PROPERTY_KEY_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/;
 /** The public browser ingest-key prefix. A key is `pk_emg_<property key>` -- public, never a secret. */
 export const WEB_PROPERTY_INGEST_KEY_PREFIX = 'pk_emg_';
 
-export const WEB_PROPERTY_STATUSES = ['ACTIVE', 'DISABLED'] as const;
-export type WebPropertyStatus = (typeof WEB_PROPERTY_STATUSES)[number];
+// --- Property lifecycle and ingestion authority (two separate facts) --------------------------------------
+//
+// web_properties is the AUTHORITATIVE registry of EMG website properties -- every owned domain, live or not.
+// Two facts are kept apart:
+//
+//   LIFECYCLE   what the property IS:  OWNED (held, nothing built) -> BUILDING -> LIVE <-> PAUSED, and RETIRED.
+//   INGESTION   whether Loop currently ACCEPTS its first-party telemetry: ENABLED | DISABLED.
+//
+// Only LIVE + ENABLED admits website events. ENABLED is possible only while LIVE (a database CHECK holds it
+// too), and leaving LIVE disables ingestion in the same write. Entering LIVE never enables ingestion by itself:
+// that is its own operator act. No external observation -- a GA4, Search Console or Bing account listing the
+// domain -- changes either fact: lifecycle and ingestion move only by an operator's explicit transition.
+//
+// An OWNED or BUILDING property is EXPECTED to be quiet: it sends no traffic, needs no analytics source, and is
+// never a coverage gap (websiteCoverageVerdict).
+
+export const WEB_PROPERTY_LIFECYCLES = ['OWNED', 'BUILDING', 'LIVE', 'PAUSED', 'RETIRED'] as const;
+export type WebPropertyLifecycle = (typeof WEB_PROPERTY_LIFECYCLES)[number];
+
+export const WEB_PROPERTY_INGESTION_STATES = ['ENABLED', 'DISABLED'] as const;
+export type WebPropertyIngestion = (typeof WEB_PROPERTY_INGESTION_STATES)[number];
+
+/** The lifecycle transitions an operator may make. Anything else is refused (LIFECYCLE_TRANSITION_REFUSED). */
+export const WEB_PROPERTY_LIFECYCLE_TRANSITIONS: Readonly<Record<WebPropertyLifecycle, readonly WebPropertyLifecycle[]>> = Object.freeze({
+  OWNED: ['BUILDING', 'LIVE', 'RETIRED'],
+  BUILDING: ['OWNED', 'LIVE', 'RETIRED'],
+  LIVE: ['PAUSED', 'RETIRED'],
+  PAUSED: ['LIVE', 'RETIRED'],
+  RETIRED: ['OWNED'],
+});
+
+export function isWebPropertyLifecycle(value: unknown): value is WebPropertyLifecycle {
+  return typeof value === 'string' && (WEB_PROPERTY_LIFECYCLES as readonly string[]).includes(value);
+}
+
+export function isWebPropertyIngestion(value: unknown): value is WebPropertyIngestion {
+  return typeof value === 'string' && (WEB_PROPERTY_INGESTION_STATES as readonly string[]).includes(value);
+}
+
+/**
+ * The state a lifecycle transition produces, or a refusal. Leaving LIVE disables ingestion; entering LIVE keeps
+ * ingestion as it is (DISABLED unless an operator enables it afterwards).
+ */
+export function webPropertyLifecycleTransition(
+  from: { lifecycle: WebPropertyLifecycle; ingestion: WebPropertyIngestion },
+  to: WebPropertyLifecycle,
+): { ok: true; lifecycle: WebPropertyLifecycle; ingestion: WebPropertyIngestion } | { ok: false; code: 'LIFECYCLE_UNCHANGED' | 'LIFECYCLE_TRANSITION_REFUSED' } {
+  if (from.lifecycle === to) return { ok: false, code: 'LIFECYCLE_UNCHANGED' };
+  if (!WEB_PROPERTY_LIFECYCLE_TRANSITIONS[from.lifecycle].includes(to)) return { ok: false, code: 'LIFECYCLE_TRANSITION_REFUSED' };
+  return { ok: true, lifecycle: to, ingestion: to === 'LIVE' ? from.ingestion : 'DISABLED' };
+}
+
+/** Whether ingestion may be set to `to` for a property in `lifecycle`. ENABLED requires LIVE. */
+export function webPropertyIngestionChange(lifecycle: WebPropertyLifecycle, to: WebPropertyIngestion): { ok: true } | { ok: false; code: 'INGESTION_REQUIRES_LIVE' } {
+  return to === 'ENABLED' && lifecycle !== 'LIVE' ? { ok: false, code: 'INGESTION_REQUIRES_LIVE' } : { ok: true };
+}
+
+/** Whether a property may admit first-party website events now. Only LIVE + ENABLED. */
+export function webPropertyAdmitsTelemetry(p: { lifecycle: string; ingestion: string }): boolean {
+  return p.lifecycle === 'LIVE' && p.ingestion === 'ENABLED';
+}
+
+/**
+ * How one property reads in diagnostics. UNREGISTERED is a property no one registered (never durable: it has no
+ * organization). KNOWN_NOT_LIVE is OWNED / BUILDING / PAUSED / RETIRED -- expected to be quiet, never a gap.
+ */
+export const WEB_PROPERTY_ADMISSION_STATES = ['KNOWN_NOT_LIVE', 'LIVE_INGESTING', 'LIVE_INGESTION_DISABLED', 'UNREGISTERED'] as const;
+export type WebPropertyAdmissionState = (typeof WEB_PROPERTY_ADMISSION_STATES)[number];
+
+export function webPropertyAdmissionState(p: { lifecycle: string; ingestion: string } | null): WebPropertyAdmissionState {
+  if (!p) return 'UNREGISTERED';
+  if (p.lifecycle !== 'LIVE') return 'KNOWN_NOT_LIVE';
+  return p.ingestion === 'ENABLED' ? 'LIVE_INGESTING' : 'LIVE_INGESTION_DISABLED';
+}
 
 /** Why a website delivery or event was refused. Codes only -- never the claimed value. */
 export const WEBSITE_INGEST_REFUSALS = [
   'MISSING_INGEST_KEY',
   'PROPERTY_UNREGISTERED',
-  'PROPERTY_DISABLED',
+  'PROPERTY_NOT_LIVE',
+  'INGESTION_DISABLED',
   'PROPERTY_MISSING',
   'PROPERTY_MISMATCH',
   'MISSING_ORIGIN',
   'DOMAIN_NOT_ALLOWED',
 ] as const;
 export type WebsiteIngestRefusal = (typeof WEBSITE_INGEST_REFUSALS)[number];
+
+/** The refusal for a registered property that may not admit telemetry now, or null when it may. */
+export function webPropertyAdmissionRefusal(p: { lifecycle: string; ingestion: string }): 'PROPERTY_NOT_LIVE' | 'INGESTION_DISABLED' | null {
+  if (p.lifecycle !== 'LIVE') return 'PROPERTY_NOT_LIVE';
+  return p.ingestion === 'ENABLED' ? null : 'INGESTION_DISABLED';
+}
 
 export function isWebPropertyKey(value: unknown): value is string {
   return typeof value === 'string' && WEB_PROPERTY_KEY_PATTERN.test(value);
@@ -446,4 +525,41 @@ export const WEBSITE_EVIDENCE_RETENTION: readonly WebsiteEvidenceRetention[] = O
 /** Whether the raw website telemetry purge is enabled by its flag. Fails closed: unset, empty or any other value is off. */
 export function websiteTelemetryRetentionEnabled(flag: string | undefined): boolean {
   return String(flag ?? '').trim().toLowerCase() === 'on';
+}
+
+// --- Coverage semantics: what is EXPECTED, given the registry ---------------------------------------------
+
+export const WEBSITE_COVERAGE_VERDICTS = ['COVERED', 'NOT_APPLICABLE', 'GAP_NOT_CONNECTED', 'GAP_NO_EVENTS'] as const;
+export type WebsiteCoverageVerdict = (typeof WEBSITE_COVERAGE_VERDICTS)[number];
+
+/**
+ * Whether a website source's absence is a gap. A source is expected only for LIVE properties -- first-party events
+ * only where a LIVE property has ingestion ENABLED. An organization whose properties are all OWNED / BUILDING /
+ * PAUSED / RETIRED expects nothing: its quiet sources are NOT_APPLICABLE, never NOT_CONNECTED gaps.
+ */
+export function websiteCoverageVerdict(input: {
+  readonly firstParty: boolean;
+  readonly liveProperties: number;
+  readonly liveIngestingProperties: number;
+  readonly connection: OrganizationConnectionState;
+  readonly hasRecentEvidence: boolean;
+}): WebsiteCoverageVerdict {
+  if (input.firstParty) {
+    if (input.liveIngestingProperties === 0) return 'NOT_APPLICABLE';
+    return input.hasRecentEvidence ? 'COVERED' : 'GAP_NO_EVENTS';
+  }
+  if (input.liveProperties === 0) return 'NOT_APPLICABLE';
+  return input.connection === 'CONNECTED' ? 'COVERED' : 'GAP_NOT_CONNECTED';
+}
+
+/** The host a Search Console / Bing site names (`sc-domain:<host>` or an http(s) URL prefix), or null. */
+export function webSiteBindingHost(value: string): string | null {
+  if (value.startsWith('sc-domain:')) return normalizeWebDomain(value.slice('sc-domain:'.length));
+  const m = /^https?:\/\/([^/?#:]+)(?::\d+)?\//.exec(value);
+  return m ? normalizeWebDomain(m[1]!) : null;
+}
+
+/** Whether `host` is the property's primary domain or one of its subdomains. */
+export function hostWithinPrimaryDomain(host: string, primaryDomain: string): boolean {
+  return host === primaryDomain || host.endsWith('.' + primaryDomain);
 }

@@ -1,16 +1,19 @@
-# Register a website property.
+# Register Web Property -- operator acts on the authoritative EMG website-property registry.
 #
-# Binds ONE website property to ONE organization in web_properties -- the only thing website ingestion resolves
-# tenancy through. Until a property is registered here its events are refused (PROPERTY_UNREGISTERED); there is no
-# fallback organization. The migration that creates the table inserts nothing: every real property is registered
-# by a person, one dispatch at a time.
+# web_properties records EVERY EMG website property -- live or only owned -- each bound to ONE organization, with a
+# LIFECYCLE (OWNED / BUILDING / LIVE / PAUSED / RETIRED) and, separately, an INGESTION state (ENABLED / DISABLED).
+# Website ingestion admits events only for a registered property that is LIVE with ingestion ENABLED; there is no
+# fallback organization. The migration inserts nothing: properties are registered here, by a person.
 #
-# WHAT IT WRITES. One web_properties row through WebPropertyRepository: register (create, or update the bindings of
-# this organization's OWN property) or enable / disable it. A key registered to another organization is REFUSED,
-# never moved. It contacts no provider and holds no provider credential: the GA4 / Search Console / Bing / Clarity
-# fields only record which external property belongs here, for a connector that does not exist yet.
+# ACTIONS (one per dispatch):
+#   register-portfolio  register every EMG portfolio domain for the organization, each OWNED, ingestion DISABLED.
+#   register            register one property (key + primary domain), or update its label, domains and bindings.
+#   set-lifecycle       move a property along the governed lifecycle; leaving LIVE disables ingestion.
+#   enable-ingestion    allow first-party telemetry (LIVE only).  disable-ingestion  stop it.
 #
-# DRY RUN FIRST. `dry_run: true` validates against the database and writes nothing.
+# It contacts no provider and holds no provider credential; the GA4 / Search Console / Bing / Clarity fields only
+# record which external property belongs here. A key, domain or binding another organization holds is REFUSED,
+# never moved. DRY RUN FIRST: `dry_run: true` validates against the database and writes nothing.
 #
 # NO SCHEDULE, NO PUSH, NO PULL_REQUEST, NO WORKFLOW_CALL -- a human starts this from the Actions tab.
 
@@ -23,21 +26,38 @@ on:
         description: 'Organization slug the property belongs to'
         required: true
         type: string
-      property_key:
-        description: 'The property key the tracker sends (its public ingest key is pk_emg_<key>)'
-        required: true
-        type: string
       action:
-        description: 'register | enable | disable'
+        description: 'What to do (register-portfolio registers every owned EMG domain as OWNED)'
         required: true
-        default: register
+        default: register-portfolio
         type: choice
         options:
+          - register-portfolio
           - register
-          - enable
-          - disable
+          - set-lifecycle
+          - enable-ingestion
+          - disable-ingestion
+      property_key:
+        description: 'All actions but register-portfolio: the property key the tracker sends (ingest key pk_emg_<key>)'
+        required: false
+        type: string
+      primary_domain:
+        description: 'register only: the property''s own domain, e.g. servicesinmycity.com (fixed once registered)'
+        required: false
+        type: string
+      lifecycle:
+        description: 'set-lifecycle: the target. register: the lifecycle a NEW property starts in (default OWNED)'
+        required: false
+        type: choice
+        options:
+          - ''
+          - OWNED
+          - BUILDING
+          - LIVE
+          - PAUSED
+          - RETIRED
       domains:
-        description: 'register only: allowed domains, space-separated (e.g. example.com www.example.com)'
+        description: 'register only: allowed browser hosts within the primary domain, space-separated (default: the primary domain)'
         required: false
         type: string
       label:
@@ -96,7 +116,8 @@ jobs:
           ORG_SLUG: ${{ inputs.organization_slug }}
           PROPERTY_KEY: ${{ inputs.property_key }}
           ACTION: ${{ inputs.action }}
-          DOMAINS: ${{ inputs.domains }}
+          PRIMARY_DOMAIN: ${{ inputs.primary_domain }}
+          LIFECYCLE: ${{ inputs.lifecycle }}
         shell: bash
         run: |
           set -euo pipefail
@@ -104,15 +125,19 @@ jobs:
             echo "::error::organization_slug must be lowercase letters, digits and hyphens."
             exit 1
           fi
-          if ! printf '%s' "${PROPERTY_KEY}" | grep -Eq '^[a-z0-9][a-z0-9-]{0,62}$'; then
+          if [ "${ACTION}" != "register-portfolio" ] && ! printf '%s' "${PROPERTY_KEY}" | grep -Eq '^[a-z0-9][a-z0-9-]{0,62}$'; then
             echo "::error::property_key must be lowercase letters, digits and hyphens."
             exit 1
           fi
-          if [ "${ACTION}" = "register" ] && [ -z "$(printf '%s' "${DOMAINS:-}" | tr -d '[:space:]')" ]; then
-            echo "::error::register needs at least one allowed domain."
+          if [ "${ACTION}" = "register" ] && [ -z "$(printf '%s' "${PRIMARY_DOMAIN:-}" | tr -d '[:space:]')" ]; then
+            echo "::error::register needs the property's primary_domain."
             exit 1
           fi
-          echo "Validated ${ACTION} for a property of organization ${ORG_SLUG}."
+          if [ "${ACTION}" = "set-lifecycle" ] && [ -z "${LIFECYCLE:-}" ]; then
+            echo "::error::set-lifecycle needs a lifecycle."
+            exit 1
+          fi
+          echo "Validated ${ACTION} for organization ${ORG_SLUG}."
 
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -136,6 +161,8 @@ jobs:
           ORG_SLUG: ${{ inputs.organization_slug }}
           PROPERTY_KEY: ${{ inputs.property_key }}
           ACTION: ${{ inputs.action }}
+          PRIMARY_DOMAIN: ${{ inputs.primary_domain }}
+          LIFECYCLE: ${{ inputs.lifecycle }}
           DOMAINS: ${{ inputs.domains }}
           LABEL: ${{ inputs.label }}
           GA4_PROPERTY_ID: ${{ inputs.ga4_property_id }}
@@ -146,8 +173,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          args=(--organization "${ORG_SLUG}" --key "${PROPERTY_KEY}" --action "${ACTION}")
+          args=(--organization "${ORG_SLUG}" --action "${ACTION}")
+          if [ "${ACTION}" != "register-portfolio" ]; then args+=(--key "${PROPERTY_KEY}"); fi
+          if [ -n "${LIFECYCLE:-}" ]; then args+=(--lifecycle "${LIFECYCLE}"); fi
           if [ "${ACTION}" = "register" ]; then
+            args+=(--primary-domain "${PRIMARY_DOMAIN}")
             for d in ${DOMAINS}; do args+=(--domain "${d}"); done
             if [ -n "${LABEL:-}" ]; then args+=(--label "${LABEL}"); fi
             if [ -n "${GA4_PROPERTY_ID:-}" ]; then args+=(--ga4-property-id "${GA4_PROPERTY_ID}"); fi
@@ -165,9 +195,11 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "**Nothing was written.** Read the log above:" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "- \`code=KEY_REGISTERED_ELSEWHERE\` - another organization owns this property key. A property is never moved by a registration." >> "$GITHUB_STEP_SUMMARY"
-          echo "- \`code=DOMAIN_SHAPE\` / \`NO_ALLOWED_DOMAINS\` - give plain hostnames (no scheme, path, port or wildcard)." >> "$GITHUB_STEP_SUMMARY"
-          echo "- \`code=*_BOUND_ELSEWHERE\` - that GA4 property / Search Console site / Bing site / Clarity project already belongs to another Loop property. One external property belongs to one organization." >> "$GITHUB_STEP_SUMMARY"
-          echo "- \`reason=PROPERTY_NOT_IN_ORGANIZATION\` - enable/disable named a property this organization does not own." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`code=KEY_REGISTERED_ELSEWHERE\` / \`PRIMARY_DOMAIN_REGISTERED_ELSEWHERE\` - another organization owns this property. A property is never moved by a registration." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`code=*_BOUND_ELSEWHERE\` - that GA4 property / Search Console site / Bing site / Clarity project already belongs to another Loop property." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`code=LIFECYCLE_TRANSITION_REFUSED\` - not a governed transition (e.g. LIVE -> OWNED; use PAUSED or RETIRED)." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`code=INGESTION_REQUIRES_LIVE\` - ingestion can be enabled only for a LIVE property." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`code=LIFECYCLE_CHANGE_NEEDS_TRANSITION\` / \`PRIMARY_DOMAIN_CHANGE_REFUSED\` - register never changes an existing property's lifecycle or domain." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`code=PROPERTY_NOT_IN_ORGANIZATION\` - the action named a property this organization does not own." >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "Re-running with \`dry_run: true\` is always safe and writes nothing." >> "$GITHUB_STEP_SUMMARY"

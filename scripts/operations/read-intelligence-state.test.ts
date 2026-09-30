@@ -630,15 +630,21 @@ test('telegram triage repetition, latency and content holds print as counts and 
 // --- Website evidence (2026-09-30): counts and codes only; the four external sources are NOT_CONNECTED ------
 
 const WEBSITE_STATE = {
-  properties: { total: 3, active: 2, disabled: 1, withoutDomains: 0, ga4Bound: 1, searchConsoleBound: 0, bingBound: 0, clarityBound: 0 },
+  properties: {
+    total: 17,
+    byLifecycle: { OWNED: 12, BUILDING: 2, LIVE: 2, PAUSED: 1, RETIRED: 0 },
+    byAdmission: { KNOWN_NOT_LIVE: 15, LIVE_INGESTING: 1, LIVE_INGESTION_DISABLED: 1 },
+    unrecognized: 0,
+    ga4Bound: 1, searchConsoleBound: 0, bingBound: 0, clarityBound: 0,
+  },
   events: { total: 40, byClass: { PAGE_VIEW: 20, SESSION: 6, ENGAGEMENT: 4, INTENT: 2, TELEMETRY: 8, OTHER: 0 }, newestAt: new Date('2026-09-19T18:00:00Z') },
   refusals: { DOMAIN_NOT_ALLOWED: 2, PROPERTY_MISMATCH: 1 },
   sources: [
-    { sourceId: 'WEBSITE_EVENTS', stream: 'SITE_VISITS', basis: 'LOOP_RECORDS', connection: 'CONNECTED', newestWindowEnd: new Date('2026-09-19T18:00:00Z'), finality: null, sampled: null, thresholded: null, rolledUp: null, truncated: null },
-    { sourceId: 'GOOGLE_ANALYTICS', stream: 'SITE_VISITS', basis: 'ORGANIZATION_CONNECTION', connection: 'NOT_CONNECTED', newestWindowEnd: null, finality: null, sampled: null, thresholded: null, rolledUp: null, truncated: null },
-    { sourceId: 'MICROSOFT_CLARITY', stream: 'SITE_VISITS', basis: 'ORGANIZATION_CONNECTION', connection: 'NOT_CONNECTED', newestWindowEnd: null, finality: null, sampled: null, thresholded: null, rolledUp: null, truncated: null },
-    { sourceId: 'GOOGLE_SEARCH_CONSOLE', stream: 'SEARCH_GOOGLE', basis: 'ORGANIZATION_CONNECTION', connection: 'NOT_CONNECTED', newestWindowEnd: null, finality: null, sampled: null, thresholded: null, rolledUp: null, truncated: null },
-    { sourceId: 'BING_WEBMASTER', stream: 'SEARCH_BING', basis: 'ORGANIZATION_CONNECTION', connection: 'NOT_CONNECTED', newestWindowEnd: null, finality: null, sampled: null, thresholded: null, rolledUp: null, truncated: null },
+    { sourceId: 'WEBSITE_EVENTS', stream: 'SITE_VISITS', basis: 'LOOP_RECORDS', connection: 'CONNECTED', coverage: 'COVERED', newestWindowEnd: new Date('2026-09-19T18:00:00Z'), finality: null, sampled: null, thresholded: null, rolledUp: null, truncated: null },
+    { sourceId: 'GOOGLE_ANALYTICS', stream: 'SITE_VISITS', basis: 'ORGANIZATION_CONNECTION', connection: 'NOT_CONNECTED', coverage: 'GAP_NOT_CONNECTED', newestWindowEnd: null, finality: null, sampled: null, thresholded: null, rolledUp: null, truncated: null },
+    { sourceId: 'MICROSOFT_CLARITY', stream: 'SITE_VISITS', basis: 'ORGANIZATION_CONNECTION', connection: 'NOT_CONNECTED', coverage: 'GAP_NOT_CONNECTED', newestWindowEnd: null, finality: null, sampled: null, thresholded: null, rolledUp: null, truncated: null },
+    { sourceId: 'GOOGLE_SEARCH_CONSOLE', stream: 'SEARCH_GOOGLE', basis: 'ORGANIZATION_CONNECTION', connection: 'NOT_CONNECTED', coverage: 'GAP_NOT_CONNECTED', newestWindowEnd: null, finality: null, sampled: null, thresholded: null, rolledUp: null, truncated: null },
+    { sourceId: 'BING_WEBMASTER', stream: 'SEARCH_BING', basis: 'ORGANIZATION_CONNECTION', connection: 'NOT_CONNECTED', coverage: 'GAP_NOT_CONNECTED', newestWindowEnd: null, finality: null, sampled: null, thresholded: null, rolledUp: null, truncated: null },
   ],
 };
 
@@ -649,11 +655,16 @@ test('25: website evidence prints WEBSITE_PROPERTY / WEBSITE_EVENTS / WEBSITE_RE
   await runIntelligenceState({ organizationSlug: 'servicesinmycity-demo', since: '' }, { ...w.deps, log: (l) => void out.push(l), website: async (organizationId) => (asked.push(organizationId), WEBSITE_STATE as never) });
   assert.deepEqual(asked, ['org_live_1']);
   const lines = out.filter((l) => /event=(WEBSITE_|SOURCE_COVERAGE)/.test(l));
-  assert.ok(lines.includes('event=WEBSITE_PROPERTY registered=3 active=2 disabled=1 withoutDomains=0 ga4Bound=1 searchConsoleBound=0 bingBound=0 clarityBound=0'));
+  assert.ok(lines.includes('event=WEBSITE_PROPERTY registered=17 OWNED=12 BUILDING=2 LIVE=2 PAUSED=1 RETIRED=0 unrecognized=0 ga4Bound=1 searchConsoleBound=0 bingBound=0 clarityBound=0'));
+  // The four states the registry distinguishes, each stated -- a known, not-live property is never a gap.
+  assert.ok(lines.includes('event=WEBSITE_PROPERTY_STATE state=KNOWN_NOT_LIVE count=15 gap=false'));
+  assert.ok(lines.includes('event=WEBSITE_PROPERTY_STATE state=LIVE_INGESTING count=1 gap=false'));
+  assert.ok(lines.includes('event=WEBSITE_PROPERTY_STATE state=LIVE_INGESTION_DISABLED count=1 gap=false'));
+  assert.ok(lines.includes('event=WEBSITE_PROPERTY_STATE state=UNREGISTERED count=NOT_DURABLE gap=false'));
   assert.ok(lines.some((l) => l.startsWith('event=WEBSITE_EVENTS ') && l.includes('total=40 PAGE_VIEW=20 SESSION=6 ENGAGEMENT=4 INTENT=2 TELEMETRY=8 OTHER=0')));
   assert.ok(lines.includes('event=WEBSITE_REFUSALS connection=PRESENT DOMAIN_NOT_ALLOWED=2 PROPERTY_MISMATCH=1 unregistered=NOT_DURABLE'));
   for (const id of ['GOOGLE_ANALYTICS', 'MICROSOFT_CLARITY', 'GOOGLE_SEARCH_CONSOLE', 'BING_WEBMASTER']) {
-    assert.ok(lines.some((l) => l.startsWith(`event=SOURCE_COVERAGE source=${id} `) && l.includes('declared=DECLARED connection=NOT_CONNECTED newest=- finality=-')), id);
+    assert.ok(lines.some((l) => l.startsWith(`event=SOURCE_COVERAGE source=${id} `) && l.includes('declared=DECLARED connection=NOT_CONNECTED coverage=GAP_NOT_CONNECTED newest=- finality=-')), id);
   }
   assert.ok(lines.some((l) => l.startsWith('event=SOURCE_COVERAGE source=WEBSITE_EVENTS stream=SITE_VISITS') && l.includes('connection=CONNECTED')));
 });
@@ -664,10 +675,26 @@ test('25: website diagnostics cannot leak -- hostile values print UNRECOGNIZED, 
   const hostile = {
     ...WEBSITE_STATE,
     refusals: { 'jane@example.com': 1, 'https://site.example/?q=x': 2 },
-    sources: [{ ...WEBSITE_STATE.sources[1]!, sourceId: 'pk_emg_secret', stream: 'dana@acme.test', connection: 'token abc' as never, finality: '/p?email=x' }],
+    sources: [{ ...WEBSITE_STATE.sources[1]!, sourceId: 'pk_emg_secret', stream: 'dana@acme.test', connection: 'token abc' as never, coverage: 'jane@x' as never, finality: '/p?email=x' }],
   };
   await runIntelligenceState({ organizationSlug: 'servicesinmycity-demo', since: '' }, { ...w.deps, log: (l) => void out.push(l), website: async () => hostile as never });
   const text = out.filter((l) => /event=(WEBSITE_|SOURCE_COVERAGE)/.test(l)).join('\n');
   assert.doesNotMatch(text, /jane|example|pk_emg|dana|acme|token abc|email=/);
   assert.match(text, /source=UNRECOGNIZED stream=UNRECOGNIZED/);
+});
+
+test('a registry of known, not-live properties prints NOT_APPLICABLE coverage -- never a NOT_CONNECTED gap', async () => {
+  const w = await world();
+  const out: string[] = [];
+  const quiet = {
+    ...WEBSITE_STATE,
+    properties: { ...WEBSITE_STATE.properties, byLifecycle: { OWNED: 16, BUILDING: 1, LIVE: 0, PAUSED: 0, RETIRED: 0 }, byAdmission: { KNOWN_NOT_LIVE: 17, LIVE_INGESTING: 0, LIVE_INGESTION_DISABLED: 0 } },
+    events: { ...WEBSITE_STATE.events, total: 0, newestAt: null },
+    sources: WEBSITE_STATE.sources.map((s) => ({ ...s, connection: 'NOT_CONNECTED', coverage: 'NOT_APPLICABLE' })),
+  };
+  await runIntelligenceState({ organizationSlug: 'servicesinmycity-demo', since: '' }, { ...w.deps, log: (l) => void out.push(l), website: async () => quiet as never });
+  const coverage = out.filter((l) => l.startsWith('event=SOURCE_COVERAGE'));
+  assert.equal(coverage.length, 5);
+  assert.ok(coverage.every((l) => l.includes('coverage=NOT_APPLICABLE')));
+  assert.equal(out.some((l) => /GAP_/.test(l)), false);
 });

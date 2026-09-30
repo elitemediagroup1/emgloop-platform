@@ -1,26 +1,37 @@
-// WebPropertyRepository -- the governed property -> organization authority for website evidence (2026-09-30).
+// WebPropertyRepository -- the AUTHORITATIVE EMG website-property registry (2026-09-30).
 //
-// A website property (a site running Loop's tracker, and later the GA4 property / Search Console site / Bing
-// site / Clarity project that observe it) belongs to exactly ONE organization, and this table is the only
-// thing that says which. The website webhook resolves tenancy here and nowhere else: no browser-supplied
-// field, no domain a request claims, no code constant and no default organization selects one. An
-// unregistered property is refused (PROPERTY_UNREGISTERED); a DISABLED one is refused (PROPERTY_DISABLED).
+// Every EMG website property -- live or only owned -- is one row, belonging to exactly ONE organization, named by its
+// key and its normalized primary domain (both unique across Loop). Two facts are kept apart (@emgloop/shared
+// website-evidence): LIFECYCLE (OWNED / BUILDING / LIVE / PAUSED / RETIRED -- what the property is) and INGESTION
+// (ENABLED / DISABLED -- whether Loop accepts its first-party telemetry now). Website ingestion admits events only
+// for LIVE + ENABLED; an OWNED or BUILDING property exists here without being expected to send anything.
 //
-// THE ONE CROSS-ORGANIZATION READ is `resolveForIngest(key)`: turning an incoming property key into its
-// organization is, by definition, a lookup before the organization is known -- the same shape as resolving a
-// session. It returns only what admission needs (id, organization, status, allowed domains). Every other
+// WHAT NEVER MOVES A PROPERTY. Lifecycle and ingestion change only through `transitionLifecycle` / `setIngestion`,
+// explicit operator acts scoped to the owning organization. `register` on an existing property updates its label,
+// allowed domains and external bindings ONLY -- never its lifecycle, ingestion, primary domain or organization --
+// so recording an external property (the shape a future account-level discovery will propose) can neither make a
+// site LIVE nor move it. A key, a primary domain or an external binding another property holds is refused, never
+// moved or shared.
+//
+// THE ONE CROSS-ORGANIZATION READ is `resolveForIngest(key)`: turning an incoming property key into its organization
+// is, by definition, a lookup before the organization is known. It returns only what admission needs. Every other
 // method takes `organizationId` first and is scoped by it.
 //
-// Registration is an OPERATOR act (scripts/operations/register-web-property.ts), never a migration and never
-// a request path: the migration that creates this table inserts nothing, because a guessed binding would
-// route one business's visitors into another's evidence.
+// Registration is an OPERATOR act (scripts/operations/register-web-property.ts), never a migration and never a
+// request path.
 
 import type { PrismaClient, WebProperty } from '@prisma/client';
 import {
-  WEB_PROPERTY_STATUSES,
+  hostWithinPrimaryDomain,
+  isWebPropertyIngestion,
   isWebPropertyKey,
+  isWebPropertyLifecycle,
   normalizeWebDomain,
-  type WebPropertyStatus,
+  webPropertyIngestionChange,
+  webPropertyLifecycleTransition,
+  webSiteBindingHost,
+  type WebPropertyIngestion,
+  type WebPropertyLifecycle,
 } from '@emgloop/shared';
 
 /** What admission needs about a property. Nothing else crosses the organization boundary. */
@@ -28,14 +39,20 @@ export interface WebPropertyAdmission {
   readonly id: string;
   readonly key: string;
   readonly organizationId: string;
-  readonly status: WebPropertyStatus;
+  readonly lifecycle: string;
+  readonly ingestion: string;
   readonly allowedDomains: readonly string[];
 }
 
 export interface WebPropertyRegistration {
   readonly key: string;
+  /** The property's own domain, e.g. servicesinmycity.com. Fixed once registered. */
+  readonly primaryDomain: string;
   readonly label?: string | null;
-  readonly allowedDomains: readonly string[];
+  /** Hosts browser events may come from. Default: the primary domain (its subdomains, e.g. www., are covered). */
+  readonly allowedDomains?: readonly string[];
+  /** The lifecycle a NEW property starts in (default OWNED). For an existing property it must be unchanged. */
+  readonly lifecycle?: WebPropertyLifecycle;
   readonly ga4PropertyId?: string | null;
   readonly searchConsoleSiteUrl?: string | null;
   readonly bingSiteUrl?: string | null;
@@ -47,27 +64,33 @@ export type WebPropertyRegistrationOutcome =
   | { readonly outcome: 'REGISTERED' | 'UPDATED' | 'UNCHANGED'; readonly property: WebProperty }
   | { readonly outcome: 'REFUSED'; readonly problems: readonly string[] };
 
+export type WebPropertyStateChange =
+  | { readonly outcome: 'CHANGED'; readonly property: WebProperty }
+  | { readonly outcome: 'REFUSED'; readonly code: string };
+
 const GA4_PROPERTY_ID = /^\d{1,20}$/;
 const CLARITY_PROJECT_ID = /^[a-z0-9]{6,32}$/;
-
-/** A Search Console / Bing site: `sc-domain:<host>` or an https URL prefix ending in '/'. */
-function siteUrlOk(value: string): boolean {
-  if (value.startsWith('sc-domain:')) return normalizeWebDomain(value.slice('sc-domain:'.length)) !== null;
-  const m = /^https?:\/\/([^/?#]+)\/(?:[^?#]*\/)?$/.exec(value);
-  return !!m && normalizeWebDomain(m[1]!) !== null;
-}
 
 /** Why a registration would be refused. Empty means it may be stored. Codes only. */
 export function webPropertyRegistrationProblems(r: WebPropertyRegistration): string[] {
   const problems: string[] = [];
   if (!isWebPropertyKey(r.key)) problems.push('KEY_SHAPE');
-  if (r.allowedDomains.length === 0) problems.push('NO_ALLOWED_DOMAINS');
-  if (r.allowedDomains.length > 32) problems.push('TOO_MANY_DOMAINS');
-  if (r.allowedDomains.some((d) => normalizeWebDomain(d) !== d)) problems.push('DOMAIN_SHAPE');
+  const primary = normalizeWebDomain(r.primaryDomain ?? '');
+  if (!primary || primary !== r.primaryDomain) problems.push('PRIMARY_DOMAIN_SHAPE');
+  const allowed = r.allowedDomains ?? (primary ? [primary] : []);
+  if (allowed.length === 0) problems.push('NO_ALLOWED_DOMAINS');
+  if (allowed.length > 32) problems.push('TOO_MANY_DOMAINS');
+  if (allowed.some((d) => normalizeWebDomain(d) !== d)) problems.push('DOMAIN_SHAPE');
+  else if (primary && allowed.some((d) => !hostWithinPrimaryDomain(d, primary))) problems.push('DOMAIN_OUTSIDE_PRIMARY');
   if (r.label != null && (r.label.length === 0 || r.label.length > 120)) problems.push('LABEL_SHAPE');
+  if (r.lifecycle !== undefined && !isWebPropertyLifecycle(r.lifecycle)) problems.push('LIFECYCLE_UNKNOWN');
   if (r.ga4PropertyId != null && !GA4_PROPERTY_ID.test(r.ga4PropertyId)) problems.push('GA4_PROPERTY_ID_SHAPE');
-  if (r.searchConsoleSiteUrl != null && !siteUrlOk(r.searchConsoleSiteUrl)) problems.push('SEARCH_CONSOLE_SITE_SHAPE');
-  if (r.bingSiteUrl != null && !siteUrlOk(r.bingSiteUrl)) problems.push('BING_SITE_SHAPE');
+  for (const [value, code] of [[r.searchConsoleSiteUrl, 'SEARCH_CONSOLE_SITE'], [r.bingSiteUrl, 'BING_SITE']] as const) {
+    if (value == null) continue;
+    const host = webSiteBindingHost(value);
+    if (!host || !(value.startsWith('sc-domain:') || value.endsWith('/'))) problems.push(`${code}_SHAPE`);
+    else if (primary && !hostWithinPrimaryDomain(host, primary)) problems.push(`${code}_OUTSIDE_PRIMARY`);
+  }
   if (r.clarityProjectId != null && !CLARITY_PROJECT_ID.test(r.clarityProjectId)) problems.push('CLARITY_PROJECT_ID_SHAPE');
   return problems;
 }
@@ -75,7 +98,7 @@ export function webPropertyRegistrationProblems(r: WebPropertyRegistration): str
 function fieldsOf(r: WebPropertyRegistration) {
   return {
     label: r.label ?? null,
-    allowedDomains: [...new Set(r.allowedDomains)].sort(),
+    allowedDomains: [...new Set(r.allowedDomains ?? [r.primaryDomain])].sort(),
     ga4PropertyId: r.ga4PropertyId ?? null,
     searchConsoleSiteUrl: r.searchConsoleSiteUrl ?? null,
     bingSiteUrl: r.bingSiteUrl ?? null,
@@ -94,27 +117,28 @@ function sameRegistration(existing: WebProperty, fields: ReturnType<typeof field
   );
 }
 
-/** Which of a registration's external bindings another property (of any organization) already holds. */
-async function bindingsHeldElsewhere(
-  db: Pick<PrismaClient, 'webProperty'>,
-  key: string,
-  f: ReturnType<typeof fieldsOf>,
-): Promise<string[]> {
-  const checks: [string, Record<string, string>][] = [];
+/** Which identifying values of a registration another property (of any organization) already holds. */
+async function heldElsewhere(db: Pick<PrismaClient, 'webProperty'>, r: WebPropertyRegistration, f: ReturnType<typeof fieldsOf>): Promise<string[]> {
+  const checks: [string, Record<string, string>][] = [['PRIMARY_DOMAIN_REGISTERED_ELSEWHERE', { primaryDomain: r.primaryDomain }]];
   if (f.ga4PropertyId) checks.push(['GA4_PROPERTY_BOUND_ELSEWHERE', { ga4PropertyId: f.ga4PropertyId }]);
   if (f.searchConsoleSiteUrl) checks.push(['SEARCH_CONSOLE_SITE_BOUND_ELSEWHERE', { searchConsoleSiteUrl: f.searchConsoleSiteUrl }]);
   if (f.bingSiteUrl) checks.push(['BING_SITE_BOUND_ELSEWHERE', { bingSiteUrl: f.bingSiteUrl }]);
   if (f.clarityProjectId) checks.push(['CLARITY_PROJECT_BOUND_ELSEWHERE', { clarityProjectId: f.clarityProjectId }]);
   const problems: string[] = [];
   for (const [code, where] of checks) {
-    const other = await db.webProperty.findFirst({ where: { ...where, NOT: { key } }, select: { id: true } });
+    const other = await db.webProperty.findFirst({ where: { ...where, NOT: { key: r.key } }, select: { id: true } });
     if (other) problems.push(code);
   }
   return problems;
 }
 
-function isStatus(value: string): value is WebPropertyStatus {
-  return (WEB_PROPERTY_STATUSES as readonly string[]).includes(value);
+/** Why an update of an EXISTING property is refused: its identity and state are not a registration's to change. */
+function existingProblems(existing: WebProperty, organizationId: string, r: WebPropertyRegistration): string[] {
+  if (existing.organizationId !== organizationId) return ['KEY_REGISTERED_ELSEWHERE'];
+  const problems: string[] = [];
+  if (existing.primaryDomain !== r.primaryDomain) problems.push('PRIMARY_DOMAIN_CHANGE_REFUSED');
+  if (r.lifecycle !== undefined && r.lifecycle !== existing.lifecycle) problems.push('LIFECYCLE_CHANGE_NEEDS_TRANSITION');
+  return problems;
 }
 
 export class WebPropertyRepository {
@@ -122,16 +146,15 @@ export class WebPropertyRepository {
 
   /**
    * The property a key names, for admission -- or null when no property is registered under it. The ONE
-   * cross-organization read (see the header). A row with an unknown status is reported DISABLED: fail closed.
+   * cross-organization read (see the header). Admission decides with `webPropertyAdmissionRefusal`, which admits
+   * only LIVE + ENABLED, so an unknown stored value can never admit.
    */
   async resolveForIngest(key: string): Promise<WebPropertyAdmission | null> {
     if (!isWebPropertyKey(key)) return null;
-    const row = await this.prisma.webProperty.findUnique({
+    return this.prisma.webProperty.findUnique({
       where: { key },
-      select: { id: true, key: true, organizationId: true, status: true, allowedDomains: true },
+      select: { id: true, key: true, organizationId: true, lifecycle: true, ingestion: true, allowedDomains: true },
     });
-    if (!row) return null;
-    return { ...row, status: isStatus(row.status) ? row.status : 'DISABLED' };
   }
 
   /** What `register` would do, writing nothing: the dry run's answer. */
@@ -139,21 +162,16 @@ export class WebPropertyRepository {
     const problems = webPropertyRegistrationProblems(r);
     if (problems.length > 0) return { outcome: 'REFUSED', problems };
     const existing = await this.prisma.webProperty.findUnique({ where: { key: r.key } });
-    if (!existing) {
-      const held = await bindingsHeldElsewhere(this.prisma, r.key, fieldsOf(r));
-      return held.length > 0 ? { outcome: 'REFUSED', problems: held } : { outcome: 'REGISTERED', problems: [] };
-    }
-    if (existing.organizationId !== organizationId) return { outcome: 'REFUSED', problems: ['KEY_REGISTERED_ELSEWHERE'] };
-    const held = await bindingsHeldElsewhere(this.prisma, r.key, fieldsOf(r));
-    if (held.length > 0) return { outcome: 'REFUSED', problems: held };
+    const blocking = [...(existing ? existingProblems(existing, organizationId, r) : []), ...(await heldElsewhere(this.prisma, r, fieldsOf(r)))];
+    if (blocking.length > 0) return { outcome: 'REFUSED', problems: blocking };
+    if (!existing) return { outcome: 'REGISTERED', problems: [] };
     return { outcome: sameRegistration(existing, fieldsOf(r)) ? 'UNCHANGED' : 'UPDATED', problems: [] };
   }
 
   /**
-   * Register a property for an organization, or update its bindings. A key already registered to ANOTHER
-   * organization is refused (KEY_REGISTERED_ELSEWHERE) -- a property is never moved between organizations
-   * by a registration; that is a disable-and-reregister an operator does deliberately. An external binding
-   * another property already holds is refused (<SOURCE>_BOUND_ELSEWHERE).
+   * Register a property for an organization (lifecycle OWNED unless given; ingestion always DISABLED), or update
+   * an existing property's label, allowed domains and external bindings. Never changes an existing property's
+   * organization, primary domain, lifecycle or ingestion.
    */
   async register(organizationId: string, r: WebPropertyRegistration): Promise<WebPropertyRegistrationOutcome> {
     const problems = webPropertyRegistrationProblems(r);
@@ -164,16 +182,19 @@ export class WebPropertyRepository {
     const fields = fieldsOf(r);
     return this.prisma.$transaction(async (tx) => {
       const existing = await tx.webProperty.findUnique({ where: { key: r.key } });
-      if (existing && existing.organizationId !== organizationId) {
-        return { outcome: 'REFUSED' as const, problems: ['KEY_REGISTERED_ELSEWHERE'] };
-      }
-      // One external property belongs to one Loop property (unique in the database too): a GA4 property, a
-      // Search Console / Bing site or a Clarity project another property holds is refused, never shared.
-      const held = await bindingsHeldElsewhere(tx, r.key, fields);
-      if (held.length > 0) return { outcome: 'REFUSED' as const, problems: held };
+      const blocking = [...(existing ? existingProblems(existing, organizationId, r) : []), ...(await heldElsewhere(tx, r, fields))];
+      if (blocking.length > 0) return { outcome: 'REFUSED' as const, problems: blocking };
       if (!existing) {
         const property = await tx.webProperty.create({
-          data: { organizationId, key: r.key, registeredByUserId: r.registeredByUserId ?? null, ...fields },
+          data: {
+            organizationId,
+            key: r.key,
+            primaryDomain: r.primaryDomain,
+            lifecycle: r.lifecycle ?? 'OWNED',
+            ingestion: 'DISABLED',
+            registeredByUserId: r.registeredByUserId ?? null,
+            ...fields,
+          },
         });
         return { outcome: 'REGISTERED' as const, property };
       }
@@ -183,12 +204,42 @@ export class WebPropertyRepository {
     });
   }
 
-  /** Enable or disable one of this organization's properties. Null when it is not this organization's. */
-  async setStatus(organizationId: string, key: string, status: WebPropertyStatus): Promise<WebProperty | null> {
-    const row = await this.prisma.webProperty.findFirst({ where: { organizationId, key } });
-    if (!row) return null;
-    if (row.status === status) return row;
-    return this.prisma.webProperty.update({ where: { id: row.id }, data: { status } });
+  /**
+   * Move one of this organization's properties through its lifecycle (WEB_PROPERTY_LIFECYCLE_TRANSITIONS). Leaving
+   * LIVE disables ingestion in the same write. The organization is never touched. Refused as not-found when the
+   * property is not this organization's.
+   */
+  async transitionLifecycle(organizationId: string, key: string, to: WebPropertyLifecycle, now: Date): Promise<WebPropertyStateChange> {
+    if (!isWebPropertyLifecycle(to)) return { outcome: 'REFUSED', code: 'LIFECYCLE_UNKNOWN' };
+    return this.prisma.$transaction(async (tx) => {
+      const row = await tx.webProperty.findFirst({ where: { organizationId, key } });
+      if (!row) return { outcome: 'REFUSED' as const, code: 'PROPERTY_NOT_IN_ORGANIZATION' };
+      if (!isWebPropertyLifecycle(row.lifecycle) || !isWebPropertyIngestion(row.ingestion)) return { outcome: 'REFUSED' as const, code: 'STATE_UNRECOGNIZED' };
+      const next = webPropertyLifecycleTransition({ lifecycle: row.lifecycle, ingestion: row.ingestion }, to);
+      if (!next.ok) return { outcome: 'REFUSED' as const, code: next.code };
+      const updated = await tx.webProperty.updateMany({
+        where: { id: row.id, organizationId, lifecycle: row.lifecycle, ingestion: row.ingestion },
+        data: { lifecycle: next.lifecycle, ingestion: next.ingestion, lifecycleChangedAt: now },
+      });
+      if (updated.count !== 1) return { outcome: 'REFUSED' as const, code: 'CONCURRENT_CHANGE' };
+      return { outcome: 'CHANGED' as const, property: (await tx.webProperty.findUnique({ where: { id: row.id } }))! };
+    });
+  }
+
+  /** Enable or disable first-party ingestion for one of this organization's properties. ENABLED requires LIVE. */
+  async setIngestion(organizationId: string, key: string, to: WebPropertyIngestion): Promise<WebPropertyStateChange> {
+    if (!isWebPropertyIngestion(to)) return { outcome: 'REFUSED', code: 'INGESTION_UNKNOWN' };
+    return this.prisma.$transaction(async (tx) => {
+      const row = await tx.webProperty.findFirst({ where: { organizationId, key } });
+      if (!row) return { outcome: 'REFUSED' as const, code: 'PROPERTY_NOT_IN_ORGANIZATION' };
+      if (!isWebPropertyLifecycle(row.lifecycle)) return { outcome: 'REFUSED' as const, code: 'STATE_UNRECOGNIZED' };
+      if (row.ingestion === to) return { outcome: 'REFUSED' as const, code: 'INGESTION_UNCHANGED' };
+      const allowed = webPropertyIngestionChange(row.lifecycle, to);
+      if (!allowed.ok) return { outcome: 'REFUSED' as const, code: allowed.code };
+      const updated = await tx.webProperty.updateMany({ where: { id: row.id, organizationId, lifecycle: row.lifecycle, ingestion: row.ingestion }, data: { ingestion: to } });
+      if (updated.count !== 1) return { outcome: 'REFUSED' as const, code: 'CONCURRENT_CHANGE' };
+      return { outcome: 'CHANGED' as const, property: (await tx.webProperty.findUnique({ where: { id: row.id } }))! };
+    });
   }
 
   /** This organization's properties, by key. */

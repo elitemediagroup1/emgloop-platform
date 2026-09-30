@@ -20,8 +20,10 @@ import {
 // Website webhook -- the ingress for Loop's first-party website events.
 //
 // TENANCY COMES ONLY FROM A REGISTERED PROPERTY (2026-09-30). Each event names a property; the governed
-// registry (web_properties) says which ONE organization that property belongs to, and an event whose property
-// nobody registered is refused PROPERTY_UNREGISTERED. There is no default organization, no hardcoded live organization, and
+// registry (web_properties) says which ONE organization that property belongs to and whether it may send
+// telemetry now (LIVE + ingestion ENABLED only). An event whose property nobody registered is refused
+// PROPERTY_UNREGISTERED; a known property that is not LIVE, PROPERTY_NOT_LIVE; a LIVE one with ingestion
+// disabled, INGESTION_DISABLED. There is no default organization, no hardcoded live organization, and
 // nothing in the request -- the browser's `organization` field, an Origin, a property it claims -- chooses one.
 // Admission is `admitWebsiteDelivery` (@emgloop/database); this route only authenticates the tier, calls it,
 // and ingests each admitted batch into its own organization.
@@ -29,7 +31,7 @@ import {
 // Two authentication tiers, chosen by the request:
 //
 //   A. BROWSER SDK INGEST (emg-loop.js, untrusted client code). A browser cannot hold a secret, so these are
-//      not signed: the PUBLIC key pk_emg_<property> must name a REGISTERED, ACTIVE property, and in production
+//      not signed: the PUBLIC key pk_emg_<property> must name a REGISTERED property that is LIVE with ingestion ENABLED, and in production
 //      the Origin must be one of that property's registered allowed domains. Every event must be that
 //      property's.
 //   B. SERVER-TO-SERVER SIGNED EVENTS. HMAC-SHA256 over WEBSITE_WEBHOOK_SECRET. That secret is shared, so it
@@ -154,20 +156,32 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'ingest-rejected', mode, reason: admission.refusal }, { status: 401 });
   }
 
-  const unattributed = admission.rejected.filter((r) => r.code === 'PROPERTY_UNREGISTERED' || r.code === 'PROPERTY_MISSING');
+  const unattributed = admission.rejected.filter((r) => !r.organizationId);
   for (const r of unattributed) logUnattributed(r.code, tier, '');
+  // Refusals a registered property's owner can be charged with (not LIVE, ingestion disabled, mismatch), counted
+  // on THAT organization's connection. The response never carries an organization id.
+  const refusalsByOrg = new Map<string, Record<string, number>>();
+  for (const r of admission.rejected) {
+    if (!r.organizationId) continue;
+    const counts = refusalsByOrg.get(r.organizationId) ?? {};
+    counts[r.code] = (counts[r.code] ?? 0) + 1;
+    refusalsByOrg.set(r.organizationId, counts);
+  }
+  const rejected = admission.rejected.map((r) => ({ index: r.index, code: r.code }));
 
   const service = new IngestionService(prisma);
   const results: { externalId: string; status: string }[] = [];
   for (const batch of admission.batches) {
-    results.push(...(await ingestBatch(service, batch, diag, secretConfigured, tier === 'BROWSER' ? admission.rejected : [])));
+    results.push(...(await ingestBatch(service, batch, diag, secretConfigured, refusalsByOrg.get(batch.organizationId) ?? {})));
+    refusalsByOrg.delete(batch.organizationId);
+  }
+  for (const [organizationId, counts] of refusalsByOrg) {
+    const connection = await websiteConnectionFor(organizationId);
+    await persistDiag(organizationId, connection.id, connection.config, { valid: true, ...diag }, secretConfigured, counts);
   }
 
   if (admission.batches.length === 0) {
-    return NextResponse.json(
-      { ok: false, error: 'ingest-rejected', mode, rejected: admission.rejected },
-      { status: 422 },
-    );
+    return NextResponse.json({ ok: false, error: 'ingest-rejected', mode, rejected }, { status: 422 });
   }
 
   return NextResponse.json({
@@ -175,7 +189,7 @@ export async function POST(req: Request) {
     mode,
     received: events.length,
     accepted: results.length,
-    rejected: admission.rejected,
+    rejected,
     results: results.map((r) => ({ externalId: r.externalId, status: r.status })),
   });
 }
@@ -185,11 +199,9 @@ async function ingestBatch(
   batch: WebsiteAdmittedBatch,
   diag: { reason: string; signaturePrefix: string; timestamp?: number },
   secretConfigured: boolean,
-  rejected: readonly { code: string }[],
+  refusals: Record<string, number>,
 ) {
   const connection = await websiteConnectionFor(batch.organizationId);
-  const refusals: Record<string, number> = {};
-  for (const r of rejected) refusals[r.code] = (refusals[r.code] ?? 0) + 1;
   await persistDiag(batch.organizationId, connection.id, connection.config, { valid: true, ...diag }, secretConfigured, refusals);
 
   const results = await service.ingest({

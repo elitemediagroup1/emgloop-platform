@@ -1,10 +1,12 @@
 // Website ingress admission -- which organization a website delivery belongs to, or why it belongs to none.
 //
 // The ONLY way a website event reaches an organization (2026-09-30): the property it names is registered in
-// web_properties, ACTIVE, and -- for the browser tier -- the request came from one of that property's allowed
+// web_properties, LIVE with ingestion ENABLED, and -- for the browser tier -- the request came from one of that property's allowed
 // domains with that property's public ingest key. Nothing else selects an organization: not the browser's
 // `organization` field (ignored), not a domain the request claims, not a default. There is no fallback
-// organization; a property no one registered is refused PROPERTY_UNREGISTERED.
+// organization; a property no one registered is refused PROPERTY_UNREGISTERED. A registered property that is not
+// LIVE (OWNED, BUILDING, PAUSED, RETIRED) is refused PROPERTY_NOT_LIVE, and a LIVE one whose ingestion is disabled
+// INGESTION_DISABLED -- both attributable to their owner's diagnostics, neither a gap.
 //
 //   BROWSER tier   the public key pk_emg_<key> names ONE property. Every event in the delivery must be that
 //                  property's (an event naming another is PROPERTY_MISMATCH); in production the Origin must be
@@ -17,6 +19,7 @@
 
 import { verifyPropertyIngest, type InboundEvent } from '@emgloop/providers';
 import {
+  webPropertyAdmissionRefusal,
   webPropertyIngestKey,
   webPropertyKeyFromIngestKey,
   type WebsiteIngestRefusal,
@@ -48,8 +51,17 @@ export interface WebsiteAdmission {
   /** The property a whole-delivery refusal is attributable to, when one resolved (for its organization's diagnostics). */
   readonly refusedProperty: WebPropertyAdmission | null;
   readonly batches: readonly WebsiteAdmittedBatch[];
-  /** Events refused one by one. Codes and positions only -- never the claimed value. */
-  readonly rejected: readonly { readonly index: number; readonly code: WebsiteIngestRefusal }[];
+  /**
+   * Events refused one by one. Codes and positions only -- never the claimed value. `organizationId` is present
+   * only when the refusal is attributable to a registered property's owner (for that owner's diagnostics).
+   */
+  readonly rejected: readonly WebsiteRejection[];
+}
+
+export interface WebsiteRejection {
+  readonly index: number;
+  readonly code: WebsiteIngestRefusal;
+  readonly organizationId?: string;
 }
 
 type Lookup = Pick<WebPropertyRepository, 'resolveForIngest'>;
@@ -83,7 +95,8 @@ export async function admitWebsiteDelivery(properties: Lookup, input: WebsiteDel
     const key = webPropertyKeyFromIngestKey(presented);
     const property = key ? await properties.resolveForIngest(key) : null;
     if (!property) return refuse('PROPERTY_UNREGISTERED');
-    if (property.status !== 'ACTIVE') return refuse('PROPERTY_DISABLED', property);
+    const notAdmitting = webPropertyAdmissionRefusal(property);
+    if (notAdmitting) return refuse(notAdmitting, property);
     const origin = verifyPropertyIngest(
       { ingestKey: presented, originHost: input.originHost ?? '', enforceDomain: input.enforceDomain },
       [{ key: property.key, ingestKey: webPropertyIngestKey(property.key), allowedDomains: [...property.allowedDomains] }],
@@ -91,10 +104,10 @@ export async function admitWebsiteDelivery(properties: Lookup, input: WebsiteDel
     if (!origin.valid) return refuse(origin.reason === 'missing-origin' ? 'MISSING_ORIGIN' : 'DOMAIN_NOT_ALLOWED', property);
 
     const events: InboundEvent[] = [];
-    const rejected: { index: number; code: WebsiteIngestRefusal }[] = [];
+    const rejected: WebsiteRejection[] = [];
     input.events.forEach((ev, index) => {
       const claimed = claimedProperty(ev);
-      if (claimed !== '' && claimed !== property.key) rejected.push({ index, code: 'PROPERTY_MISMATCH' });
+      if (claimed !== '' && claimed !== property.key) rejected.push({ index, code: 'PROPERTY_MISMATCH', organizationId: property.organizationId });
       else events.push(bound(ev, property.key));
     });
     return {
@@ -107,7 +120,7 @@ export async function admitWebsiteDelivery(properties: Lookup, input: WebsiteDel
 
   const cache = new Map<string, WebPropertyAdmission | null>();
   const byProperty = new Map<string, WebsiteAdmittedBatch>();
-  const rejected: { index: number; code: WebsiteIngestRefusal }[] = [];
+  const rejected: WebsiteRejection[] = [];
   for (let index = 0; index < input.events.length; index++) {
     const ev = input.events[index]!;
     const key = claimedProperty(ev);
@@ -121,8 +134,9 @@ export async function admitWebsiteDelivery(properties: Lookup, input: WebsiteDel
       rejected.push({ index, code: 'PROPERTY_UNREGISTERED' });
       continue;
     }
-    if (property.status !== 'ACTIVE') {
-      rejected.push({ index, code: 'PROPERTY_DISABLED' });
+    const notAdmitting = webPropertyAdmissionRefusal(property);
+    if (notAdmitting) {
+      rejected.push({ index, code: notAdmitting, organizationId: property.organizationId });
       continue;
     }
     const batch = byProperty.get(property.id) ?? { organizationId: property.organizationId, propertyId: property.id, propertyKey: property.key, events: [] };

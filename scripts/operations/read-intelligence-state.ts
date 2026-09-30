@@ -33,6 +33,8 @@ import {
   INTELLIGENCE_EVIDENCE_STREAMS,
   ORGANIZATION_CONNECTION_STATES,
   SOURCE_WINDOW_FINALITIES,
+  WEB_PROPERTY_LIFECYCLES,
+  WEBSITE_COVERAGE_VERDICTS,
   WEBSITE_EVENT_CLASSES,
   WEBSITE_INGEST_REFUSALS,
   intelligenceSourceEntry,
@@ -441,7 +443,22 @@ export async function runIntelligenceState(
   if (deps.website) {
     const w = await deps.website(org.id, window.since, now);
     const p = w.properties;
-    deps.log(line({ event: 'WEBSITE_PROPERTY', registered: p.total, active: p.active, disabled: p.disabled, withoutDomains: p.withoutDomains, ga4Bound: p.ga4Bound, searchConsoleBound: p.searchConsoleBound, bingBound: p.bingBound, clarityBound: p.clarityBound }));
+    deps.log(line({
+      event: 'WEBSITE_PROPERTY',
+      registered: p.total,
+      ...Object.fromEntries(WEB_PROPERTY_LIFECYCLES.map((l) => [l, p.byLifecycle[l] ?? 0])),
+      unrecognized: p.unrecognized,
+      ga4Bound: p.ga4Bound,
+      searchConsoleBound: p.searchConsoleBound,
+      bingBound: p.bingBound,
+      clarityBound: p.clarityBound,
+    }));
+    // Each admission state, stated separately. KNOWN_NOT_LIVE is expected to be quiet -- never a gap. An
+    // UNREGISTERED property has no organization; its refusals are logged by the webhook and are not durable here.
+    for (const state of ['KNOWN_NOT_LIVE', 'LIVE_INGESTING', 'LIVE_INGESTION_DISABLED'] as const) {
+      deps.log(line({ event: 'WEBSITE_PROPERTY_STATE', state, count: p.byAdmission[state] ?? 0, gap: false }));
+    }
+    deps.log(line({ event: 'WEBSITE_PROPERTY_STATE', state: 'UNREGISTERED', count: 'NOT_DURABLE', gap: false }));
     deps.log(line({ event: 'WEBSITE_EVENTS', since: iso(window.since), total: w.events.total, ...Object.fromEntries(Object.entries(w.events.byClass).map(([k, v]) => [inVocabulary(k, WEBSITE_EVENT_CLASSES) ?? 'UNRECOGNIZED', v])), newestAt: iso(w.events.newestAt) }));
     // Refusals an organization can be charged with. An UNREGISTERED property has no organization: those are
     // logged by the webhook as codes and are not durable here.
@@ -454,6 +471,7 @@ export async function runIntelligenceState(
         basis: inVocabulary(s.basis, ['LOOP_RECORDS', 'ORGANIZATION_CONNECTION']),
         declared: 'DECLARED',
         connection: inVocabulary(s.connection, ORGANIZATION_CONNECTION_STATES),
+        coverage: inVocabulary(s.coverage, WEBSITE_COVERAGE_VERDICTS),
         newest: iso(s.newestWindowEnd),
         finality: inVocabulary(s.finality, SOURCE_WINDOW_FINALITIES),
         sampled: s.sampled,

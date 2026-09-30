@@ -1,9 +1,14 @@
 -- Website evidence foundation (2026-09-30). ADDITIVE ONLY: no existing row is read, rewritten or deleted.
 --
---   web_properties          the governed property -> organization authority website ingestion resolves tenancy
---                           through. EMPTY after this migration: properties are registered by an operator
---                           (register-web-property), never guessed here. Until a property is registered its
---                           events are refused (PROPERTY_UNREGISTERED).
+-- NAMING: this migration is ordered AFTER 20261008000000_case_private_scopes, which production has already
+-- applied (the repository's migration names are ordinal keys, not calendar dates). A name that sorted earlier
+-- would be applied out of order.
+--
+--   web_properties          the AUTHORITATIVE EMG website-property registry: every owned property, live or not,
+--                           each belonging to one organization. Lifecycle (OWNED / BUILDING / LIVE / PAUSED /
+--                           RETIRED) and ingestion (ENABLED / DISABLED) are separate columns; website ingestion
+--                           admits events only for LIVE + ENABLED. EMPTY after this migration: properties are
+--                           registered by an operator (register-web-property), never guessed here.
 --   provider_connections    organization-owned credential columns (sealed secret, seal version, key ref, attempt /
 --                           success / failure / backoff, connected-by, revoked). All NULL; nothing is connected.
 --   source_metric_windows   the minimized aggregate evidence store for external website sources. EMPTY.
@@ -26,7 +31,10 @@ CREATE TABLE "web_properties" (
     "organizationId" TEXT NOT NULL,
     "key" TEXT NOT NULL,
     "label" TEXT,
-    "status" TEXT NOT NULL DEFAULT 'ACTIVE',
+    "primaryDomain" TEXT NOT NULL,
+    "lifecycle" TEXT NOT NULL DEFAULT 'OWNED',
+    "ingestion" TEXT NOT NULL DEFAULT 'DISABLED',
+    "lifecycleChangedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "allowedDomains" TEXT[] DEFAULT ARRAY[]::TEXT[],
     "ga4PropertyId" TEXT,
     "searchConsoleSiteUrl" TEXT,
@@ -66,12 +74,9 @@ CREATE TABLE "source_metric_windows" (
 CREATE UNIQUE INDEX "web_properties_key_key" ON "web_properties"("key");
 
 -- CreateIndex
-CREATE INDEX "web_properties_organizationId_status_idx" ON "web_properties"("organizationId", "status");
+CREATE UNIQUE INDEX "web_properties_primaryDomain_key" ON "web_properties"("primaryDomain");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "web_properties_id_organizationId_key" ON "web_properties"("id", "organizationId");
-
--- CreateIndex (one external property -> one Loop property -> one organization; NULLs are not bindings)
 CREATE UNIQUE INDEX "web_properties_ga4PropertyId_key" ON "web_properties"("ga4PropertyId");
 
 -- CreateIndex
@@ -82,6 +87,12 @@ CREATE UNIQUE INDEX "web_properties_bingSiteUrl_key" ON "web_properties"("bingSi
 
 -- CreateIndex
 CREATE UNIQUE INDEX "web_properties_clarityProjectId_key" ON "web_properties"("clarityProjectId");
+
+-- CreateIndex
+CREATE INDEX "web_properties_organizationId_lifecycle_idx" ON "web_properties"("organizationId", "lifecycle");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "web_properties_id_organizationId_key" ON "web_properties"("id", "organizationId");
 
 -- CreateIndex
 CREATE INDEX "source_metric_windows_organizationId_sourceId_windowEnd_idx" ON "source_metric_windows"("organizationId", "sourceId", "windowEnd");
@@ -101,12 +112,17 @@ ALTER TABLE "source_metric_windows" ADD CONSTRAINT "source_metric_windows_organi
 -- AddForeignKey
 ALTER TABLE "source_metric_windows" ADD CONSTRAINT "source_metric_windows_webPropertyId_organizationId_fkey" FOREIGN KEY ("webPropertyId", "organizationId") REFERENCES "web_properties"("id", "organizationId") ON DELETE CASCADE ON UPDATE CASCADE;
 
-
 -- Bounded vocabularies and shapes, enforced by the database as well as the repositories.
 ALTER TABLE "web_properties" ADD CONSTRAINT "web_properties_shape_check" CHECK (
   "key" ~ '^[a-z0-9][a-z0-9-]{0,62}$'
-  AND "status" IN ('ACTIVE', 'DISABLED')
+  AND "primaryDomain" ~ '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$'
+  AND "lifecycle" IN ('OWNED', 'BUILDING', 'LIVE', 'PAUSED', 'RETIRED')
+  AND "ingestion" IN ('ENABLED', 'DISABLED')
   AND cardinality("allowedDomains") <= 32
+);
+-- Ingestion may be ENABLED only while the property is LIVE.
+ALTER TABLE "web_properties" ADD CONSTRAINT "web_properties_ingestion_requires_live_check" CHECK (
+  "ingestion" = 'DISABLED' OR "lifecycle" = 'LIVE'
 );
 ALTER TABLE "provider_connections" ADD CONSTRAINT "provider_connections_credential_check" CHECK (
   ("secretSealed" IS NULL OR ("credentialKind" IS NOT NULL AND "sealVersion" IS NOT NULL AND "keyRef" IS NOT NULL))
@@ -123,4 +139,3 @@ ALTER TABLE "source_metric_windows" ADD CONSTRAINT "source_metric_windows_shape_
   AND jsonb_typeof("metrics") = 'object'
   AND jsonb_typeof("quality") = 'object'
 );
-

@@ -14,9 +14,10 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { PrismaClient } from '@prisma/client';
 import { EMPTY_SOURCE_WINDOW_QUALITY, type WebsiteSourceWindow } from '@emgloop/shared';
+import { EMG_WEBSITE_PROPERTIES } from '../src/integration-catalog';
 import { WebsiteProvider, mapWebsiteEventType } from '@emgloop/providers';
 
-import { WebPropertyRepository } from '../src/repositories/web-property.repository';
+import { WebPropertyRepository, webPropertyRegistrationProblems } from '../src/repositories/web-property.repository';
 import { admitWebsiteDelivery } from '../src/services/website/website-ingress';
 import { IngestionService } from '../src/services/ingestion.service';
 import { WebsiteAnalyticsRepository } from '../src/repositories/website-analytics.repository';
@@ -45,9 +46,12 @@ function key(label: string): string {
   return `${label}-${randomUUID().slice(0, 8)}`;
 }
 
-async function register(repo: WebPropertyRepository, organizationId: string, k: string, domains = ['example.com']) {
-  const r = await repo.register(organizationId, { key: k, allowedDomains: domains });
+/** Register a property (primary domain `<key>.example`) and make it LIVE with ingestion ENABLED -- the only admitting state. */
+async function register(repo: WebPropertyRepository, organizationId: string, k: string) {
+  const r = await repo.register(organizationId, { key: k, primaryDomain: `${k}.example` });
   assert.ok(r.outcome === 'REGISTERED' || r.outcome === 'UNCHANGED', `registered ${k}: ${JSON.stringify(r)}`);
+  assert.equal((await repo.transitionLifecycle(organizationId, k, 'LIVE', new Date())).outcome, 'CHANGED');
+  assert.equal((await repo.setIngestion(organizationId, k, 'ENABLED')).outcome, 'CHANGED');
 }
 
 async function parse(body: Record<string, unknown>) {
@@ -85,12 +89,14 @@ test('website evidence against Postgres', { skip }, async (t) => {
   const B = await org(prisma, 'b');
   const kA = key('site-a');
   const kB = key('site-b');
-  await register(properties, A, kA, ['a-site.example']);
-  await register(properties, B, kB, ['b-site.example']);
+  await register(properties, A, kA);
+  await register(properties, B, kB);
+  const hostA = `${kA}.example`;
+  const hostB = `${kB}.example`;
 
   await t.test('4: an unregistered property is refused PROPERTY_UNREGISTERED and nothing is written anywhere', async () => {
     const before = await prisma.integrationEvent.count({ where: { provider: 'website' } });
-    const browser = await deliver(prisma, { tier: 'BROWSER', ingestKey: `pk_emg_${key('nobody')}`, originHost: 'a-site.example', body: { events: [{ event: 'page_view', id: 'u1' }] } });
+    const browser = await deliver(prisma, { tier: 'BROWSER', ingestKey: `pk_emg_${key('nobody')}`, originHost: hostA, body: { events: [{ event: 'page_view', id: 'u1' }] } });
     assert.equal(browser.refusal, 'PROPERTY_UNREGISTERED');
     assert.equal(browser.batches.length, 0);
     const signed = await deliver(prisma, { tier: 'SIGNED', body: { property: key('nobody'), events: [{ event: 'page_view', id: 'u2' }] } });
@@ -107,17 +113,17 @@ test('website evidence against Postgres', { skip }, async (t) => {
     const noOrigin = await deliver(prisma, { tier: 'BROWSER', ingestKey: `pk_emg_${kA}`, originHost: '', body: { events: [{ event: 'page_view', id: 'd2' }] } });
     assert.equal(noOrigin.refusal, 'MISSING_ORIGIN');
     // A request naming organization B (and B's domain as the origin) with A's key lands in A or nowhere.
-    const claimsB = await deliver(prisma, { tier: 'BROWSER', ingestKey: `pk_emg_${kA}`, originHost: 'b-site.example', body: { organization: B, events: [{ event: 'page_view', id: 'd3', organization: B }] } });
+    const claimsB = await deliver(prisma, { tier: 'BROWSER', ingestKey: `pk_emg_${kA}`, originHost: hostB, body: { organization: B, events: [{ event: 'page_view', id: 'd3', organization: B }] } });
     assert.equal(claimsB.refusal, 'DOMAIN_NOT_ALLOWED');
-    const ok = await deliver(prisma, { tier: 'BROWSER', ingestKey: `pk_emg_${kA}`, originHost: 'www.a-site.example', body: { organization: B, events: [{ event: 'page_view', id: 'd4', organization: B, page: '/x' }] } });
+    const ok = await deliver(prisma, { tier: 'BROWSER', ingestKey: `pk_emg_${kA}`, originHost: `www.${hostA}`, body: { organization: B, events: [{ event: 'page_view', id: 'd4', organization: B, page: '/x' }] } });
     assert.equal(ok.refusal, null);
     assert.deepEqual(ok.batches.map((b) => b.organizationId), [A]);
     assert.equal(await prisma.integrationEvent.count({ where: { organizationId: B, provider: 'website' } }), 0);
   });
 
   await t.test("1: organization A's site cannot ingest into organization B's property", async () => {
-    const r = await deliver(prisma, { tier: 'BROWSER', ingestKey: `pk_emg_${kA}`, originHost: 'a-site.example', body: { events: [{ event: 'page_view', id: 'x1', property: kB }, { event: 'page_view', id: 'x2' }] } });
-    assert.deepEqual(r.rejected, [{ index: 0, code: 'PROPERTY_MISMATCH' }]);
+    const r = await deliver(prisma, { tier: 'BROWSER', ingestKey: `pk_emg_${kA}`, originHost: hostA, body: { events: [{ event: 'page_view', id: 'x1', property: kB }, { event: 'page_view', id: 'x2' }] } });
+    assert.deepEqual(r.rejected, [{ index: 0, code: 'PROPERTY_MISMATCH', organizationId: A }], 'attributable to the verified property owner, for its diagnostics');
     assert.deepEqual(r.batches.map((b) => [b.organizationId, b.events.length]), [[A, 1]]);
     assert.equal(await prisma.integrationEvent.count({ where: { organizationId: B, provider: 'website' } }), 0, "nothing reached B's evidence");
     // The ingestion fence: a row another organization holds under the same key is never taken over.
@@ -133,34 +139,35 @@ test('website evidence against Postgres', { skip }, async (t) => {
   await t.test('5: the number of properties is whatever is registered -- a new one works with no code change', async () => {
     const C = await org(prisma, 'c');
     const extra = [key('p1'), key('p2'), key('p3')];
-    for (const k of extra) await register(properties, C, k, ['c-site.example']);
+    for (const k of extra) await register(properties, C, k);
     const r = await deliver(prisma, { tier: 'SIGNED', body: { events: extra.map((k, i) => ({ event: 'page_view', id: `n${i}`, property: k })) } });
     assert.deepEqual(r.rejected, []);
     assert.equal(r.batches.length, extra.length);
     assert.ok(r.batches.every((b) => b.organizationId === C));
     assert.equal((await properties.listForOrganization(C)).length, extra.length);
-    await properties.setStatus(C, extra[0]!, 'DISABLED');
+    assert.equal((await properties.setIngestion(C, extra[0]!, 'DISABLED')).outcome, 'CHANGED');
     const d = await deliver(prisma, { tier: 'SIGNED', body: { events: [{ event: 'page_view', id: 'n9', property: extra[0] }] } });
-    assert.deepEqual(d.rejected, [{ index: 0, code: 'PROPERTY_DISABLED' }]);
+    assert.deepEqual(d.rejected, [{ index: 0, code: 'INGESTION_DISABLED', organizationId: C }]);
   });
 
   await t.test('a key registered to one organization is never moved by another registration', async () => {
-    const r = await properties.register(B, { key: kA, allowedDomains: ['b-site.example'] });
+    const r = await properties.register(B, { key: kA, primaryDomain: hostA });
     assert.deepEqual(r, { outcome: 'REFUSED', problems: ['KEY_REGISTERED_ELSEWHERE'] });
     assert.equal((await properties.resolveForIngest(kA))!.organizationId, A);
     assert.equal(await properties.findForOrganization(B, kA), null, "another organization's property is not-found");
     // One external property -> one Loop property -> one organization (the confused-deputy guard).
     const ga4 = String(Date.now()).slice(-9);
-    assert.equal((await properties.register(A, { key: kA, allowedDomains: ['a-site.example'], ga4PropertyId: ga4 })).outcome, 'UPDATED');
-    assert.deepEqual(await properties.register(B, { key: kB, allowedDomains: ['b-site.example'], ga4PropertyId: ga4 }), { outcome: 'REFUSED', problems: ['GA4_PROPERTY_BOUND_ELSEWHERE'] });
-    assert.deepEqual(await properties.previewRegistration(B, { key: kB, allowedDomains: ['b-site.example'], ga4PropertyId: ga4 }), { outcome: 'REFUSED', problems: ['GA4_PROPERTY_BOUND_ELSEWHERE'] });
+    assert.equal((await properties.register(A, { key: kA, primaryDomain: hostA, ga4PropertyId: ga4 })).outcome, 'UPDATED');
+    assert.deepEqual(await properties.register(B, { key: kB, primaryDomain: hostB, ga4PropertyId: ga4 }), { outcome: 'REFUSED', problems: ['GA4_PROPERTY_BOUND_ELSEWHERE'] });
+    assert.deepEqual(await properties.previewRegistration(B, { key: kB, primaryDomain: hostB, ga4PropertyId: ga4 }), { outcome: 'REFUSED', problems: ['GA4_PROPERTY_BOUND_ELSEWHERE'] });
+    assert.deepEqual(await properties.register(B, { key: key('dup'), primaryDomain: hostA }), { outcome: 'REFUSED', problems: ['PRIMARY_DOMAIN_REGISTERED_ELSEWHERE'] });
     assert.equal((await properties.findForOrganization(B, kB))!.ga4PropertyId, null);
   });
 
   await t.test('6/7/8/10/11/12: telemetry stored as itself, no contact detail persisted, redelivery dedupes', async () => {
     const D = await org(prisma, 'd');
     const kD = key('site-d');
-    await register(properties, D, kD, ['d-site.example']);
+    await register(properties, D, kD);
     const t0 = '2026-09-30T10:00:00.000Z';
     const body = {
       property: kD,
@@ -236,8 +243,8 @@ test('website evidence against Postgres', { skip }, async (t) => {
     const H = await org(prisma, 'h');
     const kG = key('site-g');
     const kH = key('site-h');
-    await register(properties, G, kG, ['g.example']);
-    await register(properties, H, kH, ['h.example']);
+    await register(properties, G, kG);
+    await register(properties, H, kH);
     const t0 = '2026-09-29T10:00:00.000Z';
     await deliver(prisma, { tier: 'SIGNED', body: { events: [{ event: 'page_view', id: 'g1', property: kG, timestamp: t0 }, { event: 'page_view', id: 'h1', property: kH, timestamp: t0 }, { event: 'page_view', id: 'h2', property: kH, timestamp: t0 }] } });
     const range = [new Date(Date.parse(t0) - DAY), new Date(Date.parse(t0) + DAY)] as const;
@@ -303,10 +310,13 @@ test('website evidence against Postgres', { skip }, async (t) => {
   await t.test('coverage: declared external sources are NOT_CONNECTED with no connection, and a stored credential alone is not a connection', async () => {
     const L = await org(prisma, 'l');
     const now = new Date();
+    assert.deepEqual([...(await websiteCoveragePort(prisma).unconnectedSources(L, now))], [], 'no LIVE property: nothing is missing');
+    await register(properties, L, key('site-l'));
     assert.deepEqual([...(await websiteCoveragePort(prisma).unconnectedSources(L, now))].sort(), ['Bing Webmaster Tools', 'Google Analytics 4', 'Google Search Console', 'Microsoft Clarity']);
     const state = await new WebsiteEvidenceStateRepository(prisma).read(L, new Date(now.getTime() - DAY), now);
     for (const id of ['GOOGLE_ANALYTICS', 'GOOGLE_SEARCH_CONSOLE', 'BING_WEBMASTER', 'MICROSOFT_CLARITY']) {
       assert.equal(state.sources.find((s) => s.sourceId === id)!.connection, 'NOT_CONNECTED', id);
+      assert.equal(state.sources.find((s) => s.sourceId === id)!.coverage, 'GAP_NOT_CONNECTED', `${id}: a LIVE property expects it`);
     }
     const conns = new OrganizationConnectionRepository(prisma);
     const sealed = new OrganizationCredentialSealer(new Uint8Array(32).fill(1)).seal({ organizationId: L, provider: 'microsoft_clarity', credentialKind: 'API_TOKEN' }, 't');
@@ -344,7 +354,107 @@ test('website evidence against Postgres', { skip }, async (t) => {
     const state = await new WebsiteEvidenceStateRepository(prisma).read(A, new Date(Date.now() - 400 * DAY), new Date());
     const text = JSON.stringify(state);
     assert.doesNotMatch(text, new RegExp(kA));
-    assert.doesNotMatch(text, /a-site\.example|\/x|v1|s1|@|pk_emg_/);
+    assert.doesNotMatch(text, /\.example|\/x|v1|s1|@|pk_emg_/);
     assert.equal(state.properties.total, 1);
   });
 });
+
+test('the registry holds the whole EMG portfolio: known properties that are not LIVE are quiet, never a gap', { skip }, async (t) => {
+  const prisma = new PrismaClient({ datasources: { db: { url: URL } } });
+  const properties = new WebPropertyRepository(prisma);
+  t.after(() => prisma.$disconnect());
+  // The portfolio's real keys and domains are unique across Loop: clear them from THIS local test database first.
+  await prisma.webProperty.deleteMany({ where: { key: { in: EMG_WEBSITE_PROPERTIES.map((p) => p.key) } } });
+  const P = await org(prisma, 'portfolio');
+  const now = new Date();
+
+  await t.test('all 17 portfolio properties exist without any being LIVE (OWNED, ingestion DISABLED)', async () => {
+    assert.equal(EMG_WEBSITE_PROPERTIES.length, 17);
+    for (const p of EMG_WEBSITE_PROPERTIES) {
+      const r = await properties.register(P, { key: p.key, primaryDomain: p.domain, label: p.name });
+      assert.equal(r.outcome, 'REGISTERED', p.key);
+    }
+    const rows = await properties.listForOrganization(P);
+    assert.equal(rows.length, 17);
+    assert.ok(rows.every((r) => r.lifecycle === 'OWNED' && r.ingestion === 'DISABLED' && r.organizationId === P));
+    assert.equal(await properties.transitionLifecycle(P, 'carsinmycity', 'BUILDING', now).then((r) => r.outcome), 'CHANGED');
+  });
+
+  await t.test('OWNED / BUILDING properties accept no telemetry (PROPERTY_NOT_LIVE), in either tier', async () => {
+    const before = await prisma.integrationEvent.count({ where: { organizationId: P } });
+    const browser = await deliver(prisma, { tier: 'BROWSER', ingestKey: 'pk_emg_servicesinmycity', originHost: 'servicesinmycity.com', body: { events: [{ event: 'page_view', id: `o-${now.getTime()}` }] } });
+    assert.equal(browser.refusal, 'PROPERTY_NOT_LIVE');
+    assert.equal(browser.refusedProperty?.organizationId, P);
+    const signed = await deliver(prisma, { tier: 'SIGNED', body: { events: [{ event: 'page_view', id: `b-${now.getTime()}`, property: 'carsinmycity' }] } });
+    assert.deepEqual(signed.rejected, [{ index: 0, code: 'PROPERTY_NOT_LIVE', organizationId: P }]);
+    assert.equal(await prisma.integrationEvent.count({ where: { organizationId: P } }), before);
+  });
+
+  await t.test('known, not-live properties create no NOT_CONNECTED gap and no coverage limitation', async () => {
+    assert.deepEqual([...(await websiteCoveragePort(prisma).unconnectedSources(P, now))], []);
+    const state = await new WebsiteEvidenceStateRepository(prisma).read(P, new Date(now.getTime() - DAY), now);
+    assert.equal(state.properties.total, 17);
+    assert.equal(state.properties.byLifecycle.OWNED, 16);
+    assert.equal(state.properties.byLifecycle.BUILDING, 1);
+    assert.equal(state.properties.byAdmission.KNOWN_NOT_LIVE, 17);
+    for (const s of state.sources) assert.equal(s.coverage, 'NOT_APPLICABLE', s.sourceId);
+  });
+
+  await t.test('LIVE + ingestion ENABLED admits; LIVE + ingestion DISABLED refuses; leaving LIVE disables ingestion', async () => {
+    const live = await properties.transitionLifecycle(P, 'servicesinmycity', 'LIVE', now);
+    assert.equal(live.outcome, 'CHANGED');
+    assert.equal((live as { property: { ingestion: string } }).property.ingestion, 'DISABLED', 'entering LIVE never enables ingestion');
+    const disabled = await deliver(prisma, { tier: 'BROWSER', ingestKey: 'pk_emg_servicesinmycity', originHost: 'www.servicesinmycity.com', body: { events: [{ event: 'page_view', id: `l1-${now.getTime()}` }] } });
+    assert.equal(disabled.refusal, 'INGESTION_DISABLED');
+    assert.equal((await properties.setIngestion(P, 'servicesinmycity', 'ENABLED')).outcome, 'CHANGED');
+    const ok = await deliver(prisma, { tier: 'BROWSER', ingestKey: 'pk_emg_servicesinmycity', originHost: 'www.servicesinmycity.com', body: { events: [{ event: 'page_view', id: `l2-${now.getTime()}` }] } });
+    assert.equal(ok.refusal, null);
+    assert.deepEqual(ok.batches.map((b) => [b.organizationId, b.events.length]), [[P, 1]]);
+    // With a LIVE property, the unconnected external sources ARE now a gap -- and only now.
+    assert.equal((await websiteCoveragePort(prisma).unconnectedSources(P, now)).length, 4);
+    const paused = await properties.transitionLifecycle(P, 'servicesinmycity', 'PAUSED', now);
+    assert.equal((paused as { property: { ingestion: string } }).property.ingestion, 'DISABLED');
+    const refused = await deliver(prisma, { tier: 'BROWSER', ingestKey: 'pk_emg_servicesinmycity', originHost: 'servicesinmycity.com', body: { events: [{ event: 'page_view', id: `l3-${now.getTime()}` }] } });
+    assert.equal(refused.refusal, 'PROPERTY_NOT_LIVE');
+  });
+
+  await t.test('the state machine refuses what it does not allow, and the database refuses ENABLED unless LIVE', async () => {
+    assert.deepEqual(await properties.setIngestion(P, 'petsinmycity', 'ENABLED'), { outcome: 'REFUSED', code: 'INGESTION_REQUIRES_LIVE' });
+    assert.deepEqual(await properties.transitionLifecycle(P, 'petsinmycity', 'PAUSED', now), { outcome: 'REFUSED', code: 'LIFECYCLE_TRANSITION_REFUSED' });
+    assert.deepEqual(await properties.transitionLifecycle(P, 'petsinmycity', 'OWNED', now), { outcome: 'REFUSED', code: 'LIFECYCLE_UNCHANGED' });
+    await assert.rejects(prisma.webProperty.updateMany({ where: { key: 'petsinmycity' }, data: { ingestion: 'ENABLED' } }), /web_properties_ingestion_requires_live_check/);
+    await assert.rejects(prisma.webProperty.updateMany({ where: { key: 'petsinmycity' }, data: { lifecycle: 'ACTIVE' } }), /web_properties_shape_check/);
+  });
+
+  await t.test('lifecycle changes never change organization ownership; another organization cannot change them', async () => {
+    const Q = await org(prisma, 'other');
+    for (const to of ['BUILDING', 'LIVE', 'PAUSED', 'RETIRED', 'OWNED'] as const) {
+      assert.equal((await properties.transitionLifecycle(P, 'homesinmycity', to, now)).outcome, 'CHANGED', to);
+      assert.equal((await prisma.webProperty.findUnique({ where: { key: 'homesinmycity' } }))!.organizationId, P);
+    }
+    assert.deepEqual(await properties.transitionLifecycle(Q, 'homesinmycity', 'BUILDING', now), { outcome: 'REFUSED', code: 'PROPERTY_NOT_IN_ORGANIZATION' });
+    assert.deepEqual(await properties.setIngestion(Q, 'homesinmycity', 'DISABLED'), { outcome: 'REFUSED', code: 'PROPERTY_NOT_IN_ORGANIZATION' });
+  });
+
+  await t.test('an external discovery candidate (recording a binding) cannot change lifecycle or ownership', async () => {
+    const before = (await properties.findForOrganization(P, 'foodinmycity'))!;
+    const ga4 = `9${String(now.getTime()).slice(-8)}`;
+    // The shape a future account-level discovery will propose: record the external property on the known domain.
+    const bound = await properties.register(P, { key: 'foodinmycity', primaryDomain: 'foodinmycity.com', label: before.label, ga4PropertyId: ga4, searchConsoleSiteUrl: 'sc-domain:foodinmycity.com' });
+    assert.equal(bound.outcome, 'UPDATED');
+    const after = (await properties.findForOrganization(P, 'foodinmycity'))!;
+    assert.deepEqual([after.lifecycle, after.ingestion, after.organizationId, after.primaryDomain], [before.lifecycle, before.ingestion, P, 'foodinmycity.com'], 'a binding makes nothing LIVE and moves nothing');
+    assert.deepEqual(await properties.register(P, { key: 'foodinmycity', primaryDomain: 'foodinmycity.com', lifecycle: 'LIVE' }), { outcome: 'REFUSED', problems: ['LIFECYCLE_CHANGE_NEEDS_TRANSITION'] });
+    assert.deepEqual(await properties.register(P, { key: 'foodinmycity', primaryDomain: 'food.example' }), { outcome: 'REFUSED', problems: ['PRIMARY_DOMAIN_CHANGE_REFUSED'] });
+    const Q = await org(prisma, 'claimant');
+    assert.deepEqual(await properties.register(Q, { key: 'foodinmycity', primaryDomain: 'foodinmycity.com' }), { outcome: 'REFUSED', problems: ['KEY_REGISTERED_ELSEWHERE'] });
+    assert.deepEqual(await properties.register(Q, { key: key('claim'), primaryDomain: 'foodinmycity.com' }), { outcome: 'REFUSED', problems: ['PRIMARY_DOMAIN_REGISTERED_ELSEWHERE'] }, 'the same domain under another key is refused too');
+    assert.deepEqual(await properties.register(Q, { key: key('q'), primaryDomain: `${key('q')}.example`, ga4PropertyId: ga4 }).then((r) => (r as { problems: string[] }).problems), ['GA4_PROPERTY_BOUND_ELSEWHERE'], 'external bindings stay unique across organizations');
+    assert.deepEqual(webBindingOutside(), ['SEARCH_CONSOLE_SITE_OUTSIDE_PRIMARY']);
+    assert.equal((await properties.findForOrganization(P, 'foodinmycity'))!.organizationId, P);
+  });
+});
+
+function webBindingOutside(): string[] {
+  return webPropertyRegistrationProblems({ key: 'foodinmycity', primaryDomain: 'foodinmycity.com', searchConsoleSiteUrl: 'sc-domain:petsinmycity.com' });
+}

@@ -9,6 +9,8 @@ import {
   EMPTY_SOURCE_WINDOW_QUALITY,
   INTELLIGENCE_SOURCE_REGISTRY,
   SITUATION_MIN_SOURCES,
+  WEB_PROPERTY_LIFECYCLES,
+  WEB_PROPERTY_LIFECYCLE_TRANSITIONS,
   WEBSITE_EVIDENCE_RETENTION,
   WEBSITE_SOURCE_CONNECTIONS,
   WEBSITE_SOURCE_CONTRACT,
@@ -26,6 +28,13 @@ import {
   websiteSourceStream,
   websiteSourceWindowProblems,
   websiteTelemetryRetentionEnabled,
+  webPropertyAdmissionRefusal,
+  webPropertyAdmissionState,
+  webPropertyAdmitsTelemetry,
+  webPropertyIngestionChange,
+  webPropertyLifecycleTransition,
+  websiteCoverageVerdict,
+  webSiteBindingHost,
   type IntelligenceSignal,
   type SituationSignalInput,
   type WebsiteSourceWindow,
@@ -290,4 +299,61 @@ test('22: raw website telemetry retention is defined, 90 days, and DISABLED unle
   assert.equal(websiteTelemetryRetentionEnabled('1'), false);
   assert.equal(websiteTelemetryRetentionEnabled('on'), true);
   assert.equal(WEBSITE_EVIDENCE_RETENTION.find((r) => r.category === 'WEBSITE_SOURCE_AGGREGATES')!.active, 'ACTIVE');
+});
+
+// --- Property lifecycle and ingestion authority (2026-09-30) ------------------------------------------------
+
+test('only LIVE + ENABLED admits telemetry; every other combination is refused with its own code', () => {
+  for (const lifecycle of WEB_PROPERTY_LIFECYCLES) {
+    for (const ingestion of ['ENABLED', 'DISABLED']) {
+      const admits = webPropertyAdmitsTelemetry({ lifecycle, ingestion });
+      assert.equal(admits, lifecycle === 'LIVE' && ingestion === 'ENABLED', `${lifecycle}/${ingestion}`);
+      assert.equal(webPropertyAdmissionRefusal({ lifecycle, ingestion }), admits ? null : lifecycle === 'LIVE' ? 'INGESTION_DISABLED' : 'PROPERTY_NOT_LIVE');
+    }
+  }
+  assert.equal(webPropertyAdmitsTelemetry({ lifecycle: 'ACTIVE', ingestion: 'ENABLED' }), false, 'an unknown stored value never admits');
+});
+
+test('the lifecycle state machine: governed transitions only; leaving LIVE disables ingestion; entering LIVE enables nothing', () => {
+  assert.deepEqual(webPropertyLifecycleTransition({ lifecycle: 'OWNED', ingestion: 'DISABLED' }, 'LIVE'), { ok: true, lifecycle: 'LIVE', ingestion: 'DISABLED' });
+  assert.deepEqual(webPropertyLifecycleTransition({ lifecycle: 'LIVE', ingestion: 'ENABLED' }, 'PAUSED'), { ok: true, lifecycle: 'PAUSED', ingestion: 'DISABLED' });
+  assert.deepEqual(webPropertyLifecycleTransition({ lifecycle: 'PAUSED', ingestion: 'DISABLED' }, 'LIVE'), { ok: true, lifecycle: 'LIVE', ingestion: 'DISABLED' });
+  assert.deepEqual(webPropertyLifecycleTransition({ lifecycle: 'LIVE', ingestion: 'ENABLED' }, 'OWNED'), { ok: false, code: 'LIFECYCLE_TRANSITION_REFUSED' });
+  assert.deepEqual(webPropertyLifecycleTransition({ lifecycle: 'OWNED', ingestion: 'DISABLED' }, 'PAUSED'), { ok: false, code: 'LIFECYCLE_TRANSITION_REFUSED' });
+  assert.deepEqual(webPropertyLifecycleTransition({ lifecycle: 'OWNED', ingestion: 'DISABLED' }, 'OWNED'), { ok: false, code: 'LIFECYCLE_UNCHANGED' });
+  for (const [from, tos] of Object.entries(WEB_PROPERTY_LIFECYCLE_TRANSITIONS)) {
+    for (const to of tos) {
+      const r = webPropertyLifecycleTransition({ lifecycle: from as never, ingestion: 'ENABLED' }, to);
+      assert.ok(r.ok);
+      assert.equal(r.ok && r.ingestion === 'ENABLED', to === 'LIVE', `${from} -> ${to}: ingestion survives only into LIVE`);
+    }
+  }
+  assert.deepEqual(webPropertyIngestionChange('BUILDING', 'ENABLED'), { ok: false, code: 'INGESTION_REQUIRES_LIVE' });
+  assert.deepEqual(webPropertyIngestionChange('LIVE', 'ENABLED'), { ok: true });
+  assert.deepEqual(webPropertyIngestionChange('OWNED', 'DISABLED'), { ok: true });
+});
+
+test('diagnostic admission states distinguish known-not-live, live ingesting, live disabled and unregistered', () => {
+  assert.equal(webPropertyAdmissionState(null), 'UNREGISTERED');
+  assert.equal(webPropertyAdmissionState({ lifecycle: 'OWNED', ingestion: 'DISABLED' }), 'KNOWN_NOT_LIVE');
+  assert.equal(webPropertyAdmissionState({ lifecycle: 'BUILDING', ingestion: 'DISABLED' }), 'KNOWN_NOT_LIVE');
+  assert.equal(webPropertyAdmissionState({ lifecycle: 'LIVE', ingestion: 'ENABLED' }), 'LIVE_INGESTING');
+  assert.equal(webPropertyAdmissionState({ lifecycle: 'LIVE', ingestion: 'DISABLED' }), 'LIVE_INGESTION_DISABLED');
+});
+
+test('coverage: with no LIVE property nothing is a gap; with one, an unconnected source is', () => {
+  const base = { liveIngestingProperties: 0, hasRecentEvidence: false, connection: 'NOT_CONNECTED' as const };
+  assert.equal(websiteCoverageVerdict({ ...base, firstParty: false, liveProperties: 0 }), 'NOT_APPLICABLE', 'OWNED / BUILDING only: no false NOT_CONNECTED gap');
+  assert.equal(websiteCoverageVerdict({ ...base, firstParty: true, liveProperties: 0 }), 'NOT_APPLICABLE');
+  assert.equal(websiteCoverageVerdict({ ...base, firstParty: true, liveProperties: 1 }), 'NOT_APPLICABLE', 'LIVE but ingestion disabled: first-party is not expected');
+  assert.equal(websiteCoverageVerdict({ ...base, firstParty: false, liveProperties: 1 }), 'GAP_NOT_CONNECTED');
+  assert.equal(websiteCoverageVerdict({ ...base, firstParty: false, liveProperties: 1, connection: 'CONNECTED' }), 'COVERED');
+  assert.equal(websiteCoverageVerdict({ ...base, firstParty: true, liveProperties: 1, liveIngestingProperties: 1 }), 'GAP_NO_EVENTS');
+  assert.equal(websiteCoverageVerdict({ ...base, firstParty: true, liveProperties: 1, liveIngestingProperties: 1, hasRecentEvidence: true }), 'COVERED');
+});
+
+test('Search Console / Bing binding hosts: a Domain property and a URL-prefix property name the same host', () => {
+  assert.equal(webSiteBindingHost('sc-domain:servicesinmycity.com'), 'servicesinmycity.com');
+  assert.equal(webSiteBindingHost('https://www.servicesinmycity.com/'), 'www.servicesinmycity.com');
+  assert.equal(webSiteBindingHost('not a site'), null);
 });

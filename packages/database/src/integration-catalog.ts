@@ -330,12 +330,14 @@ export const INTEGRATION_CATALOG: ProviderSpec[] = [
   },
 ];
 
-// ---- EMG website properties (the Website SDK manager's install snippets) ---
-// PRESENTATION ONLY. The Website Manager lists these to generate each site's
-// install snippet. This list is NOT a tenancy authority and the website webhook
-// does not read it: which organization a property's events belong to is the
-// governed web_properties registry (register-web-property), and an event from a
-// property nobody registered is refused PROPERTY_UNREGISTERED.
+// ---- The EMG website portfolio (2026-09-30) ----------------------------------
+// The OWNED EMG website domains -- live or not. This list is DATA: it is what an
+// operator registers into web_properties (Register Web Property, action
+// register-portfolio), each property starting OWNED with ingestion DISABLED,
+// and what the Website Manager lists to generate install snippets. It is NOT a
+// tenancy authority and the website webhook never reads it: which organization
+// a property belongs to, and whether it is LIVE and may send telemetry, is the
+// web_properties registry's record alone. Nothing depends on its length.
 export interface CatalogWebsiteProperty {
   key: string;
   name: string;
@@ -346,13 +348,23 @@ export interface CatalogWebsiteProperty {
 }
 
 export const EMG_WEBSITE_PROPERTIES: CatalogWebsiteProperty[] = [
-  { key: 'servicesinmycity', name: 'ServicesInMyCity', domain: 'servicesinmycity.com' },
-  { key: 'consumersupporthelp', name: 'ConsumerSupportHelp', domain: 'consumersupporthelp.com' },
-  { key: 'marriageinmycity', name: 'MarriageInMyCity', domain: 'marriageinmycity.com' },
+  { key: 'activitiesinmycity', name: 'ActivitiesInMyCity', domain: 'activitiesinmycity.com' },
+  { key: 'artistsinmycity', name: 'ArtistsInMyCity', domain: 'artistsinmycity.com' },
   { key: 'careinmycity', name: 'CareInMyCity', domain: 'careinmycity.com' },
-  { key: 'petsinmycity', name: 'PetsInMyCity', domain: 'petsinmycity.com' },
+  { key: 'carsinmycity', name: 'CarsInMyCity', domain: 'carsinmycity.com' },
+  { key: 'consumersupporthelp', name: 'ConsumerSupportHelp', domain: 'consumersupporthelp.com' },
+  { key: 'faithinmycity', name: 'FaithInMyCity', domain: 'faithinmycity.com' },
+  { key: 'familiesinmycity', name: 'FamiliesInMyCity', domain: 'familiesinmycity.com' },
+  { key: 'foodinmycity', name: 'FoodInMyCity', domain: 'foodinmycity.com' },
   { key: 'gamedayinmycity', name: 'GameDayInMyCity', domain: 'gamedayinmycity.com' },
   { key: 'homesinmycity', name: 'HomesInMyCity', domain: 'homesinmycity.com' },
+  { key: 'marriageinmycity', name: 'MarriageInMyCity', domain: 'marriageinmycity.com' },
+  { key: 'petsinmycity', name: 'PetsInMyCity', domain: 'petsinmycity.com' },
+  { key: 'realtorsinmycity', name: 'RealtorsInMyCity', domain: 'realtorsinmycity.com' },
+  { key: 'schoolsinmycity', name: 'SchoolsInMyCity', domain: 'schoolsinmycity.com' },
+  { key: 'servicesinmycity', name: 'ServicesInMyCity', domain: 'servicesinmycity.com' },
+  { key: 'spasinmycity', name: 'SpasInMyCity', domain: 'spasinmycity.com' },
+  { key: 'travelinmycity', name: 'TravelInMyCity', domain: 'travelinmycity.com' },
 ];
 
 // ---- Catalog accessors --------------------------------------------------
@@ -406,7 +418,7 @@ export function propertyIdentifier(property: CatalogWebsiteProperty): string {
 /** The PUBLIC per-property ingest key shipped in the browser SDK snippet.
  *  Deterministic and non-secret (the same rule as @emgloop/shared
  *  webPropertyIngestKey): it names the property to the website webhook, which
- *  accepts it only for a registered, ACTIVE property and a registered allowed
+ *  accepts it only for a registered LIVE property with ingestion enabled, from a registered allowed
  *  domain. Server-to-server website events use WEBSITE_WEBHOOK_SECRET instead. */
 export function propertyIngestKey(property: CatalogWebsiteProperty): string {
   return 'pk_emg_' + property.key;

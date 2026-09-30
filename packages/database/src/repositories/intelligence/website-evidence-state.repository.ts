@@ -1,8 +1,11 @@
 // Website evidence state -- what Read Intelligence State reports about one organization's website evidence
-// (2026-09-30). READ-ONLY, and COUNTS AND CODES ONLY: how many properties are registered and in which status,
+// (2026-09-30). READ-ONLY, and COUNTS AND CODES ONLY: how many properties are registered, by lifecycle, by
+// ingestion and by admission state (KNOWN_NOT_LIVE / LIVE_INGESTING / LIVE_INGESTION_DISABLED),
 // which bindings exist (as counts, never the property keys, ids or domains), how many governed website events
 // arrived by event class (exact, over integration_events), when the newest did, the organization's refusal counters, and -- per declared website
-// source -- its connection state and its newest stored window's end, finality and quality flags.
+// source -- its connection state, its newest stored window's end, finality and quality flags, and its COVERAGE
+// VERDICT: a source is expected only for LIVE properties, so an organization whose properties are all OWNED /
+// BUILDING / PAUSED / RETIRED sees NOT_APPLICABLE, never a NOT_CONNECTED gap.
 //
 // It never returns a property key, a domain, a URL, a page path, a visitor or session id, an email, a phone
 // number, a payload, a credential or any one visitor's behavior.
@@ -10,11 +13,18 @@
 import type { PrismaClient } from '@prisma/client';
 import {
   INTELLIGENCE_SOURCE_REGISTRY,
+  WEB_PROPERTY_ADMISSION_STATES,
+  WEB_PROPERTY_LIFECYCLES,
   WEBSITE_EVENT_CLASSES,
   WEBSITE_SOURCE_CONNECTIONS,
   organizationConnectionState,
+  webPropertyAdmissionState,
+  websiteCoverageVerdict,
   websiteEventClass,
   type OrganizationConnectionState,
+  type WebPropertyAdmissionState,
+  type WebPropertyLifecycle,
+  type WebsiteCoverageVerdict,
   type WebsiteEventClass,
 } from '@emgloop/shared';
 import { websiteEventTypeCounts, websiteEventsInWindow } from '../website-analytics.repository';
@@ -27,6 +37,8 @@ export interface WebsiteSourceCoverage {
   readonly stream: string;
   readonly basis: string;
   readonly connection: OrganizationConnectionState;
+  /** Whether its absence is a gap, given the registry: NOT_APPLICABLE while no property is LIVE. */
+  readonly coverage: WebsiteCoverageVerdict;
   readonly newestWindowEnd: Date | null;
   readonly finality: string | null;
   readonly sampled: boolean | null;
@@ -38,9 +50,10 @@ export interface WebsiteSourceCoverage {
 export interface WebsiteEvidenceState {
   readonly properties: {
     readonly total: number;
-    readonly active: number;
-    readonly disabled: number;
-    readonly withoutDomains: number;
+    readonly byLifecycle: Readonly<Record<WebPropertyLifecycle, number>>;
+    readonly byAdmission: Readonly<Record<Exclude<WebPropertyAdmissionState, 'UNREGISTERED'>, number>>;
+    /** Stored values outside the vocabulary (never admitting). */
+    readonly unrecognized: number;
     readonly ga4Bound: number;
     readonly searchConsoleBound: number;
     readonly bingBound: number;
@@ -67,18 +80,29 @@ export class WebsiteEvidenceStateRepository {
   async read(organizationId: string, since: Date, now: Date): Promise<WebsiteEvidenceState> {
     const props = await this.prisma.webProperty.findMany({
       where: { organizationId },
-      select: { status: true, allowedDomains: true, ga4PropertyId: true, searchConsoleSiteUrl: true, bingSiteUrl: true, clarityProjectId: true },
+      select: { lifecycle: true, ingestion: true, ga4PropertyId: true, searchConsoleSiteUrl: true, bingSiteUrl: true, clarityProjectId: true },
     });
+    const byLifecycle = Object.fromEntries(WEB_PROPERTY_LIFECYCLES.map((l) => [l, 0])) as Record<WebPropertyLifecycle, number>;
+    const byAdmission = Object.fromEntries(WEB_PROPERTY_ADMISSION_STATES.filter((a) => a !== 'UNREGISTERED').map((a) => [a, 0])) as Record<Exclude<WebPropertyAdmissionState, 'UNREGISTERED'>, number>;
+    let unrecognized = 0;
+    for (const p of props) {
+      if ((WEB_PROPERTY_LIFECYCLES as readonly string[]).includes(p.lifecycle)) byLifecycle[p.lifecycle as WebPropertyLifecycle]++;
+      else unrecognized++;
+      const a = webPropertyAdmissionState(p);
+      if (a !== 'UNREGISTERED') byAdmission[a]++;
+    }
     const properties = {
       total: props.length,
-      active: props.filter((p) => p.status === 'ACTIVE').length,
-      disabled: props.filter((p) => p.status !== 'ACTIVE').length,
-      withoutDomains: props.filter((p) => p.allowedDomains.length === 0).length,
+      byLifecycle,
+      byAdmission,
+      unrecognized,
       ga4Bound: props.filter((p) => p.ga4PropertyId).length,
       searchConsoleBound: props.filter((p) => p.searchConsoleSiteUrl).length,
       bingBound: props.filter((p) => p.bingSiteUrl).length,
       clarityBound: props.filter((p) => p.clarityProjectId).length,
     };
+    const liveProperties = byLifecycle.LIVE;
+    const liveIngestingProperties = byAdmission.LIVE_INGESTING;
 
     const where = websiteEventsInWindow(organizationId, since, now);
     const [counts, newest] = await Promise.all([
@@ -113,14 +137,17 @@ export class WebsiteEvidenceStateRepository {
       if (!WEBSITE_SOURCE_CONNECTIONS[s.sourceId]) {
         // First-party: "connected" means governed events have actually arrived for this organization.
         const connection: OrganizationConnectionState = newest ? 'CONNECTED' : 'NOT_CONNECTED';
-        return { sourceId: s.sourceId, stream: s.stream, basis: s.basis, connection, newestWindowEnd: newest?.occurredAt ?? null, finality: null, sampled: null, thresholded: null, rolledUp: null, truncated: null };
+        const coverage = websiteCoverageVerdict({ firstParty: true, liveProperties, liveIngestingProperties, connection, hasRecentEvidence: total > 0 });
+        return { sourceId: s.sourceId, stream: s.stream, basis: s.basis, connection, coverage, newestWindowEnd: newest?.occurredAt ?? null, finality: null, sampled: null, thresholded: null, rolledUp: null, truncated: null };
       }
       const w = newestWindows.get(s.sourceId) ?? null;
+      const connection = states.get(WEBSITE_SOURCE_CONNECTIONS[s.sourceId]!.provider) ?? organizationConnectionState(null, now);
       return {
         sourceId: s.sourceId,
         stream: s.stream,
         basis: s.basis,
-        connection: states.get(WEBSITE_SOURCE_CONNECTIONS[s.sourceId]!.provider) ?? organizationConnectionState(null, now),
+        connection,
+        coverage: websiteCoverageVerdict({ firstParty: false, liveProperties, liveIngestingProperties, connection, hasRecentEvidence: w !== null }),
         newestWindowEnd: w?.windowEnd ?? null,
         finality: w?.finality ?? null,
         sampled: w ? (typeof w.quality['sampledPercent'] === 'number' ? true : flag(w.quality, 'sampled')) : null,

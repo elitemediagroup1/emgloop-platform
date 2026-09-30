@@ -7519,20 +7519,28 @@ model SituationCandidate {
   @@map("situation_candidates")
 }
 
-/// A GOVERNED WEBSITE PROPERTY (2026-09-30). The ONE authority for which organization a website's events belong to:
-/// website ingestion resolves the organization ONLY through a registered, ACTIVE property -- never from a browser
-/// field, a domain or a request body. An unregistered property is refused (PROPERTY_UNREGISTERED). Registered by an
-/// operator (register-web-property), never guessed by a migration. `allowedDomains` only CHECKS where browser
-/// traffic may come from; it never chooses an organization. The connector bindings are empty until each connector
-/// is commissioned for this property.
+/// THE AUTHORITATIVE EMG WEBSITE-PROPERTY REGISTRY (2026-09-30): every owned property, live or not, each belonging
+/// to ONE organization. Lifecycle (OWNED / BUILDING / LIVE / PAUSED / RETIRED) and ingestion (ENABLED / DISABLED)
+/// are separate facts; website ingestion admits events ONLY for a registered LIVE + ENABLED property and never
+/// resolves an organization from a browser field, a domain or a request body. An unregistered property is refused
+/// (PROPERTY_UNREGISTERED). Registered by an operator (register-web-property), never by a migration.
+/// `allowedDomains` only CHECKS where browser traffic may come from; it never chooses an organization. External
+/// bindings are empty until a connector is commissioned; no external discovery changes lifecycle or ownership.
 model WebProperty {
   id                   String   @id @default(cuid())
   organizationId       String
   /// The property key the tracker sends; its public browser ingest key is pk_emg_<key>. Unique across Loop.
   key                  String   @unique
   label                String?
-  /// ACTIVE ingests; DISABLED refuses (PROPERTY_DISABLED).
-  status               String   @default("ACTIVE")
+  /// The property's own domain, normalized (e.g. servicesinmycity.com). UNIQUE across Loop: one EMG domain is one
+  /// property. External discovery reconciles against it; every allowed domain lies within it.
+  primaryDomain        String   @unique
+  /// What the property IS: OWNED | BUILDING | LIVE | PAUSED | RETIRED. Changed only by an operator transition.
+  lifecycle            String   @default("OWNED")
+  /// Whether first-party telemetry is accepted now: ENABLED only while LIVE (CHECK). Only LIVE + ENABLED admits.
+  ingestion            String   @default("DISABLED")
+  lifecycleChangedAt   DateTime @default(now())
+  /// Hosts browser events may come from (production): the primary domain and/or its subdomains.
   allowedDomains       String[] @default([])
   /// External bindings. Each is UNIQUE across Loop (NULLs aside): one external property belongs to one Loop
   /// property, and so to one organization -- the confused-deputy guard for a shared read-only identity.
@@ -7549,7 +7557,7 @@ model WebProperty {
 
   /// The composite key a metric window's property reference uses: a window can only name ITS organization's property.
   @@unique([id, organizationId])
-  @@index([organizationId, status])
+  @@index([organizationId, lifecycle])
   @@map("web_properties")
 }
 

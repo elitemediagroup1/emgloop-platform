@@ -929,7 +929,7 @@ export { TelegramTriageWindowJudge, TELEGRAM_TRIAGE_WINDOW_POLICY, decideTriageW
 export { WebPropertyRepository, webPropertyRegistrationProblems } from './repositories/web-property.repository';
 export type { WebPropertyAdmission, WebPropertyRegistration, WebPropertyRegistrationOutcome } from './repositories/web-property.repository';
 export { admitWebsiteDelivery } from './services/website/website-ingress';
-export type { WebsiteDeliveryInput, WebsiteAdmission, WebsiteAdmittedBatch } from './services/website/website-ingress';
+export type { WebsiteDeliveryInput, WebsiteAdmission, WebsiteAdmittedBatch, WebsiteRejection } from './services/website/website-ingress';
 export { OrganizationConnectionRepository } from './repositories/organization-connection.repository';
 export type { OrganizationConnectionKey, StoredOrganizationCredential, OrganizationConnectionAttempt } from './repositories/organization-connection.repository';
 export {
