@@ -2637,8 +2637,11 @@ with no open PR). Always open a draft PR and report its URL; Matt merges.
 
 **What it is.** The foundation for governed website evidence, before any external analytics source is connected:
 - source identity vs evidence stream, with Situation independence counted over streams;
-- the `web_properties` authority: the website webhook resolves tenancy only through it, fails closed with
-  `PROPERTY_UNREGISTERED`, and no longer reads `LIVE_ORG_SLUG`;
+- the `web_properties` registry: the AUTHORITATIVE EMG website-property registry (all 17 owned domains, live
+  or not). Lifecycle (OWNED / BUILDING / LIVE / PAUSED / RETIRED) and ingestion (ENABLED / DISABLED) are
+  separate. The webhook admits only LIVE + ENABLED, fails closed with `PROPERTY_UNREGISTERED` /
+  `PROPERTY_NOT_LIVE` / `INGESTION_DISABLED`, and no longer reads `LIVE_ORG_SLUG`. A known, not-live property
+  is never a coverage gap;
 - minimized, deterministic first-party telemetry;
 - `website.domain@2` (first-party only);
 - the `source_metric_windows` aggregate store and the organization credential sealer. Both are empty and
@@ -2655,15 +2658,20 @@ views read 0 from real traffic. Counts now come from `integration_events`.
 **Next:**
 1. Matt reviews and merges.
 2. Migration dispatch.
-3. Register the live properties (dry run first) BEFORE the web deploy.
-4. Web deploy.
-5. Worker redeploy.
-6. Switch `website.domain@1` → `@2` if website readings are activated.
+3. Register Web Property `register-portfolio` (dry run first).
+4. `set-lifecycle LIVE` + `enable-ingestion` for each site actually sending traffic, BEFORE the web deploy.
+5. Web deploy.
+6. Worker redeploy.
+7. Switch `website.domain@1` → `@2` if website readings are activated.
+
+The migration keeps its name `20261009000000_…`: production already applied `20261001`–`20261008`, so a
+2026-09-30 name would sort before them. Future connectors must do account-level discovery reconciled by
+domain against ALL registered properties (architecture §8).
 
 Then the GA4 connector PR (separate).
 
 **Open decisions for Matt:**
-- which organization owns each property;
+- which organization owns the portfolio, and which sites are LIVE / BUILDING today;
 - whether to enable the raw telemetry purge (`LOOP_WEBSITE_TELEMETRY_RETENTION=on`), which truncates analytics
   history past 90 days;
 - whether to scrub historical website payloads that still hold contact details.

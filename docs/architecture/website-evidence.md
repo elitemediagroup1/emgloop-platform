@@ -49,43 +49,94 @@ website lineage only when a governed, deterministic relationship proves that spe
 website. Nothing infers origin from names, phones, emails or fuzzy matching, and no such relationship is
 built yet.
 
-## 2. Property authority: tenancy for website events
+## 2. The EMG website-property registry
 
-`web_properties` holds one row per property:
+`web_properties` is the **authoritative registry of EMG website properties**: every owned domain, whether
+live or not. Each row has:
 
-- `key`, unique across Loop;
+- `key`, unique across Loop (the tracker's `data-property`; its public ingest key is `pk_emg_<key>`);
+- `primaryDomain`, normalized and unique across Loop. One EMG domain is one property, and every allowed
+  domain and external binding lies within it;
 - the one `organizationId` it belongs to;
-- `status` (`ACTIVE` / `DISABLED`);
-- `allowedDomains`;
-- the future external bindings: `ga4PropertyId`, `searchConsoleSiteUrl`, `bingSiteUrl`, `clarityProjectId`.
+- **`lifecycle`**: what the property is;
+- **`ingestion`**: whether Loop accepts its first-party telemetry now;
+- `allowedDomains`: the hosts browser events may come from in production;
+- the external bindings: `ga4PropertyId`, `searchConsoleSiteUrl`, `bingSiteUrl`, `clarityProjectId`. Each is
+  unique across Loop and records which external property belongs here. None of them connects anything.
 
-The external bindings record which external property belongs to this site. They connect nothing.
+### Lifecycle and ingestion: two separate facts
 
-**Only this table decides which organization a website event belongs to.**
+| Lifecycle | Meaning | May go to |
+|---|---|---|
+| `OWNED` | held; nothing built | BUILDING, LIVE, RETIRED |
+| `BUILDING` | being built | OWNED, LIVE, RETIRED |
+| `LIVE` | serving visitors | PAUSED, RETIRED |
+| `PAUSED` | temporarily not serving | LIVE, RETIRED |
+| `RETIRED` | no longer operated | OWNED |
+
+- `ingestion` is `ENABLED` or `DISABLED`. It can be `ENABLED` **only while `LIVE`**; a database CHECK enforces
+  this as well.
+- Leaving `LIVE` disables ingestion in the same write.
+- Entering `LIVE` never enables ingestion. Enabling it is its own operator act.
+- A new property starts `OWNED`, `DISABLED`.
+- Lifecycle and ingestion change **only** through `transitionLifecycle` / `setIngestion`, scoped to the owning
+  organization. Neither ever changes `organizationId`.
+- `register` on an existing property updates only its label, allowed domains and bindings. It refuses a
+  lifecycle change (`LIFECYCLE_CHANGE_NEEDS_TRANSITION`) and a domain change
+  (`PRIMARY_DOMAIN_CHANGE_REFUSED`).
+- **Nothing external changes either fact.** A GA4, Search Console or Bing account listing the domain never
+  makes it LIVE.
+
+### Admission: tenancy for website events
+
+Only this table decides which organization a website event belongs to, and **only LIVE + ENABLED admits**.
 `/api/webhooks/website` authenticates the tier, then calls `admitWebsiteDelivery`:
 
-- **Browser tier.** The public key `pk_emg_<key>` must name a registered, ACTIVE property. In production the
-  Origin must be one of that property's allowed domains. An event naming a different property is refused with
+- **Browser tier.** The public key `pk_emg_<key>` must name a registered property that admits telemetry. In
+  production the Origin must be one of its allowed domains, and an event naming a different property is
   `PROPERTY_MISMATCH`.
 - **Signed tier.** The HMAC over `WEBSITE_WEBHOOK_SECRET` proves a *class* of sender, not a tenant, so each
   event's property is resolved on its own.
 - **Refusals**, as codes:
 
-  | Code | When |
-  |---|---|
-  | `PROPERTY_UNREGISTERED` | the property is not in the registry |
-  | `PROPERTY_DISABLED` | the property is registered but not ACTIVE |
-  | `PROPERTY_MISSING` | a signed-tier event names no property |
-  | `DOMAIN_NOT_ALLOWED` | the Origin is not one of the property's allowed domains |
-  | `MISSING_ORIGIN` | the browser request has no Origin in production |
-  | `MISSING_INGEST_KEY` | the browser request carries no ingest key |
+  | Code | When | Counted against |
+  |---|---|---|
+  | `PROPERTY_UNREGISTERED` | nobody registered the property | nobody (logged, not durable) |
+  | `PROPERTY_NOT_LIVE` | registered, but OWNED / BUILDING / PAUSED / RETIRED | the owner (diagnostics) |
+  | `INGESTION_DISABLED` | LIVE, but ingestion is off | the owner (diagnostics) |
+  | `PROPERTY_MISMATCH` | an event names another property than the key verified | the owner (diagnostics) |
+  | `DOMAIN_NOT_ALLOWED` | the Origin is not one of the property's allowed domains | the owner (diagnostics) |
+  | `MISSING_ORIGIN` | a browser request has no Origin in production | the owner (diagnostics) |
+  | `PROPERTY_MISSING` | a signed-tier event names no property | nobody (logged, not durable) |
+  | `MISSING_INGEST_KEY` | a browser request carries no ingest key | nobody (logged, not durable) |
 
   There is no fallback organization. The browser's `organization` field is never read or stored.
-- **Registration** is an operator act: `Register Web Property` (workflow) → `scripts/operations/register-web-property.ts`.
-  It runs as a dry run by default. It refuses a key that another organization owns, and it never moves one.
-  The migration inserts no property. Any number of properties can be registered.
-- **Resolution** is the one cross-organization read (`WebPropertyRepository.resolveForIngest`). It returns
-  only what admission needs. Every other method takes `organizationId` first.
+
+### Registration and resolution
+
+- **Registration** is an operator act: `Register Web Property` (workflow) →
+  `scripts/operations/register-web-property.ts`.
+  - Actions: `register-portfolio` (every EMG portfolio domain as OWNED), `register`, `set-lifecycle`,
+    `enable-ingestion`, `disable-ingestion`.
+  - It runs as a dry run by default.
+  - It refuses a key, domain or binding that another organization holds, and never moves one.
+  - The migration inserts nothing.
+  - The portfolio list (`EMG_WEBSITE_PROPERTIES`, 17 domains on 2026-09-30) is **data**: registration input
+    and install snippets. It is never a tenancy authority, and nothing depends on its length.
+- **Resolution** is the one cross-organization read (`WebPropertyRepository.resolveForIngest`). It returns only
+  what admission needs. Every other method takes `organizationId` first.
+
+### Coverage: what is expected
+
+Absence is a gap only where something is expected (`websiteCoverageVerdict`):
+
+| Source | Expected when | Verdict when not expected | Verdict when expected |
+|---|---|---|---|
+| First-party events | the organization has a LIVE property with ingestion ENABLED | `NOT_APPLICABLE` | `COVERED` or `GAP_NO_EVENTS` |
+| An external source | the organization has at least one LIVE property | `NOT_APPLICABLE` | `COVERED` or `GAP_NOT_CONNECTED` |
+
+An organization whose properties are all OWNED / BUILDING / PAUSED / RETIRED therefore sees **no gap and no
+limitation**. `website.domain@2` names unconnected sources only when a LIVE property expects them.
 
 ## 3. First-party telemetry: what is stored
 
@@ -198,10 +249,40 @@ These are the decisions for the Google connectors:
   `https://www.googleapis.com/auth/webmasters.readonly`. The service account is added to each site as a
   **Restricted** user. Query text is never requested for storage.
 - **Binding.** A connector reads only the `ga4PropertyId` / `searchConsoleSiteUrl` recorded on a registered
-  `web_properties` row, for that row's organization.
+  `web_properties` row, for that row's organization. Each binding must lie within the row's `primaryDomain`.
 - **Confused-deputy protection.** One Loop service account may be granted access by many organizations, so
   "the API answered" never proves which organization a property belongs to. The binding does. The connector
-  resolves the property from the organization's own registered row and never from a request, and a property
-  bound to two organizations is refused at registration (the key is unique and never moved).
+  resolves the property from the organization's own registered row and never from a request. A key, primary
+  domain or external binding held by another property is refused at registration, and nothing is ever moved.
 - **Library.** Use Google's maintained auth library for the WIF token exchange if it materially reduces
   custom security code. That is a new dependency, so it is proposed with the connector PR.
+
+## 8. Future connectors: account-level discovery (requirement, not built)
+
+This is recorded for the connector batches. Nothing in this foundation implements it.
+
+- **Discover per account, reconcile by domain.** GA4, Search Console and Bing connectors list what the account
+  can see and reconcile each discovered external property against **all** registered `web_properties` rows by
+  normalized domain, not just the LIVE ones.
+  - A new external property for an already-registered EMG domain needs no code deployment. It becomes a
+    binding *proposal* for that row.
+- **Surface; never guess.** The following go to operator review, and nothing is written for them:
+  - an ambiguous match;
+  - an external property matching no registered domain;
+  - several external properties for one domain.
+- **Never change state.** Discovery never changes a property's lifecycle, ingestion or organization, as §2
+  already guarantees. The only thing a discovery can lead to is an operator-approved binding (`register`), and
+  that write cannot touch lifecycle or ownership.
+- **One site, one stream.** Search Console may expose both a Domain property (`sc-domain:example.com`) and
+  URL-prefix properties (`https://www.example.com/`) for the same EMG site. They are **one EMG website and one
+  evidence stream** (`SEARCH_GOOGLE`), never two websites or two independent streams. The connector chooses
+  one as the property's binding (the Domain property, when it exists) and records the others as known aliases
+  for review.
+- **Clarity** may still need a per-project token, sealed per organization (§5).
+
+## Migration naming
+
+The migration is `20261009000000_website_evidence_foundation`. The migration names in this repository are
+**ordinal keys ahead of the calendar**, not dates. Production has already applied `20261001000000` through
+`20261008000000` (the last deploy run, 2026-09-26, applied `20261008000000_case_private_scopes`). A name dated
+2026-09-30 would therefore sort **before** six applied migrations, and would be applied out of order.
