@@ -50,6 +50,7 @@ import { runDerivedRetentionSweep, type DerivedRetentionPorts } from './derived-
 import { createWorkerAiRuntime } from './ai-runtime';
 import { createIntelligenceHost, readIntelligenceHostConfig } from './intelligence-host';
 import { runHeldRefreshRetention } from './refresh-retention';
+import { runWebsiteRetention } from './website-retention';
 import { TelegramAdapter } from './telegram/telegram-adapter';
 import { createTelegramClientPort, createTelegramLoginPort } from './telegram/telegram-client';
 import { TelegramLoginCoordinator, type TelegramLoginBinding } from './telegram/telegram-login';
@@ -435,6 +436,20 @@ async function main(): Promise<void> {
       if (purged > 0) log('brief_purge', { purged });
     } catch (err) {
       log('brief_purge_error', { name: (err as Error)?.name ?? 'error' });
+    }
+    // 6. Website evidence (WEBSITE_EVIDENCE_RETENTION): aggregate windows past 400 days, always; raw website
+    //    telemetry past 90 days ONLY when LOOP_WEBSITE_TELEMETRY_RETENTION=on (off by default). Counts only.
+    try {
+      const { SourceMetricWindowRepository, WebsiteTelemetryRetentionRepository } = await import('@emgloop/database');
+      await runWebsiteRetention({
+        telemetryEnabled: config.websiteTelemetryRetention,
+        purgeTelemetry: (cutoff) => new WebsiteTelemetryRetentionRepository(prisma).purgeBefore(cutoff),
+        purgeAggregates: (cutoff) => new SourceMetricWindowRepository(prisma).purgeEndedBefore(cutoff),
+        now: () => new Date(),
+        log,
+      });
+    } catch (err) {
+      log('website_retention_error', { name: (err as Error)?.name ?? 'error' });
     }
     // 5. HELD intelligence refresh requests past the governed INTELLIGENCE_REFRESH_REQUESTS window (7 days
     //    from last change). Each row leaves together with moving its target's reading out of CURRENT, in one

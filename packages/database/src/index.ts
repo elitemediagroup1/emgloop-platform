@@ -448,6 +448,7 @@ export { SituationRepository, SITUATION_RECORD_SCHEMA, situationRecurrenceKey } 
 export type { SituationOwner, SituationRecord, SituationView } from './repositories/intelligence/situation.repository';
 export { SituationService, situationInputsOf, situationContext, type SituationDiagnosis, type SituationDiagnosisReason, type SituationConnectivity, type ConnectivityScenario, type SourceComposition, governedSourcesOf } from './services/intelligence-fabric/situations';
 export { PipelineCompositionRepository, PIPELINE_ACTIVITY_WINDOW_DAYS, type PipelineComposition } from './repositories/intelligence/pipeline-composition.repository';
+export { WebsiteEvidenceStateRepository, type WebsiteEvidenceState, type WebsiteSourceCoverage } from './repositories/intelligence/website-evidence-state.repository';
 export { IntelligenceReadingStateRepository, READING_STATE_BOUND, type ReadingState, type ReadingGroup, type LedgerGroup } from './repositories/intelligence/intelligence-reading-state.repository';
 export { SituationConnectivityRepository, CONNECTIVITY_MEMBER_WINDOW_DAYS, type GovernedConnectivity } from './repositories/intelligence/situation-connectivity.repository';
 export { GovernedEntityLinkProjector, GOVERNED_LINK_CLASSES, type GovernedLinkClassCount, type ProjectedLink } from './repositories/intelligence/governed-entity-links.repository';
@@ -929,4 +930,18 @@ export { WebPropertyRepository, webPropertyRegistrationProblems } from './reposi
 export type { WebPropertyAdmission, WebPropertyRegistration, WebPropertyRegistrationOutcome } from './repositories/web-property.repository';
 export { admitWebsiteDelivery } from './services/website/website-ingress';
 export type { WebsiteDeliveryInput, WebsiteAdmission, WebsiteAdmittedBatch } from './services/website/website-ingress';
+export { OrganizationConnectionRepository } from './repositories/organization-connection.repository';
+export type { OrganizationConnectionKey, StoredOrganizationCredential, OrganizationConnectionAttempt } from './repositories/organization-connection.repository';
+export {
+  OrganizationCredentialSealer,
+  OrganizationCredentialUnopenable,
+  organizationCredentialKeyRef,
+  ORGANIZATION_CREDENTIAL_SEAL_VERSION,
+  ORGANIZATION_CREDENTIAL_PURPOSE,
+} from './services/connections/organization-credential-sealer';
+export type { OrganizationCredentialBinding, SealedOrganizationCredential } from './services/connections/organization-credential-sealer';
+export { SourceMetricWindowRepository } from './repositories/source-metric-window.repository';
+export type { SourceMetricWindowWrite, StoredSourceMetricWindow } from './repositories/source-metric-window.repository';
+export { WebsiteTelemetryRetentionRepository } from './repositories/website-telemetry-retention.repository';
 export { storedWebsiteEventType, WEBSITE_RANKING_SCAN_LIMIT } from './repositories/website-analytics.repository';
+export { declaredExternalWebsiteSources, websiteCoveragePort } from './services/intelligence-fabric/website-coverage';
