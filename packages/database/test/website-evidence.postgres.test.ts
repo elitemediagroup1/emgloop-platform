@@ -458,3 +458,113 @@ test('the registry holds the whole EMG portfolio: known properties that are not 
 function webBindingOutside(): string[] {
   return webPropertyRegistrationProblems({ key: 'foodinmycity', primaryDomain: 'foodinmycity.com', searchConsoleSiteUrl: 'sc-domain:petsinmycity.com' });
 }
+
+// --- commission-live-sites (2026-09-30): all or nothing, in one transaction ---------------------------------
+
+/** A client whose batch transaction misbehaves on its Nth property write: `throw` (a crash) or `stale` (count 0). */
+function faultyOnWrite(prisma: PrismaClient, nth: number, mode: 'throw' | 'stale'): PrismaClient {
+  let writes = 0;
+  const bind = (o: any, p: PropertyKey) => (typeof o[p] === 'function' ? o[p].bind(o) : o[p]);
+  return new Proxy(prisma, {
+    get(target: any, prop) {
+      if (prop !== '$transaction') return bind(target, prop);
+      return (fn: (tx: unknown) => Promise<unknown>) =>
+        target.$transaction((tx: any) =>
+          fn(new Proxy(tx, {
+            get(t: any, p) {
+              if (p !== 'webProperty') return bind(t, p);
+              return new Proxy(t.webProperty, {
+                get(w: any, q) {
+                  if (q !== 'updateMany') return bind(w, q);
+                  return async (args: unknown) => {
+                    writes += 1;
+                    if (writes === nth) {
+                      if (mode === 'throw') throw new Error('injected mid-batch failure');
+                      return { count: 0 };
+                    }
+                    return w.updateMany(args);
+                  };
+                },
+              });
+            },
+          })),
+        );
+    },
+  }) as PrismaClient;
+}
+
+test('commission-live-sites against Postgres: preflight all, write all or nothing, converge on re-run', { skip }, async (t) => {
+  const prisma = new PrismaClient({ datasources: { db: { url: URL } } });
+  const properties = new WebPropertyRepository(prisma);
+  t.after(() => prisma.$disconnect());
+  const O = await org(prisma, 'commission');
+  const X = await org(prisma, 'foreign');
+  const k = (label: string) => key(label);
+  const owned = [k('own1'), k('own2')];
+  const building = k('bld');
+  const paused = k('psd');
+  const liveOff = k('liveoff');
+  const liveOn = k('liveon');
+  const retired = k('ret');
+  const foreign = k('foreign');
+  const now = new Date();
+  for (const key of [...owned, building, paused, liveOff, liveOn, retired]) assert.equal((await properties.register(O, { key, primaryDomain: `${key}.example` })).outcome, 'REGISTERED');
+  assert.equal((await properties.register(X, { key: foreign, primaryDomain: `${foreign}.example` })).outcome, 'REGISTERED');
+  await properties.transitionLifecycle(O, building, 'BUILDING', now);
+  for (const key of [paused, liveOff, liveOn]) await properties.transitionLifecycle(O, key, 'LIVE', now);
+  await properties.transitionLifecycle(O, paused, 'PAUSED', now);
+  await properties.setIngestion(O, liveOn, 'ENABLED');
+  await properties.transitionLifecycle(O, retired, 'RETIRED', now);
+  const snapshot = async () => (await prisma.webProperty.findMany({ where: { key: { in: [...owned, building, paused, liveOff, liveOn, retired, foreign] } }, orderBy: { key: 'asc' } })).map((r) => [r.key, r.organizationId, r.lifecycle, r.ingestion].join('|'));
+  const good = [...owned, building, paused, liveOff, liveOn];
+
+  await t.test('a refused property -- RETIRED, another organization\'s, unknown -- refuses the batch with ZERO writes', async () => {
+    const before = await snapshot();
+    const r = await properties.commissionLive(O, [...good, retired, foreign, 'no-such-property'], now);
+    assert.deepEqual(r, { outcome: 'REFUSED', refusals: [
+      { key: retired, code: 'LIFECYCLE_TRANSITION_REFUSED' },
+      { key: foreign, code: 'PROPERTY_NOT_IN_ORGANIZATION' },
+      { key: 'no-such-property', code: 'PROPERTY_NOT_IN_ORGANIZATION' },
+    ] });
+    assert.deepEqual(await snapshot(), before, 'not one property changed');
+    assert.deepEqual(await properties.commissionLive(O, [owned[0]!, owned[0]!], now), { outcome: 'REFUSED', refusals: [{ key: '-', code: 'DUPLICATE_KEY' }] });
+    assert.deepEqual(await properties.commissionLive(O, Array.from({ length: 26 }, (_, i) => `x${i}`), now), { outcome: 'REFUSED', refusals: [{ key: '-', code: 'TOO_MANY_KEYS' }] });
+    assert.deepEqual(await snapshot(), before);
+  });
+
+  await t.test('a mid-batch crash or a row changed since preflight rolls back EVERY write in the batch', async () => {
+    const before = await snapshot();
+    await assert.rejects(new WebPropertyRepository(faultyOnWrite(prisma, 3, 'throw')).commissionLive(O, good, now), /injected mid-batch failure/);
+    assert.deepEqual(await snapshot(), before, 'the two writes before the crash were rolled back');
+    const stale = await new WebPropertyRepository(faultyOnWrite(prisma, 2, 'stale')).commissionLive(O, good, now);
+    assert.equal(stale.outcome, 'REFUSED');
+    assert.equal((stale as { refusals: { code: string }[] }).refusals[0]!.code, 'CONCURRENT_CHANGE');
+    assert.deepEqual(await snapshot(), before, 'the first write was rolled back');
+  });
+
+  await t.test('the batch converges every property to LIVE + ENABLED in one act; ownership never moves', async () => {
+    const preview = await properties.previewLiveCommission(O, good);
+    assert.equal(preview.outcome, 'PLANNED');
+    assert.deepEqual((preview as { items: { plan: string }[] }).items.map((i) => i.plan), ['LIFECYCLE_AND_INGESTION', 'LIFECYCLE_AND_INGESTION', 'LIFECYCLE_AND_INGESTION', 'LIFECYCLE_AND_INGESTION', 'INGESTION_ONLY', 'ALREADY_LIVE']);
+    const r = await properties.commissionLive(O, good, now);
+    assert.equal(r.outcome, 'COMMISSIONED');
+    for (const key of good) {
+      const row = (await properties.findForOrganization(O, key))!;
+      assert.deepEqual([row.lifecycle, row.ingestion, row.organizationId], ['LIVE', 'ENABLED', O], key);
+    }
+    const foreignRow = (await prisma.webProperty.findUnique({ where: { key: foreign } }))!;
+    assert.deepEqual([foreignRow.organizationId, foreignRow.lifecycle, foreignRow.ingestion], [X, 'OWNED', 'DISABLED']);
+    // The commissioned properties now admit telemetry, through the unchanged admission path.
+    const ok = await deliver(prisma, { tier: 'SIGNED', body: { events: [{ event: 'page_view', id: `c-${now.getTime()}`, property: owned[0] }] } });
+    assert.deepEqual(ok.batches.map((b) => b.organizationId), [O]);
+  });
+
+  await t.test('a re-run converges with nothing to do; another organization cannot commission these properties', async () => {
+    const again = await properties.commissionLive(O, good, now);
+    assert.equal(again.outcome, 'COMMISSIONED');
+    assert.ok((again as { items: { plan: string }[] }).items.every((i) => i.plan === 'ALREADY_LIVE'));
+    const before = await snapshot();
+    assert.deepEqual(await properties.commissionLive(X, [owned[0]!], now), { outcome: 'REFUSED', refusals: [{ key: owned[0]!, code: 'PROPERTY_NOT_IN_ORGANIZATION' }] });
+    assert.deepEqual(await snapshot(), before);
+  });
+});

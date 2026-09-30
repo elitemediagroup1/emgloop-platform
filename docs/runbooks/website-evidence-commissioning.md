@@ -64,6 +64,21 @@ gamedayinmycity, homesinmycity; confirm each one):
 1. `action: set-lifecycle`, `property_key: <key>`, `lifecycle: LIVE`. Ingestion stays DISABLED.
 2. `action: enable-ingestion`, `property_key: <key>`.
 
+**Or, in one run:** `action: commission-live-sites` with
+`property_keys: consumersupporthelp,marriageinmycity,careinmycity,...`. Run it with `dry_run: true` first.
+- It takes at most 25 comma-separated keys. Surrounding whitespace is trimmed. An empty entry, a malformed or
+  duplicate key, or more than 25 keys refuses the run.
+- The whole list is **preflighted before anything is written.** Every key must be one of this organization's
+  registered properties, and each must be able to reach LIVE under the lifecycle state machine (RETIRED cannot).
+  One refusal refuses the batch with **zero writes**, and every refused key is listed as
+  `event=PREFLIGHT_REFUSED key=<key> code=<code>`.
+- The writes then run in **one database transaction**. A crash, or a property changing mid-run
+  (`CONCURRENT_CHANGE`), rolls back every write in the batch.
+- A property already LIVE + ENABLED (e.g. `servicesinmycity`) is reported `plan=ALREADY_LIVE` and left alone,
+  so a re-run converges.
+- Read back: `event=COMMISSION_RESULT written=true requested=<n> ... converged=<n> ownerUnchanged=true`.
+- It never registers, reassigns or moves a property.
+
 For each site under construction: `set-lifecycle` → `BUILDING`, and leave ingestion disabled.
 
 Every other site stays `OWNED`.

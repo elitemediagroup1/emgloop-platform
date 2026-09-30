@@ -117,7 +117,10 @@ Only this table decides which organization a website event belongs to, and **onl
 - **Registration** is an operator act: `Register Web Property` (workflow) →
   `scripts/operations/register-web-property.ts`.
   - Actions: `register-portfolio` (every EMG portfolio domain as OWNED), `register`, `set-lifecycle`,
-    `enable-ingestion`, `disable-ingestion`.
+    `enable-ingestion`, `disable-ingestion`, and `commission-live-sites`.
+  - `commission-live-sites` converges up to 25 of the organization's registered properties to LIVE + ENABLED
+    in one run. It is the same two acts, validated through the same state machine, but ALL OR NOTHING: the
+    whole list is preflighted, then written in one transaction.
   - It runs as a dry run by default.
   - It refuses a key, domain or binding that another organization holds, and never moves one.
   - The migration inserts nothing.
