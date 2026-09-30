@@ -920,3 +920,13 @@ export type { ObservationVerificationReport, ObservationVerificationCounts, Obse
 export * from './creator';
 
 export { TelegramTriageWindowJudge, TELEGRAM_TRIAGE_WINDOW_POLICY, decideTriageWindow, telegramTriageWindowManifestHash, type TelegramTriageWindowVerdict, type TelegramTriageWindowHistory } from './services/ai-runtime/telegram-triage-window';
+
+// --- Governed website evidence (2026-09-30) ---
+// The property -> organization authority website ingestion resolves tenancy through, the admission that uses
+// it, the organization-owned connection credential store (sealed bytes only; nothing connected yet) and the
+// minimized aggregate evidence store for external website sources (empty until a connector exists).
+export { WebPropertyRepository, webPropertyRegistrationProblems } from './repositories/web-property.repository';
+export type { WebPropertyAdmission, WebPropertyRegistration, WebPropertyRegistrationOutcome } from './repositories/web-property.repository';
+export { admitWebsiteDelivery } from './services/website/website-ingress';
+export type { WebsiteDeliveryInput, WebsiteAdmission, WebsiteAdmittedBatch } from './services/website/website-ingress';
+export { storedWebsiteEventType, WEBSITE_RANKING_SCAN_LIMIT } from './repositories/website-analytics.repository';

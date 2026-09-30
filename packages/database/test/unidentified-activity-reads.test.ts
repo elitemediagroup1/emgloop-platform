@@ -59,18 +59,34 @@ test('anonymous visitors still produce journeys with no Customer anywhere', asyn
   const start = new Date('2026-09-15T00:00:00.000Z');
   const end = new Date('2026-09-16T00:00:00.000Z');
   const t = (m: number) => new Date(start.getTime() + m * 60_000);
-  const prisma: Row = makeCognitivePrisma({ also: ['interaction', 'signal'] });
+  // Website analytics reads every admitted website event (integration_events); a minimal double of that read.
+  const events: Row[] = [];
   const visit = (id: string, at: Date, eventType: string, visitorId: string) =>
-    prisma.interaction.create({
-      data: { id, organizationId: ORG, provider: 'website', channel: 'OTHER', occurredAt: at, metadata: { eventType, visitorId, sessionId: 's-' + visitorId } },
-    });
-  await visit('w1', t(1), 'web.search', 'v-a');
-  await visit('w2', t(2), 'web.cta_click', 'v-a');
-  await visit('w3', t(3), 'web.form_submit', 'v-a');
-  await visit('w4', t(4), 'web.search', 'v-b');
-  await visit('w5', t(5), 'web.cta_click', 'v-b');
-  await visit('w6', t(6), 'web.form_submit', 'v-b');
+    events.push({ id, organizationId: ORG, provider: 'website', eventType, occurredAt: at, payload: { property: 'site', visitorId, sessionId: 's-' + visitorId } });
+  visit('w1', t(1), 'web.search', 'v-a');
+  visit('w2', t(2), 'web.cta_click', 'v-a');
+  visit('w3', t(3), 'web.form_submit', 'v-a');
+  visit('w4', t(4), 'web.search', 'v-b');
+  visit('w5', t(5), 'web.cta_click', 'v-b');
+  visit('w6', t(6), 'web.form_submit', 'v-b');
+  const prisma = {
+    integrationEvent: {
+      async groupBy() {
+        const by = new Map<string, number>();
+        for (const e of events) by.set(e.eventType as string, (by.get(e.eventType as string) ?? 0) + 1);
+        return [...by].map(([eventType, n]) => ({ eventType, _count: { _all: n } }));
+      },
+      async count() {
+        return 0;
+      },
+      async findMany(args: { cursor?: unknown }) {
+        return args.cursor ? [] : events;
+      },
+    },
+    signal: { async groupBy() { return []; } },
+  };
 
   const analytics = await new WebsiteAnalyticsRepository(prisma as never).getWebsiteAnalytics(ORG, start, end);
   assert.deepEqual(analytics.commonJourneys, [{ label: 'search → cta_click → form_submit', count: 2 }]);
+  assert.equal(analytics.totals.events, 6);
 });

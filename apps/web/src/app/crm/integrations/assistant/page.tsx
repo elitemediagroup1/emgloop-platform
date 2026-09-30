@@ -33,7 +33,6 @@ function resolveProvider(query: string): string | null {
   }
   if (q.includes('call')) return 'callgrid';
   if (q.includes('analytics')) return 'ga4';
-  if (q.includes('ads')) return 'google_ads';
   return null;
 }
 

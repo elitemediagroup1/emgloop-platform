@@ -133,106 +133,91 @@ export const INTEGRATION_CATALOG: ProviderSpec[] = [
       { title: 'Generate an ingest key', detail: 'Create a per-property key (status tracked, value never shown).', generates: 'api_key' },
       { title: 'Deploy and verify', detail: 'Publish the site, then verify the OS receives the first event.', generates: 'verification' },
     ],
-    notes: 'Receiver and SDK management layer exist. The browser JavaScript SDK itself is not built yet  -  sites cannot emit events until it ships.',
+    notes: 'Receiver, browser SDK and property registry exist. A property\'s events are accepted only once it is registered to its organization (Register Web Property); an unregistered property is refused.',
   },
-  // ---- Google Analytics 4  -  planned (oauth pull) -------------------------
+  // ---- Website evidence from external systems  -  planned (2026-09-30) -----
+  // DECLARED, NOT CONNECTED: the source registry names these four, a web property records which external
+  // property belongs to it, and no adapter, credential or scheduler exists for any of them. Google is to be read
+  // keylessly (AWS -> Google Cloud Workload Identity Federation -> a service account granted read access), so the
+  // Google entries list no secret; Bing and Clarity credentials are organization-owned, sealed per organization
+  // in provider_connections, never an environment variable.
   {
     id: 'ga4',
     displayName: 'Google Analytics 4',
     category: 'analytics',
-    blurb: 'Site analytics  -  sessions, conversions and acquisition channels.',
+    blurb: 'Aggregate site analytics  -  sessions, users, engagement and key events per day.',
     readiness: 'planned',
     direction: 'inbound',
-    delivery: ['oauth_pull', 'polling'],
-    authentication: 'oauth2',
-    recommendedEvents: ['web.session_start', 'web.goal_conversion'],
-    secrets: [
-      { envVar: 'GOOGLE_CLIENT_ID', label: 'Google OAuth client id', required: true },
-      { envVar: 'GOOGLE_CLIENT_SECRET', label: 'Google OAuth client secret', required: true },
-    ],
+    delivery: ['polling'],
+    authentication: 'none',
+    recommendedEvents: [],
+    secrets: [],
     pollingSupported: false,
     idempotency: true,
     retrySupported: true,
     setupSteps: [
-      { title: 'Connect Google', detail: 'Authorize EMG Loop with read-only Analytics scope (OAuth  -  Sprint 17+).' },
-      { title: 'Select the GA4 property', detail: 'Choose which Analytics property to sync.', generates: 'property_id' },
-      { title: 'Schedule sync', detail: 'Enable scheduled pulls of sessions and conversions.' },
+      { title: 'Register the property', detail: 'Bind the site to its organization and record its GA4 property id (Register Web Property).', generates: 'property_id' },
+      { title: 'Grant read access', detail: "Add Loop's Google service account to the GA4 property as a Viewer (analytics.readonly)." },
     ],
-    notes: 'Pull-based. Requires an analytics adapter, OAuth manager and a scheduler  -  none built yet.',
+    notes: 'Not connected. Analytics Data API, service account via Workload Identity Federation; no connector is built.',
   },
-  // ---- Google Ads  -  planned ----------------------------------------------
-  {
-    id: 'google_ads',
-    displayName: 'Google Ads',
-    category: 'analytics',
-    blurb: 'Ad spend, clicks and conversions for paid-search attribution.',
-    readiness: 'planned',
-    direction: 'inbound',
-    delivery: ['oauth_pull', 'polling'],
-    authentication: 'oauth2',
-    recommendedEvents: ['ads.click', 'ads.conversion', 'ads.lead_form_submit'],
-    secrets: [
-      { envVar: 'GOOGLE_CLIENT_ID', label: 'Google OAuth client id', required: true },
-      { envVar: 'GOOGLE_CLIENT_SECRET', label: 'Google OAuth client secret', required: true },
-      { envVar: 'GOOGLE_ADS_DEVELOPER_TOKEN', label: 'Google Ads developer token', required: true },
-    ],
-    pollingSupported: false,
-    idempotency: true,
-    retrySupported: true,
-    setupSteps: [
-      { title: 'Connect Google Ads', detail: 'Authorize EMG Loop with read-only Ads scope (OAuth  -  Sprint 17+).' },
-      { title: 'Select the account', detail: 'Choose the Ads account/customer id to sync.', generates: 'property_id' },
-    ],
-    notes: 'Pull-based. Adapter + OAuth + scheduler required.',
-  },
-  // ---- Google Search Console  -  planned -----------------------------------
   {
     id: 'google_search_console',
     displayName: 'Google Search Console',
     category: 'analytics',
-    blurb: 'Organic search impressions, clicks and position data.',
+    blurb: 'Organic Google search clicks, impressions and position per page  -  never query text.',
     readiness: 'planned',
     direction: 'inbound',
-    delivery: ['oauth_pull', 'polling'],
-    authentication: 'oauth2',
-    recommendedEvents: ['search.impression', 'search.click', 'search.position_change'],
-    secrets: [
-      { envVar: 'GOOGLE_CLIENT_ID', label: 'Google OAuth client id', required: true },
-      { envVar: 'GOOGLE_CLIENT_SECRET', label: 'Google OAuth client secret', required: true },
-    ],
+    delivery: ['polling'],
+    authentication: 'none',
+    recommendedEvents: [],
+    secrets: [],
     pollingSupported: false,
     idempotency: true,
     retrySupported: true,
     setupSteps: [
-      { title: 'Connect Search Console', detail: 'Authorize EMG Loop with read-only Search Console scope (OAuth  -  Sprint 17+).' },
-      { title: 'Select the property', detail: 'Choose the verified site property to sync.', generates: 'property_id' },
+      { title: 'Register the property', detail: 'Record the Search Console site (sc-domain: or URL prefix) on the web property.', generates: 'property_id' },
+      { title: 'Grant read access', detail: "Add Loop's Google service account to the site as a Restricted user (webmasters.readonly)." },
     ],
-    notes: 'Pull-based. Adapter + OAuth + scheduler required.',
+    notes: 'Not connected. Search Console API, service account via Workload Identity Federation; no connector is built.',
   },
-  // ---- Microsoft Ads  -  planned -------------------------------------------
+  {
+    id: 'bing_webmaster',
+    displayName: 'Bing Webmaster Tools',
+    category: 'analytics',
+    blurb: 'Organic Bing search clicks, impressions and position per page  -  never query text.',
+    readiness: 'planned',
+    direction: 'inbound',
+    delivery: ['oauth_pull', 'polling'],
+    authentication: 'oauth2',
+    recommendedEvents: [],
+    secrets: [],
+    pollingSupported: false,
+    idempotency: true,
+    retrySupported: true,
+    setupSteps: [
+      { title: 'Register the property', detail: 'Record the Bing Webmaster site URL on the web property.', generates: 'property_id' },
+    ],
+    notes: 'Not connected. Bing Webmaster JSON API (webmaster.read); the organization-owned refresh token would be sealed per organization. No connector is built.',
+  },
   {
     id: 'microsoft_clarity',
-    displayName: 'Microsoft Ads',
+    displayName: 'Microsoft Clarity',
     category: 'analytics',
-    blurb: 'Microsoft advertising clicks and conversions.',
+    blurb: 'Aggregate site-experience signals  -  scroll depth, dead and rage clicks, quick-backs.',
     readiness: 'planned',
     direction: 'inbound',
-    delivery: ['oauth_pull', 'polling'],
-    authentication: 'oauth2',
-    recommendedEvents: ['ads.click', 'ads.conversion'],
-    secrets: [
-      { envVar: 'MICROSOFT_ADS_CLIENT_ID', label: 'Microsoft Ads client id', required: true },
-      { envVar: 'MICROSOFT_ADS_CLIENT_SECRET', label: 'Microsoft Ads client secret', required: true },
-      { envVar: 'MICROSOFT_ADS_DEVELOPER_TOKEN', label: 'Microsoft Ads developer token', required: true },
-    ],
+    delivery: ['polling'],
+    authentication: 'api_key',
+    recommendedEvents: [],
+    secrets: [],
     pollingSupported: false,
     idempotency: true,
     retrySupported: true,
     setupSteps: [
-      { title: 'Connect Microsoft Ads', detail: 'Authorize EMG Loop (OAuth  -  Sprint 17+).' },
-      { title: 'Select the account', detail: 'Choose the Ads account to sync.', generates: 'property_id' },
+      { title: 'Register the property', detail: 'Record the Clarity project id on the web property.', generates: 'property_id' },
     ],
-    notes: 'Pull-based. Adapter + OAuth + scheduler required.',
+    notes: 'Not connected. Clarity Data Export API (10 requests per project per day); the project token would be sealed per organization. No connector is built.',
   },
   // ---- Meta  -  planned ----------------------------------------------------
   {
@@ -345,10 +330,12 @@ export const INTEGRATION_CATALOG: ProviderSpec[] = [
   },
 ];
 
-// ---- EMG website properties (managed by the Website SDK manager) ---------
-// The OS lists these first-class properties; the SDK manager generates an
-// install script + per-property ingest key for each. Adding a property here
-// makes it appear in the Website Manager automatically.
+// ---- EMG website properties (the Website SDK manager's install snippets) ---
+// PRESENTATION ONLY. The Website Manager lists these to generate each site's
+// install snippet. This list is NOT a tenancy authority and the website webhook
+// does not read it: which organization a property's events belong to is the
+// governed web_properties registry (register-web-property), and an event from a
+// property nobody registered is refused PROPERTY_UNREGISTERED.
 export interface CatalogWebsiteProperty {
   key: string;
   name: string;
@@ -396,16 +383,11 @@ export function webhookUrlFor(spec: ProviderSpec): string | null {
   return spec.webhookPath ? APP_URL + spec.webhookPath : null;
 }
 
-/** Generate the EMG Loop SDK install snippet for a property (management layer
-    only  -  the referenced emg-loop.js is not built yet). */
 /** Generate the EMG Loop SDK install snippet for a property. The snippet
- *  carries the PUBLIC ingest key (data-ingest-key) + property + organization.
- *  The key is public by design (it ships in the browser); it is NOT a secret
- *  and authenticates the property together with allowed-domain validation. */
-/** Generate the EMG Loop SDK install snippet for a property. The snippet
- *  carries the PUBLIC ingest key (data-ingest-key) + property + organization.
- *  The key is public by design (it ships in the browser); it is NOT a secret
- *  and authenticates the property together with allowed-domain validation. */
+ *  carries the PUBLIC ingest key (data-ingest-key) + property. The key is
+ *  public by design (it ships in the browser); it is NOT a secret. It is
+ *  accepted only for a REGISTERED property, from that property's registered
+ *  allowed domains. The data-organization attribute is ignored by the webhook. */
 export function sdkInstallScript(property: CatalogWebsiteProperty, organizationSlug: string): string {
   return [
     "<script",
@@ -422,10 +404,10 @@ export function propertyIdentifier(property: CatalogWebsiteProperty): string {
 }
 
 /** The PUBLIC per-property ingest key shipped in the browser SDK snippet.
- *  Deterministic and non-secret: it identifies the property to the website
- *  webhook. Real authentication of browser events = this key being known/active
- *  for the property PLUS the request Origin/Referer matching an allowed domain.
- *  Server-to-server website events use WEBSITE_WEBHOOK_SECRET (HMAC) instead. */
+ *  Deterministic and non-secret (the same rule as @emgloop/shared
+ *  webPropertyIngestKey): it names the property to the website webhook, which
+ *  accepts it only for a registered, ACTIVE property and a registered allowed
+ *  domain. Server-to-server website events use WEBSITE_WEBHOOK_SECRET instead. */
 export function propertyIngestKey(property: CatalogWebsiteProperty): string {
   return 'pk_emg_' + property.key;
 }
@@ -443,17 +425,3 @@ export function propertyAllowedDomains(property: CatalogWebsiteProperty): string
   return Array.from(set);
 }
 
-/** Look up a property by its PUBLIC ingest key (constant-ish, case-insensitive). */
-export function findPropertyByIngestKey(key: string): CatalogWebsiteProperty | undefined {
-  const want = String(key || '').toLowerCase().trim();
-  if (!want) return undefined;
-  return EMG_WEBSITE_PROPERTIES.find((prop) => propertyIngestKey(prop).toLowerCase() === want);
-}
-
-/** True when a request host is permitted to send browser events for a property.
- *  Matches exact host or a subdomain of an allowed domain. Empty host = false. */
-export function isPropertyDomainAllowed(property: CatalogWebsiteProperty, host: string): boolean {
-  const h = String(host || '').toLowerCase().trim().replace(/:\d+$/, '');
-  if (!h) return false;
-  return propertyAllowedDomains(property).some((d) => h === d || h.endsWith('.' + d));
-}

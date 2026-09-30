@@ -253,7 +253,7 @@ test('a call from a number that matches existing People attaches to none of them
   assert.deepEqual(booked.tags, ['lead'], 'no inbound-call or missed-call tag is added');
 });
 
-test('a website form whose email and phone match an existing Person is recorded and matched against nobody', async () => {
+test('a website form whose email and phone match an existing Person is recorded, matched against nobody, and keeps neither (2026-09-30)', async () => {
   const h = await harness({ customers: EXISTING });
   await ingestWebsite(h, {
     property: 'servicesinmycity',
@@ -276,8 +276,11 @@ test('a website form whose email and phone match an existing Person is recorded 
   assert.ok(interaction, 'the submission is recorded as an Interaction');
   assert.equal(interaction!.customerId ?? null, null);
   assert.equal(interaction!.kind, 'FORM_SUBMISSION');
-  assert.equal(interaction!.metadata.email, 'pat@northsideplumbing.co', 'what was submitted is kept as a fact');
-  assert.equal(interaction!.metadata.phone, '+13128675309');
+  // Website telemetry keeps no contact detail (governed website evidence): the submission is a fact, the email
+  // and phone the tracker attached are not -- they never established identity, and nothing reads them.
+  assert.equal(interaction!.metadata.email, undefined, 'no email is persisted through website telemetry');
+  assert.equal(interaction!.metadata.phone, undefined, 'no phone is persisted through website telemetry');
+  assert.doesNotMatch(JSON.stringify([h.rows('interaction'), h.rows('integrationEvent')]), /northsideplumbing|8675309|Pat Rivera/);
   assert.equal(interaction!.metadata.visitorId, 'v-42');
   assert.ok(h.rows('signal').some((s) => s.type === 'INTENT'), 'the intent signal is still written');
 });

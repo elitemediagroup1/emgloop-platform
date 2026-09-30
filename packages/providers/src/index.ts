@@ -97,9 +97,8 @@ export {
   WebsiteProvider,
   mapWebsiteEventType,
   WEBSITE_EVENT_MAP,
-  WEBSITE_PROPERTIES,
+  websiteEventExternalId,
 } from './adapters/website.provider';
-export type { WebsiteProperty } from './adapters/website.provider';
 
 /**
  * Register the CallGrid adapter into the provider registry (idempotent). Call
