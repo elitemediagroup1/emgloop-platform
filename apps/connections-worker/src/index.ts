@@ -27,6 +27,7 @@ import {
   SourceContentAuthorizationRepository,
   WorkItemRepository,
   prisma,
+  TelegramTriageWindowJudge,
   type DueConnection,
   type DueBaseline,
   type DueContent,
@@ -69,6 +70,7 @@ async function main(): Promise<void> {
   const contentAuthorizations = new SourceContentAuthorizationRepository(prisma);
   const workItems = new WorkItemRepository(prisma);
   const digests = new IntelligenceDigestRepository(prisma);
+  const windowJudge = new TelegramTriageWindowJudge(prisma);
   const sealer = new ConnectionSecretSealer(config.connectionSecretKey);
   const sink = createDbObservationSink(prisma);
 
@@ -263,6 +265,8 @@ async function main(): Promise<void> {
     raiseWorkItem: contentRaise.raiseWorkItem,
     resolveObligations,
     recordConversationIntelligence: contentDigests.record,
+    // An exact window already judged is never paid for again; a failed one backs off, a bounded number of times.
+    judgeWindow: (principal, window, at) => windowJudge.judge(principal, window, at),
     async recordContentProgress(due, progress) {
       await contentAuthorizations.recordContentProgress(due.organizationId, due.userId, due.provider, {
         contentCursor: progress.contentCursor,

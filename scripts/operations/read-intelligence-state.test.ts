@@ -559,6 +559,9 @@ const READINGS = {
     { taskId: 'pipeline.domain.reading', providerId: 'anthropic', outcome: 'REJECTED_BY_LOOP', lane: 'BACKGROUND', failureClass: null, count: 1 },
   ],
   rejections: [{ taskId: 'pipeline.domain.reading', code: 'UNSUPPORTED_NUMBER_IN_TEXT', count: 1 }],
+  windows: [],
+  latency: [],
+  contentHolds: [],
   bounded: false,
 } as const;
 
@@ -594,8 +597,32 @@ test('domain readings wiring: a read-only client; the reader selects no content,
   const strip = (path: string) => readFileSync(path, 'utf8').replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
   const reader = strip(join(__dirname, '..', '..', 'packages', 'database', 'src', 'repositories', 'intelligence', 'intelligence-reading-state.repository.ts'));
   for (const forbidden of ['.create(', '.update(', '.upsert(', '.delete(', 'createMany(', 'updateMany(', 'deleteMany(', '$executeRaw', '$queryRaw', '$transaction', 'fetch(']) assert.equal(reader.includes(forbidden), false, forbidden);
-  for (const column of ['content: true', 'subjectRef: true', 'userId: true', 'principalUserId: true', 'entityRefs: true', 'contextManifestHash: true', 'providerRequestId: true']) assert.equal(reader.includes(column), false, `never selects ${column}`);
+  for (const column of ['content: true', 'subjectRef: true', 'userId: true', 'principalUserId: true', 'entityRefs: true', 'providerRequestId: true', 'contentCursor: true']) assert.equal(reader.includes(column), false, `never selects ${column}`);
+  // The window hash is read to count repeats and never leaves: no returned type names it.
+  assert.equal(/readonly contextManifestHash/.test(reader), false, 'no returned shape carries the window hash');
   const reads = [...reader.matchAll(/\.findMany\(\{\s*where:\s*\{\s*([^,}]+)/g)];
-  assert.equal(reads.length, 3, 'digests, the calls they name, the window of calls');
+  assert.equal(reads.length, 4, 'digests, the calls they name, the window of calls, the content authorizations');
   for (const [, first] of reads) assert.equal(first!.trim(), 'organizationId', 'every read is organization-scoped first');
+});
+
+test('telegram triage repetition, latency and content holds print as counts and codes -- never a window hash, a person or text', async () => {
+  const w = await world();
+  const state = {
+    ...READINGS,
+    windows: [{ taskId: 'telegram.content.triage', calls: 69, distinctWindows: 9, repeatedWindows: 5, maxCallsPerWindow: 21, repeatedCalls: { FAILED: 21, REJECTED_BY_LOOP: 31, ANSWERED: 3 }, timeouts: 21, answerTooLong: 31 }],
+    latency: [
+      { taskId: 'telegram.content.triage', outcome: 'ANSWERED', count: 15, p50Ms: 14200, p95Ms: 19100, maxMs: 19800 },
+      { taskId: 'telegram.content.triage', outcome: 'FAILED', count: 21, p50Ms: 20000, p95Ms: 20003, maxMs: 20010 },
+    ],
+    contentHolds: [{ provider: 'TELEGRAM', failureClass: 'REFUSED_BY_LOOP:BUDGET_TASK_EXHAUSTED', authorizations: 1, backingOff: 0 }],
+    rejections: [{ taskId: 'telegram.content.triage', code: 'TOO_LONG_LIMITATION', count: 12 }],
+  };
+  await runIntelligenceState({ organizationSlug: 'servicesinmycity-demo', since: '' }, { ...w.deps, readings: async () => state as never });
+  assert.deepEqual(w.out.filter((l) => /^event=(AI_TASK_WINDOWS|AI_TASK_LATENCY|CONTENT_HOLD|AI_LEDGER_REJECTION) /.test(l)), [
+    'event=AI_LEDGER_REJECTION task=telegram.content.triage code=TOO_LONG_LIMITATION count=12',
+    'event=AI_TASK_WINDOWS task=telegram.content.triage calls=69 distinctWindows=9 repeatedWindows=5 maxCallsPerWindow=21 repeatedCalls=ANSWERED:3,FAILED:21,REJECTED_BY_LOOP:31 timeouts=21 answerTooLong=31',
+    'event=AI_TASK_LATENCY task=telegram.content.triage outcome=ANSWERED count=15 p50Ms=14200 p95Ms=19100 maxMs=19800',
+    'event=AI_TASK_LATENCY task=telegram.content.triage outcome=FAILED count=21 p50Ms=20000 p95Ms=20003 maxMs=20010',
+    'event=CONTENT_HOLD provider=TELEGRAM failureClass=REFUSED_BY_LOOP:BUDGET_TASK_EXHAUSTED authorizations=1 backingOff=0',
+  ]);
 });

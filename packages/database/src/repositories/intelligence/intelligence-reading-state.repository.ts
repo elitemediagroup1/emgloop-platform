@@ -6,7 +6,11 @@
 //                         (RULE / RULE_AND_MODEL), the model-stage code (why a model did or did not read it),
 //                         the task, and the invocation id of the call that made it;
 //   ai_invocations        that call's provider, outcome (ANSWERED, REJECTED_BY_LOOP, FAILED ...), lane,
-//                         failure class and rejection codes -- and every other call in the window.
+//                         failure class and rejection codes -- and every other call in the window: how often
+//                         one exact context window was sent (by its content-free manifest hash, which is
+//                         never returned) and the latency of the calls, per task and outcome;
+//   source_content_authorizations   why a Telegram content cursor is held now (a budget refusal is never a
+//                         ledger row).
 //
 // READ-ONLY, ONE ORGANIZATION, CODES AND COUNTS. Construct it with `readOnlyClient(prisma)`. No content, no
 // subject reference, no user id, no prompt, no answer is selected; a PRINCIPAL reading is counted with every
@@ -44,9 +48,49 @@ export interface LedgerGroup {
   readonly count: number;
 }
 
+/**
+ * How often ONE exact context window was sent, per task (the ledger's content-free `contextManifestHash`; the
+ * hashes themselves are never returned). A window sent more than once is a repeat: `repeatedCalls` counts those
+ * calls by outcome. Timeouts and ANSWER_TOO_LONG answers are counted beside.
+ */
+export interface TaskWindowStats {
+  readonly taskId: string;
+  readonly calls: number;
+  readonly distinctWindows: number;
+  readonly repeatedWindows: number;
+  readonly maxCallsPerWindow: number;
+  readonly repeatedCalls: Readonly<Record<string, number>>;
+  readonly timeouts: number;
+  readonly answerTooLong: number;
+}
+
+/** Call latency per task and outcome, in milliseconds (nearest-rank percentiles over the calls that report one). */
+export interface TaskLatency {
+  readonly taskId: string;
+  readonly outcome: string;
+  readonly count: number;
+  readonly p50Ms: number;
+  readonly p95Ms: number;
+  readonly maxMs: number;
+}
+
+/**
+ * Content authorizations (Telegram) by the reason their forward cursor is currently held, if any: a budget or
+ * activation refusal is never a ledger row (it is refused before any reservation), so this is where it shows.
+ */
+export interface ContentHold {
+  readonly provider: string;
+  readonly failureClass: string | null;
+  readonly authorizations: number;
+  readonly backingOff: number;
+}
+
 export interface ReadingState {
   readonly readings: readonly ReadingGroup[];
   readonly ledger: readonly LedgerGroup[];
+  readonly windows: readonly TaskWindowStats[];
+  readonly latency: readonly TaskLatency[];
+  readonly contentHolds: readonly ContentHold[];
   /** Rejection codes by task, over the window's REJECTED calls. */
   readonly rejections: readonly { readonly taskId: string; readonly code: string; readonly count: number }[];
   readonly bounded: boolean;
@@ -100,14 +144,29 @@ export class IntelligenceReadingStateRepository {
     // Every call in the window, by task, provider, outcome, lane and failure class; rejection codes apart.
     const ledgerRows = await this.db.aiInvocation.findMany({
       where: { organizationId, requestedAt: { gte: since, lt: now } },
-      select: { taskId: true, providerId: true, outcome: true, lane: true, failureClass: true, rejectionCodes: true },
+      select: { taskId: true, providerId: true, outcome: true, lane: true, failureClass: true, rejectionCodes: true, contextManifestHash: true, latencyMs: true },
       orderBy: { requestedAt: 'desc' },
       take: READING_STATE_BOUND + 1,
     });
     if (ledgerRows.length > READING_STATE_BOUND) bounded = true;
     const ledger = new Map<string, LedgerGroup & { count: number }>();
     const rejections = new Map<string, { taskId: string; code: string; count: number }>();
+    // Per task: calls per exact window (hash kept only in this map, never returned), outcomes, latency.
+    const perTask = new Map<string, { calls: number; timeouts: number; answerTooLong: number; windows: Map<string, Record<string, number>> }>();
+    const latencies = new Map<string, number[]>();
     for (const r of ledgerRows.slice(0, READING_STATE_BOUND)) {
+      const t = perTask.get(r.taskId) ?? { calls: 0, timeouts: 0, answerTooLong: 0, windows: new Map() };
+      t.calls += 1;
+      if (r.failureClass === 'TIMEOUT') t.timeouts += 1;
+      if ((r.rejectionCodes ?? []).includes('ANSWER_TOO_LONG')) t.answerTooLong += 1;
+      const w = t.windows.get(r.contextManifestHash) ?? {};
+      w[r.outcome] = (w[r.outcome] ?? 0) + 1;
+      t.windows.set(r.contextManifestHash, w);
+      perTask.set(r.taskId, t);
+      if (typeof r.latencyMs === 'number') {
+        const k = `${r.taskId}\n${r.outcome}`;
+        latencies.set(k, [...(latencies.get(k) ?? []), r.latencyMs]);
+      }
       const g = { taskId: r.taskId, providerId: r.providerId, outcome: r.outcome, lane: r.lane ?? null, failureClass: r.failureClass ?? null };
       const key = JSON.stringify(g);
       const row = ledger.get(key) ?? { ...g, count: 0 };
@@ -119,8 +178,42 @@ export class IntelligenceReadingStateRepository {
       }
     }
 
+    const windows: TaskWindowStats[] = [...perTask.entries()].map(([taskId, t]) => {
+      const counts = [...t.windows.values()].map((w) => Object.values(w).reduce((n, x) => n + x, 0));
+      const repeatedCalls: Record<string, number> = {};
+      for (const w of t.windows.values()) {
+        if (Object.values(w).reduce((n, x) => n + x, 0) < 2) continue;
+        for (const [o, n] of Object.entries(w)) repeatedCalls[o] = (repeatedCalls[o] ?? 0) + n;
+      }
+      return { taskId, calls: t.calls, distinctWindows: t.windows.size, repeatedWindows: counts.filter((n) => n > 1).length, maxCallsPerWindow: Math.max(0, ...counts), repeatedCalls, timeouts: t.timeouts, answerTooLong: t.answerTooLong };
+    });
+    const rank = (sorted: number[], p: number) => sorted[Math.min(sorted.length - 1, Math.max(0, Math.ceil(p * sorted.length) - 1))]!;
+    const latency: TaskLatency[] = [...latencies.entries()].map(([k, xs]) => {
+      const [taskId, outcome] = k.split('\n') as [string, string];
+      const sorted = [...xs].sort((a, b) => a - b);
+      return { taskId, outcome, count: sorted.length, p50Ms: rank(sorted, 0.5), p95Ms: rank(sorted, 0.95), maxMs: sorted[sorted.length - 1]! };
+    });
+
+    // Why each content authorization's forward cursor is held right now (codes; never a person).
+    const authorizations = await this.db.sourceContentAuthorization.findMany({
+      where: { organizationId, revokedAt: null },
+      select: { provider: true, lastFailureClass: true, backoffUntil: true },
+      take: READING_STATE_BOUND,
+    });
+    const holds = new Map<string, { provider: string; failureClass: string | null; authorizations: number; backingOff: number }>();
+    for (const a of authorizations) {
+      const key = `${a.provider}\n${a.lastFailureClass ?? ''}`;
+      const h = holds.get(key) ?? { provider: a.provider, failureClass: a.lastFailureClass ?? null, authorizations: 0, backingOff: 0 };
+      h.authorizations += 1;
+      if (a.backoffUntil && a.backoffUntil > now) h.backingOff += 1;
+      holds.set(key, h);
+    }
+
     const byText = (a: string, b: string) => a.localeCompare(b);
     return {
+      windows: windows.sort((a, b) => byText(a.taskId, b.taskId)),
+      latency: latency.sort((a, b) => byText(a.taskId, b.taskId) || byText(a.outcome, b.outcome)),
+      contentHolds: [...holds.values()].sort((a, b) => byText(a.provider, b.provider) || byText(a.failureClass ?? '', b.failureClass ?? '')),
       readings: [...groups.values()].sort((a, b) => byText(a.scope, b.scope) || byText(a.domain, b.domain) || byText(a.status, b.status) || byText(a.modelStage ?? '', b.modelStage ?? '')),
       ledger: [...ledger.values()].sort((a, b) => byText(a.taskId, b.taskId) || byText(a.outcome, b.outcome) || byText(a.providerId, b.providerId)),
       rejections: [...rejections.values()].sort((a, b) => byText(a.taskId, b.taskId) || b.count - a.count || byText(a.code, b.code)),

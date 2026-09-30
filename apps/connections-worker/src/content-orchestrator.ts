@@ -20,10 +20,16 @@
 //   3. activation, budget, this person's authority, routing and the output contract.
 // A revoke removes (1); a disconnect removes (2); a deployment with AI off makes (3) refuse. Any of them
 // yields NO WorkItem. The gateway's refusal (NOT_AVAILABLE) HOLDS the content cursor, so the same new
-// messages are judged again once the deployment is configured -- nothing is silently skipped. A TRANSIENT
-// model failure (FAILED: a timeout, a provider outage) holds it the same way, so an outage never consumes
-// a conversation's activity; only a PERMANENT outcome for this content (a rejected answer, a model
-// refusal) is recorded as handled and lets the frontier advance.
+// messages are judged again once the deployment is configured -- nothing is silently skipped.
+//
+// ONE EXACT WINDOW, ONE JUDGEMENT (2026-09-30). A TRANSIENT model failure (FAILED: a timeout, an outage) is
+// isolated to its own window: the sweep goes on to the next conversation, and the cursor is held only while
+// some window is still owed a call. A window Loop has already judged -- its reading stored, or rejected or
+// refused by the model, within the handling period -- is never sent again (judgeWindow, from the ledger's
+// content-free manifest hash and the reading's window fingerprint; identifiers only, no text). A failed
+// window backs off 3 hours and is attempted at most 4 times; after the last, Loop stops paying for that exact
+// window, counts it `abandoned`, and the cursor moves -- the conversation itself is not dropped: its next
+// message makes a new window, judged afresh (TELEGRAM_TRIAGE_WINDOW_POLICY).
 //
 // THE BODIES ARE TRANSIENT. They are fetched, judged, and dropped. They are never persisted, never logged,
 // and never carried into a WorkItem or its evidence -- the evidence keeps keyed identifiers, the invocation
@@ -48,6 +54,7 @@ import { createHash } from 'node:crypto';
 import {
   conversationDigestContent,
   TELEGRAM_CONTENT_TRIAGE_SCHEMA_ID,
+  telegramTriageWindowManifestHash,
   type AdapterSession,
   type DueContent,
   type IntelligenceDigestInput,
@@ -63,7 +70,7 @@ import {
   type IntelligenceGeneratedCoverage,
 } from '@emgloop/shared';
 
-import type { TelegramConversationTriageInput, TelegramConversationTriageResult } from '@emgloop/database';
+import type { TelegramConversationTriageInput, TelegramConversationTriageResult, TelegramTriageWindowVerdict } from '@emgloop/database';
 import type { TelegramContentMessage, TelegramConversationWindow } from './telegram/telegram-content';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -133,6 +140,12 @@ export interface ContentSweepPorts {
   recordConversationIntelligence(principal: WorkPrincipal, digest: IntelligenceDigestInput): Promise<ConversationIntelligenceWrite>;
   /** Advance (or hold) the content cursor. MUST NOT touch source_connections or the baseline. */
   recordContentProgress(due: DueContent, progress: ContentProgressToRecord): Promise<void>;
+  /**
+   * Has Loop already judged this EXACT window (TelegramTriageWindowJudge: the ledger's content-free manifest hash
+   * and the stored reading's window fingerprint)? HANDLED / EXHAUSTED make no call; BACKED_OFF makes no call and
+   * keeps the window owed; NEW is one call. Absent: every window is NEW (the behaviour before 2026-09-30).
+   */
+  judgeWindow?(principal: WorkPrincipal, window: { readonly manifestHash: string; readonly subjectRef: string; readonly digestFingerprint: string }, now: Date): Promise<TelegramTriageWindowVerdict>;
   /** How many new messages one discovery page reads per authorization (bounded). */
   readonly contentPageSize: number;
   /** How many days back the forward conversation window may reach (bounded, so a window is never unbounded). */
@@ -153,6 +166,13 @@ export interface ContentSweepSummary {
   readonly digestsWritten: number;
   readonly digestsUnchanged: number;
   readonly digestsRefused: number;
+  /** Windows not sent because Loop had already judged them exactly (no call). */
+  readonly deduped: number;
+  /** Windows whose call FAILED this sweep, and failed windows still inside their backoff: owed a retry. */
+  readonly failed: number;
+  readonly backedOff: number;
+  /** Failed windows past their last allowed attempt: no longer paid for; the next message makes a new window. */
+  readonly abandoned: number;
 }
 
 /**
@@ -215,6 +235,7 @@ export async function runContentSweep(ports: ContentSweepPorts): Promise<Content
   let refused = 0;
   let floodWaits = 0;
   const tally: DigestTally = { written: 0, unchanged: 0, refused: 0 };
+  const windows: WindowTally = { deduped: 0, failed: 0, backedOff: 0, abandoned: 0 };
 
   for (const item of due) {
     try {
@@ -260,7 +281,7 @@ export async function runContentSweep(ports: ContentSweepPorts): Promise<Content
         continue;
       }
 
-      const outcome = await processConversations(ports, adapter, session, item, page.messages, now, tally);
+      const outcome = await processConversations(ports, adapter, session, item, page.messages, now, tally, windows);
       await adapter.disconnect(session).catch(() => undefined);
 
       raised += outcome.raised;
@@ -296,7 +317,18 @@ export async function runContentSweep(ports: ContentSweepPorts): Promise<Content
     digestsWritten: tally.written,
     digestsUnchanged: tally.unchanged,
     digestsRefused: tally.refused,
+    deduped: windows.deduped,
+    failed: windows.failed,
+    backedOff: windows.backedOff,
+    abandoned: windows.abandoned,
   };
+}
+
+interface WindowTally {
+  deduped: number;
+  failed: number;
+  backedOff: number;
+  abandoned: number;
 }
 
 interface ConversationsOutcome {
@@ -311,10 +343,16 @@ interface ConversationsOutcome {
 
 /**
  * For each conversation with a NEW text message (INBOUND or OUTBOUND) since the content frontier, read its
- * bounded recent window and review it. A governance refusal (NOT_AVAILABLE), a TRANSIENT model failure
- * (FAILED) or a window flood HOLDS the cursor (retry next run); a PERMANENT per-model outcome (a rejected
- * answer, a model refusal) is recorded as handled. Obligations are raised, then reconciled (with the guard)
- * -- so an outbound reply that resolves an open item closes it on this cycle.
+ * bounded recent window and review it -- EVERY conversation, whatever happened to the one before it.
+ *
+ * A FAILED window (a timeout, an outage) is isolated to itself (2026-09-30): the sweep carries on with the next
+ * conversation, and the cursor is held at the end only so the owed window is seen again; the conversations
+ * already judged cost nothing the next time (judgeWindow: HANDLED). Before this, the first failure returned,
+ * starving every later conversation and re-sending every earlier one each cycle. A governance refusal
+ * (NOT_AVAILABLE: budget, activation) or a window flood still stops this authorization's run and holds the
+ * cursor -- nothing after it could be read either, and a refusal costs no call. A PERMANENT per-model outcome (a
+ * rejected answer, a model refusal) is handled. Obligations are raised, then reconciled (with the guard) -- so
+ * an outbound reply that resolves an open item closes it on this cycle.
  */
 async function processConversations(
   ports: ContentSweepPorts,
@@ -324,11 +362,14 @@ async function processConversations(
   messages: readonly TelegramContentMessage[],
   now: Date,
   tally: DigestTally,
+  windows: WindowTally,
 ): Promise<ConversationsOutcome> {
   const principal: WorkPrincipal = { organizationId: item.organizationId, userId: item.userId };
   const floorAt = new Date(now.getTime() - Math.max(1, ports.contentWindowDays) * DAY_MS);
   let raised = 0;
   let reconciled = 0;
+  // A window still owed a call (it FAILED, or is backing off): the cursor must not move past it yet.
+  let owed = false;
 
   // The conversations with ANY new text message (INBOUND or OUTBOUND) since the frontier, by raw chat id,
   // oldest-first-seen for stability. The `seen` set makes several new messages in one conversation ONE review.
@@ -356,6 +397,35 @@ async function processConversations(
 
     const truncated = window.truncation.reason !== 'NONE';
     const evaluatedFloor = window.truncation.oldestIncludedProviderEventId ?? '';
+
+    // Has Loop already judged this EXACT window? Identifiers only: the gateway's manifest hash and the reading's
+    // window fingerprint. A new message is a new window. A judge that cannot answer spends nothing: owed.
+    if (ports.judgeWindow) {
+      const manifestHash = telegramTriageWindowManifestHash({
+        organizationId: principal.organizationId,
+        viewerUserId: principal.userId,
+        conversationKey: window.conversationKey,
+        messages: window.messages,
+        truncated,
+        conversation: window.conversation ?? null,
+      });
+      const digestFingerprint = conversationDigestFingerprint(window.conversationKey, window.messages.map((m) => m.providerEventId), TELEGRAM_CONTENT_TRIAGE_SCHEMA_ID);
+      const verdict = await ports.judgeWindow(principal, { manifestHash, subjectRef: telegramConversationSubjectRef(window.conversationKey), digestFingerprint }, now).catch(() => 'BACKED_OFF' as const);
+      if (verdict === 'HANDLED') {
+        windows.deduped += 1;
+        continue;
+      }
+      if (verdict === 'EXHAUSTED') {
+        windows.abandoned += 1;
+        continue;
+      }
+      if (verdict === 'BACKED_OFF') {
+        windows.backedOff += 1;
+        owed = true;
+        continue;
+      }
+    }
+
     const result = await ports.triage(principal, {
       conversationKey: window.conversationKey,
       messages: window.messages,
@@ -368,12 +438,13 @@ async function processConversations(
     if (result.outcome === 'NOT_AVAILABLE') {
       return { raised, reconciled, refused: true, floodWait: false, hold: true, failureClass: refusalFailureClass(result.refusals), backoffUntil: null };
     }
-    // A TRANSIENT model/runtime failure (a timeout, a provider outage after the gateway's own retries):
-    // HOLD the frontier so this conversation's activity is retried next cycle, never consumed silently --
-    // the same rule the historical sweep applies. The frontier is per authorization, so a conversation
-    // that keeps failing holds every conversation behind it; that is the chosen trade: retry over skip.
+    // A TRANSIENT model/runtime failure (a timeout, a provider outage): THIS window is owed a retry -- it backs
+    // off and is attempted again, a bounded number of times (TELEGRAM_TRIAGE_WINDOW_POLICY) -- and the sweep
+    // carries on with the next conversation. Never consumed silently, never holding the others hostage.
     if (result.outcome === 'FAILED') {
-      return { raised, reconciled, refused: false, floodWait: false, hold: true, failureClass: 'TRANSIENT', backoffUntil: null };
+      windows.failed += 1;
+      owed = true;
+      continue;
     }
 
     if (result.outcome === 'TRIAGED') {
@@ -391,6 +462,9 @@ async function processConversations(
     // are permanent for this content); carry on.
   }
 
+  // Hold the cursor only while a window is owed a call; everything judged this sweep is judged, and costs nothing
+  // when the held page is read again.
+  if (owed) return { raised, reconciled, refused: false, floodWait: false, hold: true, failureClass: 'TRANSIENT', backoffUntil: null };
   return { raised, reconciled, refused: false, floodWait: false, hold: false, failureClass: null, backoffUntil: null };
 }
 

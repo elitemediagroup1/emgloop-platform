@@ -414,6 +414,43 @@ create, no update, no observation, no audit — so "no derived item after the au
 holds at the write itself, not by a worker-side pre-check that would re-open the same window. The
 worker logs `detect_refused` with a per-sweep count, never an id.
 
+### Forward triage: one exact window, one judgement (2026-09-30)
+
+Production on 2026-09-29 made 69 triage calls in a day (15 answered, 32 rejected, 22 failed), the
+class cap. Two causes, both fixed:
+
+**One failed conversation used to stop the sweep.** The rest of that person's conversations went
+unread, the cursor held, and the next cycle re-sent every earlier conversation. Now:
+- A `FAILED` window (timeout or outage) is isolated. The sweep carries on to the next conversation.
+- The cursor holds only while some window is still owed a call.
+- A window Loop has already judged is never sent again. That covers a stored reading, a rejected
+  answer or a model refusal within 7 days, and an answered window whose writes failed (asked once
+  more at most). The key is identifiers only: the ledger's content-free `contextManifestHash` and the
+  reading's window fingerprint. No message text is kept.
+- A failed window backs off 3 hours and is tried at most 4 times.
+- After the last attempt, Loop stops paying for that exact window and counts it `abandoned` in the
+  `content` log line, and the cursor moves. The conversation is not dropped: its next message makes a
+  new window, judged afresh.
+- A budget or activation refusal still stops that person's run for the cycle. It costs nothing,
+  because it is refused before any call.
+
+**The prompt asked for more than the contract allows.** Template v7 states every limit as a target
+below a hard limit, including `limitations` (at most 6, each at most 200 characters), and makes empty
+lists correct answers. A rejection now records which field broke its bound (`TOO_LONG_<FIELD>`,
+beside `ANSWER_TOO_LONG`).
+
+**Watch it** in Read Intelligence State:
+- `AI_TASK_WINDOWS task=telegram.content.triage` shows calls, distinct windows, repeated windows,
+  maximum calls for one window, repeated calls by outcome, timeouts and ANSWER_TOO_LONG.
+- `AI_TASK_LATENCY` gives p50, p95 and max per outcome.
+- `AI_LEDGER_REJECTION … code=TOO_LONG_<FIELD>` names the field that overflowed.
+- `CONTENT_HOLD` shows why a cursor is held (a budget refusal is never a ledger row).
+
+After the fix, `repeatedWindows` should fall to near zero.
+
+**The 20-second timeout is unchanged.** Decide it from `AI_TASK_LATENCY`: raise it only if answered
+calls cluster near 20 seconds, and never past the task's 30-second execution deadline.
+
 ### Chats intelligence initialization (digest-only hydration)
 
 Same mechanism, bounds, budget reserve and progress signals as staging
