@@ -2438,6 +2438,33 @@ worker is redeployed on it, and the runtime has been verified in production.
 
 Blueprint: https://claude.ai/artifact/VZuKzXAmCpc2WZsQR32gDS
 
+## Telegram triage reliability — IN REVIEW (draft PR, branch `fix/telegram-triage-reliability`, off main `bb2d0f4`)
+
+**Production (run 36652525469, 2026-09-30):** `telegram.content.triage` made 69 calls in a day, the class
+cap: 15 answered, 32 rejected (31 ANSWER_TOO_LONG), 22 failed (21 timeouts).
+- **Cause 1:** one FAILED conversation made the forward sweep return and hold the cursor, so every
+  earlier window was re-sent each 10-minute cycle and every later one starved.
+- **Cause 2:** template v6 never stated the `limitations` bounds and asked for detail with no headroom.
+
+**Fixed in the PR:**
+- A failed window is isolated; the sweep continues.
+- An exact window already judged is never re-sent (the ledger's content-free manifest hash plus the
+  stored reading's window fingerprint).
+- A failed window backs off 3 hours, at most 4 attempts, then is abandoned and counted.
+- Template v7 states every limit with a target below it.
+- Rejections name the overflowing field (`TOO_LONG_<FIELD>`).
+- Read Intelligence State prints `AI_TASK_WINDOWS`, `AI_TASK_LATENCY` and `CONTENT_HOLD`.
+- Unchanged: the privacy architecture (no message text persisted), the timeout (20 s, pending latency
+  data), no CHATS rollup, no Situation or Briefing change.
+
+**Next (Matt):**
+1. Optional: dispatch Read Intelligence State on the branch to read the latency and repeats before merging.
+2. Review and merge. No migration.
+3. Redeploy the worker.
+4. Re-read after a day: `repeatedWindows` should be near zero, and ANSWER_TOO_LONG should drop, with
+   `TOO_LONG_<FIELD>` naming whatever remains.
+5. Then decide the timeout from `AI_TASK_LATENCY`.
+
 ## Loop Intelligence — Anthropic commissioning across domain readings — IN REVIEW (draft PR, branch `fix/intelligence-anthropic-commissioning`, off main `20fc667`)
 
 **Root cause.** Anthropic was not switched off. A blank `CONNECTIONS_PRODUCTION_AI_PROVIDERS` means the
