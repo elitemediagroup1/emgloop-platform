@@ -466,6 +466,22 @@ export const AI_OUTPUT_REJECTIONS = [
   'DUPLICATE_SITUATION',
   /** Chats v5: a `who` that is not a label the conversation itself showed. */
   'UNGROUNDED_PARTY',
+  // WHICH bound an ANSWER_TOO_LONG broke (conversation triage, 2026-09-30). Always recorded BESIDE
+  // ANSWER_TOO_LONG, never instead of it, so every existing count is unchanged. A field name, never the text.
+  'TOO_LONG_OBLIGATIONS',
+  'TOO_LONG_OBLIGATION_MEANING',
+  'TOO_LONG_OBLIGATION_TOPIC',
+  'TOO_LONG_NEXT_STEP',
+  'TOO_LONG_DEADLINE',
+  'TOO_LONG_SUMMARY',
+  'TOO_LONG_TOPICS',
+  'TOO_LONG_TOPIC',
+  'TOO_LONG_STATE_CHANGE',
+  'TOO_LONG_SIGNALS',
+  'TOO_LONG_SIGNAL',
+  'TOO_LONG_ATTENTION_REASON',
+  'TOO_LONG_LIMITATIONS',
+  'TOO_LONG_LIMITATION',
 ] as const;
 export type AiOutputRejection = (typeof AI_OUTPUT_REJECTIONS)[number];
 

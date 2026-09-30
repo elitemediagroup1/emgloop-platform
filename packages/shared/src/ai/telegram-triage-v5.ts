@@ -223,24 +223,26 @@ export function validateTriageV5Output(
   const chunkSize = [...suppliedRefs].filter((ref) => !/_conversation:/.test(ref)).length;
   const inWindow = (n: number) => Number.isInteger(n) && n >= 1 && n <= chunkSize;
   const texts: string[] = [];
-  const bounded = (value: string, max: number) => {
+  // ANSWER_TOO_LONG, and beside it the field that broke the bound (a bounded code, never the text).
+  const tooLong = (field: AiOutputRejection) => out.push('ANSWER_TOO_LONG', field);
+  const bounded = (value: string, max: number, field: AiOutputRejection) => {
     if (value.trim() === '') out.push('EMPTY_ANSWER');
-    if (value.length > max) out.push('ANSWER_TOO_LONG');
+    if (value.length > max) tooLong(field);
     texts.push(value);
   };
 
-  if (t.items.length > L.maxObligations) out.push('ANSWER_TOO_LONG');
+  if (t.items.length > L.maxObligations) tooLong('TOO_LONG_OBLIGATIONS');
   for (const item of t.items) {
     if (item.category === 'NONE' || !(AI_TRIAGE_CATEGORIES as readonly string[]).includes(item.category)) out.push('WRONG_SCHEMA');
     if (!inWindow(item.anchorOrdinal)) out.push('WRONG_SCHEMA');
     if (item.oneLineMeaning.trim() === '') out.push('EMPTY_ANSWER');
-    if (item.oneLineMeaning.length > L.maxMeaningChars) out.push('ANSWER_TOO_LONG');
+    if (item.oneLineMeaning.length > L.maxMeaningChars) tooLong('TOO_LONG_OBLIGATION_MEANING');
     if (item.nextStep.trim() === '') out.push('EMPTY_ANSWER');
-    if (item.nextStep.length > L.maxNextStepChars) out.push('ANSWER_TOO_LONG');
-    if (item.topic.length > L.maxTopicChars) out.push('ANSWER_TOO_LONG');
+    if (item.nextStep.length > L.maxNextStepChars) tooLong('TOO_LONG_NEXT_STEP');
+    if (item.topic.length > L.maxTopicChars) tooLong('TOO_LONG_OBLIGATION_TOPIC');
     if (item.deadline !== null) {
       if (item.deadline.trim() === '') out.push('WRONG_SCHEMA');
-      if (item.deadline.length > L.maxDeadlineChars) out.push('ANSWER_TOO_LONG');
+      if (item.deadline.length > L.maxDeadlineChars) tooLong('TOO_LONG_DEADLINE');
       const tokens = aiTermsInText(item.deadline);
       if (!evidence.terms || tokens.length === 0 || tokens.some((tok) => !evidence.terms!.has(tok))) out.push('UNGROUNDED_DEADLINE');
     }
@@ -251,26 +253,27 @@ export function validateTriageV5Output(
   if (c !== null) {
     if (!(AI_CONVERSATION_RELEVANCE as readonly string[]).includes(c.relevance)) out.push('WRONG_SCHEMA');
     if (!(AI_CONVERSATION_CONFIDENCE as readonly string[]).includes(c.confidence)) out.push('WRONG_SCHEMA');
-    bounded(c.summary, L.maxSummaryChars);
-    if (c.topics.length > L.maxConversationTopics) out.push('ANSWER_TOO_LONG');
-    for (const topic of c.topics) bounded(topic, L.maxConversationTopicChars);
-    if (c.stateChange !== null) bounded(c.stateChange, AI_CHATS_LIMITS.maxStateChangeChars);
-    if (c.signals.length > AI_CHATS_LIMITS.maxSignals) out.push('ANSWER_TOO_LONG');
+    bounded(c.summary, L.maxSummaryChars, 'TOO_LONG_SUMMARY');
+    if (c.topics.length > L.maxConversationTopics) tooLong('TOO_LONG_TOPICS');
+    for (const topic of c.topics) bounded(topic, L.maxConversationTopicChars, 'TOO_LONG_TOPIC');
+    if (c.stateChange !== null) bounded(c.stateChange, AI_CHATS_LIMITS.maxStateChangeChars, 'TOO_LONG_STATE_CHANGE');
+    if (c.signals.length > AI_CHATS_LIMITS.maxSignals) tooLong('TOO_LONG_SIGNALS');
     for (const s of c.signals) {
       if (!(AI_CHATS_SIGNAL_KINDS as readonly string[]).includes(s.kind)) out.push('WRONG_SCHEMA');
       if (!(AI_CHATS_SEVERITY as readonly string[]).includes(s.severity)) out.push('WRONG_SCHEMA');
       if (!inWindow(s.anchorOrdinal)) out.push('WRONG_SCHEMA');
-      bounded(s.statement, L.maxStatementChars);
+      bounded(s.statement, L.maxStatementChars, 'TOO_LONG_SIGNAL');
       // Only an obligation says who owes it -- and then it must.
       if (s.kind === 'OBLIGATION' ? s.owedBy === null : s.owedBy !== null) out.push('WRONG_SCHEMA');
       partyRejections(s.owedBy, s.who, evidence, out);
     }
     if (c.attention.needed) {
       if (c.attention.reason === null || c.attention.reason.trim() === '') out.push('WRONG_SCHEMA');
-      else bounded(c.attention.reason, L.maxAttentionReasonChars);
+      else bounded(c.attention.reason, L.maxAttentionReasonChars, 'TOO_LONG_ATTENTION_REASON');
     } else if (c.attention.reason !== null) out.push('WRONG_SCHEMA');
   }
-  if (output.limitations.length > L.maxLimitations || output.limitations.some((l) => l.length > L.maxLimitationChars)) out.push('ANSWER_TOO_LONG');
+  if (output.limitations.length > L.maxLimitations) tooLong('TOO_LONG_LIMITATIONS');
+  if (output.limitations.some((l) => l.length > L.maxLimitationChars)) tooLong('TOO_LONG_LIMITATION');
 
   // NO QUOTE, NO COPIED SENTENCE in the reading. Fail closed: with nothing to check against, nothing passes.
   const runs = evidence.verbatimRuns;
