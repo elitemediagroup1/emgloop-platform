@@ -36,8 +36,34 @@ export const INTELLIGENCE_EVIDENCE_FAMILIES = [
   'CREATOR_RECORDS',
   'WORK_RECORDS',
   'WEB_ACTIVITY',
+  /** How a visit went for the visitor: friction, errors, scroll, engagement (a site-experience recorder). */
+  'SITE_EXPERIENCE',
+  /** How the organization's sites appear and perform in a search engine's results. */
+  'ORGANIC_SEARCH',
 ] as const;
 export type IntelligenceEvidenceFamily = (typeof INTELLIGENCE_EVIDENCE_FAMILIES)[number];
+
+/**
+ * THE UNDERLYING EVIDENCE STREAM (2026-09-30): which real-world events a source OBSERVES, as distinct from which
+ * system supplied the evidence (`sourceId`). Two sources can report the same underlying events -- Loop's own
+ * website events, Google Analytics and Microsoft Clarity all observe the same visits to the same sites -- and
+ * three systems counting one visit are one observation, not three confirmations. Situation independence counts
+ * STREAMS, never provider names; provenance still names every source. A new source joins the stream it observes.
+ */
+export const INTELLIGENCE_EVIDENCE_STREAMS = [
+  'TELEGRAM_CONVERSATIONS',
+  'MAILBOX',
+  'CALENDAR_EVENTS',
+  'CALLS',
+  'SITE_VISITS',
+  'SEARCH_GOOGLE',
+  'SEARCH_BING',
+  'INTAKE_RECORDS',
+  'CUSTOMER_RECORDS',
+  'CREATOR_RECORDS',
+  'WORK_RECORDS',
+] as const;
+export type IntelligenceEvidenceStream = (typeof INTELLIGENCE_EVIDENCE_STREAMS)[number];
 
 /** Home's tile keys (`apps/web/src/app/app/_home/tiles.ts`). */
 export type IntelligenceHomeTileKey = 'mail' | 'chats' | 'calendar' | 'work' | 'intake' | 'callgrid' | 'campaigns' | 'creators';
@@ -197,7 +223,7 @@ export const INTELLIGENCE_DOMAIN_REGISTRY: readonly IntelligenceDomainEntry[] = 
     readAuthority: { permission: 'analytics:view', workspace: null },
     readingTask: 'website.domain.reading',
     synthesis: 'CONTRIBUTES',
-    evidenceFamilies: ['WEB_ACTIVITY'],
+    evidenceFamilies: ['WEB_ACTIVITY', 'SITE_EXPERIENCE', 'ORGANIC_SEARCH'],
   },
 ] satisfies IntelligenceDomainEntry[]);
 
@@ -212,8 +238,13 @@ export function intelligenceDomainAllowsScope(domain: string, scope: string): bo
 
 // --- Sources ---------------------------------------------------------------------------------------
 
-/** Why Loop holds a source's evidence (matches the digest repository's consent bases). */
-export type IntelligenceSourceBasis = 'CONTENT_AUTHORIZATION' | 'SOURCE_CONNECTION_GRANT' | 'LOOP_RECORDS';
+/**
+ * Why Loop holds a source's evidence. CONTENT_AUTHORIZATION, SOURCE_CONNECTION_GRANT and LOOP_RECORDS match the
+ * digest repository's consent bases. ORGANIZATION_CONNECTION (2026-09-30): an organization-owned connection to an
+ * external system (analytics, search) whose minimized aggregates Loop copies into its own records; readings over
+ * that copy are still Loop-records readings (a digest's consent basis stays LOOP_RECORDS).
+ */
+export type IntelligenceSourceBasis = 'CONTENT_AUTHORIZATION' | 'SOURCE_CONNECTION_GRANT' | 'LOOP_RECORDS' | 'ORGANIZATION_CONNECTION';
 
 export interface IntelligenceSourceEntry {
   /** Provider-neutral id. Named for where the evidence came from, never a vendor's product inside domain code. */
@@ -228,22 +259,49 @@ export interface IntelligenceSourceEntry {
   readonly cadence: 'PUSH' | 'POLL' | 'ON_VISIT' | 'ON_WRITE';
   /** Every source is read only as Loop's own governed copy; nothing hands a model a source. */
   readonly access: 'LOOP_GOVERNED_COPY';
+  /** The real-world events this source observes. Independence is counted over these, not over source ids. */
+  readonly stream: IntelligenceEvidenceStream;
+  /**
+   * The evidence-reference prefixes this source's signals cite (e.g. `website_events:`). Needed only where one
+   * reading combines several sources: a signal's own sources are then read from the references it cites, so one
+   * source's claim never borrows another's lineage. A reference no prefix accounts for gives no lineage.
+   */
+  readonly evidenceRefPrefixes?: readonly string[];
+  /** Declared, not connected: whether a live connection exists is the connection's record, never this list. */
 }
 
 export const INTELLIGENCE_SOURCE_REGISTRY: readonly IntelligenceSourceEntry[] = Object.freeze([
-  { sourceId: 'TELEGRAM', label: 'Telegram conversations', scopes: ['PRINCIPAL'], basis: 'CONTENT_AUTHORIZATION', domains: ['CHATS'], evidenceFamily: 'COMMUNICATION', cadence: 'PUSH', access: 'LOOP_GOVERNED_COPY' },
-  { sourceId: 'GMAIL', label: 'Mail', scopes: ['PRINCIPAL'], basis: 'SOURCE_CONNECTION_GRANT', domains: ['MAIL'], evidenceFamily: 'COMMUNICATION', cadence: 'ON_VISIT', access: 'LOOP_GOVERNED_COPY' },
-  { sourceId: 'GOOGLE_CALENDAR', label: 'Calendar', scopes: ['PRINCIPAL'], basis: 'SOURCE_CONNECTION_GRANT', domains: ['CALENDAR'], evidenceFamily: 'SCHEDULE', cadence: 'ON_VISIT', access: 'LOOP_GOVERNED_COPY' },
-  { sourceId: 'CALLGRID', label: 'Call marketplace records', scopes: ['ORGANIZATION'], basis: 'LOOP_RECORDS', domains: ['CALLGRID', 'CAMPAIGNS'], evidenceFamily: 'CALL_ECONOMICS', cadence: 'PUSH', access: 'LOOP_GOVERNED_COPY' },
-  { sourceId: 'WEBSITE_EVENTS', label: 'Website events', scopes: ['ORGANIZATION'], basis: 'LOOP_RECORDS', domains: ['WEBSITE', 'PIPELINE'], evidenceFamily: 'WEB_ACTIVITY', cadence: 'PUSH', access: 'LOOP_GOVERNED_COPY' },
-  { sourceId: 'LOOP_INTAKE', label: 'Intake records', scopes: ['ORGANIZATION'], basis: 'LOOP_RECORDS', domains: ['PIPELINE'], evidenceFamily: 'LEAD_INTAKE', cadence: 'ON_WRITE', access: 'LOOP_GOVERNED_COPY' },
-  { sourceId: 'LOOP_CRM', label: 'People and relationships', scopes: ['ORGANIZATION'], basis: 'LOOP_RECORDS', domains: ['CRM'], evidenceFamily: 'CUSTOMER_RECORDS', cadence: 'ON_WRITE', access: 'LOOP_GOVERNED_COPY' },
-  { sourceId: 'LOOP_CREATORS', label: 'Creator Hub records', scopes: ['ORGANIZATION'], basis: 'LOOP_RECORDS', domains: ['CREATORS'], evidenceFamily: 'CREATOR_RECORDS', cadence: 'ON_WRITE', access: 'LOOP_GOVERNED_COPY' },
-  { sourceId: 'LOOP_WORK', label: 'Work records', scopes: ['PRINCIPAL', 'ORGANIZATION'], basis: 'LOOP_RECORDS', domains: ['WORK'], evidenceFamily: 'WORK_RECORDS', cadence: 'ON_WRITE', access: 'LOOP_GOVERNED_COPY' },
+  { sourceId: 'TELEGRAM', label: 'Telegram conversations', scopes: ['PRINCIPAL'], basis: 'CONTENT_AUTHORIZATION', domains: ['CHATS'], evidenceFamily: 'COMMUNICATION', cadence: 'PUSH', access: 'LOOP_GOVERNED_COPY', stream: 'TELEGRAM_CONVERSATIONS' },
+  { sourceId: 'GMAIL', label: 'Mail', scopes: ['PRINCIPAL'], basis: 'SOURCE_CONNECTION_GRANT', domains: ['MAIL'], evidenceFamily: 'COMMUNICATION', cadence: 'ON_VISIT', access: 'LOOP_GOVERNED_COPY', stream: 'MAILBOX' },
+  { sourceId: 'GOOGLE_CALENDAR', label: 'Calendar', scopes: ['PRINCIPAL'], basis: 'SOURCE_CONNECTION_GRANT', domains: ['CALENDAR'], evidenceFamily: 'SCHEDULE', cadence: 'ON_VISIT', access: 'LOOP_GOVERNED_COPY', stream: 'CALENDAR_EVENTS' },
+  { sourceId: 'CALLGRID', label: 'Call marketplace records', scopes: ['ORGANIZATION'], basis: 'LOOP_RECORDS', domains: ['CALLGRID', 'CAMPAIGNS'], evidenceFamily: 'CALL_ECONOMICS', cadence: 'PUSH', access: 'LOOP_GOVERNED_COPY', stream: 'CALLS' },
+  { sourceId: 'WEBSITE_EVENTS', label: 'Website events', scopes: ['ORGANIZATION'], basis: 'LOOP_RECORDS', domains: ['WEBSITE', 'PIPELINE'], evidenceFamily: 'WEB_ACTIVITY', cadence: 'PUSH', access: 'LOOP_GOVERNED_COPY', stream: 'SITE_VISITS', evidenceRefPrefixes: ['website_events:'] },
+  { sourceId: 'LOOP_INTAKE', label: 'Intake records', scopes: ['ORGANIZATION'], basis: 'LOOP_RECORDS', domains: ['PIPELINE'], evidenceFamily: 'LEAD_INTAKE', cadence: 'ON_WRITE', access: 'LOOP_GOVERNED_COPY', stream: 'INTAKE_RECORDS', evidenceRefPrefixes: ['intake:', 'conversations:'] },
+  { sourceId: 'LOOP_CRM', label: 'People and relationships', scopes: ['ORGANIZATION'], basis: 'LOOP_RECORDS', domains: ['CRM'], evidenceFamily: 'CUSTOMER_RECORDS', cadence: 'ON_WRITE', access: 'LOOP_GOVERNED_COPY', stream: 'CUSTOMER_RECORDS' },
+  { sourceId: 'LOOP_CREATORS', label: 'Creator Hub records', scopes: ['ORGANIZATION'], basis: 'LOOP_RECORDS', domains: ['CREATORS'], evidenceFamily: 'CREATOR_RECORDS', cadence: 'ON_WRITE', access: 'LOOP_GOVERNED_COPY', stream: 'CREATOR_RECORDS' },
+  { sourceId: 'LOOP_WORK', label: 'Work records', scopes: ['PRINCIPAL', 'ORGANIZATION'], basis: 'LOOP_RECORDS', domains: ['WORK'], evidenceFamily: 'WORK_RECORDS', cadence: 'ON_WRITE', access: 'LOOP_GOVERNED_COPY', stream: 'WORK_RECORDS' },
+  // Website evidence from external systems (2026-09-30). DECLARED, NOT CONNECTED: each needs an organization-owned
+  // connection and a connector, neither of which exists yet -- until then no reading names them and every
+  // diagnostic reports them NOT_CONNECTED. Google Analytics and Microsoft Clarity observe the SAME visits Loop's own
+  // website events do (one stream); Search Console and Bing Webmaster each observe their own engine's results.
+  { sourceId: 'GOOGLE_ANALYTICS', label: 'Google Analytics 4', scopes: ['ORGANIZATION'], basis: 'ORGANIZATION_CONNECTION', domains: ['WEBSITE'], evidenceFamily: 'WEB_ACTIVITY', cadence: 'POLL', access: 'LOOP_GOVERNED_COPY', stream: 'SITE_VISITS', evidenceRefPrefixes: ['google_analytics:'] },
+  { sourceId: 'MICROSOFT_CLARITY', label: 'Microsoft Clarity', scopes: ['ORGANIZATION'], basis: 'ORGANIZATION_CONNECTION', domains: ['WEBSITE'], evidenceFamily: 'SITE_EXPERIENCE', cadence: 'POLL', access: 'LOOP_GOVERNED_COPY', stream: 'SITE_VISITS', evidenceRefPrefixes: ['microsoft_clarity:'] },
+  { sourceId: 'GOOGLE_SEARCH_CONSOLE', label: 'Google Search Console', scopes: ['ORGANIZATION'], basis: 'ORGANIZATION_CONNECTION', domains: ['WEBSITE'], evidenceFamily: 'ORGANIC_SEARCH', cadence: 'POLL', access: 'LOOP_GOVERNED_COPY', stream: 'SEARCH_GOOGLE', evidenceRefPrefixes: ['google_search_console:'] },
+  { sourceId: 'BING_WEBMASTER', label: 'Bing Webmaster Tools', scopes: ['ORGANIZATION'], basis: 'ORGANIZATION_CONNECTION', domains: ['WEBSITE'], evidenceFamily: 'ORGANIC_SEARCH', cadence: 'POLL', access: 'LOOP_GOVERNED_COPY', stream: 'SEARCH_BING', evidenceRefPrefixes: ['bing_webmaster:'] },
 ] satisfies IntelligenceSourceEntry[]);
 
 export function intelligenceSourceEntry(sourceId: string): IntelligenceSourceEntry | null {
   return INTELLIGENCE_SOURCE_REGISTRY.find((s) => s.sourceId === sourceId) ?? null;
+}
+
+/** The stream a registered source observes, or null for an unregistered one (which then counts for nothing). */
+export function intelligenceSourceStream(sourceId: string): IntelligenceEvidenceStream | null {
+  return intelligenceSourceEntry(sourceId)?.stream ?? null;
+}
+
+/** The distinct streams a set of registered sources observe, sorted. Unregistered ids contribute nothing. */
+export function intelligenceStreamsOf(sourceIds: readonly string[]): IntelligenceEvidenceStream[] {
+  return [...new Set(sourceIds.map(intelligenceSourceStream).filter((s): s is IntelligenceEvidenceStream => s !== null))].sort();
 }
 
 /** The scopes a registered source's evidence may feed, or null for an unregistered source. */

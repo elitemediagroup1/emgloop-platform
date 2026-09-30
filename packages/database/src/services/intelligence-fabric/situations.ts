@@ -117,15 +117,29 @@ export function governedSourcesOf(digest: Pick<IntelligenceDigestRecord, 'proven
 }
 
 /**
- * The governed sources ONE SIGNAL rests on. Provenance is recorded per digest, not per signal, so a signal can
- * inherit it only when the digest read exactly one governed source: then every claim in it came from there. A
- * digest that read several (Website with more than one connected reader) cannot say which source each signal
- * came from, and handing every signal all of them would let one source's claim count as two -- so its signals
- * get none: they may still connect, but never make a cluster independent (fail closed).
+ * The governed sources ONE SIGNAL rests on. Provenance is recorded per digest, not per signal:
+ *   - a digest that read exactly one governed source: every claim in it came from there;
+ *   - a digest that read several (Website, once more than one source is connected): each signal's sources are
+ *     read from the evidence references IT cites, through each registered source's `evidenceRefPrefixes`. Every
+ *     reference must belong to exactly one of the digest's own sources; a reference no source accounts for, or
+ *     one that two could claim, gives the signal no lineage at all (fail closed) -- one source's claim never
+ *     borrows another's, and handing every signal all of the digest's sources would let one claim count as two.
+ * A model never sets lineage: it is derived here from the registry and the references the producer wrote.
  */
-export function signalSourcesOf(digest: Pick<IntelligenceDigestRecord, 'provenance'>): string[] {
+export function signalSourcesOf(digest: Pick<IntelligenceDigestRecord, 'provenance'>, signal?: { readonly evidenceRefs?: readonly unknown[] }): string[] {
   const governed = governedSourcesOf(digest);
-  return governed.length === 1 ? governed : [];
+  if (governed.length === 1) return governed;
+  if (governed.length === 0 || !signal) return [];
+  const refs = signal.evidenceRefs ?? [];
+  if (refs.length === 0) return [];
+  const out = new Set<string>();
+  for (const ref of refs) {
+    if (typeof ref !== 'string') return [];
+    const owners = governed.filter((id) => (intelligenceSourceEntry(id)?.evidenceRefPrefixes ?? []).some((prefix) => ref.startsWith(prefix)));
+    if (owners.length !== 1) return [];
+    out.add(owners[0]!);
+  }
+  return [...out].sort();
 }
 
 /**
@@ -148,11 +162,10 @@ export function situationInputsOf(digests: readonly IntelligenceDigestRecord[], 
   for (const d of digests) {
     const eligibility = digestSynthesisEligibility(d, sources.get(d.id) ?? { connectionLive: false, sourceLastEvidenceAt: null }, now);
     if (!eligibility.eligible) continue;
-    const lineage = signalSourcesOf(d);
     for (const s of d.content.signals ?? []) {
       if (modelAuthored(d, s.key)) continue;
       const key = String(s.key).replace(/[^A-Za-z0-9_.-]/g, '_');
-      out.push({ ref: `digest:${d.id}/${key}`, domain: d.domain, signal: s, at: signalTime(s, d.generatedAt), coverage: eligibility.coverage, limitations: eligibility.limitations, sources: lineage });
+      out.push({ ref: `digest:${d.id}/${key}`, domain: d.domain, signal: s, at: signalTime(s, d.generatedAt), coverage: eligibility.coverage, limitations: eligibility.limitations, sources: signalSourcesOf(d, s) });
     }
   }
   return out;
@@ -279,6 +292,8 @@ export interface SituationDiagnosis {
 export interface SourceComposition {
   readonly domains: readonly string[];
   readonly sources: readonly string[];
+  /** The underlying evidence streams those sources observe -- what independence counts. */
+  readonly streams: readonly string[];
   readonly count: number;
   readonly sourceIndependent: boolean;
 }
@@ -296,7 +311,7 @@ function compositionOf(clusters: readonly SituationClusterCandidate[]): Connecti
   for (const c of clusters) {
     const key = `${c.domains.join('+')}|${c.sources.join('+')}`;
     const g = groups.get(key);
-    groups.set(key, { domains: c.domains, sources: c.sources, count: (g?.count ?? 0) + 1, sourceIndependent: c.sourceIndependent });
+    groups.set(key, { domains: c.domains, sources: c.sources, streams: c.streams, count: (g?.count ?? 0) + 1, sourceIndependent: c.sourceIndependent });
   }
   const independent = clusters.filter((c) => c.sourceIndependent).length;
   return {

@@ -203,7 +203,7 @@ test('the gate: CallGrid + Campaigns (one source) never synthesizes; Work + Camp
     const s = service(prisma, calls);
     const same = await s.diagnose({ scope: 'ORGANIZATION', organizationId: t.organizationId });
     assert.deepEqual([same.clusters, same.sourceIndependentClusters, same.eliminatedSameSource, same.wouldSynthesize, same.reason], [1, 0, 1, 0, 'NO_INDEPENDENT_SOURCES']);
-    assert.deepEqual(same.composition, [{ domains: ['CALLGRID', 'CAMPAIGNS'], sources: ['CALLGRID'], count: 1, sourceIndependent: false }]);
+    assert.deepEqual(same.composition, [{ domains: ['CALLGRID', 'CAMPAIGNS'], sources: ['CALLGRID'], streams: ['CALLS'], count: 1, sourceIndependent: false }]);
     const pass = await s.pass({ scope: 'ORGANIZATION', organizationId: t.organizationId });
     assert.deepEqual([pass.candidates, pass.sameSourceOnly], [1, 1]);
 
@@ -235,7 +235,7 @@ test('the gate: CallGrid + Campaigns (one source) never synthesizes; Work + Camp
     await write(prisma, t.organizationId, digest('WORK', 'overdue', CAMP));
     const two = await s.diagnose({ scope: 'ORGANIZATION', organizationId: t.organizationId });
     assert.deepEqual([two.sourceIndependentClusters, two.eliminatedSameSource, two.wouldSynthesize, two.reason], [1, 0, 1, 'WOULD_SYNTHESIZE']);
-    assert.deepEqual(two.composition, [{ domains: ['CALLGRID', 'CAMPAIGNS', 'WORK'], sources: ['CALLGRID', 'LOOP_WORK'], count: 1, sourceIndependent: true }]);
+    assert.deepEqual(two.composition, [{ domains: ['CALLGRID', 'CAMPAIGNS', 'WORK'], sources: ['CALLGRID', 'LOOP_WORK'], streams: ['CALLS', 'WORK_RECORDS'], count: 1, sourceIndependent: true }]);
     assert.deepEqual(calls, [], 'diagnosis and a same-source pass never reach a model');
     assert.equal(await prisma.aiInvocation.count({ where: { organizationId: t.organizationId } }), 0);
   } finally {
@@ -278,7 +278,7 @@ test('Pipeline: an ELIGIBLE linked intake record joins a Creator on the same Par
     assert.equal(d.explicitLinks, 0, 'no link was persisted');
     assert.equal(d.projectedLinks, 2, 'customer->party and creator->party, for the references in play');
     assert.deepEqual([d.sourceIndependentClusters, d.wouldSynthesize, d.reason], [1, 1, 'WOULD_SYNTHESIZE']);
-    assert.deepEqual(d.composition, [{ domains: ['CREATORS', 'PIPELINE'], sources: ['LOOP_CREATORS', 'LOOP_INTAKE'], count: 1, sourceIndependent: true }]);
+    assert.deepEqual(d.composition, [{ domains: ['CREATORS', 'PIPELINE'], sources: ['LOOP_CREATORS', 'LOOP_INTAKE'], streams: ['CREATOR_RECORDS', 'INTAKE_RECORDS'], count: 1, sourceIndependent: true }]);
     assert.deepEqual(calls, []);
     assert.equal(await prisma.entityLink.count({ where: { organizationId: t.organizationId } }), 0, 'projection writes nothing');
   } finally {
@@ -357,7 +357,7 @@ test('LEGITIMATE (B): when Work ITSELF says the promoted item is late, that Work
         const calls: string[] = [];
         const d = await service(prisma, calls).diagnose({ scope: 'ORGANIZATION', organizationId: t.organizationId });
         assert.deepEqual([d.sourceIndependentClusters, d.reason], [1, 'WOULD_SYNTHESIZE'], which);
-        assert.deepEqual(d.composition, [{ domains: ['CAMPAIGNS', 'WORK'], sources: ['CALLGRID', 'LOOP_WORK'], count: 1, sourceIndependent: true }]);
+        assert.deepEqual(d.composition, [{ domains: ['CAMPAIGNS', 'WORK'], sources: ['CALLGRID', 'LOOP_WORK'], streams: ['CALLS', 'WORK_RECORDS'], count: 1, sourceIndependent: true }]);
         assert.deepEqual(calls, []);
       } finally {
         await prisma.organization.delete({ where: { id: t.organizationId } }).catch(() => undefined);
@@ -441,7 +441,7 @@ test('CHAINS: work -> origin customer -> Party <- creator joins, in the pass AND
     const d = await s.diagnose({ scope: 'ORGANIZATION', organizationId: t.organizationId });
     assert.equal(d.projectedLinks, 3, 'work->customer, customer->party, creator->party');
     assert.deepEqual([d.sourceIndependentClusters, d.reason], [1, 'WOULD_SYNTHESIZE']);
-    assert.deepEqual(d.composition, [{ domains: ['CREATORS', 'WORK'], sources: ['LOOP_CREATORS', 'LOOP_WORK'], count: 1, sourceIndependent: true }]);
+    assert.deepEqual(d.composition, [{ domains: ['CREATORS', 'WORK'], sources: ['LOOP_CREATORS', 'LOOP_WORK'], streams: ['CREATOR_RECORDS', 'WORK_RECORDS'], count: 1, sourceIndependent: true }]);
     // PARITY: the probe's PROJECTOR is the same clusterer over the same prepared links.
     const c2 = await s.connectivity(t.organizationId);
     assert.deepEqual([c2.projector.crossDomain, c2.projector.sourceIndependent, c2.projector.eliminatedSameSource], [d.clusters, d.sourceIndependentClusters, d.eliminatedSameSource]);

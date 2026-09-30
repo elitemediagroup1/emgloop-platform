@@ -196,7 +196,7 @@ const DIAGNOSIS = {
   signals: 9, clusterableSignals: 3, excluded: { kind: { OPERATIONAL: 5 }, noEntity: 1 }, clusterableDomains: ['CALLGRID', 'CAMPAIGNS'],
   entityRefs: 3, explicitLinks: 1, projectedLinks: 2, projection: [{ linkClass: 'CUSTOMER_PARTY', records: 1, links: 1, rejected: {} }], sharedAcrossDomains: 1,
   clusters: 1, sourceIndependentClusters: 0, eliminatedSameSource: 1,
-  composition: [{ domains: ['CALLGRID', 'CAMPAIGNS'], sources: ['CALLGRID'], count: 1, sourceIndependent: false }],
+  composition: [{ domains: ['CALLGRID', 'CAMPAIGNS'], sources: ['CALLGRID'], streams: ['CALLS'], count: 1, sourceIndependent: false }],
   unchanged: 0, wouldSynthesize: 0, reason: 'NO_INDEPENDENT_SOURCES',
 } as const;
 
@@ -212,7 +212,7 @@ test('the situation pass diagnosis prints counts and codes only, for the request
     'event=SITUATION_EXCLUDED basis=KIND kind=OPERATIONAL count=5',
     'event=SITUATION_EXCLUDED basis=NO_ENTITY kind=- count=1',
     'event=SITUATION_PASS scope=ORGANIZATION selected=true digests=3 eligibleDigests=3 eligibleDomains=CALLGRID,CAMPAIGNS,PIPELINE signals=9 clusterableSignals=3 clusterableDomains=CALLGRID,CAMPAIGNS entityRefs=3 explicitLinks=1 projectedLinks=2 sharedAcrossDomains=1 clusters=1 sourceIndependentClusters=0 eliminatedSameSource=1 unchanged=0 wouldSynthesize=0 reason=NO_INDEPENDENT_SOURCES modelCalls=0',
-    'event=SITUATION_PASS_COMPOSITION domains=CALLGRID+CAMPAIGNS sources=CALLGRID count=1 sourceIndependent=false',
+    'event=SITUATION_PASS_COMPOSITION domains=CALLGRID+CAMPAIGNS sources=CALLGRID streams=CALLS count=1 sourceIndependent=false',
   ]);
   // Absent (a reader without it): the section is simply not printed.
   const x = await world();
@@ -222,12 +222,12 @@ test('the situation pass diagnosis prints counts and codes only, for the request
 
 test('the diagnosis cannot leak: a code field carrying text prints UNRECOGNIZED; ids and statements never appear', async () => {
   const w = await world();
-  const hostile = { ...DIAGNOSIS, eligibleDomains: ['CALLGRID', 'provider member Acme Insurance Group'], ineligible: { 'org_live_1 said no': 1 }, excluded: { kind: { 'Please call me': 2 }, noEntity: 0 }, composition: [{ domains: ['CAMPAIGNS', 'party p1 Dana'], sources: ['dana@acme.test'], count: 1, sourceIndependent: false }], reason: 'Acme Insurance Group' };
+  const hostile = { ...DIAGNOSIS, eligibleDomains: ['CALLGRID', 'provider member Acme Insurance Group'], ineligible: { 'org_live_1 said no': 1 }, excluded: { kind: { 'Please call me': 2 }, noEntity: 0 }, composition: [{ domains: ['CAMPAIGNS', 'party p1 Dana'], sources: ['dana@acme.test'], streams: ['jane@acme.test'], count: 1, sourceIndependent: false }], reason: 'Acme Insurance Group' };
   await runIntelligenceState({ organizationSlug: 'servicesinmycity-demo', since: '' }, { ...w.deps, situations: async () => hostile as never });
   const text = w.out.join('\n');
   for (const secret of ['Acme', 'org_live_1', 'Please call me', 'Dana', 'dana@', w.matt.id]) assert.equal(text.includes(secret), false, secret);
   assert.match(text, /eligibleDomains=CALLGRID,UNRECOGNIZED/);
-  assert.match(text, /SITUATION_PASS_COMPOSITION domains=CAMPAIGNS\+UNRECOGNIZED sources=UNRECOGNIZED count=1 sourceIndependent=false/);
+  assert.match(text, /SITUATION_PASS_COMPOSITION domains=CAMPAIGNS\+UNRECOGNIZED sources=UNRECOGNIZED streams=UNRECOGNIZED count=1 sourceIndependent=false/);
   assert.match(text, /reason=UNRECOGNIZED modelCalls=0/);
 });
 
@@ -257,12 +257,12 @@ const CONNECTIVITY = {
     crm: { established: 40, newlyEstablished7d: 2, nameable: 2, awaitingDecision: 7 },
     bounded: false,
   },
-  current: { crossDomain: 1, sourceIndependent: 0, eliminatedSameSource: 1, composition: [{ domains: ['CALLGRID', 'CAMPAIGNS'], sources: ['CALLGRID'], count: 1, sourceIndependent: false }] },
+  current: { crossDomain: 1, sourceIndependent: 0, eliminatedSameSource: 1, composition: [{ domains: ['CALLGRID', 'CAMPAIGNS'], sources: ['CALLGRID'], streams: ['CALLS'], count: 1, sourceIndependent: false }] },
   projector: {
     crossDomain: 2, sourceIndependent: 1, eliminatedSameSource: 1,
     composition: [
-      { domains: ['CREATORS', 'PIPELINE'], sources: ['LOOP_CREATORS', 'LOOP_INTAKE'], count: 1, sourceIndependent: true },
-      { domains: ['CALLGRID', 'CAMPAIGNS'], sources: ['CALLGRID'], count: 1, sourceIndependent: false },
+      { domains: ['CREATORS', 'PIPELINE'], sources: ['LOOP_CREATORS', 'LOOP_INTAKE'], streams: ['CREATOR_RECORDS', 'INTAKE_RECORDS'], count: 1, sourceIndependent: true },
+      { domains: ['CALLGRID', 'CAMPAIGNS'], sources: ['CALLGRID'], streams: ['CALLS'], count: 1, sourceIndependent: false },
     ],
   },
 } as const;
@@ -279,10 +279,10 @@ test('connectivity prints governed relationships, member identity, nameable reco
     'event=SITUATION_MEMBERS provider=CALLGRID dimension=buyer windowDays=14 stableExternalId=3 labelOnly=0 labelOnlyNamedAsRef=0 unattributedCalls=9',
     'event=SITUATION_NAMEABLE domain=PIPELINE kind=customer working=12 stalled=5 nameable=5',
     'event=SITUATION_NAMEABLE domain=CRM kind=party established=40 newlyEstablished7d=2 nameable=2 awaitingDecision=7',
-    'event=SITUATION_POTENTIAL_GROUP scenario=CURRENT domains=CALLGRID+CAMPAIGNS sources=CALLGRID count=1 sourceIndependent=false',
+    'event=SITUATION_POTENTIAL_GROUP scenario=CURRENT domains=CALLGRID+CAMPAIGNS sources=CALLGRID streams=CALLS count=1 sourceIndependent=false',
     'event=SITUATION_POTENTIAL scenario=CURRENT crossDomain=1 sourceIndependent=0 eliminatedSameSource=1',
-    'event=SITUATION_POTENTIAL_GROUP scenario=PROJECTOR domains=CREATORS+PIPELINE sources=LOOP_CREATORS+LOOP_INTAKE count=1 sourceIndependent=true',
-    'event=SITUATION_POTENTIAL_GROUP scenario=PROJECTOR domains=CALLGRID+CAMPAIGNS sources=CALLGRID count=1 sourceIndependent=false',
+    'event=SITUATION_POTENTIAL_GROUP scenario=PROJECTOR domains=CREATORS+PIPELINE sources=LOOP_CREATORS+LOOP_INTAKE streams=CREATOR_RECORDS+INTAKE_RECORDS count=1 sourceIndependent=true',
+    'event=SITUATION_POTENTIAL_GROUP scenario=PROJECTOR domains=CALLGRID+CAMPAIGNS sources=CALLGRID streams=CALLS count=1 sourceIndependent=false',
     'event=SITUATION_POTENTIAL scenario=PROJECTOR crossDomain=2 sourceIndependent=1 eliminatedSameSource=1',
     'event=SITUATION_CONNECTIVITY_SUMMARY bounded=false linksCreated=0 modelCalls=0',
   ]);
