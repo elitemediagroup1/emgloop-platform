@@ -366,6 +366,13 @@ export async function runIntelligenceState(
       deps.log(line({ event: 'AI_LEDGER', task: token(l.taskId), provider: token(l.providerId), outcome: token(l.outcome), lane: token(l.lane), failureClass: token(l.failureClass), count: l.count }));
     }
     for (const x of r.rejections) deps.log(line({ event: 'AI_LEDGER_REJECTION', task: token(x.taskId), code: token(x.code), count: x.count }));
+    // How often one exact window was sent (never the window's hash), and how long calls took, per task.
+    for (const w of r.windows) {
+      deps.log(line({ event: 'AI_TASK_WINDOWS', task: token(w.taskId), calls: w.calls, distinctWindows: w.distinctWindows, repeatedWindows: w.repeatedWindows, maxCallsPerWindow: w.maxCallsPerWindow, repeatedCalls: tally(w.repeatedCalls), timeouts: w.timeouts, answerTooLong: w.answerTooLong }));
+    }
+    for (const l of r.latency) deps.log(line({ event: 'AI_TASK_LATENCY', task: token(l.taskId), outcome: token(l.outcome), count: l.count, p50Ms: l.p50Ms, p95Ms: l.p95Ms, maxMs: l.maxMs }));
+    // Why a content cursor is held now -- a budget or activation refusal is never a ledger row.
+    for (const h of r.contentHolds) deps.log(line({ event: 'CONTENT_HOLD', provider: token(h.provider), failureClass: token(h.failureClass), authorizations: h.authorizations, backingOff: h.backingOff }));
     const modelBacked = r.readings.filter((g) => g.producerKind === 'RULE_AND_MODEL' && g.status === 'CURRENT').reduce((n, g) => n + g.digests, 0);
     const answered = r.ledger.filter((l) => l.outcome === 'ANSWERED').reduce((n, l) => n + l.count, 0);
     deps.log(line({ event: 'INTELLIGENCE_READING_SUMMARY', readings: r.readings.reduce((n, g) => n + g.digests, 0), currentModelBacked: modelBacked, ledgerCalls: r.ledger.reduce((n, l) => n + l.count, 0), ledgerAnswered: answered, bounded: r.bounded }));
