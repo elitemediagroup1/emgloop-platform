@@ -5,7 +5,7 @@ losing the thread. **One current-state block per workstream — overwrite it, do
 Read this at the start of a session; update it at the end of a work batch. History lives
 in git, not here.
 
-_Last updated: 2026-09-26 (Loop Intelligence Phases A–G built in one draft PR, nothing commissioned; #340 AI runtime corrected to MERGED/MIGRATED/DEPLOYED/VERIFIED with the operating budget recorded, Anthropic production-active, OpenAI not commissioned — see the two Loop Intelligence blocks; earlier 2026-09-24: Loop Home briefing built, draft PR in review; Creator Hub commissioned on staging — #323/#324/#325 merged, infra + migration + seed done, staging fast-forwarded and verified; production schema untouched — see the Creator Hub block; earlier: Intelligence & Memory Foundation commissioned — #305/#306 on main, migration 42 applied, completion PR in review; Google onboarding: #302/#303 merged, Gmail cycle not yet on, one-derivation PR in review; production at migration 41; Gmail GM-1..GM-3 in review as #295/#296/#297; AI runtime #266–#271 merged, switched off; B0–B6 merged incl. #284, B7 pre-deployment #285 merged; AWS staging not bootstrapped, nothing deployed; Google Workspace connection (Private V1) merged as #286 and migration 37 applied in production; Daily Loop / Employee Intelligence architecture merged as #287, DL-0..DL-3 merged with migrations 38 and 39 applied and production verified, DL-4 (Your Day) merged as #293, DL-5 (the automated Calendar cycle) in review; see the Foundation handoff and Google Workspace blocks)._
+_Last updated: 2026-09-30 (website evidence foundation built as a draft PR, nothing applied — see its block; earlier 2026-09-26: Loop Intelligence Phases A–G built in one draft PR, nothing commissioned; #340 AI runtime corrected to MERGED/MIGRATED/DEPLOYED/VERIFIED with the operating budget recorded, Anthropic production-active, OpenAI not commissioned — see the two Loop Intelligence blocks; earlier 2026-09-24: Loop Home briefing built, draft PR in review; Creator Hub commissioned on staging — #323/#324/#325 merged, infra + migration + seed done, staging fast-forwarded and verified; production schema untouched — see the Creator Hub block; earlier: Intelligence & Memory Foundation commissioned — #305/#306 on main, migration 42 applied, completion PR in review; Google onboarding: #302/#303 merged, Gmail cycle not yet on, one-derivation PR in review; production at migration 41; Gmail GM-1..GM-3 in review as #295/#296/#297; AI runtime #266–#271 merged, switched off; B0–B6 merged incl. #284, B7 pre-deployment #285 merged; AWS staging not bootstrapped, nothing deployed; Google Workspace connection (Private V1) merged as #286 and migration 37 applied in production; Daily Loop / Employee Intelligence architecture merged as #287, DL-0..DL-3 merged with migrations 38 and 39 applied and production verified, DL-4 (Your Day) merged as #293, DL-5 (the automated Calendar cycle) in review; see the Foundation handoff and Google Workspace blocks)._
 
 ---
 
@@ -2632,3 +2632,38 @@ situation.verify[.private]; loop.briefing.compose. `telegram.content.triage` mov
 **One branch per work batch.** After a PR merges, cut a fresh branch off freshly-merged
 `main` for the next objective — never keep committing to a merged branch (it strands work
 with no open PR). Always open a draft PR and report its URL; Matt merges.
+
+## Website evidence foundation — IN REVIEW (draft PR, branch `feat/website-evidence-foundation`, off main `0007c7f`) · NOT merged · migration `20261009000000_website_evidence_foundation` NOT applied anywhere but local test databases
+
+**What it is.** The foundation for governed website evidence, before any external analytics source is connected:
+- source identity vs evidence stream, with Situation independence counted over streams;
+- the `web_properties` authority: the website webhook resolves tenancy only through it, fails closed with
+  `PROPERTY_UNREGISTERED`, and no longer reads `LIVE_ORG_SLUG`;
+- minimized, deterministic first-party telemetry;
+- `website.domain@2` (first-party only);
+- the `source_metric_windows` aggregate store and the organization credential sealer. Both are empty and
+  unused by any connector.
+Architecture: `docs/architecture/website-evidence.md`. Runbook: `docs/runbooks/website-evidence-commissioning.md`.
+
+**Declared, not connected:** GA4, Google Search Console, Bing Webmaster, Microsoft Clarity. No credentials,
+no API calls, no new AI task. Google auth is decided (AWS → WIF → service account; GA4 Viewer / Search Console
+Restricted) and not built.
+
+**Finding recorded:** page views and session starts were never Interactions, so website sessions and page
+views read 0 from real traffic. Counts now come from `integration_events`.
+
+**Next:**
+1. Matt reviews and merges.
+2. Migration dispatch.
+3. Register the live properties (dry run first) BEFORE the web deploy.
+4. Web deploy.
+5. Worker redeploy.
+6. Switch `website.domain@1` → `@2` if website readings are activated.
+
+Then the GA4 connector PR (separate).
+
+**Open decisions for Matt:**
+- which organization owns each property;
+- whether to enable the raw telemetry purge (`LOOP_WEBSITE_TELEMETRY_RETENTION=on`), which truncates analytics
+  history past 90 days;
+- whether to scrub historical website payloads that still hold contact details.

@@ -124,7 +124,7 @@ repository. They never call Prisma from a service.
 | `crm.domain@1` | ORG | established parties, relationships started or ended | crm.domain.reading |
 | `creators.domain@1` | ORG | Creator Hub roster: waiting on EMG or on a creator, due | creators.domain.reading |
 | `work.domain@1` / `work.mine@1` | ORG / PRINCIPAL | open, overdue, past return, unowned, throughput | work.domain.reading / rule only |
-| `website.domain@1` | ORG | each connected `WebsiteEvidenceReader` (today: website events only) | website.domain.reading |
+| `website.domain@2` | ORG | Loop's OWN website events only (every admitted event, exact; heartbeat / scroll / identify are never page views); declared-but-unconnected external sources are named in a limitation, never read (`docs/architecture/website-evidence.md`) | website.domain.reading |
 | `mail.thread@1`, `mail.domain@1` | PRINCIPAL | the person's own Gmail thread, transiently, plus the mail lanes | mail.content.triage, mail.domain.reading |
 
 Three rules apply to every organization comparison:
