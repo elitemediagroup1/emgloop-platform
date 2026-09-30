@@ -1,0 +1,205 @@
+# Register Web Property -- operator acts on the authoritative EMG website-property registry.
+#
+# web_properties records EVERY EMG website property -- live or only owned -- each bound to ONE organization, with a
+# LIFECYCLE (OWNED / BUILDING / LIVE / PAUSED / RETIRED) and, separately, an INGESTION state (ENABLED / DISABLED).
+# Website ingestion admits events only for a registered property that is LIVE with ingestion ENABLED; there is no
+# fallback organization. The migration inserts nothing: properties are registered here, by a person.
+#
+# ACTIONS (one per dispatch):
+#   register-portfolio  register every EMG portfolio domain for the organization, each OWNED, ingestion DISABLED.
+#   register            register one property (key + primary domain), or update its label, domains and bindings.
+#   set-lifecycle       move a property along the governed lifecycle; leaving LIVE disables ingestion.
+#   enable-ingestion    allow first-party telemetry (LIVE only).  disable-ingestion  stop it.
+#
+# It contacts no provider and holds no provider credential; the GA4 / Search Console / Bing / Clarity fields only
+# record which external property belongs here. A key, domain or binding another organization holds is REFUSED,
+# never moved. DRY RUN FIRST: `dry_run: true` validates against the database and writes nothing.
+#
+# NO SCHEDULE, NO PUSH, NO PULL_REQUEST, NO WORKFLOW_CALL -- a human starts this from the Actions tab.
+
+name: Register Web Property
+
+on:
+  workflow_dispatch:
+    inputs:
+      organization_slug:
+        description: 'Organization slug the property belongs to'
+        required: true
+        type: string
+      action:
+        description: 'What to do (register-portfolio registers every owned EMG domain as OWNED)'
+        required: true
+        default: register-portfolio
+        type: choice
+        options:
+          - register-portfolio
+          - register
+          - set-lifecycle
+          - enable-ingestion
+          - disable-ingestion
+      property_key:
+        description: 'All actions but register-portfolio: the property key the tracker sends (ingest key pk_emg_<key>)'
+        required: false
+        type: string
+      primary_domain:
+        description: 'register only: the property''s own domain, e.g. servicesinmycity.com (fixed once registered)'
+        required: false
+        type: string
+      lifecycle:
+        description: 'set-lifecycle: the target. register: the lifecycle a NEW property starts in (default OWNED)'
+        required: false
+        type: choice
+        options:
+          - ''
+          - OWNED
+          - BUILDING
+          - LIVE
+          - PAUSED
+          - RETIRED
+      domains:
+        description: 'register only: allowed browser hosts within the primary domain, space-separated (default: the primary domain)'
+        required: false
+        type: string
+      label:
+        description: 'register only: a display label (optional)'
+        required: false
+        type: string
+      ga4_property_id:
+        description: 'register only: the GA4 property id (digits) this site reports to (optional; connects nothing)'
+        required: false
+        type: string
+      search_console_site:
+        description: 'register only: sc-domain:<host> or an https URL prefix ending in / (optional; connects nothing)'
+        required: false
+        type: string
+      bing_site:
+        description: 'register only: the Bing Webmaster site URL (optional; connects nothing)'
+        required: false
+        type: string
+      clarity_project_id:
+        description: 'register only: the Clarity project id (optional; connects nothing)'
+        required: false
+        type: string
+      dry_run:
+        description: 'Check what this would do and write nothing'
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: register-web-property
+  cancel-in-progress: false
+
+jobs:
+  register:
+    name: Register web property
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Fail closed when the database credential is missing
+        env:
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "::error::Missing repository secret: DIRECT_DATABASE_URL"
+            exit 1
+          fi
+          echo "The required secret is present."
+
+      - name: Validate the requested input
+        env:
+          ORG_SLUG: ${{ inputs.organization_slug }}
+          PROPERTY_KEY: ${{ inputs.property_key }}
+          ACTION: ${{ inputs.action }}
+          PRIMARY_DOMAIN: ${{ inputs.primary_domain }}
+          LIFECYCLE: ${{ inputs.lifecycle }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "${ORG_SLUG}" | grep -Eq '^[a-z0-9][a-z0-9-]{0,62}$'; then
+            echo "::error::organization_slug must be lowercase letters, digits and hyphens."
+            exit 1
+          fi
+          if [ "${ACTION}" != "register-portfolio" ] && ! printf '%s' "${PROPERTY_KEY}" | grep -Eq '^[a-z0-9][a-z0-9-]{0,62}$'; then
+            echo "::error::property_key must be lowercase letters, digits and hyphens."
+            exit 1
+          fi
+          if [ "${ACTION}" = "register" ] && [ -z "$(printf '%s' "${PRIMARY_DOMAIN:-}" | tr -d '[:space:]')" ]; then
+            echo "::error::register needs the property's primary_domain."
+            exit 1
+          fi
+          if [ "${ACTION}" = "set-lifecycle" ] && [ -z "${LIFECYCLE:-}" ]; then
+            echo "::error::set-lifecycle needs a lifecycle."
+            exit 1
+          fi
+          echo "Validated ${ACTION} for organization ${ORG_SLUG}."
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Prove the runner's boundary before touching the database
+        run: |
+          set -euo pipefail
+          npm run test:operations
+
+      - name: Register
+        env:
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+          ORG_SLUG: ${{ inputs.organization_slug }}
+          PROPERTY_KEY: ${{ inputs.property_key }}
+          ACTION: ${{ inputs.action }}
+          PRIMARY_DOMAIN: ${{ inputs.primary_domain }}
+          LIFECYCLE: ${{ inputs.lifecycle }}
+          DOMAINS: ${{ inputs.domains }}
+          LABEL: ${{ inputs.label }}
+          GA4_PROPERTY_ID: ${{ inputs.ga4_property_id }}
+          SEARCH_CONSOLE_SITE: ${{ inputs.search_console_site }}
+          BING_SITE: ${{ inputs.bing_site }}
+          CLARITY_PROJECT_ID: ${{ inputs.clarity_project_id }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(--organization "${ORG_SLUG}" --action "${ACTION}")
+          if [ "${ACTION}" != "register-portfolio" ]; then args+=(--key "${PROPERTY_KEY}"); fi
+          if [ -n "${LIFECYCLE:-}" ]; then args+=(--lifecycle "${LIFECYCLE}"); fi
+          if [ "${ACTION}" = "register" ]; then
+            args+=(--primary-domain "${PRIMARY_DOMAIN}")
+            for d in ${DOMAINS}; do args+=(--domain "${d}"); done
+            if [ -n "${LABEL:-}" ]; then args+=(--label "${LABEL}"); fi
+            if [ -n "${GA4_PROPERTY_ID:-}" ]; then args+=(--ga4-property-id "${GA4_PROPERTY_ID}"); fi
+            if [ -n "${SEARCH_CONSOLE_SITE:-}" ]; then args+=(--search-console-site "${SEARCH_CONSOLE_SITE}"); fi
+            if [ -n "${BING_SITE:-}" ]; then args+=(--bing-site "${BING_SITE}"); fi
+            if [ -n "${CLARITY_PROJECT_ID:-}" ]; then args+=(--clarity-project-id "${CLARITY_PROJECT_ID}"); fi
+          fi
+          if [ "${DRY_RUN}" = "true" ]; then args+=(--dry-run); fi
+          npm run register:web-property -- "${args[@]}"
+
+      - name: Note what a red run means
+        if: failure()
+        run: |
+          echo "### Registration stopped" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Nothing was written.** Read the log above:" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`code=KEY_REGISTERED_ELSEWHERE\` / \`PRIMARY_DOMAIN_REGISTERED_ELSEWHERE\` - another organization owns this property. A property is never moved by a registration." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`code=*_BOUND_ELSEWHERE\` - that GA4 property / Search Console site / Bing site / Clarity project already belongs to another Loop property." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`code=LIFECYCLE_TRANSITION_REFUSED\` - not a governed transition (e.g. LIVE -> OWNED; use PAUSED or RETIRED)." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`code=INGESTION_REQUIRES_LIVE\` - ingestion can be enabled only for a LIVE property." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`code=LIFECYCLE_CHANGE_NEEDS_TRANSITION\` / \`PRIMARY_DOMAIN_CHANGE_REFUSED\` - register never changes an existing property's lifecycle or domain." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`code=PROPERTY_NOT_IN_ORGANIZATION\` - the action named a property this organization does not own." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Re-running with \`dry_run: true\` is always safe and writes nothing." >> "$GITHUB_STEP_SUMMARY"

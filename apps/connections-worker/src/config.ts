@@ -5,6 +5,8 @@
 // wires each secret's JSON key to an env var). The worker itself holds NO AWS SDK -- it reads env,
 // like brain-executor. No value here is logged.
 
+import { websiteTelemetryRetentionEnabled } from '@emgloop/shared';
+
 export class NotConfigured extends Error {
   constructor(what: string) {
     super(`connections worker not configured: ${what}`);
@@ -75,6 +77,8 @@ export interface WorkerConfig {
    * telegram.content.triage headroom (daily cap minus used, the tightest window) is at or below this.
    */
   readonly hydrationBudgetReserve: number;
+  /** Whether the raw website telemetry purge runs (LOOP_WEBSITE_TELEMETRY_RETENTION=on). Off unless set. */
+  readonly websiteTelemetryRetention: boolean;
   /** Control server port. */
   readonly port: number;
 }
@@ -91,6 +95,7 @@ export function readWorkerConfig(): WorkerConfig {
     conversationSecret: required('LOOP_CONNECTION_CONVERSATION_SECRET'),
     workerControlSecret: required('LOOP_CONNECTIONS_WORKER_SECRET'),
     sweepIntervalMs: Math.max(15_000, Number(process.env.LOOP_CONNECTION_SWEEP_INTERVAL_MS ?? '60000') || 60_000),
+    websiteTelemetryRetention: websiteTelemetryRetentionEnabled(process.env.LOOP_WEBSITE_TELEMETRY_RETENTION),
     observationRetentionDays: Math.max(1, Number(process.env.LOOP_CONNECTION_OBSERVATION_RETENTION_DAYS ?? '30') || 30),
     baselineIntervalMs: Math.max(15_000, Number(process.env.LOOP_CONNECTION_BASELINE_INTERVAL_MS ?? '45000') || 45_000),
     baselinePageSize: Math.min(500, Math.max(1, Number(process.env.LOOP_CONNECTION_BASELINE_PAGE_SIZE ?? '200') || 200)),

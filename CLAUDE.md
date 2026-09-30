@@ -260,11 +260,13 @@ review, because the safe call and the unsafe call look identical at the call sit
 
 ### Known open tenancy debt — do not make it worse
 
-- **Ingestion is single-tenant.** `/api/webhooks/callgrid`, `/api/webhooks/website`, and
-  `/api/integrations/callgrid/sync` resolve their org from a hardcoded
-  `LIVE_ORG_SLUG = 'servicesinmycity-demo'`, behind one global webhook URL and one global signing
-  secret. **We cannot onboard a second customer until this is fixed.** Never add a fourth route that
-  reads `LIVE_ORG_SLUG`.
+- **CallGrid ingestion is single-tenant.** `/api/webhooks/callgrid` and `/api/integrations/callgrid/sync`
+  resolve their org from a hardcoded `LIVE_ORG_SLUG = 'servicesinmycity-demo'`, behind one global webhook
+  URL and one global signing secret. **We cannot onboard a second CallGrid customer until this is fixed.**
+  Never add another route that reads `LIVE_ORG_SLUG`. The website webhook no longer does (2026-09-30):
+  it resolves each event's organization from the governed `web_properties` registry and refuses an
+  unregistered property (`PROPERTY_UNREGISTERED`). Its signed tier still shares one
+  `WEBSITE_WEBHOOK_SECRET`, which proves a class of sender, not a tenant.
 - **The knowledge API's isolation is self-declared.** One shared `LOOP_EVENT_SECRET` proves "you are
   some EMG service," then the caller names its own `platform`/`organizationId` in the query string.
   Treat the knowledge graph as a **single trust domain** until scope derives from the credential.

@@ -1,27 +1,25 @@
-// WebsiteProvider — Sprint 14 (Website Intelligence — The Brain's Second Sense).
+// WebsiteProvider -- Loop's first-party website events (the emg-loop.js tracker, or a signed server sender).
 //
-// The platform's SECOND real ingestion adapter (after CallGrid). Where CallGrid
-// gives the Brain a sense for phone calls, WebsiteProvider gives it a sense for
-// EVERY EMG-owned website. It translates raw website interaction events — page
-// views, searches, CTA/phone/email clicks, form starts/submits, chat, quizzes,
-// planners, downloads, video plays, sessions — into the platform's
-// provider-agnostic InboundEvent shape.
+// Translates raw website events into the provider-agnostic InboundEvent shape. It contains NO business
+// logic, writes NO data and decides NO tenancy: which organization a property belongs to is the governed
+// property registry's answer (web_properties), resolved by the website webhook after verification. Nothing
+// here -- and nothing in a payload -- selects an organization.
 //
-// Like CallGrid, this adapter contains NO business logic and writes NO data.
-// Normalization, identity resolution, persistence, signals, and workflows all
-// happen downstream in the NormalizationEngine + IngestionService. A different
-// website platform simply produces the same wire payload; nothing else changes.
+// WHAT IS KEPT (2026-09-30): only the minimized attribute set in @emgloop/shared `minimizeWebsiteEvent` --
+// a page PATH with no query string, bounded labels, pseudonymous visitor/session ids. An email address, a
+// phone number, their click targets, the full URL, free-text search, campaign names and every unknown key
+// are dropped here, before persistence, and are never handed to the ingestion pipeline as customer
+// identity (the tracker's identify() fields do not create or match people).
 //
-// It is generic across every InMyCity property: ServicesInMyCity, CareInMyCity,
-// PetsInMyCity, ConsumerSupportHelp — and any future property — plug in with no
-// code duplication, because the adapter keys on a "property" field, never on a
-// hard-coded site.
+// IDENTITY IS DETERMINISTIC: `web:<property>:<event id>` when the sender supplies an id (the tracker always
+// does), else `web:<property>:h:<sha256 of the minimized event>`. A redelivery of the same event dedupes;
+// no id is ever derived from the receiving clock. The property prefix keeps two properties' ids apart in the
+// globally keyed integration_events table.
 //
-// No vendor SDK is imported. Webhook authenticity is verified with an
-// HMAC-SHA256 signature over the raw body using a shared secret resolved from
-// ProviderContext (never stored in this file). Node's built-in crypto keeps
-// dependencies at zero.
+// Webhook authenticity for the signed tier is an HMAC-SHA256 over the raw body (webhook-security.ts).
 
+import { createHash } from 'crypto';
+import { minimizeWebsiteEvent, isWebPropertyKey } from '@emgloop/shared';
 import { verifySignedWebhook } from '../webhook-security';
 import type { ProviderContext } from '../types';
 import type {
@@ -33,21 +31,12 @@ import type {
   WebhookVerificationResult,
 } from '../interfaces/ingestion.provider';
 
-// ---- EMG-owned website properties -----------------------------------------
-// The provider is generic: any property string is accepted. These are the
-// initially-supported InMyCity properties, exported so callers/UX can list them.
-export const WEBSITE_PROPERTIES = [
-  'servicesinmycity',
-  'careinmycity',
-  'petsinmycity',
-  'consumersupporthelp',
-] as const;
-export type WebsiteProperty = (typeof WEBSITE_PROPERTIES)[number];
-
 // ---- Website raw event vocabulary -----------------------------------------
 // Websites emit a rich "event" / "type" string. We map each to the canonical
-// platform web.* event taxonomy (see @emgloop/shared LOOP_EVENT_TYPES). Unknown
-// events map to a generic page view so nothing is silently dropped.
+// platform web.* event taxonomy (see @emgloop/shared LOOP_EVENT_TYPES). Tracker
+// instrumentation (heartbeat, scroll depth, identify) has its own types, and an
+// unknown event is `web.other` -- NEVER a page view, which it once defaulted to and
+// so inflated page views with every heartbeat.
 export const WEBSITE_EVENT_MAP: Record<string, string> = {
   // Pages & content
   page_viewed: 'web.page_view',
@@ -99,12 +88,17 @@ export const WEBSITE_EVENT_MAP: Record<string, string> = {
   session_start: 'web.session_start',
   session_ended: 'web.session_end',
   session_end: 'web.session_end',
+  // Tracker instrumentation -- about a page already viewed, not a view.
+  heartbeat: 'web.heartbeat',
+  scroll_depth: 'web.scroll_depth',
+  scroll: 'web.scroll_depth',
+  identify: 'web.identify',
 };
 
 /** Map a raw website event string to the canonical loop event type string. */
 export function mapWebsiteEventType(raw: string): string {
   const key = String(raw ?? '').toLowerCase().trim().replace(/[\s-]+/g, '_');
-  return WEBSITE_EVENT_MAP[key] ?? 'web.page_view';
+  return WEBSITE_EVENT_MAP[key] ?? 'web.other';
 }
 
 /** Pull a string field from a raw payload trying several common key spellings. */
@@ -165,6 +159,10 @@ export class WebsiteProvider implements IngestionProvider {
         'web.planner_print',
         'web.video_play',
         'web.error',
+        'web.heartbeat',
+        'web.scroll_depth',
+        'web.identify',
+        'web.other',
       ],
     };
   }
@@ -190,12 +188,11 @@ export class WebsiteProvider implements IngestionProvider {
   }
 
   /**
-   * Parse a verified website webhook body into InboundEvents. A single delivery
-   * may carry ONE event ({ event, ... }) OR a BATCH ({ events: [...] }) so a
-   * site can flush a whole session at once. Every raw attribute is preserved on
-   * .payload (with a normalized "property") so the NormalizationEngine and the
-   * stored Interaction keep the full website context (page, search, city,
-   * category, sessionId, visitorId, source, etc.).
+   * Parse a verified website webhook body into InboundEvents. A delivery carries ONE event ({ event, ... })
+   * or a BATCH ({ events: [...] }). Each event keeps only its minimized attributes plus the property key it
+   * CLAIMS (payload.property) -- a claim the webhook checks against the registry, never trusts. An event
+   * whose property is not a well-formed key is kept with property '' so the webhook refuses it by code.
+   * No customerEmail / customerPhone is ever returned: website telemetry does not establish identity.
    */
   async parseWebhook(
     _ctx: ProviderContext,
@@ -208,51 +205,33 @@ export class WebsiteProvider implements IngestionProvider {
     const topProperty = pick(payload, ['property', 'site', 'source_site', 'brand']);
 
     const out: InboundEvent[] = [];
-    for (let i = 0; i < batch.length; i++) {
-      const raw = batch[i];
+    for (const raw of batch) {
       if (!raw || typeof raw !== 'object') continue;
       const data = raw as Record<string, unknown>;
 
-      const property =
-        pick(data, ['property', 'site', 'source_site', 'brand']) ?? topProperty ?? 'website';
+      const claimed = (pick(data, ['property', 'site', 'source_site', 'brand']) ?? topProperty ?? '').toLowerCase();
+      const property = isWebPropertyKey(claimed) ? claimed : '';
 
       const rawEventType =
         pick(data, ['event', 'type', 'event_type', 'name', 'action']) ?? 'page_viewed';
 
-      const externalId =
-        pick(data, ['id', 'event_id', 'eventId', 'uuid']) ??
-        'web-' + property + '-' + Date.now() + '-' + i;
-
       const occurredRaw = pick(data, ['occurred_at', 'timestamp', 'time', 'created_at']);
-      const occurredAt = occurredRaw ? new Date(occurredRaw) : new Date();
+      const occurred = occurredRaw ? new Date(occurredRaw) : null;
+      const occurredAt = occurred && !Number.isNaN(occurred.getTime()) ? occurred : null;
 
-      const customerEmail = pick(data, ['email', 'customer_email', 'user_email']);
-      const customerPhone = pick(data, ['phone', 'customer_phone', 'tel']);
-
-      // Surface common website dimensions onto the payload so the signal
-      // registry + analytics can read them without re-parsing nested shapes.
-      const enriched: Record<string, unknown> = {
-        ...data,
-        property,
-        page: pick(data, ['page', 'path', 'url', 'page_path', 'page_url']),
-        title: pick(data, ['title', 'page_title']),
-        query: pick(data, ['query', 'q', 'search', 'search_term', 'keyword']),
-        zip: pick(data, ['zip', 'zipcode', 'postal_code']),
-        city: pick(data, ['city']),
-        category: pick(data, ['category', 'service', 'vertical']),
-        source: pick(data, ['source', 'utm_source', 'referrer', 'channel']),
-        cta: pick(data, ['cta', 'cta_label', 'label', 'button']),
-        sessionId: pick(data, ['session_id', 'sessionId', 'session']),
-        visitorId: pick(data, ['visitor_id', 'visitorId', 'anonymous_id', 'client_id', 'cookie_id']),
-      };
+      const minimized = minimizeWebsiteEvent(data, property);
+      const externalId = websiteEventExternalId(property, pick(data, ['id', 'event_id', 'eventId', 'uuid']), {
+        rawEventType,
+        occurredRaw: occurredRaw ?? null,
+        minimized,
+      });
 
       out.push({
         externalId,
         rawEventType,
-        occurredAt: Number.isNaN(occurredAt.getTime()) ? new Date() : occurredAt,
-        payload: enriched,
-        customerEmail,
-        customerPhone,
+        // An event without a readable time is stamped at receipt; its IDENTITY never is (see above).
+        occurredAt: occurredAt ?? new Date(),
+        payload: { ...minimized },
       });
     }
     return out;
@@ -262,4 +241,26 @@ export class WebsiteProvider implements IngestionProvider {
     // Websites are webhook-only in this sprint.
     return { events: [], hasMore: false };
   }
+}
+
+const EVENT_ID = /^[A-Za-z0-9._:-]{1,128}$/;
+
+/**
+ * The deterministic, property-namespaced identity of a website event: `web:<property>:<id>` for a
+ * sender-supplied id, else `web:<property>:h:<sha256>` over the minimized event, its raw type and its raw
+ * time. Never the receiving clock, so the same event redelivered is the same row.
+ */
+export function websiteEventExternalId(
+  property: string,
+  senderId: string | undefined,
+  basis: { rawEventType: string; occurredRaw: string | null; minimized: Record<string, unknown> },
+): string {
+  const ns = `web:${property || 'unregistered'}:`;
+  if (senderId && EVENT_ID.test(senderId)) return ns + senderId;
+  const canonical = JSON.stringify([
+    basis.rawEventType,
+    basis.occurredRaw,
+    Object.keys(basis.minimized).sort().map((k) => [k, basis.minimized[k]]),
+  ]);
+  return ns + 'h:' + createHash('sha256').update(canonical).digest('hex').slice(0, 40);
 }

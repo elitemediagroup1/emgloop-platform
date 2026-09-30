@@ -29,7 +29,7 @@ export const INTELLIGENCE_PRODUCER_CATALOG: readonly IntelligenceProducerDescrip
   d('creators.domain@1', 'CREATORS', 'ORGANIZATION', 'creators.domain.reading'),
   d('work.domain@1', 'WORK', 'ORGANIZATION', 'work.domain.reading'),
   d('work.mine@1', 'WORK', 'PRINCIPAL', null),
-  d('website.domain@1', 'WEBSITE', 'ORGANIZATION', 'website.domain.reading'),
+  d('website.domain@2', 'WEBSITE', 'ORGANIZATION', 'website.domain.reading'),
   // Mail: hosted where the person's Gmail can be read through (the runner), and gated on the governance decision.
   d('mail.thread@1', 'MAIL', 'PRINCIPAL', 'mail.content.triage', ['THREAD'], 'MODEL'),
   d('mail.domain@1', 'MAIL', 'PRINCIPAL', 'mail.domain.reading'),

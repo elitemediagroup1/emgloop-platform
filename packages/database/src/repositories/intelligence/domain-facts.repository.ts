@@ -147,7 +147,8 @@ export class DomainFactsRepository {
   }
 
   async organizationsWithWebsiteEvents(since: Date, take = 200): Promise<string[]> {
-    const rows = await this.prisma.interaction.findMany({ where: { provider: 'website', occurredAt: { gte: since } }, select: { organizationId: true }, distinct: ['organizationId'], orderBy: { organizationId: 'asc' }, take });
+    // Every admitted website event is an integration event; page views and sessions never become Interactions.
+    const rows = await this.prisma.integrationEvent.findMany({ where: { provider: 'website', occurredAt: { gte: since } }, select: { organizationId: true }, distinct: ['organizationId'], orderBy: { organizationId: 'asc' }, take });
     return rows.map((r) => r.organizationId);
   }
 

@@ -75,6 +75,8 @@ const LOOP_EVENT_TYPES_SET = new Set<string>([
   'web.download', 'web.quiz_start', 'web.quiz_complete',
   'web.planner_start', 'web.planner_save', 'web.planner_print',
   'web.video_play', 'web.error', 'web.goal_conversion',
+  // Tracker instrumentation and unnamed website events (2026-09-30): stored as what they are, never as page views.
+  'web.heartbeat', 'web.scroll_depth', 'web.identify', 'web.other',
   'sms.inbound', 'sms.outbound',
   'email.sent', 'email.delivered', 'email.opened', 'email.clicked',
   'ai.conversation_start', 'ai.conversation_end', 'ai.escalation',
@@ -324,7 +326,7 @@ export class IngestionService {
     // delivery is a phone call at all. Computed once, for every path below.
     const canonicalType = (LOOP_EVENT_TYPES_SET.has(eventType)
       ? eventType
-      : (provider === 'website' ? 'web.page_view' : 'call.inbound')) as LoopEventType;
+      : (provider === 'website' ? 'web.other' : 'call.inbound')) as LoopEventType;
 
     // 1. WHO INGESTS THIS CALL, AND WHO ONLY OBSERVES IT.
     //
@@ -383,6 +385,16 @@ export class IngestionService {
         existing = await this.prisma.integrationEvent.findFirst({ where: { provider, externalId: ev.externalId } });
         if (!existing) throw err;
       }
+    }
+
+    // integration_events is keyed (provider, externalId) GLOBALLY, not per organization (known tenancy debt).
+    // For WEBSITE events -- the one multi-organization ingress -- a row another organization holds is never
+    // observed, taken over or re-processed from here: that would write this organization's delivery into
+    // another's row. Website ids are namespaced by a property that belongs to exactly one organization, so this
+    // is unreachable in practice -- it is the fence, not the route. (CallGrid ingestion is single-tenant and is
+    // deliberately untouched here.)
+    if (provider === 'website' && existing && !owned && existing.organizationId !== organizationId) {
+      return base;
     }
 
     if (existing && !owned && !isDuplicateObservation(existing.status, existing.lastObservedAt ?? null, now)) {

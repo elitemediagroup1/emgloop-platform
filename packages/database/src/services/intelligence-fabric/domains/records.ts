@@ -18,13 +18,14 @@
 //                       item is named only when Work itself says it is late -- the promotion is a link, never
 //                       a second source.
 //   work.mine@1         a person's own assigned work, the same facts for them.   (PRINCIPAL)
-//   website.domain@1    website activity from every connected website evidence source (WEBSITE_READERS):
-//                       sessions, form submissions, appointment requests, this week against last.
+//   website.domain@2    website activity from Loop's OWN website events (every admitted event, exact counts):
+//                       sessions, page views (PAGE_VIEW-class events only), form submissions, appointment
+//                       requests, this week against last.
 //
-// WEBSITE IS SOURCE-READY, NOT SOURCE-FAKED. Today exactly one website source exists: Loop's own website
-// events (WEBSITE_EVENTS). An analytics, search, ads or session-replay source joins by adding a
-// `WebsiteEvidenceReader` (and its registry entry) -- the reading merges whatever facts the connected
-// readers return, and says which sources it read. None is implied before it is connected.
+// WEBSITE IS FIRST-PARTY ONLY, NOT SOURCE-FAKED. Google Analytics 4, Search Console, Bing Webmaster and Clarity
+// are DECLARED in the source registry and connected for no one: they contribute no reading, no figure and no
+// signal. A reading only NAMES them, in a limitation, as not connected -- coverage, never a performance
+// conclusion. A connector reads Loop's governed aggregates (source_metric_windows) in a later, separate change.
 
 import { SIGNAL_ENTITIES_MAX, entityRefRefusal, AI_TASK_CREATORS_DOMAIN_READING, AI_TASK_CRM_DOMAIN_READING, AI_TASK_PIPELINE_DOMAIN_READING, AI_TASK_WEBSITE_DOMAIN_READING, AI_TASK_WORK_DOMAIN_READING, type IntelligenceSignal } from '@emgloop/shared';
 
@@ -388,17 +389,22 @@ export function myWorkProducer(facts: DomainFactsRepository, kit: DomainKitPorts
 
 // --- Website -------------------------------------------------------------------------------------
 
-/** Website facts one source can state for a window. Absent fields are unknown for that source. */
+/**
+ * Website facts one source states for a window. A field that is ABSENT is unknown for that source -- never
+ * zero: a count the source could not read in full is omitted rather than reported short.
+ */
 export interface WebsiteFacts {
   readonly sessions?: number;
+  readonly pageViews?: number;
   readonly formSubmits?: number;
   readonly appointmentRequests?: number;
   readonly ctaClicks?: number;
 }
 
 /**
- * One connected website evidence source. Today: Loop's own website events. A future analytics, search
- * console, ads or session-replay source implements this against Loop's governed copy of that source.
+ * The one website evidence source website.domain@2 reads: Loop's own website events. An external source
+ * (GA4, Search Console, Bing Webmaster, Clarity) will read Loop's governed copy of its aggregates
+ * (source_metric_windows) -- none is connected, so none is read, and no reading carries a figure from one.
  */
 export interface WebsiteEvidenceReader {
   readonly sourceId: string;
@@ -411,17 +417,31 @@ export function websiteEventsReader(analytics: Pick<WebsiteAnalyticsRepository, 
     async read(organizationId, since, until) {
       const a = await analytics.getWebsiteAnalytics(organizationId, since, until);
       if (a.totals.events === 0) return null;
-      return { sessions: a.totals.sessions, formSubmits: a.totals.formSubmits, appointmentRequests: a.totals.appointmentRequests, ctaClicks: a.totals.ctaClicks };
+      return {
+        sessions: a.totals.sessions,
+        pageViews: a.totals.pageViews,
+        formSubmits: a.totals.formSubmits,
+        appointmentRequests: a.totals.appointmentRequests,
+        ctaClicks: a.totals.ctaClicks,
+      };
     },
   };
 }
 
+/** The labels of the declared external website sources this organization has NOT connected. */
+export interface WebsiteCoveragePort {
+  unconnectedSources(organizationId: string, now: Date): Promise<readonly string[]>;
+}
+
 interface WebsiteContext {
   readonly bySource: readonly { readonly sourceId: string; readonly week: WebsiteFacts; readonly prior: WebsiteFacts | null }[];
+  /** Registry labels of declared website sources not connected for this organization. */
+  readonly unconnected?: readonly string[];
 }
 
 const WEBSITE_METRICS: readonly [keyof WebsiteFacts, string, string, string][] = [
   ['sessions', 'sessions', 'Sessions are', 'sessions'],
+  ['pageViews', 'page views', 'Page views are', 'page_views'],
   ['formSubmits', 'form submissions', 'Form submissions are', 'form_submissions'],
   ['appointmentRequests', 'appointment requests', 'Appointment requests are', 'appointment_requests'],
 ];
@@ -439,41 +459,51 @@ export function websiteRule(ctx: WebsiteContext, now: Date): RuleReading {
       const before = s.prior?.[field];
       if (typeof before === 'number') {
         const c = weekChange(`${s.sourceId.toLowerCase()}.${metric}-change`, subject, v, before, ref, now);
-        if (c) signals.push(field === 'sessions' ? c : { ...c, kind: (c.statement.includes(' down ') ? 'RISK' : 'OPPORTUNITY') as IntelligenceSignal['kind'] });
+        if (c) signals.push(field === 'sessions' || field === 'pageViews' ? c : { ...c, kind: (c.statement.includes(' down ') ? 'RISK' : 'OPPORTUNITY') as IntelligenceSignal['kind'] });
       }
     }
+  }
+  const limitations: string[] = [];
+  if (ctx.bySource.some((s) => !s.prior)) limitations.push('A source without the week before cannot show movement yet.');
+  // Coverage, stated as coverage: a source that is not connected says nothing about the website's performance.
+  if (ctx.unconnected && ctx.unconnected.length > 0) {
+    limitations.push(`Not connected, so not read: ${ctx.unconnected.join(', ')}. This reading uses Loop's own website events only.`);
   }
   return {
     ...reading({ statement: `${parts.join(', ')} this week.`, signals, sourceId: ctx.bySource[0]!.sourceId, sourceRefs: ctx.bySource.map((s) => `${s.sourceId.toLowerCase()}:7d`), evidenceCount: ctx.bySource[0]!.week.sessions ?? 0, now, windowStart: new Date(now.getTime() - WEEK) }),
     sources: ctx.bySource.map((s) => ({ sourceId: s.sourceId, asOf: now.toISOString(), coverage: 'CONNECTED_SUFFICIENT' as const })),
-    limitations: ctx.bySource.some((s) => !s.prior) ? ['A source without the week before cannot show movement yet.'] : [],
+    limitations,
   };
 }
 
-export function websiteDomainProducer(readers: readonly WebsiteEvidenceReader[], facts: DomainFactsRepository, kit: DomainKitPorts): IntelligenceProducer<WebsiteContext> {
+export function websiteDomainProducer(firstParty: WebsiteEvidenceReader, coverage: WebsiteCoveragePort | null, facts: DomainFactsRepository, kit: DomainKitPorts): IntelligenceProducer<WebsiteContext> {
+  if (firstParty.sourceId !== 'WEBSITE_EVENTS') throw new Error('website.domain@2 reads first-party website events only');
   return domainProducer<WebsiteContext>(
     {
-      id: 'website.domain@1',
+      // @2 (2026-09-30): FIRST-PARTY evidence only, tenancy from registered properties, counts read from every
+      // admitted website event (sessions and page views were never Interactions, so @1 read them as zero),
+      // heartbeat / scroll / identify never counted as page views, and a coverage
+      // limitation naming the declared website sources not connected. A NEW id on purpose: an activation list
+      // naming website.domain@1 matches nothing, so running this is an explicit LOOP_INTELLIGENCE_PRODUCERS change.
+      id: 'website.domain@2',
       domain: 'WEBSITE',
       scope: 'ORGANIZATION',
-      version: '1',
+      version: '2',
       provider: null,
       consentBasis: 'LOOP_RECORDS',
       discover: async (now) => (await facts.organizationsWithWebsiteEvents(new Date(now.getTime() - 2 * WEEK))).map((id) => organizationTarget(id, 'WEBSITE')),
       async gather(target, now) {
         if (target.scope !== 'ORGANIZATION') return { status: 'NOT_PERMITTED', reason: 'ORGANIZATION_ONLY' };
         const since = new Date(now.getTime() - WEEK);
-        const bySource = [];
-        for (const r of readers) {
-          const week = await r.read(target.organizationId, since, now);
-          if (!week) continue;
-          bySource.push({ sourceId: r.sourceId, week, prior: await r.read(target.organizationId, new Date(since.getTime() - WEEK), since) });
-        }
-        if (bySource.length === 0) return { status: 'NO_EVIDENCE' };
-        return { status: 'READY', context: { bySource }, fingerprint: fingerprintOf('WEBSITE', [hourKey(now), bySource]) };
+        const week = await firstParty.read(target.organizationId, since, now);
+        if (!week) return { status: 'NO_EVIDENCE' };
+        const prior = await firstParty.read(target.organizationId, new Date(since.getTime() - WEEK), since);
+        const bySource = [{ sourceId: firstParty.sourceId, week, prior }];
+        const unconnected = coverage ? [...(await coverage.unconnectedSources(target.organizationId, now))] : [];
+        return { status: 'READY', context: { bySource, unconnected }, fingerprint: fingerprintOf('WEBSITE', [hourKey(now), bySource, unconnected]) };
       },
       rule: websiteRule,
-      model: organizationModelStage(AI_TASK_WEBSITE_DOMAIN_READING, { domainDescription: "the organization's website activity from its connected website sources", audience: 'ORGANIZATION', lookFor: ['whether visits and enquiries are rising or falling', 'enquiries without follow-through', 'which change matters most'] }),
+      model: organizationModelStage(AI_TASK_WEBSITE_DOMAIN_READING, { domainDescription: "the organization's website activity from Loop's own website events", audience: 'ORGANIZATION', lookFor: ['whether visits and enquiries are rising or falling', 'enquiries without follow-through', 'which change matters most'] }),
     },
     kit,
   );

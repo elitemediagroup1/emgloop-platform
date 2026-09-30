@@ -22,6 +22,7 @@
     "reconcile:provider-days": "tsx scripts/operations/reconcile-provider-days.ts",
     "declare:member-expectations": "tsx scripts/operations/declare-member-expectations.ts",
     "register:measurement-source": "tsx scripts/operations/register-measurement-source.ts",
+    "register:web-property": "tsx scripts/operations/register-web-property.ts",
     "declare:source-authority": "tsx scripts/operations/declare-measure-source-authority.ts",
     "correct:source-metric-definition": "tsx scripts/operations/correct-measurement-source-metric-definition.ts",
     "bootstrap:stage3": "tsx scripts/operations/bootstrap-stage3-production.ts",

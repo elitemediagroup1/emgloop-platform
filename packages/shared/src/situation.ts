@@ -16,6 +16,7 @@
 // PURE.
 
 import type { IntelligenceSignal } from './intelligence-contract';
+import { intelligenceStreamsOf } from './intelligence-registry';
 
 export const SITUATION_SOURCE = 'loop-situation';
 export const PRIVATE_SITUATION_SOURCE = 'loop-situation:private';
@@ -33,10 +34,12 @@ export const SITUATION_TEMPORAL_WINDOW_DAYS = 14;
 /** A cluster becomes a situation candidate only across at least this many domains. */
 export const SITUATION_MIN_DOMAINS = 2;
 /**
- * ...and it may reach synthesis only when its evidence rests on at least this many DISTINCT GOVERNED SOURCES
- * (the registered source ids its digests' provenance names). Two domains read from one source -- CallGrid and
- * Campaigns both read the one CALLGRID source (marketplace_calls) -- are two views of the same evidence, never
- * independent corroboration. A signal whose digest names no registered source contributes nothing here.
+ * ...and it may reach synthesis only when its evidence rests on at least this many DISTINCT UNDERLYING EVIDENCE
+ * STREAMS (2026-09-30; before, distinct source ids). A source is which system supplied a fact; a stream is which
+ * real-world events it observed (INTELLIGENCE_SOURCE_REGISTRY `stream`). Two domains read from one source --
+ * CallGrid and Campaigns both read CALLGRID -- are one stream; so are three systems that count the same website
+ * visits (Loop's own website events, Google Analytics, Microsoft Clarity). None of them is corroboration of the
+ * others. A signal whose source is unregistered, or that has none, contributes no stream (fail closed).
  */
 export const SITUATION_MIN_SOURCES = 2;
 export const SITUATION_MAX_SIGNALS = 16;
@@ -53,7 +56,7 @@ export type SituationVerificationState = (typeof SITUATION_VERIFICATION_STATES)[
 // temporal window of each other. A signal that names no entity joins nothing -- co-occurrence in time
 // alone is never a connection. A candidate must span at least SITUATION_MIN_DOMAINS domains (a single
 // domain's reading already says what its own signals mean). Each candidate also says which governed sources
-// its evidence rests on and whether that is INDEPENDENT (SITUATION_MIN_SOURCES distinct sources): a
+// its evidence rests on and whether that is INDEPENDENT (SITUATION_MIN_SOURCES distinct underlying streams, counted from its sources): a
 // same-source candidate is still returned -- diagnostics see it -- but only an independent one may reach
 // synthesis, and independent candidates are ranked first so same-source ones can never crowd them out.
 
@@ -89,10 +92,12 @@ export interface SituationClusterCandidate {
   readonly items: readonly SituationSignalInput[];
   readonly refs: readonly string[];
   readonly domains: readonly string[];
-  /** The distinct governed sources the kept signals rest on, sorted. */
+  /** The distinct governed sources the kept signals rest on, sorted: which systems supplied the evidence. */
   readonly sources: readonly string[];
+  /** The distinct underlying evidence streams those sources observe, sorted: what independence is counted over. */
+  readonly streams: readonly string[];
   /**
-   * EVIDENCE-SOURCE independence: at least SITUATION_MIN_SOURCES distinct governed sources -- the only kind of
+   * EVIDENCE independence: at least SITUATION_MIN_SOURCES distinct underlying evidence STREAMS -- the only kind of
    * candidate synthesis may read. Not to be confused with independent VERIFICATION (a different model provider
    * checking a synthesized situation, SituationVerificationState): that is a separate, later control, and a
    * source-independent situation with no second provider is still recorded, verification UNAVAILABLE.
@@ -161,7 +166,7 @@ export function clusterSituationSignals(
     // Keep each governed source's (and each domain's) strongest signal first, so the signal cap can never drop
     // the only evidence from a second source; then fill by strength.
     const first = new Map<string, SituationSignalInput>();
-    for (const g of ranked) for (const k of [...(g.sources ?? []).map((s) => `s:${s}`), `d:${g.domain}`]) if (!first.has(k)) first.set(k, g);
+    for (const g of ranked) for (const k of [...intelligenceStreamsOf(g.sources ?? []).map((t) => `t:${t}`), ...(g.sources ?? []).map((s) => `s:${s}`), `d:${g.domain}`]) if (!first.has(k)) first.set(k, g);
     const kept = [...new Set([...first.values(), ...ranked])].slice(0, SITUATION_MAX_SIGNALS).sort((a, b) => a.ref.localeCompare(b.ref));
     // The cluster's identity: the references its signals NAME whose entity is shared by more than one kept signal.
     // Named references, never the union-find root -- which root a component gets depends on which other links are
@@ -173,6 +178,7 @@ export function clusterSituationSignals(
     const basis = [...new Set(kept.flatMap((g) => g.signal.entities!).filter((e) => shared.has(find(e))))].sort();
     const refs = [...new Set(kept.flatMap((g) => g.signal.entities!))].sort();
     const sources = [...new Set(kept.flatMap((g) => g.sources ?? []))].sort();
+    const streams = intelligenceStreamsOf(sources);
     out.push({
       clusterBasis: basis.join('|'),
       fingerprintBasis: JSON.stringify(kept.map((g) => [g.ref, g.signal.kind, g.signal.statement, g.signal.severity ?? null, g.signal.metric?.value ?? null, g.coverage ?? null])),
@@ -180,7 +186,8 @@ export function clusterSituationSignals(
       refs,
       domains: [...new Set(kept.map((g) => g.domain))].sort(),
       sources,
-      sourceIndependent: sources.length >= SITUATION_MIN_SOURCES,
+      streams,
+      sourceIndependent: streams.length >= SITUATION_MIN_SOURCES,
       windowStart: Math.min(...kept.map((g) => g.at)),
       windowEnd: Math.max(...kept.map((g) => g.at)),
     });

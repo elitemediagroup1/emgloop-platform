@@ -114,15 +114,31 @@ test('Intake, People, Creators, Work and Website rules are writable organization
   assert.ok(website.signals.some((s) => s.key === 'website_events.sessions-change' && s.kind === 'RISK'));
 });
 
-test('Website is source-ready: a second connected source is read beside website events, and the reading names both sources', async () => {
-  const reader = (sourceId: string, sessions: number): WebsiteEvidenceReader => ({ sourceId, read: async () => ({ sessions }) });
-  const producer = websiteDomainProducer([reader('WEBSITE_EVENTS', 10), reader('SEARCH_CONSOLE_FUTURE', 50)], { organizationsWithWebsiteEvents: async () => [] } as never, { modelEnabled: () => false, reader: null, principalFor: async () => null });
-  const g = await producer.gather({ scope: 'ORGANIZATION', organizationId: 'o', domain: 'WEBSITE', subjectKind: 'DOMAIN', subjectRef: 'domain' }, NOW);
+test('website.domain@2 reads FIRST-PARTY evidence only: a disconnected source makes no observation, and absence is coverage, never performance', async () => {
+  const reader = (sourceId: string, sessions: number): WebsiteEvidenceReader => ({ sourceId, read: async () => ({ sessions, pageViews: sessions * 3 }) });
+  const facts = { organizationsWithWebsiteEvents: async () => [] } as never;
+  const kit = { modelEnabled: () => false, reader: null, principalFor: async () => null };
+  assert.throws(() => websiteDomainProducer(reader('GOOGLE_ANALYTICS', 50), null, facts, kit), /first-party website events only/);
+  const coverage = { unconnectedSources: async () => ['Google Analytics 4', 'Google Search Console', 'Bing Webmaster Tools', 'Microsoft Clarity'] };
+  const producer = websiteDomainProducer(reader('WEBSITE_EVENTS', 10), coverage, facts, kit);
+  assert.equal(producer.id, 'website.domain@2');
+  const target = { scope: 'ORGANIZATION', organizationId: 'o', domain: 'WEBSITE', subjectKind: 'DOMAIN', subjectRef: 'domain' } as const;
+  const g = await producer.gather(target, NOW);
   assert.equal(g.status, 'READY');
-  const read = await producer.read({ scope: 'ORGANIZATION', organizationId: 'o', domain: 'WEBSITE', subjectKind: 'DOMAIN', subjectRef: 'domain' }, (g as { context: never }).context, 'fp', NOW);
+  const read = await producer.read(target, (g as { context: never }).context, 'fp', NOW);
   assert.equal(read.status, 'READ');
-  const sources = (read as { digest: { provenance: { sources: { sourceId: string }[] } } }).digest.provenance.sources.map((s) => s.sourceId);
-  assert.deepEqual(sources, ['WEBSITE_EVENTS', 'SEARCH_CONSOLE_FUTURE']);
+  const digest = (read as { digest: { provenance: { sources: { sourceId: string }[] }; content: { signals: { key: string; evidenceRefs: string[] }[]; limitations: string[]; reading: { statement: string } } } }).digest;
+  assert.deepEqual(digest.provenance.sources.map((s) => s.sourceId), ['WEBSITE_EVENTS'], 'only the source that was read');
+  assert.ok(digest.content.signals.every((s) => s.evidenceRefs.every((r) => r.startsWith('website_events:'))), 'every figure cites first-party evidence');
+  assert.ok(digest.content.signals.some((s) => s.key === 'website_events.page_views'));
+  const text = JSON.stringify(digest.content.signals) + digest.content.reading.statement;
+  assert.doesNotMatch(text, /Google|Bing|Clarity|Search Console/, 'no signal or statement is about a source that was not read');
+  const limitation = digest.content.limitations.find((l) => l.startsWith('Not connected'));
+  assert.ok(limitation, 'the unconnected sources are named as coverage');
+  assert.match(limitation!, /Google Analytics 4/);
+  assert.doesNotMatch(limitation!, /\b(down|up|fell|rose|dropped|low|poor|decline)/i, 'absence of a connector is never a performance conclusion');
+  const none = websiteDomainProducer({ sourceId: 'WEBSITE_EVENTS', read: async () => null }, coverage, facts, kit);
+  assert.equal((await none.gather(target, NOW)).status, 'NO_EVIDENCE', 'no first-party evidence: no reading, whatever is declared');
 });
 
 test('the model stage: not activated = no call; activated without an acting principal = no call; activated with one = merged, rule MEASURED kept', async () => {

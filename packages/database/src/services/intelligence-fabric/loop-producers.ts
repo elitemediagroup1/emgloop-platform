@@ -34,7 +34,8 @@ import type { IntelligenceProducer } from './producer';
 import { calendarDomainProducer } from './domains/calendar';
 import { callgridDomainProducer, campaignsDomainProducer } from './domains/callgrid';
 import { mailDomainProducer, mailThreadProducer, type MailProducerPorts } from './domains/mail';
-import { creatorsDomainProducer, crmDomainProducer, myWorkProducer, pipelineDomainProducer, websiteDomainProducer, websiteEventsReader, workDomainProducer, type WebsiteEvidenceReader } from './domains/records';
+import { creatorsDomainProducer, crmDomainProducer, myWorkProducer, pipelineDomainProducer, websiteDomainProducer, websiteEventsReader, workDomainProducer } from './domains/records';
+import { websiteCoveragePort } from './website-coverage';
 
 /** `orgA=user1,orgB=user2` -> a map. Malformed pairs are dropped, never guessed. */
 export function parseActingUsers(raw: string | undefined | null): ReadonlyMap<string, string> {
@@ -66,8 +67,6 @@ export interface LoopProducerPorts {
   readonly now: () => Date;
   /** Present only where the person's Gmail can be read through (the runner, not the worker). */
   readonly mail?: Omit<MailProducerPorts, 'prisma' | 'modelEnabled' | 'now'>;
-  /** Additional connected website evidence sources; Loop's own website events are always read. */
-  readonly websiteReaders?: readonly WebsiteEvidenceReader[];
 }
 
 export function loopProducers(ports: LoopProducerPorts): IntelligenceProducer<any>[] {
@@ -94,7 +93,7 @@ export function loopProducers(ports: LoopProducerPorts): IntelligenceProducer<an
     creatorsDomainProducer(roster, facts, kit),
     workDomainProducer(facts, kit),
     myWorkProducer(facts, kit),
-    websiteDomainProducer([websiteEventsReader(new WebsiteAnalyticsRepository(ports.prisma)), ...(ports.websiteReaders ?? [])], facts, kit),
+    websiteDomainProducer(websiteEventsReader(new WebsiteAnalyticsRepository(ports.prisma)), websiteCoveragePort(ports.prisma), facts, kit),
   ];
   if (ports.mail) {
     const mail: MailProducerPorts = { ...ports.mail, prisma: ports.prisma, modelEnabled: ports.modelEnabled, now: ports.now };

@@ -50,7 +50,6 @@ export type {
   AnalyticsDimension,
 } from './interfaces/analytics.provider';
 export { MockIngestionProvider } from './mocks/ingestion.mock';
-export { MockAnalyticsProvider } from './mocks/analytics.mock';
 
 // Sprint 11 — First Live Integration (CallGrid).
 import { CallGridProvider } from './adapters/callgrid.provider';
@@ -98,9 +97,8 @@ export {
   WebsiteProvider,
   mapWebsiteEventType,
   WEBSITE_EVENT_MAP,
-  WEBSITE_PROPERTIES,
+  websiteEventExternalId,
 } from './adapters/website.provider';
-export type { WebsiteProperty } from './adapters/website.provider';
 
 /**
  * Register the CallGrid adapter into the provider registry (idempotent). Call

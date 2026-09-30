@@ -230,7 +230,10 @@ test('the source registry: every source feeds registered domains in a scope thos
     if (s.scopes.includes('PRINCIPAL') && !s.scopes.includes('ORGANIZATION')) {
       assert.ok(s.domains.every((d) => PRIVATE_INTELLIGENCE_DOMAINS.includes(d)), `${s.sourceId} is private and feeds only private domains`);
     }
-    if (s.scopes.includes('ORGANIZATION')) assert.equal(s.basis, 'LOOP_RECORDS', `${s.sourceId} organization evidence is Loop's own records`);
+    // Organization evidence is Loop's own records, or (2026-09-30) Loop's governed copy of an external system the
+    // ORGANIZATION connected -- never a person's grant.
+    if (s.scopes.includes('ORGANIZATION')) assert.ok(s.basis === 'LOOP_RECORDS' || s.basis === 'ORGANIZATION_CONNECTION', `${s.sourceId} organization evidence is Loop's records or an organization connection`);
+    if (s.basis === 'ORGANIZATION_CONNECTION') assert.deepEqual([...s.scopes], ['ORGANIZATION'], `${s.sourceId} an organization connection is organization evidence only`);
   }
   // Every domain has at least one source.
   for (const d of INTELLIGENCE_DOMAINS) assert.ok(INTELLIGENCE_SOURCE_REGISTRY.some((s) => s.domains.includes(d)), `${d} has a source`);

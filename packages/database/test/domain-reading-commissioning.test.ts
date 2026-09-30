@@ -92,7 +92,7 @@ async function domain(name: string, kit: DomainKitPorts) {
     case 'WORK':
       return { p: workDomainProducer(facts, kit), target: org('WORK'), ctx: { activeInstances: 5, openStages: 9, unassigned: 2, overdue: 1, dueSoon: 2, pastReturn: 1, completed7d: 4, completedPrior7d: 10, overdueInstanceIds: ['w1'], pastReturnInstanceIds: ['w2'], personal: false } as never, ref: 'work_stages:open', entity: 'work_instance:w1' };
     case 'WEBSITE':
-      return { p: websiteDomainProducer([], facts, kit), target: org('WEBSITE'), ctx: { bySource: [{ sourceId: 'WEBSITE_EVENTS', week: { sessions: 120, formSubmits: 3, appointmentRequests: 1 }, prior: { sessions: 200, formSubmits: 3, appointmentRequests: 1 } }] } as never, ref: 'website_events:7d', entity: null };
+      return { p: websiteDomainProducer({ sourceId: 'WEBSITE_EVENTS', read: async () => null }, null, facts, kit), target: org('WEBSITE'), ctx: { bySource: [{ sourceId: 'WEBSITE_EVENTS', week: { sessions: 120, formSubmits: 3, appointmentRequests: 1 }, prior: { sessions: 200, formSubmits: 3, appointmentRequests: 1 } }] } as never, ref: 'website_events:7d', entity: null };
     default:
       throw new Error(name);
   }

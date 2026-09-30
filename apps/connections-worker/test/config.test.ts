@@ -109,3 +109,11 @@ test('Chats Intelligence hydration bounds: defaults 5 calls / 5 min / reserve 20
   assert.equal(junk.hydrationConversationsPerSweep, 5, 'unreadable -> default');
   assert.equal(junk.hydrationBudgetReserve, 20, 'zero is not a reserve -> default');
 });
+
+test('LOOP_WEBSITE_TELEMETRY_RETENTION: off unless exactly "on" (the raw website telemetry purge is not active by default)', () => {
+  assert.equal(withEnv({}, () => readWorkerConfig()).websiteTelemetryRetention, false);
+  for (const v of ['', 'true', '1', 'yes', 'ON ']) {
+    assert.equal(withEnv({ LOOP_WEBSITE_TELEMETRY_RETENTION: v }, () => readWorkerConfig()).websiteTelemetryRetention, v.trim().toLowerCase() === 'on', JSON.stringify(v));
+  }
+  assert.equal(withEnv({ LOOP_WEBSITE_TELEMETRY_RETENTION: 'on' }, () => readWorkerConfig()).websiteTelemetryRetention, true);
+});

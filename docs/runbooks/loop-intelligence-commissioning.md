@@ -94,7 +94,7 @@ Set `CONNECTIONS_<STAGE>_INTELLIGENCE_PRODUCERS` to any of:
 
 ```
 calendar.domain@1, callgrid.domain@1, campaigns.domain@1, pipeline.domain@2, crm.domain@1,
-creators.domain@1, work.domain@1, work.mine@1, website.domain@1
+creators.domain@1, work.domain@1, work.mine@1, website.domain@2
 ```
 
 The worker then runs a pass every 15 minutes: discover, enqueue, and read. A target is skipped when its

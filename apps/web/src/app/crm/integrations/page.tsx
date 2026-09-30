@@ -77,7 +77,7 @@ export default async function IntegrationOsPage() {
   const { cards, health } = result.data;
   const groups: { label: string; ids: string[] }[] = [
     { label: 'Ingestion', ids: ['callgrid', 'website'] },
-    { label: 'Analytics & Advertising', ids: ['ga4', 'google_ads', 'google_search_console', 'microsoft_clarity', 'meta'] },
+    { label: 'Analytics & Advertising', ids: ['ga4', 'google_search_console', 'bing_webmaster', 'microsoft_clarity', 'meta'] },
     { label: 'Messaging & AI', ids: ['twilio', 'openai', 'anthropic', 'elevenlabs'] },
   ];
 

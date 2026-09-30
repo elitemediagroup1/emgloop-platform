@@ -12,7 +12,9 @@
 // relationships, stable vs label-only CallGrid members, nameable records, and potential cross-domain
 // components today and with the proposed link projector, with and without two distinct sources). It writes
 // nothing and creates no link; and what the Pipeline reading is counting (status, provenance with its basis,
-// human work, the lastSeenAt clock, the Slice 1 cutoff, real activity of stalled records) -- no retry, no purge, no stale
+// human work, the lastSeenAt clock, the Slice 1 cutoff, real activity of stalled records); and the organization's
+// website evidence (registered properties and bindings as counts, governed events by class, refusal counters,
+// and each declared website source's connection state and newest window) -- no retry, no purge, no stale
 // transition: the reader is built on a client that can only read
 // (`readOnlyClient`), and nothing here names a write.
 //
@@ -26,7 +28,17 @@
 // NO SCHEDULE, NO PUSH, NO PULL_REQUEST, NO WORKFLOW_CALL. Reading production is still touching
 // production, and a human should be the one asking.
 
-import type { IntelligenceState, PipelineComposition, ReadingState, SituationConnectivity, SituationDiagnosis } from '@emgloop/database';
+import type { IntelligenceState, PipelineComposition, ReadingState, SituationConnectivity, SituationDiagnosis, WebsiteEvidenceState } from '@emgloop/database';
+import {
+  INTELLIGENCE_EVIDENCE_STREAMS,
+  ORGANIZATION_CONNECTION_STATES,
+  SOURCE_WINDOW_FINALITIES,
+  WEB_PROPERTY_LIFECYCLES,
+  WEBSITE_COVERAGE_VERDICTS,
+  WEBSITE_EVENT_CLASSES,
+  WEBSITE_INGEST_REFUSALS,
+  intelligenceSourceEntry,
+} from '@emgloop/shared';
 import { SLICE1_MERGED_AT } from './read-people-population';
 import { employeeRef } from './cycle-employee-sources';
 
@@ -59,6 +71,12 @@ export interface IntelligenceStateDeps {
    * (IntelligenceReadingStateRepository on the read-only client). Absent: not printed.
    */
   readings?: (organizationId: string, since: Date, now: Date) => Promise<ReadingState>;
+  /**
+   * The organization's website evidence (WebsiteEvidenceStateRepository on the read-only client): property
+   * counts and binding counts, governed events by class, refusal counters, and per declared website source
+   * its connection state and newest window. Counts and codes only. Absent: not printed.
+   */
+  website?: (organizationId: string, since: Date, now: Date) => Promise<WebsiteEvidenceState>;
   now: () => Date;
   log: (line: string) => void;
 }
@@ -86,6 +104,12 @@ function line(fields: Record<string, Field>): string {
 }
 
 const iso = (d: Date | null): string | null => (d ? d.toISOString() : null);
+
+/** A value printed only when it is a member of a closed vocabulary; anything else is UNRECOGNIZED. */
+function inVocabulary(value: string | null | undefined, vocabulary: readonly string[]): string | null {
+  if (value === null || value === undefined || value === '') return null;
+  return vocabulary.includes(value) ? value : 'UNRECOGNIZED';
+}
 
 /** A value printed only when it is a code token. Never free text. */
 export function token(value: string | null | undefined): string | null {
@@ -310,7 +334,7 @@ export async function runIntelligenceState(
       reason: token(d.reason),
       modelCalls: 0,
     }));
-    for (const g of d.composition) deps.log(line({ event: 'SITUATION_PASS_COMPOSITION', domains: list(g.domains)?.replace(/,/g, '+') ?? null, sources: list(g.sources)?.replace(/,/g, '+') ?? null, count: g.count, sourceIndependent: g.sourceIndependent }));
+    for (const g of d.composition) deps.log(line({ event: 'SITUATION_PASS_COMPOSITION', domains: list(g.domains)?.replace(/,/g, '+') ?? null, sources: list(g.sources)?.replace(/,/g, '+') ?? null, streams: list(g.streams ?? [])?.replace(/,/g, '+') ?? null, count: g.count, sourceIndependent: g.sourceIndependent }));
   }
 
   // 10. What the organization could legitimately connect -- counts and codes; no link is created.
@@ -333,7 +357,7 @@ export async function runIntelligenceState(
     // Both from the real clusterer over the pass's own eligible signals: kind, window and sources applied.
     for (const [scenario, p] of [['CURRENT', c.current], ['PROJECTOR', c.projector]] as const) {
       for (const grp of p.composition) {
-        deps.log(line({ event: 'SITUATION_POTENTIAL_GROUP', scenario, domains: joined(grp.domains), sources: joined(grp.sources), count: grp.count, sourceIndependent: grp.sourceIndependent }));
+        deps.log(line({ event: 'SITUATION_POTENTIAL_GROUP', scenario, domains: joined(grp.domains), sources: joined(grp.sources), streams: joined(grp.streams ?? []), count: grp.count, sourceIndependent: grp.sourceIndependent }));
       }
       deps.log(line({ event: 'SITUATION_POTENTIAL', scenario, crossDomain: p.crossDomain, sourceIndependent: p.sourceIndependent, eliminatedSameSource: p.eliminatedSameSource }));
     }
@@ -415,6 +439,50 @@ export async function runIntelligenceState(
     deps.log(line({ event: 'PIPELINE_COMPOSITION_SUMMARY', records: p.records, complete: p.complete, bounded: !p.complete, incomplete: p.incomplete.length ? p.incomplete.map((c) => token(c)).join(',') : null }));
   }
 
+  // 13. Website evidence -- counts and codes only: never a property key, domain, URL, path, visitor or payload.
+  if (deps.website) {
+    const w = await deps.website(org.id, window.since, now);
+    const p = w.properties;
+    deps.log(line({
+      event: 'WEBSITE_PROPERTY',
+      registered: p.total,
+      ...Object.fromEntries(WEB_PROPERTY_LIFECYCLES.map((l) => [l, p.byLifecycle[l] ?? 0])),
+      unrecognized: p.unrecognized,
+      ga4Bound: p.ga4Bound,
+      searchConsoleBound: p.searchConsoleBound,
+      bingBound: p.bingBound,
+      clarityBound: p.clarityBound,
+    }));
+    // Each admission state, stated separately. KNOWN_NOT_LIVE is expected to be quiet -- never a gap. An
+    // UNREGISTERED property has no organization; its refusals are logged by the webhook and are not durable here.
+    for (const state of ['KNOWN_NOT_LIVE', 'LIVE_INGESTING', 'LIVE_INGESTION_DISABLED'] as const) {
+      deps.log(line({ event: 'WEBSITE_PROPERTY_STATE', state, count: p.byAdmission[state] ?? 0, gap: false }));
+    }
+    deps.log(line({ event: 'WEBSITE_PROPERTY_STATE', state: 'UNREGISTERED', count: 'NOT_DURABLE', gap: false }));
+    deps.log(line({ event: 'WEBSITE_EVENTS', since: iso(window.since), total: w.events.total, ...Object.fromEntries(Object.entries(w.events.byClass).map(([k, v]) => [inVocabulary(k, WEBSITE_EVENT_CLASSES) ?? 'UNRECOGNIZED', v])), newestAt: iso(w.events.newestAt) }));
+    // Refusals an organization can be charged with. An UNREGISTERED property has no organization: those are
+    // logged by the webhook as codes and are not durable here.
+    deps.log(line({ event: 'WEBSITE_REFUSALS', connection: w.refusals ? 'PRESENT' : 'ABSENT', ...Object.fromEntries(Object.entries(w.refusals ?? {}).map(([k, v]) => [inVocabulary(k, WEBSITE_INGEST_REFUSALS) ?? 'UNRECOGNIZED', v])), unregistered: 'NOT_DURABLE' }));
+    for (const s of w.sources) {
+      deps.log(line({
+        event: 'SOURCE_COVERAGE',
+        source: intelligenceSourceEntry(s.sourceId) ? s.sourceId : 'UNRECOGNIZED',
+        stream: inVocabulary(s.stream, INTELLIGENCE_EVIDENCE_STREAMS),
+        basis: inVocabulary(s.basis, ['LOOP_RECORDS', 'ORGANIZATION_CONNECTION']),
+        declared: 'DECLARED',
+        connection: inVocabulary(s.connection, ORGANIZATION_CONNECTION_STATES),
+        coverage: inVocabulary(s.coverage, WEBSITE_COVERAGE_VERDICTS),
+        newest: iso(s.newestWindowEnd),
+        finality: inVocabulary(s.finality, SOURCE_WINDOW_FINALITIES),
+        sampled: s.sampled,
+        thresholded: s.thresholded,
+        rolledUp: s.rolledUp,
+        truncated: s.truncated,
+        quota: 'NOT_TRACKED',
+      }));
+    }
+  }
+
   deps.log(line({
     event: 'SUMMARY',
     cases: state.cases.rows.length,
@@ -442,7 +510,7 @@ async function main(): Promise<number> {
     return 2;
   }
 
-  const { prisma, readOnlyClient, IntelligenceStateRepository, SituationService, PipelineCompositionRepository, IntelligenceReadingStateRepository } = await import('@emgloop/database');
+  const { prisma, readOnlyClient, IntelligenceStateRepository, SituationService, PipelineCompositionRepository, IntelligenceReadingStateRepository, WebsiteEvidenceStateRepository } = await import('@emgloop/database');
   try {
     // The reader gets a client that can only read. Its own `$disconnect` stays with this wiring.
     const reader = new IntelligenceStateRepository(readOnlyClient(prisma));
@@ -454,7 +522,9 @@ async function main(): Promise<number> {
     const pipeline = (organizationId: string, slice1At: Date) => composition.read(organizationId, new Date(), slice1At);
     const readingState = new IntelligenceReadingStateRepository(readOnlyClient(prisma));
     const readings = (organizationId: string, since: Date, now: Date) => readingState.read(organizationId, since, now);
-    const result = await runIntelligenceState({ organizationSlug: args.organization, since: args.since }, { reader, situations, connectivity, pipeline, readings, now: () => new Date(), log });
+    const websiteState = new WebsiteEvidenceStateRepository(readOnlyClient(prisma));
+    const website = (organizationId: string, since: Date, now: Date) => websiteState.read(organizationId, since, now);
+    const result = await runIntelligenceState({ organizationSlug: args.organization, since: args.since }, { reader, situations, connectivity, pipeline, readings, website, now: () => new Date(), log });
     return result.overall === 'READ' ? 0 : 1;
   } finally {
     await prisma.$disconnect();

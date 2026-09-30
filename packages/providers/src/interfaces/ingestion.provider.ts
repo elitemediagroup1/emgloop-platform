@@ -1,8 +1,9 @@
 // IngestionProvider — Sprint 10 (Loop Intelligence Foundation).
 //
-// Provider-agnostic interface for external event ingestion sources.
-// CallGrid, Google Analytics, Google Ads, Search Console, Microsoft Clarity,
-// Stripe, Twilio, Telnyx, Postmark — all implement this interface.
+// Provider-agnostic interface for external EVENT ingestion sources -- today
+// CallGrid and Loop's own website events implement it. Aggregate analytics
+// sources (GA4, Search Console, Bing Webmaster, Clarity) are not event streams
+// and use AnalyticsProvider instead.
 // No vendor SDK is imported here. The interface defines the contract only.
 
 

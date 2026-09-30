@@ -196,7 +196,7 @@ const DIAGNOSIS = {
   signals: 9, clusterableSignals: 3, excluded: { kind: { OPERATIONAL: 5 }, noEntity: 1 }, clusterableDomains: ['CALLGRID', 'CAMPAIGNS'],
   entityRefs: 3, explicitLinks: 1, projectedLinks: 2, projection: [{ linkClass: 'CUSTOMER_PARTY', records: 1, links: 1, rejected: {} }], sharedAcrossDomains: 1,
   clusters: 1, sourceIndependentClusters: 0, eliminatedSameSource: 1,
-  composition: [{ domains: ['CALLGRID', 'CAMPAIGNS'], sources: ['CALLGRID'], count: 1, sourceIndependent: false }],
+  composition: [{ domains: ['CALLGRID', 'CAMPAIGNS'], sources: ['CALLGRID'], streams: ['CALLS'], count: 1, sourceIndependent: false }],
   unchanged: 0, wouldSynthesize: 0, reason: 'NO_INDEPENDENT_SOURCES',
 } as const;
 
@@ -212,7 +212,7 @@ test('the situation pass diagnosis prints counts and codes only, for the request
     'event=SITUATION_EXCLUDED basis=KIND kind=OPERATIONAL count=5',
     'event=SITUATION_EXCLUDED basis=NO_ENTITY kind=- count=1',
     'event=SITUATION_PASS scope=ORGANIZATION selected=true digests=3 eligibleDigests=3 eligibleDomains=CALLGRID,CAMPAIGNS,PIPELINE signals=9 clusterableSignals=3 clusterableDomains=CALLGRID,CAMPAIGNS entityRefs=3 explicitLinks=1 projectedLinks=2 sharedAcrossDomains=1 clusters=1 sourceIndependentClusters=0 eliminatedSameSource=1 unchanged=0 wouldSynthesize=0 reason=NO_INDEPENDENT_SOURCES modelCalls=0',
-    'event=SITUATION_PASS_COMPOSITION domains=CALLGRID+CAMPAIGNS sources=CALLGRID count=1 sourceIndependent=false',
+    'event=SITUATION_PASS_COMPOSITION domains=CALLGRID+CAMPAIGNS sources=CALLGRID streams=CALLS count=1 sourceIndependent=false',
   ]);
   // Absent (a reader without it): the section is simply not printed.
   const x = await world();
@@ -222,12 +222,12 @@ test('the situation pass diagnosis prints counts and codes only, for the request
 
 test('the diagnosis cannot leak: a code field carrying text prints UNRECOGNIZED; ids and statements never appear', async () => {
   const w = await world();
-  const hostile = { ...DIAGNOSIS, eligibleDomains: ['CALLGRID', 'provider member Acme Insurance Group'], ineligible: { 'org_live_1 said no': 1 }, excluded: { kind: { 'Please call me': 2 }, noEntity: 0 }, composition: [{ domains: ['CAMPAIGNS', 'party p1 Dana'], sources: ['dana@acme.test'], count: 1, sourceIndependent: false }], reason: 'Acme Insurance Group' };
+  const hostile = { ...DIAGNOSIS, eligibleDomains: ['CALLGRID', 'provider member Acme Insurance Group'], ineligible: { 'org_live_1 said no': 1 }, excluded: { kind: { 'Please call me': 2 }, noEntity: 0 }, composition: [{ domains: ['CAMPAIGNS', 'party p1 Dana'], sources: ['dana@acme.test'], streams: ['jane@acme.test'], count: 1, sourceIndependent: false }], reason: 'Acme Insurance Group' };
   await runIntelligenceState({ organizationSlug: 'servicesinmycity-demo', since: '' }, { ...w.deps, situations: async () => hostile as never });
   const text = w.out.join('\n');
   for (const secret of ['Acme', 'org_live_1', 'Please call me', 'Dana', 'dana@', w.matt.id]) assert.equal(text.includes(secret), false, secret);
   assert.match(text, /eligibleDomains=CALLGRID,UNRECOGNIZED/);
-  assert.match(text, /SITUATION_PASS_COMPOSITION domains=CAMPAIGNS\+UNRECOGNIZED sources=UNRECOGNIZED count=1 sourceIndependent=false/);
+  assert.match(text, /SITUATION_PASS_COMPOSITION domains=CAMPAIGNS\+UNRECOGNIZED sources=UNRECOGNIZED streams=UNRECOGNIZED count=1 sourceIndependent=false/);
   assert.match(text, /reason=UNRECOGNIZED modelCalls=0/);
 });
 
@@ -257,12 +257,12 @@ const CONNECTIVITY = {
     crm: { established: 40, newlyEstablished7d: 2, nameable: 2, awaitingDecision: 7 },
     bounded: false,
   },
-  current: { crossDomain: 1, sourceIndependent: 0, eliminatedSameSource: 1, composition: [{ domains: ['CALLGRID', 'CAMPAIGNS'], sources: ['CALLGRID'], count: 1, sourceIndependent: false }] },
+  current: { crossDomain: 1, sourceIndependent: 0, eliminatedSameSource: 1, composition: [{ domains: ['CALLGRID', 'CAMPAIGNS'], sources: ['CALLGRID'], streams: ['CALLS'], count: 1, sourceIndependent: false }] },
   projector: {
     crossDomain: 2, sourceIndependent: 1, eliminatedSameSource: 1,
     composition: [
-      { domains: ['CREATORS', 'PIPELINE'], sources: ['LOOP_CREATORS', 'LOOP_INTAKE'], count: 1, sourceIndependent: true },
-      { domains: ['CALLGRID', 'CAMPAIGNS'], sources: ['CALLGRID'], count: 1, sourceIndependent: false },
+      { domains: ['CREATORS', 'PIPELINE'], sources: ['LOOP_CREATORS', 'LOOP_INTAKE'], streams: ['CREATOR_RECORDS', 'INTAKE_RECORDS'], count: 1, sourceIndependent: true },
+      { domains: ['CALLGRID', 'CAMPAIGNS'], sources: ['CALLGRID'], streams: ['CALLS'], count: 1, sourceIndependent: false },
     ],
   },
 } as const;
@@ -279,10 +279,10 @@ test('connectivity prints governed relationships, member identity, nameable reco
     'event=SITUATION_MEMBERS provider=CALLGRID dimension=buyer windowDays=14 stableExternalId=3 labelOnly=0 labelOnlyNamedAsRef=0 unattributedCalls=9',
     'event=SITUATION_NAMEABLE domain=PIPELINE kind=customer working=12 stalled=5 nameable=5',
     'event=SITUATION_NAMEABLE domain=CRM kind=party established=40 newlyEstablished7d=2 nameable=2 awaitingDecision=7',
-    'event=SITUATION_POTENTIAL_GROUP scenario=CURRENT domains=CALLGRID+CAMPAIGNS sources=CALLGRID count=1 sourceIndependent=false',
+    'event=SITUATION_POTENTIAL_GROUP scenario=CURRENT domains=CALLGRID+CAMPAIGNS sources=CALLGRID streams=CALLS count=1 sourceIndependent=false',
     'event=SITUATION_POTENTIAL scenario=CURRENT crossDomain=1 sourceIndependent=0 eliminatedSameSource=1',
-    'event=SITUATION_POTENTIAL_GROUP scenario=PROJECTOR domains=CREATORS+PIPELINE sources=LOOP_CREATORS+LOOP_INTAKE count=1 sourceIndependent=true',
-    'event=SITUATION_POTENTIAL_GROUP scenario=PROJECTOR domains=CALLGRID+CAMPAIGNS sources=CALLGRID count=1 sourceIndependent=false',
+    'event=SITUATION_POTENTIAL_GROUP scenario=PROJECTOR domains=CREATORS+PIPELINE sources=LOOP_CREATORS+LOOP_INTAKE streams=CREATOR_RECORDS+INTAKE_RECORDS count=1 sourceIndependent=true',
+    'event=SITUATION_POTENTIAL_GROUP scenario=PROJECTOR domains=CALLGRID+CAMPAIGNS sources=CALLGRID streams=CALLS count=1 sourceIndependent=false',
     'event=SITUATION_POTENTIAL scenario=PROJECTOR crossDomain=2 sourceIndependent=1 eliminatedSameSource=1',
     'event=SITUATION_CONNECTIVITY_SUMMARY bounded=false linksCreated=0 modelCalls=0',
   ]);
@@ -625,4 +625,76 @@ test('telegram triage repetition, latency and content holds print as counts and 
     'event=AI_TASK_LATENCY task=telegram.content.triage outcome=FAILED count=21 p50Ms=20000 p95Ms=20003 maxMs=20010',
     'event=CONTENT_HOLD provider=TELEGRAM failureClass=REFUSED_BY_LOOP:BUDGET_TASK_EXHAUSTED authorizations=1 backingOff=0',
   ]);
+});
+
+// --- Website evidence (2026-09-30): counts and codes only; the four external sources are NOT_CONNECTED ------
+
+const WEBSITE_STATE = {
+  properties: {
+    total: 17,
+    byLifecycle: { OWNED: 12, BUILDING: 2, LIVE: 2, PAUSED: 1, RETIRED: 0 },
+    byAdmission: { KNOWN_NOT_LIVE: 15, LIVE_INGESTING: 1, LIVE_INGESTION_DISABLED: 1 },
+    unrecognized: 0,
+    ga4Bound: 1, searchConsoleBound: 0, bingBound: 0, clarityBound: 0,
+  },
+  events: { total: 40, byClass: { PAGE_VIEW: 20, SESSION: 6, ENGAGEMENT: 4, INTENT: 2, TELEMETRY: 8, OTHER: 0 }, newestAt: new Date('2026-09-19T18:00:00Z') },
+  refusals: { DOMAIN_NOT_ALLOWED: 2, PROPERTY_MISMATCH: 1 },
+  sources: [
+    { sourceId: 'WEBSITE_EVENTS', stream: 'SITE_VISITS', basis: 'LOOP_RECORDS', connection: 'CONNECTED', coverage: 'COVERED', newestWindowEnd: new Date('2026-09-19T18:00:00Z'), finality: null, sampled: null, thresholded: null, rolledUp: null, truncated: null },
+    { sourceId: 'GOOGLE_ANALYTICS', stream: 'SITE_VISITS', basis: 'ORGANIZATION_CONNECTION', connection: 'NOT_CONNECTED', coverage: 'GAP_NOT_CONNECTED', newestWindowEnd: null, finality: null, sampled: null, thresholded: null, rolledUp: null, truncated: null },
+    { sourceId: 'MICROSOFT_CLARITY', stream: 'SITE_VISITS', basis: 'ORGANIZATION_CONNECTION', connection: 'NOT_CONNECTED', coverage: 'GAP_NOT_CONNECTED', newestWindowEnd: null, finality: null, sampled: null, thresholded: null, rolledUp: null, truncated: null },
+    { sourceId: 'GOOGLE_SEARCH_CONSOLE', stream: 'SEARCH_GOOGLE', basis: 'ORGANIZATION_CONNECTION', connection: 'NOT_CONNECTED', coverage: 'GAP_NOT_CONNECTED', newestWindowEnd: null, finality: null, sampled: null, thresholded: null, rolledUp: null, truncated: null },
+    { sourceId: 'BING_WEBMASTER', stream: 'SEARCH_BING', basis: 'ORGANIZATION_CONNECTION', connection: 'NOT_CONNECTED', coverage: 'GAP_NOT_CONNECTED', newestWindowEnd: null, finality: null, sampled: null, thresholded: null, rolledUp: null, truncated: null },
+  ],
+};
+
+test('25: website evidence prints WEBSITE_PROPERTY / WEBSITE_EVENTS / WEBSITE_REFUSALS / SOURCE_COVERAGE -- counts and codes only', async () => {
+  const w = await world();
+  const out: string[] = [];
+  const asked: string[] = [];
+  await runIntelligenceState({ organizationSlug: 'servicesinmycity-demo', since: '' }, { ...w.deps, log: (l) => void out.push(l), website: async (organizationId) => (asked.push(organizationId), WEBSITE_STATE as never) });
+  assert.deepEqual(asked, ['org_live_1']);
+  const lines = out.filter((l) => /event=(WEBSITE_|SOURCE_COVERAGE)/.test(l));
+  assert.ok(lines.includes('event=WEBSITE_PROPERTY registered=17 OWNED=12 BUILDING=2 LIVE=2 PAUSED=1 RETIRED=0 unrecognized=0 ga4Bound=1 searchConsoleBound=0 bingBound=0 clarityBound=0'));
+  // The four states the registry distinguishes, each stated -- a known, not-live property is never a gap.
+  assert.ok(lines.includes('event=WEBSITE_PROPERTY_STATE state=KNOWN_NOT_LIVE count=15 gap=false'));
+  assert.ok(lines.includes('event=WEBSITE_PROPERTY_STATE state=LIVE_INGESTING count=1 gap=false'));
+  assert.ok(lines.includes('event=WEBSITE_PROPERTY_STATE state=LIVE_INGESTION_DISABLED count=1 gap=false'));
+  assert.ok(lines.includes('event=WEBSITE_PROPERTY_STATE state=UNREGISTERED count=NOT_DURABLE gap=false'));
+  assert.ok(lines.some((l) => l.startsWith('event=WEBSITE_EVENTS ') && l.includes('total=40 PAGE_VIEW=20 SESSION=6 ENGAGEMENT=4 INTENT=2 TELEMETRY=8 OTHER=0')));
+  assert.ok(lines.includes('event=WEBSITE_REFUSALS connection=PRESENT DOMAIN_NOT_ALLOWED=2 PROPERTY_MISMATCH=1 unregistered=NOT_DURABLE'));
+  for (const id of ['GOOGLE_ANALYTICS', 'MICROSOFT_CLARITY', 'GOOGLE_SEARCH_CONSOLE', 'BING_WEBMASTER']) {
+    assert.ok(lines.some((l) => l.startsWith(`event=SOURCE_COVERAGE source=${id} `) && l.includes('declared=DECLARED connection=NOT_CONNECTED coverage=GAP_NOT_CONNECTED newest=- finality=-')), id);
+  }
+  assert.ok(lines.some((l) => l.startsWith('event=SOURCE_COVERAGE source=WEBSITE_EVENTS stream=SITE_VISITS') && l.includes('connection=CONNECTED')));
+});
+
+test('25: website diagnostics cannot leak -- hostile values print UNRECOGNIZED, never themselves', async () => {
+  const w = await world();
+  const out: string[] = [];
+  const hostile = {
+    ...WEBSITE_STATE,
+    refusals: { 'jane@example.com': 1, 'https://site.example/?q=x': 2 },
+    sources: [{ ...WEBSITE_STATE.sources[1]!, sourceId: 'pk_emg_secret', stream: 'dana@acme.test', connection: 'token abc' as never, coverage: 'jane@x' as never, finality: '/p?email=x' }],
+  };
+  await runIntelligenceState({ organizationSlug: 'servicesinmycity-demo', since: '' }, { ...w.deps, log: (l) => void out.push(l), website: async () => hostile as never });
+  const text = out.filter((l) => /event=(WEBSITE_|SOURCE_COVERAGE)/.test(l)).join('\n');
+  assert.doesNotMatch(text, /jane|example|pk_emg|dana|acme|token abc|email=/);
+  assert.match(text, /source=UNRECOGNIZED stream=UNRECOGNIZED/);
+});
+
+test('a registry of known, not-live properties prints NOT_APPLICABLE coverage -- never a NOT_CONNECTED gap', async () => {
+  const w = await world();
+  const out: string[] = [];
+  const quiet = {
+    ...WEBSITE_STATE,
+    properties: { ...WEBSITE_STATE.properties, byLifecycle: { OWNED: 16, BUILDING: 1, LIVE: 0, PAUSED: 0, RETIRED: 0 }, byAdmission: { KNOWN_NOT_LIVE: 17, LIVE_INGESTING: 0, LIVE_INGESTION_DISABLED: 0 } },
+    events: { ...WEBSITE_STATE.events, total: 0, newestAt: null },
+    sources: WEBSITE_STATE.sources.map((s) => ({ ...s, connection: 'NOT_CONNECTED', coverage: 'NOT_APPLICABLE' })),
+  };
+  await runIntelligenceState({ organizationSlug: 'servicesinmycity-demo', since: '' }, { ...w.deps, log: (l) => void out.push(l), website: async () => quiet as never });
+  const coverage = out.filter((l) => l.startsWith('event=SOURCE_COVERAGE'));
+  assert.equal(coverage.length, 5);
+  assert.ok(coverage.every((l) => l.includes('coverage=NOT_APPLICABLE')));
+  assert.equal(out.some((l) => /GAP_/.test(l)), false);
 });

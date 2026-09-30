@@ -424,7 +424,7 @@ test('DIAGNOSIS: counts and the first gate that stops the pass -- NO_SHARED_ENTI
     assert.equal((await links.declare({ scope: 'ORGANIZATION', organizationId: orgA }, { fromRef: BUYER, toRef: CAMPAIGN, relation: 'PART_OF', basis: 'RULE', source: 'diag-test', effectiveFrom: at(-2) })).outcome, 'LINKED');
     const d2 = await service.diagnose(owner);
     assert.deepEqual([d2.explicitLinks, d2.clusters, d2.sourceIndependentClusters, d2.eliminatedSameSource, d2.wouldSynthesize, d2.reason], [1, 1, 0, 1, 0, 'NO_INDEPENDENT_SOURCES']);
-    assert.deepEqual(d2.composition, [{ domains: ['CALLGRID', 'CAMPAIGNS'], sources: ['CALLGRID'], count: 1, sourceIndependent: false }]);
+    assert.deepEqual(d2.composition, [{ domains: ['CALLGRID', 'CAMPAIGNS'], sources: ['CALLGRID'], streams: ['CALLS'], count: 1, sourceIndependent: false }]);
     const calls: string[] = [];
     const runtime = { run: async (_p: unknown, req: { task: { taskId: string } }) => (calls.push(req.task.taskId), { outcome: 'REFUSED_BY_LOOP', refusals: ['TEST'] }) } as never;
     const pass = await new SituationService({ prisma, runtime, modelEnabled: () => true, principalFor: async () => ({ organizationId: orgA, userId: 'u' }), now: () => new Date() }).pass(owner);
@@ -437,7 +437,7 @@ test('DIAGNOSIS: counts and the first gate that stops the pass -- NO_SHARED_ENTI
     assert.equal((await digests.upsertOrganization(orgA, stalled)).outcome, 'WRITTEN');
     const d3 = await service.diagnose(owner);
     assert.deepEqual([d3.clusters, d3.sourceIndependentClusters, d3.eliminatedSameSource, d3.wouldSynthesize, d3.reason], [1, 1, 0, 1, 'WOULD_SYNTHESIZE']);
-    assert.deepEqual(d3.composition, [{ domains: ['CALLGRID', 'CAMPAIGNS', 'PIPELINE'], sources: ['CALLGRID', 'LOOP_INTAKE'], count: 1, sourceIndependent: true }]);
+    assert.deepEqual(d3.composition, [{ domains: ['CALLGRID', 'CAMPAIGNS', 'PIPELINE'], sources: ['CALLGRID', 'LOOP_INTAKE'], streams: ['CALLS', 'INTAKE_RECORDS'], count: 1, sourceIndependent: true }]);
 
     // 4. Once decided at this fingerprint: ALL_UNCHANGED.
     const shared = await import('@emgloop/shared');
@@ -544,7 +544,7 @@ test('CONNECTIVITY: governed relationship classes from the projector; stable vs 
     assert.deepEqual(c.governed.crm, { established: 2, newlyEstablished7d: 1, nameable: 1, awaitingDecision: 1 });
 
     // CURRENT (persisted entity_links only): CallGrid + Campaigns share the campaign -- one source, not independent.
-    assert.deepEqual(c.current, { crossDomain: 1, sourceIndependent: 0, eliminatedSameSource: 1, composition: [{ domains: ['CALLGRID', 'CAMPAIGNS'], sources: ['CALLGRID'], count: 1, sourceIndependent: false }] });
+    assert.deepEqual(c.current, { crossDomain: 1, sourceIndependent: 0, eliminatedSameSource: 1, composition: [{ domains: ['CALLGRID', 'CAMPAIGNS'], sources: ['CALLGRID'], streams: ['CALLS'], count: 1, sourceIndependent: false }] });
     // PROJECTOR (plus the governed projection): the WorkOrigin joins Work to that campaign (LOOP_WORK makes it
     // independent), and the Party link + CreatorProfile join the stalled intake record and the creator.
     assert.deepEqual([c.projector.crossDomain, c.projector.sourceIndependent, c.projector.eliminatedSameSource], [2, 2, 0]);

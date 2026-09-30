@@ -18,6 +18,7 @@
 // website — through this one registry.
 
 import type { NormalizedEvent } from '@emgloop/shared';
+import { websiteEventClass } from '@emgloop/shared';
 import type { SignalType } from '@prisma/client';
 
 export interface SignalDefinition {
@@ -96,6 +97,9 @@ function text(event: NormalizedEvent): string {
  * access — so it is trivially testable and deterministic.
  */
 export function deriveSignals(event: NormalizedEvent): DerivedSignal[] {
+  // Tracker instrumentation (a heartbeat every 30s, scroll depth, identify) is about a page already viewed,
+  // not something the visitor did: it derives nothing, or one open tab would mint a stream of signals.
+  if (event.eventType.startsWith('web.') && websiteEventClass(event.eventType) === 'TELEMETRY') return [];
   const out: DerivedSignal[] = [];
   const blob = text(event);
   const isCall = event.eventType.startsWith('call.');
