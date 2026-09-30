@@ -36,8 +36,8 @@ export const KNOWN_PROVIDERS: Record<ProviderCategory, readonly string[]> = {
   email: ['sendgrid', 'mailgun', 'postmark'],
   payment: ['stripe'],
   calendar: ['google'],
-  ingestion: ['callgrid', 'website', 'ga4', 'google_ads', 'google_search_console', 'microsoft_clarity', 'stripe', 'twilio', 'telnyx', 'postmark'],
-  analytics: ['ga4', 'google_ads', 'google_search_console', 'microsoft_clarity'],
+  ingestion: ['callgrid', 'website', 'ga4', 'google_search_console', 'bing_webmaster', 'microsoft_clarity', 'stripe', 'twilio', 'telnyx', 'postmark'],
+  analytics: ['ga4', 'google_search_console', 'bing_webmaster', 'microsoft_clarity'],
 } as const;
 
 // --- Industry verticals the platform targets ---
@@ -130,6 +130,10 @@ export const LOOP_EVENT_TYPES = [
   'web.planner_start', 'web.planner_save', 'web.planner_print',
   'web.video_play', 'web.error',
   'web.goal_conversion',
+  // Tracker instrumentation (2026-09-30): named so it is never counted as a page view.
+  'web.heartbeat', 'web.scroll_depth', 'web.identify',
+  // A website event Loop has no name for. Stored as itself, never relabelled as a page view.
+  'web.other',
   // Advertising
   'ads.impression', 'ads.click', 'ads.conversion', 'ads.lead_form_submit',
   // Search
@@ -209,6 +213,9 @@ export * from './intelligence-projection';
 export * from './promote-to-work';
 // Loop Intelligence Phase F: situations are Cases; private ones are one person's alone.
 export * from './situation';
+// Governed website evidence (2026-09-30): property identity, telemetry minimization, event classes, the
+// external aggregate evidence contract (null is not zero; PRELIMINARY is not FINAL).
+export * from './website-evidence';
 // Whether a stored digest may feed synthesis (situations, the Briefing): the shared freshness contract.
 export * from './intelligence-eligibility';
 // Loop Intelligence Phase D: the Mail content governance gate (counterparty consent: UNRESOLVED).

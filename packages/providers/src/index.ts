@@ -50,7 +50,6 @@ export type {
   AnalyticsDimension,
 } from './interfaces/analytics.provider';
 export { MockIngestionProvider } from './mocks/ingestion.mock';
-export { MockAnalyticsProvider } from './mocks/analytics.mock';
 
 // Sprint 11 — First Live Integration (CallGrid).
 import { CallGridProvider } from './adapters/callgrid.provider';

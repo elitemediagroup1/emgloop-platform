@@ -331,6 +331,8 @@ model Organization {
   creatorPerformanceSnapshots CreatorPerformanceSnapshot[]
   creatorAudienceSnapshots    CreatorAudienceSnapshot[]
   creatorCompensationEntries  CreatorCompensationEntry[]
+  webProperties               WebProperty[]
+  sourceMetricWindows         SourceMetricWindow[]
 
   @@index([sourceKey])
   @@map("organizations")
@@ -1037,6 +1039,21 @@ model ProviderConnection {
   metadata          Json             @default("{}")
   createdAt         DateTime         @default(now())
   updatedAt         DateTime         @updatedAt
+
+  /// ORGANIZATION-OWNED CREDENTIAL (2026-09-30, website evidence foundation). An external system the ORGANIZATION
+  /// connected (a Clarity project token, a Bing Webmaster refresh token), sealed with AES-256-GCM and bound to this
+  /// organization, provider and credential kind (OrganizationCredentialSealer): a sealed value copied to another
+  /// organization's row does not open. Never displayed, never logged. Empty until a connector is commissioned.
+  credentialKind    String?
+  secretSealed      Bytes?
+  sealVersion       String?
+  keyRef            String?
+  lastAttemptAt     DateTime?
+  lastSucceededAt   DateTime?
+  lastFailureClass  String?
+  backoffUntil      DateTime?
+  connectedByUserId String?
+  revokedAt         DateTime?
 
   organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   integrationEvents IntegrationEvent[]
@@ -7500,4 +7517,72 @@ model SituationCandidate {
 
   @@index([organizationId, userId])
   @@map("situation_candidates")
+}
+
+/// A GOVERNED WEBSITE PROPERTY (2026-09-30). The ONE authority for which organization a website's events belong to:
+/// website ingestion resolves the organization ONLY through a registered, ACTIVE property -- never from a browser
+/// field, a domain or a request body. An unregistered property is refused (PROPERTY_UNREGISTERED). Registered by an
+/// operator (register-web-property), never guessed by a migration. `allowedDomains` only CHECKS where browser
+/// traffic may come from; it never chooses an organization. The connector bindings are empty until each connector
+/// is commissioned for this property.
+model WebProperty {
+  id                   String   @id @default(cuid())
+  organizationId       String
+  /// The property key the tracker sends; its public browser ingest key is pk_emg_<key>. Unique across Loop.
+  key                  String   @unique
+  label                String?
+  /// ACTIVE ingests; DISABLED refuses (PROPERTY_DISABLED).
+  status               String   @default("ACTIVE")
+  allowedDomains       String[] @default([])
+  /// External bindings. Each is UNIQUE across Loop (NULLs aside): one external property belongs to one Loop
+  /// property, and so to one organization -- the confused-deputy guard for a shared read-only identity.
+  ga4PropertyId        String?  @unique
+  searchConsoleSiteUrl String?  @unique
+  bingSiteUrl          String?  @unique
+  clarityProjectId     String?  @unique
+  registeredByUserId   String?
+  registeredAt         DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  organization  Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  metricWindows SourceMetricWindow[]
+
+  /// The composite key a metric window's property reference uses: a window can only name ITS organization's property.
+  @@unique([id, organizationId])
+  @@index([organizationId, status])
+  @@map("web_properties")
+}
+
+/// MINIMIZED AGGREGATE EVIDENCE from an external website source (2026-09-30): one row per organization, source,
+/// subject, dimension value and window -- counts and rates only, never a raw provider response, never a user.
+/// `metrics` holds whitelisted numeric metrics where NULL means "not reported" and 0 means "reported as zero".
+/// `finality` says whether the provider may still revise the window; `quality` carries sampling, thresholding,
+/// roll-up, truncation and empty-reason flags. `contentHash` makes a re-fetch of an unchanged window a no-op.
+/// Written by connectors (none yet); read by the Website reading.
+model SourceMetricWindow {
+  id             String   @id @default(cuid())
+  organizationId String
+  sourceId       String
+  webPropertyId  String?
+  subjectRef     String
+  dimension      String
+  dimensionValue String   @default("")
+  granularity    String
+  windowStart    DateTime
+  windowEnd      DateTime
+  finality       String
+  metrics        Json     @default("{}")
+  quality        Json     @default("{}")
+  contentHash    String
+  fetchedAt      DateTime
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  webProperty  WebProperty? @relation(fields: [webPropertyId, organizationId], references: [id, organizationId], onDelete: Cascade)
+
+  @@unique([organizationId, sourceId, subjectRef, dimension, dimensionValue, granularity, windowStart, windowEnd])
+  @@index([organizationId, sourceId, windowEnd])
+  @@index([windowEnd])
+  @@map("source_metric_windows")
 }
