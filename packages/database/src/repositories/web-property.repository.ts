@@ -27,8 +27,10 @@ import {
   isWebPropertyKey,
   isWebPropertyLifecycle,
   normalizeWebDomain,
+  WEB_PROPERTY_COMMISSION_BATCH_MAX,
   webPropertyIngestionChange,
   webPropertyLifecycleTransition,
+  webPropertyLiveCommission,
   webSiteBindingHost,
   type WebPropertyIngestion,
   type WebPropertyLifecycle,
@@ -63,6 +65,26 @@ export interface WebPropertyRegistration {
 export type WebPropertyRegistrationOutcome =
   | { readonly outcome: 'REGISTERED' | 'UPDATED' | 'UNCHANGED'; readonly property: WebProperty }
   | { readonly outcome: 'REFUSED'; readonly problems: readonly string[] };
+
+/** One property's place in a live-site commissioning batch. */
+export interface LiveCommissionItem {
+  readonly key: string;
+  readonly lifecycle: string;
+  readonly ingestion: string;
+  /** What converging it takes. ALREADY_LIVE: nothing -- it is LIVE with ingestion ENABLED. */
+  readonly plan: 'LIFECYCLE_AND_INGESTION' | 'INGESTION_ONLY' | 'ALREADY_LIVE';
+}
+
+export type LiveCommissionOutcome =
+  | { readonly outcome: 'PLANNED' | 'COMMISSIONED'; readonly items: readonly LiveCommissionItem[] }
+  | { readonly outcome: 'REFUSED'; readonly refusals: readonly { readonly key: string; readonly code: string }[] };
+
+/** A write inside the batch transaction found its row changed since the preflight: the whole batch rolls back. */
+class LiveCommissionConflict extends Error {
+  constructor(readonly key: string) {
+    super('live commission conflict');
+  }
+}
 
 export type WebPropertyStateChange =
   | { readonly outcome: 'CHANGED'; readonly property: WebProperty }
@@ -242,6 +264,45 @@ export class WebPropertyRepository {
     });
   }
 
+  /**
+   * PREFLIGHT for `commissionLive`, writing nothing: every key must name one of THIS organization's properties
+   * (another organization's, or no property at all, is PROPERTY_NOT_IN_ORGANIZATION -- cross-organization is
+   * not-found), and every property must be able to reach LIVE + ENABLED through the governed state machine. One
+   * refusal refuses the batch; every refusal is reported.
+   */
+  async previewLiveCommission(organizationId: string, keys: readonly string[]): Promise<LiveCommissionOutcome> {
+    return planLiveCommission(this.prisma, organizationId, keys);
+  }
+
+  /**
+   * Converge a batch of this organization's properties to LIVE with ingestion ENABLED -- ALL OR NOTHING. The
+   * preflight and the writes run in ONE transaction: if any property is refused, nothing is written; if any row
+   * changed after the preflight read it (each write is conditional on the state it read), the transaction throws and
+   * every write in it rolls back. Each property changes in a single write (lifecycle and ingestion together), so no
+   * property is ever left LIVE with ingestion DISABLED by this act. A property already LIVE + ENABLED is left as it
+   * is, so a re-run converges instead of failing. `organizationId` is never written.
+   */
+  async commissionLive(organizationId: string, keys: readonly string[], now: Date): Promise<LiveCommissionOutcome> {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const planned = await planLiveCommission(tx, organizationId, keys);
+        if (planned.outcome !== 'PLANNED') return planned;
+        for (const item of planned.items) {
+          if (item.plan === 'ALREADY_LIVE') continue;
+          const updated = await tx.webProperty.updateMany({
+            where: { organizationId, key: item.key, lifecycle: item.lifecycle, ingestion: item.ingestion },
+            data: { lifecycle: 'LIVE', ingestion: 'ENABLED', ...(item.plan === 'LIFECYCLE_AND_INGESTION' ? { lifecycleChangedAt: now } : {}) },
+          });
+          if (updated.count !== 1) throw new LiveCommissionConflict(item.key);
+        }
+        return { outcome: 'COMMISSIONED' as const, items: planned.items };
+      });
+    } catch (error) {
+      if (error instanceof LiveCommissionConflict) return { outcome: 'REFUSED', refusals: [{ key: error.key, code: 'CONCURRENT_CHANGE' }] };
+      throw error;
+    }
+  }
+
   /** This organization's properties, by key. */
   async listForOrganization(organizationId: string): Promise<WebProperty[]> {
     return this.prisma.webProperty.findMany({ where: { organizationId }, orderBy: { key: 'asc' } });
@@ -251,4 +312,34 @@ export class WebPropertyRepository {
   async findForOrganization(organizationId: string, key: string): Promise<WebProperty | null> {
     return this.prisma.webProperty.findFirst({ where: { organizationId, key } });
   }
+}
+
+/** The shared preflight: scoped to the organization, every key accounted for, the governed state machine applied. */
+async function planLiveCommission(db: Pick<PrismaClient, 'webProperty'>, organizationId: string, keys: readonly string[]): Promise<LiveCommissionOutcome> {
+  const refusals: { key: string; code: string }[] = [];
+  if (keys.length === 0) return { outcome: 'REFUSED', refusals: [{ key: '-', code: 'EMPTY_LIST' }] };
+  if (keys.length > WEB_PROPERTY_COMMISSION_BATCH_MAX) return { outcome: 'REFUSED', refusals: [{ key: '-', code: 'TOO_MANY_KEYS' }] };
+  if (new Set(keys).size !== keys.length) return { outcome: 'REFUSED', refusals: [{ key: '-', code: 'DUPLICATE_KEY' }] };
+  for (const key of keys) if (!isWebPropertyKey(key)) refusals.push({ key: '-', code: 'KEY_SHAPE' });
+  if (refusals.length > 0) return { outcome: 'REFUSED', refusals };
+  const rows = await db.webProperty.findMany({
+    where: { organizationId, key: { in: [...keys] } },
+    select: { key: true, organizationId: true, lifecycle: true, ingestion: true },
+  });
+  const items: LiveCommissionItem[] = [];
+  for (const key of keys) {
+    const matches = rows.filter((r) => r.key === key);
+    if (matches.length !== 1 || matches[0]!.organizationId !== organizationId) {
+      refusals.push({ key, code: 'PROPERTY_NOT_IN_ORGANIZATION' });
+      continue;
+    }
+    const row = matches[0]!;
+    const plan = webPropertyLiveCommission(row);
+    if (!plan.ok) {
+      refusals.push({ key, code: plan.code });
+      continue;
+    }
+    items.push({ key, lifecycle: row.lifecycle, ingestion: row.ingestion, plan: plan.lifecycleChange ? 'LIFECYCLE_AND_INGESTION' : plan.ingestionChange ? 'INGESTION_ONLY' : 'ALREADY_LIVE' });
+  }
+  return refusals.length > 0 ? { outcome: 'REFUSED', refusals } : { outcome: 'PLANNED', items };
 }

@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { EMG_WEBSITE_PROPERTIES } from '@emgloop/database';
+import { webPropertyLiveCommission } from '@emgloop/shared';
 
 import { parseArgs, runRegisterWebProperty, type RunDeps } from './register-web-property';
 
@@ -53,6 +54,34 @@ function deps(seed: Row[] = [], status = 'ACTIVE') {
       async findForOrganization(organizationId, key) {
         const e = rows.get(key);
         return e && e.organizationId === organizationId ? e : null;
+      },
+      // The repository's rules: scoped to the organization, the shared plan, all or nothing.
+      async previewLiveCommission(organizationId, keys) {
+        const refusals: { key: string; code: string }[] = [];
+        const items = [];
+        for (const key of keys) {
+          const e = rows.get(key);
+          if (!e || e.organizationId !== organizationId) {
+            refusals.push({ key, code: 'PROPERTY_NOT_IN_ORGANIZATION' });
+            continue;
+          }
+          const plan = webPropertyLiveCommission(e);
+          if (!plan.ok) refusals.push({ key, code: plan.code });
+          else items.push({ key, lifecycle: e.lifecycle, ingestion: e.ingestion, plan: plan.lifecycleChange ? 'LIFECYCLE_AND_INGESTION' as const : plan.ingestionChange ? 'INGESTION_ONLY' as const : 'ALREADY_LIVE' as const });
+        }
+        return refusals.length > 0 ? { outcome: 'REFUSED', refusals } : { outcome: 'PLANNED', items };
+      },
+      async commissionLive(organizationId, keys) {
+        const planned = await d.properties.previewLiveCommission(organizationId, keys);
+        if (planned.outcome !== 'PLANNED') return planned;
+        for (const item of planned.items) {
+          if (item.plan === 'ALREADY_LIVE') continue;
+          writes.push(`commission:${item.key}`);
+          const e = rows.get(item.key)!;
+          e.lifecycle = 'LIVE';
+          e.ingestion = 'ENABLED';
+        }
+        return { outcome: 'COMMISSIONED', items: planned.items };
       },
     },
     log: (l) => void out.push(l),
@@ -147,5 +176,59 @@ test('the runner reaches no provider, no network, no ingestion and no credential
   assert.match(wf, /workflow_dispatch:/);
   assert.doesNotMatch(wf, /^\s*(push|pull_request|schedule|workflow_call):/m);
   assert.match(wf, /dry_run:[\s\S]*?default: true\s+type: boolean/);
-  for (const a of ['register-portfolio', 'set-lifecycle', 'enable-ingestion', 'disable-ingestion']) assert.match(wf, new RegExp(`- ${a}\\b`));
+  for (const a of ['register-portfolio', 'set-lifecycle', 'enable-ingestion', 'disable-ingestion', 'commission-live-sites']) assert.match(wf, new RegExp(`- ${a}\\b`));
+  assert.match(wf, /property_keys:/);
+  assert.match(wf, /--property-keys "\$\{PROPERTY_KEYS\}"/);
+});
+
+// --- commission-live-sites ----------------------------------------------------------------------------------
+
+const SIX = 'consumersupporthelp, marriageinmycity,careinmycity , petsinmycity,gamedayinmycity,homesinmycity';
+const commission = (keys: string, dry = false) => parseArgs(['--organization', 'acme', '--action', 'commission-live-sites', '--property-keys', keys, ...(dry ? ['--dry-run'] : [])]);
+const sixRows = () => ['consumersupporthelp', 'marriageinmycity', 'careinmycity', 'petsinmycity', 'gamedayinmycity', 'homesinmycity'].map((k) => own(k));
+
+test('commission-live-sites: a dry run plans every property and writes nothing', async () => {
+  const { d, writes, out } = deps([...sixRows(), own('servicesinmycity', 'LIVE', 'ENABLED')]);
+  const r = await runRegisterWebProperty(commission(`${SIX},servicesinmycity`, true), d);
+  assert.equal(r.outcome, 'WOULD_COMMISSION');
+  assert.deepEqual(writes, []);
+  assert.ok(out.includes('event=PRE_WRITE_CHECK requested=7 lifecycleAndIngestion=6 ingestionOnly=0 alreadyLive=1'));
+  assert.ok(out.includes('event=COMMISSION_PLAN key=servicesinmycity lifecycle=LIVE ingestion=ENABLED plan=ALREADY_LIVE'));
+});
+
+test('commission-live-sites: converges every property to LIVE + ENABLED in one run, owner unchanged, read back', async () => {
+  const { d, rows, out } = deps([...sixRows(), own('servicesinmycity', 'LIVE', 'ENABLED')]);
+  const r = await runRegisterWebProperty(commission(`${SIX},servicesinmycity`), d);
+  assert.deepEqual(r, { outcome: 'COMMISSIONED', problems: [] });
+  assert.ok([...rows.values()].every((row) => row.lifecycle === 'LIVE' && row.ingestion === 'ENABLED' && row.organizationId === 'org_acme'));
+  assert.ok(out.includes('event=COMMISSION_RESULT written=true requested=7 lifecycleAndIngestion=6 ingestionOnly=0 alreadyLive=1 converged=7 ownerUnchanged=true'));
+  // Idempotent: a re-run converges with nothing left to do.
+  const again = deps([...rows.values()]);
+  assert.equal((await runRegisterWebProperty(commission(`${SIX},servicesinmycity`), again.d)).outcome, 'COMMISSIONED');
+  assert.deepEqual(again.writes, []);
+});
+
+test('commission-live-sites: ONE refused property refuses the whole batch -- zero writes, every refusal reported', async () => {
+  const seed = [...sixRows(), { ...own('foodinmycity'), organizationId: 'org_other' }, own('spasinmycity', 'RETIRED')];
+  const { d, writes, rows, out } = deps(seed);
+  const r = await runRegisterWebProperty(commission(`${SIX},foodinmycity,spasinmycity,nosuchsite`), d);
+  assert.equal(r.outcome, 'REFUSED');
+  assert.deepEqual(r.problems, ['foodinmycity:PROPERTY_NOT_IN_ORGANIZATION', 'spasinmycity:LIFECYCLE_TRANSITION_REFUSED', 'nosuchsite:PROPERTY_NOT_IN_ORGANIZATION']);
+  assert.deepEqual(writes, [], 'no property was updated -- not even the six valid ones');
+  assert.ok([...rows.values()].filter((row) => row.organizationId === 'org_acme' && row.key !== 'spasinmycity').every((row) => row.lifecycle === 'OWNED'));
+  assert.equal(rows.get('foodinmycity')!.organizationId, 'org_other', 'a foreign property is never touched or moved');
+  assert.ok(out.includes('event=COMMISSION_REFUSED requested=9 refused=3 written=false'));
+});
+
+test('commission-live-sites: malformed input is refused before any lookup, naming positions, never echoing bad text', async () => {
+  for (const [keys, codeExpected] of [['', null], ['careinmycity,,petsinmycity', 'EMPTY_KEY'], ['careinmycity,Care In My City', 'KEY_SHAPE'], ['careinmycity, careinmycity', 'DUPLICATE_KEY'], [Array.from({ length: 26 }, (_, i) => `s${i}`).join(','), 'TOO_MANY_KEYS']] as const) {
+    const { d, writes, out } = deps(sixRows());
+    const r = await runRegisterWebProperty(commission(keys), d);
+    assert.equal(r.outcome, 'FAILED_PRECONDITION', keys);
+    assert.deepEqual(writes, []);
+    if (codeExpected) assert.ok(out.some((l) => l.startsWith('event=INPUT_REFUSED') && l.includes(`code=${codeExpected}`)), keys);
+    assert.doesNotMatch(out.join('\n'), /Care In My City/);
+  }
+  const single = deps(sixRows());
+  assert.equal((await runRegisterWebProperty(parseArgs(['--organization', 'acme', '--action', 'commission-live-sites', '--key', 'careinmycity', '--property-keys', 'careinmycity']), single.d)).outcome, 'FAILED_PRECONDITION', '--key is not a batch input');
 });

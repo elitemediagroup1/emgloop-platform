@@ -10,6 +10,10 @@
 #   register            register one property (key + primary domain), or update its label, domains and bindings.
 #   set-lifecycle       move a property along the governed lifecycle; leaving LIVE disables ingestion.
 #   enable-ingestion    allow first-party telemetry (LIVE only).  disable-ingestion  stop it.
+#   commission-live-sites  converge a comma-separated LIST of this organization's already-registered properties
+#                       (property_keys, at most 25) to LIVE + ingestion ENABLED in one run. ALL OR NOTHING: the whole
+#                       list is validated first and one refusal writes nothing; the writes run in one database
+#                       transaction. A property already LIVE + ENABLED is left alone, so a re-run converges.
 #
 # It contacts no provider and holds no provider credential; the GA4 / Search Console / Bing / Clarity fields only
 # record which external property belongs here. A key, domain or binding another organization holds is REFUSED,
@@ -37,8 +41,13 @@ on:
           - set-lifecycle
           - enable-ingestion
           - disable-ingestion
+          - commission-live-sites
       property_key:
         description: 'All actions but register-portfolio: the property key the tracker sends (ingest key pk_emg_<key>)'
+        required: false
+        type: string
+      property_keys:
+        description: 'commission-live-sites only: comma-separated property keys (max 25), e.g. careinmycity,petsinmycity'
         required: false
         type: string
       primary_domain:
@@ -115,6 +124,7 @@ jobs:
         env:
           ORG_SLUG: ${{ inputs.organization_slug }}
           PROPERTY_KEY: ${{ inputs.property_key }}
+          PROPERTY_KEYS: ${{ inputs.property_keys }}
           ACTION: ${{ inputs.action }}
           PRIMARY_DOMAIN: ${{ inputs.primary_domain }}
           LIFECYCLE: ${{ inputs.lifecycle }}
@@ -125,7 +135,21 @@ jobs:
             echo "::error::organization_slug must be lowercase letters, digits and hyphens."
             exit 1
           fi
-          if [ "${ACTION}" != "register-portfolio" ] && ! printf '%s' "${PROPERTY_KEY}" | grep -Eq '^[a-z0-9][a-z0-9-]{0,62}$'; then
+          if [ "${ACTION}" = "commission-live-sites" ]; then
+            # Shape only; the runner parses the list strictly (empty entries, duplicates, malformed keys, > 25).
+            if [ -z "$(printf '%s' "${PROPERTY_KEYS:-}" | tr -d '[:space:]')" ]; then
+              echo "::error::commission-live-sites needs property_keys (comma-separated)."
+              exit 1
+            fi
+            if ! printf '%s' "${PROPERTY_KEYS}" | grep -Eq '^[a-z0-9, -]+$'; then
+              echo "::error::property_keys may contain only lowercase letters, digits, hyphens, commas and spaces."
+              exit 1
+            fi
+            if [ -n "$(printf '%s' "${PROPERTY_KEY:-}" | tr -d '[:space:]')" ]; then
+              echo "::error::commission-live-sites takes property_keys, not property_key."
+              exit 1
+            fi
+          elif [ "${ACTION}" != "register-portfolio" ] && ! printf '%s' "${PROPERTY_KEY}" | grep -Eq '^[a-z0-9][a-z0-9-]{0,62}$'; then
             echo "::error::property_key must be lowercase letters, digits and hyphens."
             exit 1
           fi
@@ -160,6 +184,7 @@ jobs:
           DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
           ORG_SLUG: ${{ inputs.organization_slug }}
           PROPERTY_KEY: ${{ inputs.property_key }}
+          PROPERTY_KEYS: ${{ inputs.property_keys }}
           ACTION: ${{ inputs.action }}
           PRIMARY_DOMAIN: ${{ inputs.primary_domain }}
           LIFECYCLE: ${{ inputs.lifecycle }}
@@ -174,7 +199,11 @@ jobs:
         run: |
           set -euo pipefail
           args=(--organization "${ORG_SLUG}" --action "${ACTION}")
-          if [ "${ACTION}" != "register-portfolio" ]; then args+=(--key "${PROPERTY_KEY}"); fi
+          if [ "${ACTION}" = "commission-live-sites" ]; then
+            args+=(--property-keys "${PROPERTY_KEYS}")
+          elif [ "${ACTION}" != "register-portfolio" ]; then
+            args+=(--key "${PROPERTY_KEY}")
+          fi
           if [ -n "${LIFECYCLE:-}" ]; then args+=(--lifecycle "${LIFECYCLE}"); fi
           if [ "${ACTION}" = "register" ]; then
             args+=(--primary-domain "${PRIMARY_DOMAIN}")
@@ -201,5 +230,6 @@ jobs:
           echo "- \`code=INGESTION_REQUIRES_LIVE\` - ingestion can be enabled only for a LIVE property." >> "$GITHUB_STEP_SUMMARY"
           echo "- \`code=LIFECYCLE_CHANGE_NEEDS_TRANSITION\` / \`PRIMARY_DOMAIN_CHANGE_REFUSED\` - register never changes an existing property's lifecycle or domain." >> "$GITHUB_STEP_SUMMARY"
           echo "- \`code=PROPERTY_NOT_IN_ORGANIZATION\` - the action named a property this organization does not own." >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`event=PREFLIGHT_REFUSED\` / \`event=INPUT_REFUSED\` (commission-live-sites) - the batch was refused as a whole and NOTHING was written; fix the named keys and re-run. \`COMMISSION_REFUSED_AT_WRITE code=CONCURRENT_CHANGE\` means a property changed mid-run and the whole transaction rolled back." >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "Re-running with \`dry_run: true\` is always safe and writes nothing." >> "$GITHUB_STEP_SUMMARY"

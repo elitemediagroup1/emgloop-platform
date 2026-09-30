@@ -9,8 +9,11 @@ import {
   EMPTY_SOURCE_WINDOW_QUALITY,
   INTELLIGENCE_SOURCE_REGISTRY,
   SITUATION_MIN_SOURCES,
+  WEB_PROPERTY_COMMISSION_BATCH_MAX,
   WEB_PROPERTY_LIFECYCLES,
   WEB_PROPERTY_LIFECYCLE_TRANSITIONS,
+  parseWebPropertyKeyList,
+  webPropertyLiveCommission,
   WEBSITE_EVIDENCE_RETENTION,
   WEBSITE_SOURCE_CONNECTIONS,
   WEBSITE_SOURCE_CONTRACT,
@@ -356,4 +359,30 @@ test('Search Console / Bing binding hosts: a Domain property and a URL-prefix pr
   assert.equal(webSiteBindingHost('sc-domain:servicesinmycity.com'), 'servicesinmycity.com');
   assert.equal(webSiteBindingHost('https://www.servicesinmycity.com/'), 'www.servicesinmycity.com');
   assert.equal(webSiteBindingHost('not a site'), null);
+});
+
+// --- commission-live-sites (2026-09-30) ----------------------------------------------------------------------
+
+test('property-key lists are parsed strictly: whitespace trimmed; empty, malformed, duplicate or too many refuses the whole list', () => {
+  assert.deepEqual(parseWebPropertyKeyList(' consumersupporthelp , careinmycity,petsinmycity '), { ok: true, keys: ['consumersupporthelp', 'careinmycity', 'petsinmycity'] });
+  assert.deepEqual(parseWebPropertyKeyList(''), { ok: false, refusals: [{ position: 0, key: null, code: 'EMPTY_LIST' }] });
+  assert.deepEqual(parseWebPropertyKeyList('  '), { ok: false, refusals: [{ position: 0, key: null, code: 'EMPTY_LIST' }] });
+  assert.deepEqual(parseWebPropertyKeyList('a,,b'), { ok: false, refusals: [{ position: 2, key: null, code: 'EMPTY_KEY' }] });
+  assert.deepEqual(parseWebPropertyKeyList('a,b,'), { ok: false, refusals: [{ position: 3, key: null, code: 'EMPTY_KEY' }] });
+  assert.deepEqual(parseWebPropertyKeyList('a, Bad Key!'), { ok: false, refusals: [{ position: 2, key: null, code: 'KEY_SHAPE' }] }, 'a malformed entry is never echoed');
+  assert.deepEqual(parseWebPropertyKeyList('a,b, a'), { ok: false, refusals: [{ position: 3, key: 'a', code: 'DUPLICATE_KEY' }] });
+  assert.equal(WEB_PROPERTY_COMMISSION_BATCH_MAX, 25);
+  const max = Array.from({ length: 25 }, (_, i) => `site-${i}`).join(',');
+  assert.equal(parseWebPropertyKeyList(max).ok, true);
+  assert.deepEqual(parseWebPropertyKeyList(`${max},site-25`), { ok: false, refusals: [{ position: 0, key: null, code: 'TOO_MANY_KEYS' }] });
+});
+
+test('the live commission plan uses the governed state machine: RETIRED cannot become LIVE; LIVE + ENABLED needs nothing', () => {
+  assert.deepEqual(webPropertyLiveCommission({ lifecycle: 'OWNED', ingestion: 'DISABLED' }), { ok: true, lifecycleChange: true, ingestionChange: true });
+  assert.deepEqual(webPropertyLiveCommission({ lifecycle: 'BUILDING', ingestion: 'DISABLED' }), { ok: true, lifecycleChange: true, ingestionChange: true });
+  assert.deepEqual(webPropertyLiveCommission({ lifecycle: 'PAUSED', ingestion: 'DISABLED' }), { ok: true, lifecycleChange: true, ingestionChange: true });
+  assert.deepEqual(webPropertyLiveCommission({ lifecycle: 'LIVE', ingestion: 'DISABLED' }), { ok: true, lifecycleChange: false, ingestionChange: true });
+  assert.deepEqual(webPropertyLiveCommission({ lifecycle: 'LIVE', ingestion: 'ENABLED' }), { ok: true, lifecycleChange: false, ingestionChange: false });
+  assert.deepEqual(webPropertyLiveCommission({ lifecycle: 'RETIRED', ingestion: 'DISABLED' }), { ok: false, code: 'LIFECYCLE_TRANSITION_REFUSED' });
+  assert.deepEqual(webPropertyLiveCommission({ lifecycle: 'ACTIVE', ingestion: 'ENABLED' }), { ok: false, code: 'STATE_UNRECOGNIZED' });
 });
