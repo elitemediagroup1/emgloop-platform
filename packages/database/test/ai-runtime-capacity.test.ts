@@ -150,15 +150,17 @@ const MAIN_97816A5 = Object.freeze({
 const CHATS_V5 = Object.freeze({
   task: 'a2ea66fbc8963bd1',
   schema: '60389015902de68b',
-  requests: ['ccf11dcfa2e1c458', 'a83e8c7e0c28d589', '4958fa7a9d13e2bc'],
-  reservations: '3cb4f0819ef438eb',
+  // Template v7 (2026-09-30): the instructions now state every limit with a target below it -- a reviewed change
+  // to what the provider receives, so the request pins move with it. Task, schema and limits are unchanged.
+  requests: ['444c3d018c9f5fab', 'a5d157ca1335cad4', 'e27949391729e599'],
+  reservations: '4297d18e346fb883', // v7's longer instructions raise the input estimate
 });
 
 test('PRODUCTION TRIAGE IS THE REVIEWED v5 CONTRACT: definition, schema, template and every provider request are pinned', async () => {
   assert.equal(fp(AI_TASK_TELEGRAM_CONTENT_TRIAGE), CHATS_V5.task, 'the task definition');
   assert.equal(TELEGRAM_CONTENT_TRIAGE_SCHEMA_ID, 'telegram-content-triage.v5');
   assert.equal(fp(TELEGRAM_CONTENT_TRIAGE_SCHEMA), CHATS_V5.schema, 'the output schema sent to the provider');
-  assert.equal(`${TELEGRAM_CONTENT_TRIAGE_TEMPLATE_ID}@${TELEGRAM_CONTENT_TRIAGE_TEMPLATE_VERSION}`, 'telegram-content-triage@6');
+  assert.equal(`${TELEGRAM_CONTENT_TRIAGE_TEMPLATE_ID}@${TELEGRAM_CONTENT_TRIAGE_TEMPLATE_VERSION}`, 'telegram-content-triage@7');
   const { requests, reservations, outcomes } = await triageFingerprint();
   assert.deepEqual(requests.map(fp), CHATS_V5.requests, 'instructions, input, schema, limits and effort, byte for byte');
   assert.equal(fp(reservations), CHATS_V5.reservations, 'the budget class, estimate, target and refs reserved');
