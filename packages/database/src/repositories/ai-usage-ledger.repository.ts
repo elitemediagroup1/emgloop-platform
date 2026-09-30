@@ -248,6 +248,44 @@ export class AiUsageLedgerRepository {
     return this.outcomeSince(organizationId, 'REJECTED_BY_LOOP', q);
   }
 
+  /**
+   * What the ledger holds for ONE exact context window of one task, for one person, since `since`: how many
+   * calls answered, were rejected, refused by the model or failed, and when the latest failure was. Keyed by the
+   * content-free `contextManifestHash` (identifiers only) and the task and template versions -- a new template
+   * is a new question. Scoped to the organization and the principal.
+   */
+  async windowOutcomes(
+    organizationId: string,
+    q: { readonly principalUserId: string; readonly taskId: string; readonly taskVersion: string; readonly templateId: string; readonly templateVersion: string; readonly contextManifestHash: string; readonly since: Date },
+  ): Promise<{ answered: number; rejected: number; refusedByModel: number; failed: number; lastFailedAt: Date | null }> {
+    const rows = await this.prisma.aiInvocation.findMany({
+      where: {
+        organizationId,
+        principalUserId: q.principalUserId,
+        taskId: q.taskId,
+        taskVersion: q.taskVersion,
+        templateId: q.templateId,
+        templateVersion: q.templateVersion,
+        contextManifestHash: q.contextManifestHash,
+        requestedAt: { gte: q.since },
+      },
+      select: { outcome: true, requestedAt: true },
+      orderBy: { requestedAt: 'desc' },
+      take: 50,
+    });
+    const out = { answered: 0, rejected: 0, refusedByModel: 0, failed: 0, lastFailedAt: null as Date | null };
+    for (const r of rows) {
+      if (r.outcome === 'ANSWERED') out.answered += 1;
+      else if (r.outcome === 'REJECTED_BY_LOOP') out.rejected += 1;
+      else if (r.outcome === 'REFUSED_BY_MODEL') out.refusedByModel += 1;
+      else if (r.outcome === 'FAILED') {
+        out.failed += 1;
+        if (!out.lastFailedAt || r.requestedAt > out.lastFailedAt) out.lastFailedAt = r.requestedAt;
+      }
+    }
+    return out;
+  }
+
   /** The same question for a call that FAILED (a provider or ledger failure): the domain kit's failure backoff. */
   async failedSince(
     organizationId: string,

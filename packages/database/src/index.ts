@@ -918,3 +918,5 @@ export type { ObservationVerificationReport, ObservationVerificationCounts, Obse
 // approvals and publication marks, productions as Work OS work -- and the minimal CRM
 // Opportunity/Campaign/Deliverable records it composes. One business, two seats, the same rows.
 export * from './creator';
+
+export { TelegramTriageWindowJudge, TELEGRAM_TRIAGE_WINDOW_POLICY, decideTriageWindow, telegramTriageWindowManifestHash, type TelegramTriageWindowVerdict, type TelegramTriageWindowHistory } from './services/ai-runtime/telegram-triage-window';

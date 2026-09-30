@@ -295,6 +295,17 @@ export function buildTelegramTriageContext(input: TelegramTriageContextInput): T
 }
 
 /**
+ * The source references the gateway will hash into this window's `contextManifestHash` -- the SAME list, the
+ * same way (unique, sorted): the conversation ref and one KEYED ref per message. Identifiers only, never text:
+ * the identity of an exact window, so Loop can recognise a window it has already judged without keeping a
+ * word of it. A new message is a new ref, so a new window.
+ */
+export function telegramTriageManifestRefs(input: TelegramTriageContextInput): string[] {
+  const { items } = windowContextItems(input);
+  return [...new Set(items.map((i) => i.sourceRef))].sort();
+}
+
+/**
  * The estimated INPUT tokens for the whole context the gateway will admit, computed EXACTLY the way the
  * gateway does: `estimateAiInputTokens([instructions, JSON.stringify(schema), ...items(sourceRef,trust,content)])`.
  * The worker's adaptive window gathers messages against this so it never exceeds the reviewed input cap
