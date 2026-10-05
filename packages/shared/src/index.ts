@@ -132,6 +132,10 @@ export const LOOP_EVENT_TYPES = [
   'web.goal_conversion',
   // Tracker instrumentation (2026-09-30): named so it is never counted as a page view.
   'web.heartbeat', 'web.scroll_depth', 'web.identify',
+  // Leaving a page (pagehide) -- never the end of a visit (2026-10-05). `web.session_end` is its legacy name.
+  'web.page_leave',
+  // Meaningful clicks beyond explicit CTAs (2026-10-05): an internal link, a button.
+  'web.link_click', 'web.button_click',
   // A website event Loop has no name for. Stored as itself, never relabelled as a page view.
   'web.other',
   // Advertising

@@ -53,6 +53,8 @@ export const WEBSITE_EVENT_MAP: Record<string, string> = {
   // CTAs / outbound clicks
   cta_click: 'web.cta_click',
   cta_clicked: 'web.cta_click',
+  link_click: 'web.link_click',
+  button_click: 'web.button_click',
   phone_click: 'web.phone_click',
   click_to_call: 'web.phone_click',
   email_click: 'web.email_click',
@@ -86,8 +88,11 @@ export const WEBSITE_EVENT_MAP: Record<string, string> = {
   // Session lifecycle
   session_started: 'web.session_start',
   session_start: 'web.session_start',
-  session_ended: 'web.session_end',
-  session_end: 'web.session_end',
+  // Leaving a page (pagehide). The tracker before v1.1.0 called it session_end, but it always fired on every page
+  // leave, never at the end of a visit: both names map to web.page_leave.
+  page_leave: 'web.page_leave',
+  session_ended: 'web.page_leave',
+  session_end: 'web.page_leave',
   // Tracker instrumentation -- about a page already viewed, not a view.
   heartbeat: 'web.heartbeat',
   scroll_depth: 'web.scroll_depth',
@@ -133,7 +138,6 @@ export class WebsiteProvider implements IngestionProvider {
       streaming: false,
       eventTypes: [
         'web.session_start',
-        'web.session_end',
         'web.page_view',
         'web.guide_view',
         'web.search',
@@ -162,6 +166,9 @@ export class WebsiteProvider implements IngestionProvider {
         'web.heartbeat',
         'web.scroll_depth',
         'web.identify',
+        'web.page_leave',
+        'web.link_click',
+        'web.button_click',
         'web.other',
       ],
     };

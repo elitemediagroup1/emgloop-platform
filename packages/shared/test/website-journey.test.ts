@@ -30,14 +30,16 @@ test('a visit, in order: landing page, steps with the time since the previous on
   assert.equal(j.eventCount, 12);
   assert.equal(j.startObserved, true);
   assert.deepEqual(j.traffic, { kind: 'REFERRAL', referrerHost: 'www.google.com' });
-  assert.deepEqual(j.pages.map((p) => [p.path, p.views, p.maxScroll]), [['/', 1, 50], ['/plumbers', 1, null]]);
-  assert.deepEqual(j.steps.map((s) => s.eventType), ['web.session_start', 'web.page_view', 'web.search_zip', 'web.session_end', 'web.page_view', 'web.cta_click', 'web.form_start', 'web.form_submit', 'web.phone_click']);
+  assert.deepEqual(j.pages.map((p) => [p.path, p.views, p.maxScroll, p.timeOnPageMs]), [['/', 1, 50, 94_000], ['/plumbers', 1, null, null]]);
+  // The legacy session_end (a page leave) is folded into the page's time -- never a step, never the visit's end.
+  assert.deepEqual(j.steps.map((s) => s.eventType), ['web.session_start', 'web.page_view', 'web.search_zip', 'web.page_view', 'web.cta_click', 'web.form_start', 'web.form_submit', 'web.phone_click']);
   // heartbeat and scroll milestones are folded, never steps
   assert.equal(j.steps.some((s) => s.eventType === 'web.heartbeat' || s.eventType === 'web.scroll_depth'), false);
   const search = j.steps.find((s) => s.eventType === 'web.search_zip')!;
   assert.equal(search.detail, '10001');
   assert.equal(search.label, 'Searched by ZIP code');
   const cta = j.steps.find((s) => s.eventType === 'web.cta_click')!;
+  assert.equal(cta.detail, 'Get quotes');
   assert.equal(cta.sincePreviousMs, 25_000, 'time since the previous step (the page view at +95s)');
   assert.equal(j.steps[0]!.sincePreviousMs, null);
   assert.deepEqual(
@@ -72,4 +74,34 @@ test('display helpers: durations read naturally; an anonymous ref is short and n
   const id = '6f1c2a9e-1b2c-4d3e-8f90-0a1b2c3da3f9';
   assert.equal(anonymousRef(id), 'a3f9');
   assert.ok(!anonymousRef(id).includes('6f1c'));
+});
+
+test('a multi-page visit: page_leave closes each page (time on page), is never a step, and never ends the visit', () => {
+  const j = buildJourneySession([
+    ev(0, 'web.session_start', { page: '/' }),
+    ev(0, 'web.page_view', { page: '/' }),
+    ev(40, 'web.link_click', { page: '/', cta: 'Plumbers in Austin', elementType: 'link', destination: '/plumbers/austin-tx' }),
+    ev(41, 'web.page_leave', { page: '/' }),
+    ev(42, 'web.page_view', { page: '/plumbers/austin-tx' }),
+    ev(100, 'web.button_click', { page: '/plumbers/austin-tx', cta: 'Compare', elementType: 'button' }),
+    ev(130, 'web.external_link', { page: '/plumbers/austin-tx', cta: 'See the deal', elementType: 'outbound', destinationHost: 'partner.example' }),
+    ev(131, 'web.page_leave', { page: '/plumbers/austin-tx' }),
+    ev(900, 'web.page_view', { page: '/' }),
+    ev(960, 'web.download', { page: '/', cta: 'Guide', elementType: 'download', destination: '/files/guide.pdf' }),
+  ])!;
+  assert.deepEqual(j.steps.map((s) => s.eventType), ['web.session_start', 'web.page_view', 'web.link_click', 'web.page_view', 'web.button_click', 'web.external_link', 'web.page_view', 'web.download']);
+  assert.equal(j.steps.some((s) => s.eventType === 'web.page_leave'), false);
+  assert.deepEqual(j.path, ['/', '/plumbers/austin-tx', '/']);
+  assert.equal(j.exitPage, '/', 'the visit ended on the last page it viewed');
+  assert.equal(j.lastAt.getTime() - j.startedAt.getTime(), 960_000, 'the visit runs to its last event, past both page leaves');
+  assert.deepEqual(j.pages.map((p) => [p.path, p.views, p.timeOnPageMs]), [['/', 2, 41_000], ['/plumbers/austin-tx', 1, 89_000]]);
+  const link = j.steps.find((s) => s.eventType === 'web.link_click')!;
+  assert.equal(link.label, 'Clicked a link');
+  assert.equal(link.detail, 'Plumbers in Austin → /plumbers/austin-tx');
+  const next = j.steps[j.steps.indexOf(link) + 1]!;
+  assert.equal(next.eventType, 'web.page_view');
+  assert.equal(next.page, '/plumbers/austin-tx', 'the internal link is followed by the page it named');
+  assert.equal(j.steps.find((s) => s.eventType === 'web.external_link')!.detail, 'See the deal → partner.example');
+  assert.equal(j.steps.find((s) => s.eventType === 'web.download')!.detail, 'Guide → /files/guide.pdf');
+  assert.deepEqual([j.counts.linkClicks, j.counts.buttonClicks, j.counts.outboundClicks, j.counts.downloads], [1, 1, 1, 1]);
 });

@@ -124,6 +124,30 @@ test('website journeys against Postgres', { skip }, async (t) => {
     assert.doesNotMatch(JSON.stringify(d), /jane@|\?q=|email=/);
   });
 
+  await t.test('a multi-page visit through ingestion: page leaves (new and legacy) fold into time on page; clicks are steps', async () => {
+    const s3 = `s-${id()}`;
+    const v3 = `v-${id()}`;
+    await send(site, [
+      { event: 'session_start', id: id(), timestamp: at(20), visitorId: v3, sessionId: s3, page: '/' },
+      { event: 'page_view', id: id(), timestamp: at(20), visitorId: v3, sessionId: s3, page: '/' },
+      { event: 'link_click', id: id(), timestamp: at(19), visitorId: v3, sessionId: s3, page: '/', cta: 'Plumbers', elementType: 'link', destination: '/plumbers?email=jane@example.com' },
+      { event: 'page_leave', id: id(), timestamp: at(19), visitorId: v3, sessionId: s3, page: '/' },
+      { event: 'page_view', id: id(), timestamp: at(18.9), visitorId: v3, sessionId: s3, page: '/plumbers' },
+      { event: 'button_click', id: id(), timestamp: at(17), visitorId: v3, sessionId: s3, page: '/plumbers', cta: 'Compare', elementType: 'button' },
+      { event: 'session_end', id: id(), timestamp: at(16), visitorId: v3, sessionId: s3, page: '/plumbers' },
+      { event: 'page_view', id: id(), timestamp: at(5), visitorId: v3, sessionId: s3, page: '/' },
+    ]);
+    const d = (await journeys.session(A, site, s3, now))!;
+    assert.deepEqual(d.journey.steps.map((s) => s.eventType), ['web.session_start', 'web.page_view', 'web.link_click', 'web.page_view', 'web.button_click', 'web.page_view']);
+    assert.equal(d.journey.steps.find((s) => s.eventType === 'web.link_click')!.detail, 'Plumbers → /plumbers');
+    assert.deepEqual(d.journey.path, ['/', '/plumbers', '/']);
+    assert.equal(d.journey.exitPage, '/');
+    assert.equal(d.journey.pages.find((p) => p.path === '/plumbers')!.timeOnPageMs, Math.round(2.9 * 60_000));
+    const stored = await prisma.integrationEvent.findMany({ where: { organizationId: A, provider: 'website', eventType: { in: ['web.page_leave', 'web.session_end'] } }, select: { eventType: true } });
+    assert.ok(stored.length >= 2 && stored.every((r) => r.eventType === 'web.page_leave'), 'the legacy session_end is stored as a page leave');
+    assert.doesNotMatch(JSON.stringify(d), /jane|email=/);
+  });
+
   await t.test('a capped scan keeps the newest sessions and says it is partial', async () => {
     const capped = await new WebsiteJourneyRepository(prisma, 3).recentSessions(A, { since: new Date(now.getTime() - 7 * DAY), now });
     assert.equal(capped.complete, false);

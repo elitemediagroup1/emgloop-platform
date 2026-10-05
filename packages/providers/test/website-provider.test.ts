@@ -66,3 +66,18 @@ test('a malformed property claim parses to an empty property (the webhook refuse
   assert.equal(ev!.payload['property'], '');
   assert.equal(ev!.externalId, 'web:unregistered:x');
 });
+
+test('page leave and the new clicks map to their own types; the legacy session_end is a page leave', () => {
+  assert.equal(mapWebsiteEventType('page_leave'), 'web.page_leave');
+  assert.equal(mapWebsiteEventType('session_end'), 'web.page_leave', 'it always fired on pagehide, never at the end of a visit');
+  assert.equal(mapWebsiteEventType('link_click'), 'web.link_click');
+  assert.equal(mapWebsiteEventType('button_click'), 'web.button_click');
+});
+
+test('click fields survive parsing minimized: destination path without query, host only, closed element type', async () => {
+  const [ev] = await provider.parseWebhook(ctx, { property: 'servicesinmycity', events: [{ event: 'link_click', id: 'c1', cta: 'Plumbers', elementType: 'link', destination: '/plumbers?email=jane@example.com', destinationHost: 'evil.example/x?y' }] });
+  assert.equal(ev!.payload['destination'], '/plumbers');
+  assert.equal(ev!.payload['elementType'], 'link');
+  assert.equal(ev!.payload['destinationHost'], undefined);
+  assert.doesNotMatch(JSON.stringify(ev!.payload), /jane|email=|evil/);
+});

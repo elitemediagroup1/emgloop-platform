@@ -15,9 +15,14 @@
 //   page_view      every page load
 //   scroll_depth   25 / 50 / 75 / 100 % milestones, once each per page load
 //   heartbeat      every 30 s while the page is open -- instrumentation, folded into duration, never a step
-//   session_end    fires on EVERY `pagehide` (each navigation away from a page), so it marks LEAVING A PAGE,
-//                  not the end of the session; the session's exit is its last page
-//   identify       instrumentation (the attached contact details are dropped by the minimizer)
+//   page_leave     fires on EVERY `pagehide` -- each navigation away from a page, including to the next page of
+//                  the same visit. It marks LEAVING A PAGE and is folded into that page's time; it is never a
+//                  step and never the end of the visit. (`session_end` is the pre-v1.1.0 name for the same event.)
+//   identify       instrumentation (no traits are sent; anything attached would be dropped by the minimizer)
+//
+// SESSION BOUNDARY: a session is the tracker's session id, which the browser renews only after 30 minutes
+// without meaningful activity (page view, scroll, click, form, search, chat/planner, visible heartbeat). Loop
+// never splits or ends a visit on a page leave: the visit's end is simply its last event.
 
 import { websiteEventClass } from './website-evidence';
 
@@ -33,6 +38,9 @@ export interface JourneyEvent {
 export const WEBSITE_EVENT_LABELS: Readonly<Record<string, string>> = Object.freeze({
   'web.session_start': 'Started a visit',
   'web.session_end': 'Left the page',
+  'web.page_leave': 'Left the page',
+  'web.link_click': 'Clicked a link',
+  'web.button_click': 'Clicked a button',
   'web.page_view': 'Viewed a page',
   'web.guide_view': 'Viewed a guide',
   'web.search': 'Searched',
@@ -79,6 +87,11 @@ export interface JourneyPage {
   readonly path: string;
   readonly views: number;
   readonly firstAt: Date;
+  /**
+   * Time on this page, summed over its views: each view runs to its page_leave when one was observed, else to the
+   * next page view. Null when no view of it has an observable end (e.g. the visit's last page with no leave).
+   */
+  readonly timeOnPageMs: number | null;
   /** The deepest scroll milestone reached on this page, or null when none was reported. */
   readonly maxScroll: number | null;
 }
@@ -96,6 +109,8 @@ export interface JourneyStep {
 
 export interface JourneyCounts {
   readonly pageViews: number;
+  readonly linkClicks: number;
+  readonly buttonClicks: number;
   readonly ctaClicks: number;
   readonly phoneClicks: number;
   readonly emailClicks: number;
@@ -134,14 +149,22 @@ function detailOf(e: JourneyEvent): string | null {
   const a = e.attributes;
   if (e.eventType.startsWith('web.search')) return str(a['zip']) ?? str(a['category']) ?? str(a['city']);
   if (e.eventType.startsWith('web.form') || e.eventType === 'web.appointment_request') return str(a['form']);
-  if (['web.cta_click', 'web.phone_click', 'web.email_click', 'web.external_link', 'web.download', 'web.affiliate_click'].includes(e.eventType)) return str(a['cta']);
+  if (['web.cta_click', 'web.link_click', 'web.button_click', 'web.phone_click', 'web.email_click', 'web.external_link', 'web.download', 'web.affiliate_click'].includes(e.eventType)) {
+    const label = str(a['cta']);
+    const where = str(a['destination']) ?? str(a['destinationHost']);
+    return label && where ? `${label} → ${where}` : label ?? (where ? `→ ${where}` : null);
+  }
   if (e.eventType === 'web.page_view' || e.eventType === 'web.guide_view') return str(a['title']);
   return null;
 }
 
 /** Events that are instrumentation, folded into the session rather than shown as steps. */
 function isFolded(eventType: string): boolean {
-  return eventType === 'web.heartbeat' || eventType === 'web.scroll_depth' || eventType === 'web.identify';
+  return eventType === 'web.heartbeat' || eventType === 'web.scroll_depth' || eventType === 'web.identify' || isPageLeave(eventType);
+}
+
+function isPageLeave(eventType: string): boolean {
+  return eventType === 'web.page_leave' || eventType === 'web.session_end';
 }
 
 /**
@@ -154,10 +177,18 @@ export function buildJourneySession(events: readonly JourneyEvent[]): JourneySes
   // Same-instant events: the session start first, then the page view, then the rest -- the order a page load emits.
   const rank = (t: string) => (t === 'web.session_start' ? 0 : t === 'web.page_view' ? 1 : 2);
   const sorted = [...events].sort((a, b) => a.at.getTime() - b.at.getTime() || rank(a.eventType) - rank(b.eventType) || a.eventType.localeCompare(b.eventType));
-  const pages = new Map<string, { path: string; views: number; firstAt: Date; maxScroll: number | null }>();
+  const pages = new Map<string, { path: string; views: number; firstAt: Date; maxScroll: number | null; timeOnPageMs: number | null }>();
+  // The page view currently open: closed by its page_leave, or by the next page view.
+  let openView: { path: string; at: Date } | null = null;
+  const closeView = (end: Date) => {
+    if (!openView) return;
+    const p = pages.get(openView.path);
+    if (p) p.timeOnPageMs = (p.timeOnPageMs ?? 0) + Math.max(0, end.getTime() - openView.at.getTime());
+    openView = null;
+  };
   const path: string[] = [];
   const steps: JourneyStep[] = [];
-  const counts = { pageViews: 0, ctaClicks: 0, phoneClicks: 0, emailClicks: 0, outboundClicks: 0, downloads: 0, searches: 0, formStarts: 0, formSubmits: 0, appointmentRequests: 0, chat: 0, planner: 0 };
+  const counts = { pageViews: 0, linkClicks: 0, buttonClicks: 0, ctaClicks: 0, phoneClicks: 0, emailClicks: 0, outboundClicks: 0, downloads: 0, searches: 0, formStarts: 0, formSubmits: 0, appointmentRequests: 0, chat: 0, planner: 0 };
   let traffic: JourneyTraffic | null = null;
   let lastPage: string | null = null;
   let lastStepAt: Date | null = null;
@@ -178,19 +209,27 @@ export function buildJourneySession(events: readonly JourneyEvent[]): JourneySes
       if (p && typeof depth === 'number') p.maxScroll = Math.max(p.maxScroll ?? 0, depth);
       continue;
     }
+    if (isPageLeave(e.eventType)) {
+      closeView(e.at);
+      continue;
+    }
     if (isFolded(e.eventType)) continue;
 
     if (websiteEventClass(e.eventType) === 'PAGE_VIEW') {
       counts.pageViews++;
+      closeView(e.at);
       if (page) {
+        openView = { path: page, at: e.at };
         const p = pages.get(page);
         if (p) p.views++;
-        else pages.set(page, { path: page, views: 1, firstAt: e.at, maxScroll: null });
+        else pages.set(page, { path: page, views: 1, firstAt: e.at, maxScroll: null, timeOnPageMs: null });
         if (path[path.length - 1] !== page) path.push(page);
       }
     }
     switch (e.eventType) {
       case 'web.cta_click': counts.ctaClicks++; break;
+      case 'web.link_click': counts.linkClicks++; break;
+      case 'web.button_click': counts.buttonClicks++; break;
       case 'web.phone_click': counts.phoneClicks++; break;
       case 'web.email_click': counts.emailClicks++; break;
       case 'web.external_link': case 'web.affiliate_click': counts.outboundClicks++; break;

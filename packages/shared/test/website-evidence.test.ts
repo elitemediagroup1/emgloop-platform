@@ -416,3 +416,18 @@ test('minimization is idempotent: a stored, minimized event read back through th
   assert.deepEqual(minimizeWebsiteEvent(once as Record<string, unknown>, 'site'), once);
   assert.equal(minimizeWebsiteEvent({ referrerHost: 'https://evil.example/?q=1' }, 'site').referrerHost, undefined, 'a stored value must still be a plain host');
 });
+
+test('click fields are minimized: a closed element type, a destination PATH (no query), a destination HOST', () => {
+  const m = minimizeWebsiteEvent({ elementType: 'link', destination: 'https://servicesinmycity.com/plumbers?email=a@b.com#x', destinationHost: 'Partner.Example', cta: 'Plumbers' }, 'site');
+  assert.equal(m.elementType, 'link');
+  assert.equal(m.destination, '/plumbers');
+  assert.equal(m.destinationHost, 'partner.example');
+  assert.equal(minimizeWebsiteEvent({ elementType: '<div onclick>' }, 'site').elementType, undefined, 'outside the vocabulary: dropped');
+  assert.equal(minimizeWebsiteEvent({ destinationHost: 'https://x.example/?q=1' }, 'site').destinationHost, undefined, 'a URL is not a host');
+  assert.equal(minimizeWebsiteEvent({ destination: '/thanks/jane@example.com' }, 'site').destination, undefined);
+  assert.equal(minimizeWebsiteEvent({ cta: 'Call (512) 555-0147' }, 'site').cta, undefined, 'a label that is a phone number is dropped');
+  assert.equal(websiteEventClass('web.page_leave'), 'TELEMETRY');
+  assert.equal(websiteEventClass('web.session_end'), 'TELEMETRY', 'the legacy name is a page leave too');
+  assert.equal(websiteEventClass('web.link_click'), 'ENGAGEMENT');
+  assert.equal(websiteEventClass('web.button_click'), 'ENGAGEMENT');
+});

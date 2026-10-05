@@ -15,6 +15,8 @@ export function actionSummary(c: JourneyCounts): string {
   const add = (n: number, one: string, many: string) => {
     if (n > 0) parts.push(n === 1 ? one : `${n} ${many}`);
   };
+  add(c.linkClicks, '1 link click', 'link clicks');
+  add(c.buttonClicks, '1 button click', 'button clicks');
   add(c.searches, '1 search', 'searches');
   add(c.ctaClicks, '1 CTA click', 'CTA clicks');
   add(c.outboundClicks, '1 outbound click', 'outbound clicks');

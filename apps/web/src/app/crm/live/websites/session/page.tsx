@@ -57,13 +57,14 @@ export default async function WebsiteJourneyPage({ searchParams }: { searchParam
         <div className="crm-panel" style={{ marginTop: '1rem' }}>
           <h2 className="crm-h2" style={H2}>Pages</h2>
           <table className="crm-table">
-            <thead><tr><th>Page</th><th>First viewed</th><th>Views</th><th>Deepest scroll</th></tr></thead>
+            <thead><tr><th>Page</th><th>First viewed</th><th>Views</th><th>Time on page</th><th>Deepest scroll</th></tr></thead>
             <tbody>
               {j.pages.map((p) => (
                 <tr key={p.path}>
                   <td>{p.path}</td>
                   <td><time dateTime={time.iso(p.firstAt)}>{time.time(p.firstAt)}</time></td>
                   <td>{p.views}</td>
+                  <td>{p.timeOnPageMs === null ? 'Not observed' : formatJourneyDuration(p.timeOnPageMs)}</td>
                   <td>{p.maxScroll === null ? 'Not reported' : `${p.maxScroll}%`}</td>
                 </tr>
               ))}
@@ -90,8 +91,8 @@ export default async function WebsiteJourneyPage({ searchParams }: { searchParam
           ))}
         </ul>
         <p className="crm-faint" style={{ padding: '0 1rem 1rem', margin: 0 }}>
-          “Left the page” marks the browser leaving a page, which also happens when moving to the next page; the visit ends
-          at its last event. Heartbeats count toward duration and scroll milestones toward each page’s deepest scroll.
+          A visit is one browser session: it ends after 30 minutes without activity, never when a page is left. Leaving a
+          page counts toward that page’s time; heartbeats toward duration; scroll milestones toward the deepest scroll.
         </p>
       </div>
 

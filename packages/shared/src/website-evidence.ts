@@ -269,6 +269,9 @@ function referrerHost(value: unknown): string | null {
 
 const ZIP = /^\d{5}(?:-\d{4})?$/;
 
+/** What kind of element a recorded click was on. Anything else is dropped. */
+export const WEBSITE_CLICK_ELEMENT_TYPES = ['link', 'button', 'submit', 'cta', 'phone', 'email', 'download', 'outbound'] as const;
+
 /**
  * The attributes a website event may persist -- the ENTIRE list. Anything the tracker or a server sender
  * sends that is not here is dropped, including every key added in the future.
@@ -288,6 +291,9 @@ export const WEBSITE_TELEMETRY_ATTRIBUTES = [
   'city',
   'zip',
   'depth',
+  'elementType',
+  'destination',
+  'destinationHost',
 ] as const;
 export type WebsiteTelemetryAttribute = (typeof WEBSITE_TELEMETRY_ATTRIBUTES)[number];
 export type MinimizedWebsiteEvent = Partial<Record<WebsiteTelemetryAttribute, string | number>>;
@@ -326,6 +332,13 @@ export function minimizeWebsiteEvent(data: Record<string, unknown>, property: st
   set('city', label(pick(data, ['city']), 80));
   const zip = pick(data, ['zip', 'zipcode', 'postal_code']) ?? pick(data, ['query', 'q', 'search']);
   if (typeof zip === 'string' && ZIP.test(zip.trim())) out.zip = zip.trim();
+  // A click's element role (closed vocabulary), an internal destination as a PATH (no query) and an outbound or
+  // cross-origin download destination as a HOST -- never a URL.
+  const elementType = pick(data, ['elementType']);
+  if (typeof elementType === 'string' && (WEBSITE_CLICK_ELEMENT_TYPES as readonly string[]).includes(elementType)) out.elementType = elementType;
+  set('destination', normalizePagePath(pick(data, ['destination'])));
+  const destinationHost = pick(data, ['destinationHost']);
+  set('destinationHost', typeof destinationHost === 'string' ? normalizeWebDomain(destinationHost) : null);
   const depth = pick(data, ['depth']);
   if (typeof depth === 'number' && Number.isInteger(depth) && depth >= 0 && depth <= 100) out.depth = depth;
   return out;
@@ -344,12 +357,16 @@ const EVENT_CLASS: Readonly<Record<string, WebsiteEventClass>> = {
   'web.page_view': 'PAGE_VIEW',
   'web.guide_view': 'PAGE_VIEW',
   'web.session_start': 'SESSION',
-  'web.session_end': 'SESSION',
+  // Leaving a page is instrumentation about the page, not a session boundary (`session_end` is the legacy name).
+  'web.session_end': 'TELEMETRY',
+  'web.page_leave': 'TELEMETRY',
   'web.search': 'ENGAGEMENT',
   'web.search_zip': 'ENGAGEMENT',
   'web.search_city': 'ENGAGEMENT',
   'web.search_category': 'ENGAGEMENT',
   'web.cta_click': 'ENGAGEMENT',
+  'web.link_click': 'ENGAGEMENT',
+  'web.button_click': 'ENGAGEMENT',
   'web.external_link': 'ENGAGEMENT',
   'web.affiliate_click': 'ENGAGEMENT',
   'web.download': 'ENGAGEMENT',
