@@ -5,7 +5,7 @@ losing the thread. **One current-state block per workstream — overwrite it, do
 Read this at the start of a session; update it at the end of a work batch. History lives
 in git, not here.
 
-_Last updated: 2026-09-30 (website evidence foundation built as a draft PR, nothing applied — see its block; earlier 2026-09-26: Loop Intelligence Phases A–G built in one draft PR, nothing commissioned; #340 AI runtime corrected to MERGED/MIGRATED/DEPLOYED/VERIFIED with the operating budget recorded, Anthropic production-active, OpenAI not commissioned — see the two Loop Intelligence blocks; earlier 2026-09-24: Loop Home briefing built, draft PR in review; Creator Hub commissioned on staging — #323/#324/#325 merged, infra + migration + seed done, staging fast-forwarded and verified; production schema untouched — see the Creator Hub block; earlier: Intelligence & Memory Foundation commissioned — #305/#306 on main, migration 42 applied, completion PR in review; Google onboarding: #302/#303 merged, Gmail cycle not yet on, one-derivation PR in review; production at migration 41; Gmail GM-1..GM-3 in review as #295/#296/#297; AI runtime #266–#271 merged, switched off; B0–B6 merged incl. #284, B7 pre-deployment #285 merged; AWS staging not bootstrapped, nothing deployed; Google Workspace connection (Private V1) merged as #286 and migration 37 applied in production; Daily Loop / Employee Intelligence architecture merged as #287, DL-0..DL-3 merged with migrations 38 and 39 applied and production verified, DL-4 (Your Day) merged as #293, DL-5 (the automated Calendar cycle) in review; see the Foundation handoff and Google Workspace blocks)._
+_Last updated: 2026-10-05 (website intelligence: foundation live with 7 LIVE sites and zero events — CORS + install proven as the cause, fixes and visitor journeys in a draft PR — see its block; earlier 2026-09-30: website evidence foundation built; earlier 2026-09-26: Loop Intelligence Phases A–G built in one draft PR, nothing commissioned; #340 AI runtime corrected to MERGED/MIGRATED/DEPLOYED/VERIFIED with the operating budget recorded, Anthropic production-active, OpenAI not commissioned — see the two Loop Intelligence blocks; earlier 2026-09-24: Loop Home briefing built, draft PR in review; Creator Hub commissioned on staging — #323/#324/#325 merged, infra + migration + seed done, staging fast-forwarded and verified; production schema untouched — see the Creator Hub block; earlier: Intelligence & Memory Foundation commissioned — #305/#306 on main, migration 42 applied, completion PR in review; Google onboarding: #302/#303 merged, Gmail cycle not yet on, one-derivation PR in review; production at migration 41; Gmail GM-1..GM-3 in review as #295/#296/#297; AI runtime #266–#271 merged, switched off; B0–B6 merged incl. #284, B7 pre-deployment #285 merged; AWS staging not bootstrapped, nothing deployed; Google Workspace connection (Private V1) merged as #286 and migration 37 applied in production; Daily Loop / Employee Intelligence architecture merged as #287, DL-0..DL-3 merged with migrations 38 and 39 applied and production verified, DL-4 (Your Day) merged as #293, DL-5 (the automated Calendar cycle) in review; see the Foundation handoff and Google Workspace blocks)._
 
 ---
 
@@ -2633,45 +2633,33 @@ situation.verify[.private]; loop.briefing.compose. `telegram.content.triage` mov
 `main` for the next objective — never keep committing to a merged branch (it strands work
 with no open PR). Always open a draft PR and report its URL; Matt merges.
 
-## Website evidence foundation — IN REVIEW (draft PR, branch `feat/website-evidence-foundation`, off main `0007c7f`) · NOT merged · migration `20261009000000_website_evidence_foundation` NOT applied anywhere but local test databases
+## Website intelligence — FOUNDATION LIVE (#354, #356 merged; migration applied) · VISITOR JOURNEYS + DELIVERY FIX IN REVIEW (draft PR, branch `feat/website-visitor-journeys`, off main `211cd07`)
 
-**What it is.** The foundation for governed website evidence, before any external analytics source is connected:
-- source identity vs evidence stream, with Situation independence counted over streams;
-- the `web_properties` registry: the AUTHORITATIVE EMG website-property registry (all 17 owned domains, live
-  or not). Lifecycle (OWNED / BUILDING / LIVE / PAUSED / RETIRED) and ingestion (ENABLED / DISABLED) are
-  separate. The webhook admits only LIVE + ENABLED, fails closed with `PROPERTY_UNREGISTERED` /
-  `PROPERTY_NOT_LIVE` / `INGESTION_DISABLED`, and no longer reads `LIVE_ORG_SLUG`. A known, not-live property
-  is never a coverage gap;
-- minimized, deterministic first-party telemetry;
-- `website.domain@2` (first-party only);
-- the `source_metric_windows` aggregate store and the organization credential sealer. Both are empty and
-  unused by any connector.
-Architecture: `docs/architecture/website-evidence.md`. Runbook: `docs/runbooks/website-evidence-commissioning.md`.
+**Production (verified from workflow run logs, 2026-10-05):**
+- The 17-domain portfolio is registered to `servicesinmycity-demo`.
+- Seven sites are LIVE + ENABLED (commission-live-sites run 37354885411: commissioned=6, unchanged=1): servicesinmycity, consumersupporthelp, marriageinmycity, careinmycity, petsinmycity, gamedayinmycity, homesinmycity.
+- Read Intelligence State run 37356924945 shows **zero website events, ever** (`newest=-`, `coverage=GAP_NO_EVENTS`).
 
-**Declared, not connected:** GA4, Google Search Console, Bing Webmaster, Microsoft Clarity. No credentials,
-no API calls, no new AI task. Google auth is decided (AWS → WIF → service account; GA4 Viewer / Search Console
-Restricted) and not built.
+**Why nothing arrives, proven:**
+1. The webhook answered the tracker's CORS preflight with no Access-Control-Allow-* headers, so every browser
+   blocked every tracker POST. This is fixed in the PR, not deployed.
+2. None of the seven sites' homepages (or their first-party scripts) contains the EMG Loop tracker.
+   `homesinmycity.com` is a parked-domain lander.
+3. The Website Manager's snippet generator emitted an unclosed `<script>` tag. This is fixed in the PR.
 
-**Finding recorded:** page views and session starts were never Interactions, so website sessions and page
-views read 0 from real traffic. Counts now come from `integration_events`.
+**In review (draft PR):**
+- the CORS fix and the snippet fix;
+- an idempotent minimizer (referrer host survives a read-back);
+- per-property `WEBSITE_COLLECTION` diagnostics (FLOWING / SPARSE / NO_EVENTS / NOT_APPLICABLE);
+- **Website Visitors**: anonymous visit journeys from admitted integration_events. It replaces the
+  Interaction-based Live Website Feed and the hard-coded six-site list.
 
-**Next:**
-1. Matt reviews and merges.
-2. Migration dispatch.
-3. Register Web Property `register-portfolio` (dry run first).
-4. `set-lifecycle LIVE` + `enable-ingestion` for each site actually sending traffic, BEFORE the web deploy.
-5. Web deploy.
-6. Worker redeploy.
-7. Switch `website.domain@1` → `@2` if website readings are activated.
+**Next (Matt):**
+1. Merge and deploy web.
+2. Install the tracker on each LIVE site (runbook step 6a).
+3. Run Read Intelligence State and read `WEBSITE_COLLECTION` per site.
+4. Decide homesinmycity's real lifecycle (it is a parked domain, not live).
 
-The migration keeps its name `20261009000000_…`: production already applied `20261001`–`20261008`, so a
-2026-09-30 name would sort before them. Future connectors must do account-level discovery reconciled by
-domain against ALL registered properties (architecture §8).
+Then the GA4 connector (separate). Open from before: the raw-telemetry purge decision, and scrubbing legacy
+payloads. Architecture: `docs/architecture/website-evidence.md`. Runbook: `docs/runbooks/website-evidence-commissioning.md`.
 
-Then the GA4 connector PR (separate).
-
-**Open decisions for Matt:**
-- which organization owns the portfolio, and which sites are LIVE / BUILDING today;
-- whether to enable the raw telemetry purge (`LOOP_WEBSITE_TELEMETRY_RETENTION=on`), which truncates analytics
-  history past 90 days;
-- whether to scrub historical website payloads that still hold contact details.

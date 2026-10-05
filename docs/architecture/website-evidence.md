@@ -180,6 +180,67 @@ It hands no email or phone to the pipeline as identity.
   - legacy rows are read back through the minimizer, and legacy heartbeat rows are recognised by their raw
     event name.
 
+### The tracker, as it behaves (audited 2026-10-05)
+
+`apps/web/public/sdk/emg-loop.js` is what sites load (`/sdk/emg-loop.js`). `src/app/sdk/sdk-source.ts` is a
+behaviorally identical copy served at `/api/sdk/emg-loop`.
+
+**Identity**
+
+- **visitorId.** A random UUID in `localStorage`, kept until the browser clears it. It is pseudonymous and
+  never a person.
+- **sessionId.** A random UUID, renewed when more than 30 minutes have passed since the last *page load*. The
+  timestamp is refreshed only on page loads, not on clicks or heartbeats.
+
+**Events emitted**
+
+| Event | When |
+|---|---|
+| `session_start` | when a new session is minted |
+| `page_view` | every load |
+| `scroll_depth` | at 25/50/75/100, once each per page load |
+| `heartbeat` | every 30 s (`visible`) |
+| clicks | `phone_click` (`tel:`), `email_click` (`mailto:`), `download` (by file extension), `external_link_click` (another host), `cta_click` (only elements marked `data-emg-cta` / `data-cta`) |
+| `form_start` | the first focus in a form |
+| form submits | a submit becomes `zip_search` (a 5- or 9-digit value), else `search_performed` (a search-named form or any text value), else `appointment_requested` (appoint/book/schedule in the form name), else `form_submitted` |
+| `session_end` | every `pagehide`, i.e. leaving any page, not the end of a session |
+| `identify` | `emgLoop.identify()` |
+| chat and planner | `chat_started`/`chat_completed`/`planner_started`/`planner_saved`, from the site's own calls |
+
+Timestamps are the browser's clock.
+
+**Sent but dropped by the server minimizer (§3)**
+
+- `url`, and the page query string;
+- `campaign` (utm_campaign);
+- the free-text search `query` (a ZIP survives as `zip`);
+- `email`/`phone`, from identify, and the `phone_target`/`email_target` click targets;
+- `file` and `target` URLs;
+- `screen`, `visible`;
+- the browser-claimed `organization`.
+
+The referrer is reduced to its host. utm source and medium are kept.
+
+### Website Visitors: journeys (2026-10-05)
+
+`/crm/live/websites` lists visits (property + session), newest first. `/crm/live/websites/session` shows one
+visit in order:
+
+- where it came from (utm source / medium, referring host, or direct);
+- landing page, the pages it moved through and the deepest scroll on each;
+- each step with the time since the previous one;
+- the same browser's other visits in the last 90 days, which is how new and returning are told apart.
+
+The view is built by `buildJourneySession` (@emgloop/shared) over `WebsiteJourneyRepository`, which reads
+admitted `integration_events`. Heartbeats count toward duration, and scroll milestones toward each page. A visit
+is anonymous; nothing creates or matches a Person.
+
+### Collection health
+
+Read Intelligence State prints `WEBSITE_COLLECTION` per property: counts over 14 days, the newest event's age
+as a bucket, and `FLOWING` / `SPARSE` / `NO_EVENTS` / `NOT_APPLICABLE` (`websiteCollectionVerdict`). A LIVE +
+ENABLED property that sends nothing is `NO_EVENTS`, never "covered".
+
 ## 4. External aggregates: the evidence contract
 
 `source_metric_windows` has one row per (organization, source, subject, dimension, value, granularity,
