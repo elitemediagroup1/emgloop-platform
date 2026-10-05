@@ -408,3 +408,11 @@ test('collection verdict: a LIVE + ENABLED property with no events is NO_EVENTS,
   assert.equal(websiteEventAgeBucket(h(30), now), 'LT_48H');
   assert.equal(websiteEventAgeBucket(h(24 * 20), now), 'GT_14D');
 });
+
+test('minimization is idempotent: a stored, minimized event read back through the minimizer keeps every attribute', () => {
+  const raw = { page: '/a?x=1', title: 'A', referrer: 'https://www.google.com/search?q=x', utm_source: 'google', utm_medium: 'cpc', sessionId: 's1', visitorId: 'v1', cta: 'Go', form: 'quote', category: 'plumbing', city: 'Austin', query: '10001', depth: 50 };
+  const once = minimizeWebsiteEvent(raw, 'site');
+  assert.equal(once.referrerHost, 'www.google.com');
+  assert.deepEqual(minimizeWebsiteEvent(once as Record<string, unknown>, 'site'), once);
+  assert.equal(minimizeWebsiteEvent({ referrerHost: 'https://evil.example/?q=1' }, 'site').referrerHost, undefined, 'a stored value must still be a plain host');
+});

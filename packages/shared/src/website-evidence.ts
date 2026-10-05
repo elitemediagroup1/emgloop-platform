@@ -312,7 +312,10 @@ export function minimizeWebsiteEvent(data: Record<string, unknown>, property: st
   };
   set('page', normalizePagePath(pick(data, ['page', 'path', 'page_path', 'url', 'page_url'])));
   set('title', label(pick(data, ['title', 'page_title']), 120));
-  set('referrerHost', referrerHost(pick(data, ['referrer', 'referer'])));
+  // A browser sends `referrer` (a URL, reduced to its host); a stored, already-minimized event carries `referrerHost`
+  // (re-validated as a plain hostname). Either way only a host survives, so minimizing is idempotent.
+  const storedHost = pick(data, ['referrerHost']);
+  set('referrerHost', referrerHost(pick(data, ['referrer', 'referer'])) ?? (typeof storedHost === 'string' ? normalizeWebDomain(storedHost) : null));
   set('source', label(pick(data, ['source', 'utm_source']), 64));
   set('medium', label(pick(data, ['medium', 'utm_medium']), 64));
   set('sessionId', pseudonym(pick(data, ['sessionId', 'session_id', 'session'])));
