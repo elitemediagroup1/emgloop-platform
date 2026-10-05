@@ -698,3 +698,34 @@ test('a registry of known, not-live properties prints NOT_APPLICABLE coverage --
   assert.ok(coverage.every((l) => l.includes('coverage=NOT_APPLICABLE')));
   assert.equal(out.some((l) => /GAP_/.test(l)), false);
 });
+
+// --- Collection health (2026-10-05): a LIVE + ENABLED property with no events must not look healthy ----------
+
+test('WEBSITE_COLLECTION prints per-property delivery health -- keys, states, counts and an age bucket only', async () => {
+  const w = await world();
+  const out: string[] = [];
+  const state = {
+    ...WEBSITE_STATE,
+    collection: [
+      { key: 'careinmycity', lifecycle: 'LIVE', ingestion: 'ENABLED', events: 0, sessions: 0, pageViews: 0, lastEventAge: 'NEVER', verdict: 'NO_EVENTS' },
+      { key: 'petsinmycity', lifecycle: 'LIVE', ingestion: 'ENABLED', events: 3, sessions: 1, pageViews: 1, lastEventAge: 'LT_7D', verdict: 'SPARSE' },
+      { key: 'servicesinmycity', lifecycle: 'LIVE', ingestion: 'ENABLED', events: 900, sessions: 120, pageViews: 400, lastEventAge: 'LT_1H', verdict: 'FLOWING' },
+      { key: 'spasinmycity', lifecycle: 'OWNED', ingestion: 'DISABLED', events: 0, sessions: 0, pageViews: 0, lastEventAge: 'NEVER', verdict: 'NOT_APPLICABLE' },
+    ],
+  };
+  await runIntelligenceState({ organizationSlug: 'servicesinmycity-demo', since: '' }, { ...w.deps, log: (l) => void out.push(l), website: async () => state as never });
+  assert.ok(out.includes('event=WEBSITE_COLLECTION property=careinmycity lifecycle=LIVE ingestion=ENABLED windowDays=14 events14d=0 sessions14d=0 pageViews14d=0 lastEventAge=NEVER verdict=NO_EVENTS'));
+  assert.ok(out.includes('event=WEBSITE_COLLECTION property=servicesinmycity lifecycle=LIVE ingestion=ENABLED windowDays=14 events14d=900 sessions14d=120 pageViews14d=400 lastEventAge=LT_1H verdict=FLOWING'));
+  assert.ok(out.includes('event=WEBSITE_COLLECTION property=spasinmycity lifecycle=OWNED ingestion=DISABLED windowDays=14 events14d=0 sessions14d=0 pageViews14d=0 lastEventAge=NEVER verdict=NOT_APPLICABLE'));
+  assert.ok(out.includes('event=WEBSITE_COLLECTION_SUMMARY live=3 flowing=1 sparse=1 noEvents=1'));
+});
+
+test('WEBSITE_COLLECTION cannot leak: hostile keys, states and buckets print UNRECOGNIZED', async () => {
+  const w = await world();
+  const out: string[] = [];
+  const state = { ...WEBSITE_STATE, collection: [{ key: 'https://x.example/?q=jane@x', lifecycle: 'visitor v-1', ingestion: 'ENABLED', events: 1, sessions: 0, pageViews: 0, lastEventAge: '2026-10-05T10:00:00Z', verdict: 'OK!' }] };
+  await runIntelligenceState({ organizationSlug: 'servicesinmycity-demo', since: '' }, { ...w.deps, log: (l) => void out.push(l), website: async () => state as never });
+  const text = out.filter((l) => l.startsWith('event=WEBSITE_COLLECTION')).join('\n');
+  assert.doesNotMatch(text, /jane|x\.example|v-1|2026-10-05T10|OK!/);
+  assert.match(text, /property=UNRECOGNIZED lifecycle=UNRECOGNIZED ingestion=ENABLED/);
+});

@@ -14,7 +14,8 @@
 // nothing and creates no link; and what the Pipeline reading is counting (status, provenance with its basis,
 // human work, the lastSeenAt clock, the Slice 1 cutoff, real activity of stalled records); and the organization's
 // website evidence (registered properties and bindings as counts, governed events by class, refusal counters,
-// and each declared website source's connection state and newest window) -- no retry, no purge, no stale
+// per-property collection health -- is each LIVE tracker actually delivering -- and each declared website source's
+// connection state and newest window) -- no retry, no purge, no stale
 // transition: the reader is built on a client that can only read
 // (`readOnlyClient`), and nothing here names a write.
 //
@@ -33,8 +34,13 @@ import {
   INTELLIGENCE_EVIDENCE_STREAMS,
   ORGANIZATION_CONNECTION_STATES,
   SOURCE_WINDOW_FINALITIES,
+  WEB_PROPERTY_INGESTION_STATES,
   WEB_PROPERTY_LIFECYCLES,
+  WEBSITE_COLLECTION_VERDICTS,
+  WEBSITE_COLLECTION_WINDOW_DAYS,
   WEBSITE_COVERAGE_VERDICTS,
+  WEBSITE_EVENT_AGE_BUCKETS,
+  isWebPropertyKey,
   WEBSITE_EVENT_CLASSES,
   WEBSITE_INGEST_REFUSALS,
   intelligenceSourceEntry,
@@ -463,6 +469,30 @@ export async function runIntelligenceState(
     // Refusals an organization can be charged with. An UNREGISTERED property has no organization: those are
     // logged by the webhook as codes and are not durable here.
     deps.log(line({ event: 'WEBSITE_REFUSALS', connection: w.refusals ? 'PRESENT' : 'ABSENT', ...Object.fromEntries(Object.entries(w.refusals ?? {}).map(([k, v]) => [inVocabulary(k, WEBSITE_INGEST_REFUSALS) ?? 'UNRECOGNIZED', v])), unregistered: 'NOT_DURABLE' }));
+    // Is each property's tracker actually delivering? A LIVE + ENABLED property with no admitted events is
+    // NO_EVENTS -- never "covered". Property keys, states, counts and an age bucket only.
+    for (const c of w.collection ?? []) {
+      deps.log(line({
+        event: 'WEBSITE_COLLECTION',
+        property: isWebPropertyKey(c.key) ? c.key : 'UNRECOGNIZED',
+        lifecycle: inVocabulary(c.lifecycle, WEB_PROPERTY_LIFECYCLES),
+        ingestion: inVocabulary(c.ingestion, WEB_PROPERTY_INGESTION_STATES),
+        windowDays: WEBSITE_COLLECTION_WINDOW_DAYS,
+        events14d: c.events,
+        sessions14d: c.sessions,
+        pageViews14d: c.pageViews,
+        lastEventAge: inVocabulary(c.lastEventAge, WEBSITE_EVENT_AGE_BUCKETS),
+        verdict: inVocabulary(c.verdict, WEBSITE_COLLECTION_VERDICTS),
+      }));
+    }
+    const applicable = (w.collection ?? []).filter((c) => c.verdict !== 'NOT_APPLICABLE');
+    deps.log(line({
+      event: 'WEBSITE_COLLECTION_SUMMARY',
+      live: applicable.length,
+      flowing: applicable.filter((c) => c.verdict === 'FLOWING').length,
+      sparse: applicable.filter((c) => c.verdict === 'SPARSE').length,
+      noEvents: applicable.filter((c) => c.verdict === 'NO_EVENTS').length,
+    }));
     for (const s of w.sources) {
       deps.log(line({
         event: 'SOURCE_COVERAGE',

@@ -448,7 +448,7 @@ export { SituationRepository, SITUATION_RECORD_SCHEMA, situationRecurrenceKey } 
 export type { SituationOwner, SituationRecord, SituationView } from './repositories/intelligence/situation.repository';
 export { SituationService, situationInputsOf, situationContext, type SituationDiagnosis, type SituationDiagnosisReason, type SituationConnectivity, type ConnectivityScenario, type SourceComposition, governedSourcesOf } from './services/intelligence-fabric/situations';
 export { PipelineCompositionRepository, PIPELINE_ACTIVITY_WINDOW_DAYS, type PipelineComposition } from './repositories/intelligence/pipeline-composition.repository';
-export { WebsiteEvidenceStateRepository, type WebsiteEvidenceState, type WebsiteSourceCoverage } from './repositories/intelligence/website-evidence-state.repository';
+export { WebsiteEvidenceStateRepository, type WebsiteEvidenceState, type WebsiteSourceCoverage, type WebsiteCollection } from './repositories/intelligence/website-evidence-state.repository';
 export { IntelligenceReadingStateRepository, READING_STATE_BOUND, type ReadingState, type ReadingGroup, type LedgerGroup } from './repositories/intelligence/intelligence-reading-state.repository';
 export { SituationConnectivityRepository, CONNECTIVITY_MEMBER_WINDOW_DAYS, type GovernedConnectivity } from './repositories/intelligence/situation-connectivity.repository';
 export { GovernedEntityLinkProjector, GOVERNED_LINK_CLASSES, type GovernedLinkClassCount, type ProjectedLink } from './repositories/intelligence/governed-entity-links.repository';

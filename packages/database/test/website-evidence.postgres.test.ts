@@ -350,11 +350,15 @@ test('website evidence against Postgres', { skip }, async (t) => {
     assert.ok(await prisma.interaction.findUnique({ where: { id: recent.id } }), 'recent telemetry is kept');
   });
 
-  await t.test('25: the diagnostic state carries counts and codes only -- no key, domain, path, visitor or contact', async () => {
+  await t.test('25: the diagnostic state carries counts and codes only -- no domain, path, visitor or contact; the property key only as collection[].key', async () => {
     const state = await new WebsiteEvidenceStateRepository(prisma).read(A, new Date(Date.now() - 400 * DAY), new Date());
-    const text = JSON.stringify(state);
+    const { collection, ...rest } = state;
+    const text = JSON.stringify(rest);
     assert.doesNotMatch(text, new RegExp(kA));
     assert.doesNotMatch(text, /\.example|\/x|v1|s1|@|pk_emg_/);
+    // Collection health names the PROPERTY (a registry key the operator chose) and nothing else that identifies.
+    assert.deepEqual(collection.map((c) => c.key), [kA]);
+    assert.doesNotMatch(JSON.stringify(collection.map(({ key: _key, ...c }) => c)), new RegExp(`${kA}|\\.example|\\/x|v1|s1|@|pk_emg_`));
     assert.equal(state.properties.total, 1);
   });
 });
@@ -636,4 +640,31 @@ test('commission-live-sites against Postgres: validate first, mutate second (one
     assert.deepEqual(r, { outcome: 'REFUSED', entries: [{ key: k1, before: null, result: 'REFUSED', code: 'PROPERTY_NOT_IN_ORGANIZATION' }] });
     assert.equal(await snapshot([k1!]), before);
   });
+});
+
+test('collection health against Postgres: a LIVE + ENABLED property with no admitted events is NO_EVENTS', { skip }, async (t) => {
+  const prisma = new PrismaClient({ datasources: { db: { url: URL } } });
+  const properties = new WebPropertyRepository(prisma);
+  t.after(() => prisma.$disconnect());
+  const H = await org(prisma, 'health');
+  const quiet = key('quiet');
+  const busy = key('busy');
+  const owned = key('owned');
+  await register(properties, H, quiet);
+  await register(properties, H, busy);
+  assert.equal((await properties.register(H, { key: owned, primaryDomain: `${owned}.example` })).outcome, 'REGISTERED');
+  const now = new Date();
+  const at = (minsAgo: number) => new Date(now.getTime() - minsAgo * 60_000).toISOString();
+  await deliver(prisma, { tier: 'SIGNED', body: { property: busy, events: [
+    { event: 'session_start', id: `h-${now.getTime()}-1`, timestamp: at(30), sessionId: 's1', visitorId: 'v1' },
+    { event: 'page_view', id: `h-${now.getTime()}-2`, timestamp: at(30), page: '/a' },
+    { event: 'heartbeat', id: `h-${now.getTime()}-3`, timestamp: at(29) },
+    { event: 'page_view', id: `h-${now.getTime()}-4`, timestamp: at(20), page: '/b' },
+  ] } });
+  const state = await new WebsiteEvidenceStateRepository(prisma).read(H, new Date(now.getTime() - 86_400_000), now);
+  const by = Object.fromEntries(state.collection.map((c) => [c.key, c]));
+  assert.deepEqual(by[quiet], { key: quiet, lifecycle: 'LIVE', ingestion: 'ENABLED', events: 0, sessions: 0, pageViews: 0, lastEventAge: 'NEVER', verdict: 'NO_EVENTS' });
+  assert.deepEqual(by[busy], { key: busy, lifecycle: 'LIVE', ingestion: 'ENABLED', events: 4, sessions: 1, pageViews: 2, lastEventAge: 'LT_1H', verdict: 'SPARSE' });
+  assert.equal(by[owned]!.verdict, 'NOT_APPLICABLE');
+  assert.doesNotMatch(JSON.stringify(state.collection), /s1|v1|\/a|\/b/, 'counts only: no session, visitor or page');
 });

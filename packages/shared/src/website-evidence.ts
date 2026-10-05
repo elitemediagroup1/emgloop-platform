@@ -618,3 +618,54 @@ export function webSiteBindingHost(value: string): string | null {
 export function hostWithinPrimaryDomain(host: string, primaryDomain: string): boolean {
   return host === primaryDomain || host.endsWith('.' + primaryDomain);
 }
+
+// --- Collection health per property (2026-10-05) ------------------------------------------------------------
+//
+// "The first-party source is applicable" is not "events are arriving". A LIVE + ENABLED property is expected to
+// send its tracker's events; this verdict says, per property, whether it does -- from counts and the age of the
+// newest admitted event only, never from an id, a URL, a payload or a person.
+
+/** The window collection health is judged over. */
+export const WEBSITE_COLLECTION_WINDOW_DAYS = 14;
+/** Fewer page views than this over the window (one a day) is SPARSE, not FLOWING. */
+export const WEBSITE_COLLECTION_MIN_PAGE_VIEWS = 14;
+/** A newest event older than this is SPARSE: the tracker has gone quiet. */
+export const WEBSITE_COLLECTION_STALE_HOURS = 48;
+
+export const WEBSITE_COLLECTION_VERDICTS = ['FLOWING', 'SPARSE', 'NO_EVENTS', 'NOT_APPLICABLE'] as const;
+export type WebsiteCollectionVerdict = (typeof WEBSITE_COLLECTION_VERDICTS)[number];
+
+export const WEBSITE_EVENT_AGE_BUCKETS = ['LT_1H', 'LT_24H', 'LT_48H', 'LT_7D', 'LT_14D', 'GT_14D', 'NEVER'] as const;
+export type WebsiteEventAgeBucket = (typeof WEBSITE_EVENT_AGE_BUCKETS)[number];
+
+/** The newest event's age as a bounded code -- never the instant itself. */
+export function websiteEventAgeBucket(newestAt: Date | null, now: Date): WebsiteEventAgeBucket {
+  if (!newestAt) return 'NEVER';
+  const hours = (now.getTime() - newestAt.getTime()) / 3_600_000;
+  if (hours < 1) return 'LT_1H';
+  if (hours < 24) return 'LT_24H';
+  if (hours < 48) return 'LT_48H';
+  if (hours < 24 * 7) return 'LT_7D';
+  if (hours < 24 * 14) return 'LT_14D';
+  return 'GT_14D';
+}
+
+/**
+ * Whether a property's tracker is delivering. NOT_APPLICABLE unless LIVE + ENABLED (an OWNED or BUILDING site is
+ * expected to be quiet). NO_EVENTS when nothing was admitted in the window -- the failure a "covered" source used
+ * to hide. SPARSE when events arrive but fewer than one page view a day, or the newest is older than 48 hours.
+ */
+export function websiteCollectionVerdict(input: {
+  readonly lifecycle: string;
+  readonly ingestion: string;
+  readonly events: number;
+  readonly pageViews: number;
+  readonly newestAt: Date | null;
+  readonly now: Date;
+}): WebsiteCollectionVerdict {
+  if (!webPropertyAdmitsTelemetry(input)) return 'NOT_APPLICABLE';
+  if (input.events === 0) return 'NO_EVENTS';
+  const stale = !input.newestAt || input.now.getTime() - input.newestAt.getTime() > WEBSITE_COLLECTION_STALE_HOURS * 3_600_000;
+  if (stale || input.pageViews < WEBSITE_COLLECTION_MIN_PAGE_VIEWS) return 'SPARSE';
+  return 'FLOWING';
+}
