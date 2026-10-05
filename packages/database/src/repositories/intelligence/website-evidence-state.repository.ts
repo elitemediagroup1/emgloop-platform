@@ -19,12 +19,18 @@ import {
   WEBSITE_SOURCE_CONNECTIONS,
   organizationConnectionState,
   webPropertyAdmissionState,
+  WEBSITE_COLLECTION_WINDOW_DAYS,
+  webPropertyAdmitsTelemetry,
+  websiteCollectionVerdict,
   websiteCoverageVerdict,
+  websiteEventAgeBucket,
   websiteEventClass,
   type OrganizationConnectionState,
   type WebPropertyAdmissionState,
   type WebPropertyLifecycle,
+  type WebsiteCollectionVerdict,
   type WebsiteCoverageVerdict,
+  type WebsiteEventAgeBucket,
   type WebsiteEventClass,
 } from '@emgloop/shared';
 import { websiteEventTypeCounts, websiteEventsInWindow } from '../website-analytics.repository';
@@ -67,6 +73,24 @@ export interface WebsiteEvidenceState {
   /** The organization's refusal counters (codes -> counts), or null when it has no website connection yet. */
   readonly refusals: Readonly<Record<string, number>> | null;
   readonly sources: readonly WebsiteSourceCoverage[];
+  /**
+   * Per registered property: is its tracker actually delivering? Exact counts over the last
+   * WEBSITE_COLLECTION_WINDOW_DAYS of admitted events, the newest event's age as a bucket, and a verdict.
+   * Ordered by key. Never an id, URL, payload or person.
+   */
+  readonly collection: readonly WebsiteCollection[];
+}
+
+export interface WebsiteCollection {
+  readonly key: string;
+  readonly lifecycle: string;
+  readonly ingestion: string;
+  readonly events: number;
+  /** Sessions STARTED in the window (the tracker's session_start events). */
+  readonly sessions: number;
+  readonly pageViews: number;
+  readonly lastEventAge: WebsiteEventAgeBucket;
+  readonly verdict: WebsiteCollectionVerdict;
 }
 
 function flag(quality: Readonly<Record<string, unknown>>, key: string): boolean | null {
@@ -80,7 +104,7 @@ export class WebsiteEvidenceStateRepository {
   async read(organizationId: string, since: Date, now: Date): Promise<WebsiteEvidenceState> {
     const props = await this.prisma.webProperty.findMany({
       where: { organizationId },
-      select: { lifecycle: true, ingestion: true, ga4PropertyId: true, searchConsoleSiteUrl: true, bingSiteUrl: true, clarityProjectId: true },
+      select: { key: true, lifecycle: true, ingestion: true, ga4PropertyId: true, searchConsoleSiteUrl: true, bingSiteUrl: true, clarityProjectId: true },
     });
     const byLifecycle = Object.fromEntries(WEB_PROPERTY_LIFECYCLES.map((l) => [l, 0])) as Record<WebPropertyLifecycle, number>;
     const byAdmission = Object.fromEntries(WEB_PROPERTY_ADMISSION_STATES.filter((a) => a !== 'UNREGISTERED').map((a) => [a, 0])) as Record<Exclude<WebPropertyAdmissionState, 'UNREGISTERED'>, number>;
@@ -157,7 +181,42 @@ export class WebsiteEvidenceStateRepository {
       };
     });
 
+    // Collection health, per property. Only LIVE + ENABLED properties are counted (the verdict for anything else is
+    // NOT_APPLICABLE); a property's events are the admitted events bound to its key.
+    const windowStart = new Date(now.getTime() - WEBSITE_COLLECTION_WINDOW_DAYS * 86_400_000);
+    const collection: WebsiteCollection[] = [];
+    for (const p of [...props].sort((a, b) => a.key.localeCompare(b.key))) {
+      if (!webPropertyAdmitsTelemetry(p)) {
+        collection.push({ key: p.key, lifecycle: p.lifecycle, ingestion: p.ingestion, events: 0, sessions: 0, pageViews: 0, lastEventAge: 'NEVER', verdict: 'NOT_APPLICABLE' });
+        continue;
+      }
+      const ofProperty = { organizationId, provider: 'website', payload: { path: ['property'], equals: p.key } } as const;
+      const [counts, newestRow] = await Promise.all([
+        websiteEventTypeCounts(this.prisma, { AND: [websiteEventsInWindow(organizationId, windowStart, now), ofProperty] }),
+        this.prisma.integrationEvent.findFirst({ where: { ...ofProperty, occurredAt: { not: null, lte: now } }, select: { occurredAt: true }, orderBy: { occurredAt: 'desc' } }),
+      ]);
+      let events = 0;
+      let pageViews = 0;
+      for (const [eventType, n] of counts) {
+        events += n;
+        if (websiteEventClass(eventType) === 'PAGE_VIEW') pageViews += n;
+      }
+      const sessions = counts.get('web.session_start') ?? 0;
+      const newestAt = newestRow?.occurredAt ?? null;
+      collection.push({
+        key: p.key,
+        lifecycle: p.lifecycle,
+        ingestion: p.ingestion,
+        events,
+        sessions,
+        pageViews,
+        lastEventAge: websiteEventAgeBucket(newestAt, now),
+        verdict: websiteCollectionVerdict({ lifecycle: p.lifecycle, ingestion: p.ingestion, events, pageViews, newestAt, now }),
+      });
+    }
+
     return {
+      collection,
       properties,
       events: { total, byClass, newestAt: newest?.occurredAt ?? null },
       refusals,

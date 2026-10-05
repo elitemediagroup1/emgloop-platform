@@ -10,6 +10,9 @@ import {
   INTELLIGENCE_SOURCE_REGISTRY,
   SITUATION_MIN_SOURCES,
   WEB_PROPERTY_COMMISSION_BATCH_MAX,
+  WEBSITE_COLLECTION_MIN_PAGE_VIEWS,
+  websiteCollectionVerdict,
+  websiteEventAgeBucket,
   WEB_PROPERTY_LIFECYCLES,
   WEB_PROPERTY_LIFECYCLE_TRANSITIONS,
   parseWebPropertyKeyList,
@@ -385,4 +388,46 @@ test('the live commission plan uses the governed state machine: RETIRED cannot b
   assert.deepEqual(webPropertyLiveCommission({ lifecycle: 'LIVE', ingestion: 'ENABLED' }), { ok: true, lifecycleChange: false, ingestionChange: false });
   assert.deepEqual(webPropertyLiveCommission({ lifecycle: 'RETIRED', ingestion: 'DISABLED' }), { ok: false, code: 'LIFECYCLE_TRANSITION_REFUSED' });
   assert.deepEqual(webPropertyLiveCommission({ lifecycle: 'ACTIVE', ingestion: 'ENABLED' }), { ok: false, code: 'STATE_UNRECOGNIZED' });
+});
+
+// --- Collection health (2026-10-05) ----------------------------------------------------------------------------
+
+
+test('collection verdict: a LIVE + ENABLED property with no events is NO_EVENTS, never healthy', () => {
+  const now = new Date('2026-10-05T12:00:00Z');
+  const h = (n: number) => new Date(now.getTime() - n * 3_600_000);
+  const live = { lifecycle: 'LIVE', ingestion: 'ENABLED', now };
+  assert.equal(websiteCollectionVerdict({ ...live, events: 0, pageViews: 0, newestAt: null }), 'NO_EVENTS');
+  assert.equal(websiteCollectionVerdict({ ...live, events: 1, pageViews: 0, newestAt: h(1) }), 'SPARSE', 'one stray event is not a flowing tracker');
+  assert.equal(websiteCollectionVerdict({ ...live, events: 500, pageViews: 200, newestAt: h(72) }), 'SPARSE', 'gone quiet for 3 days');
+  assert.equal(websiteCollectionVerdict({ ...live, events: 500, pageViews: WEBSITE_COLLECTION_MIN_PAGE_VIEWS, newestAt: h(2) }), 'FLOWING');
+  assert.equal(websiteCollectionVerdict({ ...live, ingestion: 'DISABLED', events: 0, pageViews: 0, newestAt: null }), 'NOT_APPLICABLE');
+  assert.equal(websiteCollectionVerdict({ ...live, lifecycle: 'OWNED', ingestion: 'DISABLED', events: 0, pageViews: 0, newestAt: null }), 'NOT_APPLICABLE');
+  assert.equal(websiteEventAgeBucket(null, now), 'NEVER');
+  assert.equal(websiteEventAgeBucket(h(0.5), now), 'LT_1H');
+  assert.equal(websiteEventAgeBucket(h(30), now), 'LT_48H');
+  assert.equal(websiteEventAgeBucket(h(24 * 20), now), 'GT_14D');
+});
+
+test('minimization is idempotent: a stored, minimized event read back through the minimizer keeps every attribute', () => {
+  const raw = { page: '/a?x=1', title: 'A', referrer: 'https://www.google.com/search?q=x', utm_source: 'google', utm_medium: 'cpc', sessionId: 's1', visitorId: 'v1', cta: 'Go', form: 'quote', category: 'plumbing', city: 'Austin', query: '10001', depth: 50 };
+  const once = minimizeWebsiteEvent(raw, 'site');
+  assert.equal(once.referrerHost, 'www.google.com');
+  assert.deepEqual(minimizeWebsiteEvent(once as Record<string, unknown>, 'site'), once);
+  assert.equal(minimizeWebsiteEvent({ referrerHost: 'https://evil.example/?q=1' }, 'site').referrerHost, undefined, 'a stored value must still be a plain host');
+});
+
+test('click fields are minimized: a closed element type, a destination PATH (no query), a destination HOST', () => {
+  const m = minimizeWebsiteEvent({ elementType: 'link', destination: 'https://servicesinmycity.com/plumbers?email=a@b.com#x', destinationHost: 'Partner.Example', cta: 'Plumbers' }, 'site');
+  assert.equal(m.elementType, 'link');
+  assert.equal(m.destination, '/plumbers');
+  assert.equal(m.destinationHost, 'partner.example');
+  assert.equal(minimizeWebsiteEvent({ elementType: '<div onclick>' }, 'site').elementType, undefined, 'outside the vocabulary: dropped');
+  assert.equal(minimizeWebsiteEvent({ destinationHost: 'https://x.example/?q=1' }, 'site').destinationHost, undefined, 'a URL is not a host');
+  assert.equal(minimizeWebsiteEvent({ destination: '/thanks/jane@example.com' }, 'site').destination, undefined);
+  assert.equal(minimizeWebsiteEvent({ cta: 'Call (512) 555-0147' }, 'site').cta, undefined, 'a label that is a phone number is dropped');
+  assert.equal(websiteEventClass('web.page_leave'), 'TELEMETRY');
+  assert.equal(websiteEventClass('web.session_end'), 'TELEMETRY', 'the legacy name is a page leave too');
+  assert.equal(websiteEventClass('web.link_click'), 'ENGAGEMENT');
+  assert.equal(websiteEventClass('web.button_click'), 'ENGAGEMENT');
 });

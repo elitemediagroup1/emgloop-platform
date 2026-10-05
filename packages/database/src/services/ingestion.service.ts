@@ -77,6 +77,7 @@ const LOOP_EVENT_TYPES_SET = new Set<string>([
   'web.video_play', 'web.error', 'web.goal_conversion',
   // Tracker instrumentation and unnamed website events (2026-09-30): stored as what they are, never as page views.
   'web.heartbeat', 'web.scroll_depth', 'web.identify', 'web.other',
+  'web.page_leave', 'web.link_click', 'web.button_click',
   'sms.inbound', 'sms.outbound',
   'email.sent', 'email.delivered', 'email.opened', 'email.clicked',
   'ai.conversation_start', 'ai.conversation_end', 'ai.escalation',

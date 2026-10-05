@@ -1,16 +1,26 @@
-/* EMG Loop SDK - emg-loop.js (Sprint 17). First-party website intelligence.
- * Lightweight, dependency-free browser tracker for every EMG property. It
- * captures sessions, page views, scroll depth, CTA/phone/email/outbound clicks,
- * form starts/submits, searches and ZIP searches, appointment requests,
- * downloads, AI chat + planner events, then batches them and POSTs to the EMG
- * Loop website webhook with retry + offline queue + heartbeat. No third-party
- * analytics libraries. Configure via the script tag data-* attributes:
+/* EMG Loop SDK - emg-loop.js v1.1.0. First-party website intelligence for EMG properties.
+ * Dependency-free browser tracker. It records an anonymous visit -- pages, scroll depth, meaningful clicks,
+ * form starts/submits, ZIP searches, appointment requests, chat/planner activity -- batches the events and POSTs
+ * them to the EMG Loop website webhook with retry and an offline queue. Not session replay: no DOM, no mouse
+ * movement, no keystrokes, no input values. Configure via the script tag's data-* attributes:
  *   <script src="https://app.emgloop.com/sdk/emg-loop.js"
- *           data-property="servicesinmycity" data-ingest-key="pk_emg_servicesinmycity" data-organization="emg" async><\/script>
+ *           data-property="servicesinmycity" data-ingest-key="pk_emg_servicesinmycity" async></script>
  *
- * Source of truth: apps/web/src/app/sdk/sdk-source.ts (kept in sync). This
- * static file is what the CDN serves at /sdk/emg-loop.js; /api/sdk/emg-loop
- * serves the identical source for programmatic consumers.
+ * SESSION (v1.1.0): one visit is one session id. It ends after 30 minutes WITHOUT MEANINGFUL ACTIVITY -- page
+ * views, scrolling, clicks, form starts/submits, searches, appointment requests, chat/planner calls, and a
+ * heartbeat while the page is visible all count. Activity updates the last-active time in memory; it is written
+ * to storage at most once a minute and when the page is hidden or left, so navigating to the next page continues
+ * the same session. Leaving a page sends `page_leave` -- never an end of the session.
+ *
+ * DELIVERY (v1.1.0): every request is CORS-simple (text/plain, no custom header; the public ingest key is in the
+ * body), so no preflight is needed and page-hide beacons survive navigation. Delivered events are forgotten by id.
+ *
+ * MINIMIZED AT THE SOURCE: the page is its path (no query string); the referrer is its origin; utm source/medium
+ * only; click labels are visible text or aria-label, collapsed and capped at 80 characters, and dropped when they
+ * look like an email or phone number; link destinations are a path (internal) or a host (outbound); a search
+ * leaves the browser only when it is a 5- or 9-digit ZIP. The Loop server minimizes again before storing.
+ *
+ * Source of truth: THIS file. apps/web/src/app/sdk/sdk-source.ts mirrors it byte for byte (a test enforces it).
  */
 (function (window, document) {
   'use strict';
@@ -34,7 +44,6 @@
 
   var config = {
     property: ds.property || 'website',
-    organization: ds.organization || 'emg',
     ingestKey: ds.ingestKey || ds.key || '',
     endpoint: ds.endpoint || (origin + '/api/webhooks/website'),
     batchSize: parseInt(ds.batchSize, 10) || 10,
@@ -72,30 +81,44 @@
       return v.toString(16);
     });
   }
+
+  // ---- Anonymous identity: a browser id (persistent) and a visit id (30 minutes of inactivity) -----------
   var VISITOR_KEY = 'emg_visitor_id';
   var SESSION_KEY = 'emg_session_id';
   var SESSION_TS_KEY = 'emg_session_ts';
   var SESSION_MAX_IDLE = 30 * 60 * 1000;
+  var PERSIST_EVERY = 60 * 1000;
 
   var visitorId = get(ls, VISITOR_KEY);
   if (!visitorId) { visitorId = uuid(); set(ls, VISITOR_KEY, visitorId); }
 
-  var isNewSession = false;
-  function currentSession() {
-    var now = Date.now();
-    var sid = get(ss, SESSION_KEY) || get(ls, SESSION_KEY);
-    var last = parseInt(get(ss, SESSION_TS_KEY) || get(ls, SESSION_TS_KEY), 10) || 0;
-    var fresh = sid && now - last < SESSION_MAX_IDLE;
-    if (!fresh) { sid = uuid(); isNewSession = true; }
-    set(ss, SESSION_KEY, sid); set(ls, SESSION_KEY, sid);
-    set(ss, SESSION_TS_KEY, String(now)); set(ls, SESSION_TS_KEY, String(now));
-    return sid;
+  var sessionId = get(ss, SESSION_KEY) || get(ls, SESSION_KEY);
+  var lastActive = parseInt(get(ss, SESSION_TS_KEY) || get(ls, SESSION_TS_KEY), 10) || 0;
+  var lastPersisted = 0;
+  var pendingStart = false;
+
+  function persistSession(now) {
+    set(ss, SESSION_KEY, sessionId); set(ls, SESSION_KEY, sessionId);
+    set(ss, SESSION_TS_KEY, String(lastActive)); set(ls, SESSION_TS_KEY, String(lastActive));
+    lastPersisted = now;
   }
-  var sessionId = currentSession();
+  // The current visit, renewed only after 30 minutes without meaningful activity.
+  function ensureSession(now) {
+    if (!sessionId || now - lastActive >= SESSION_MAX_IDLE) {
+      sessionId = uuid();
+      lastActive = now;
+      pendingStart = true;
+      persistSession(now);
+    }
+  }
+  // Meaningful activity: keep the visit alive. In memory always; in storage at most once a minute.
+  function touch(now) {
+    ensureSession(now);
+    lastActive = now;
+    if (now - lastPersisted >= PERSIST_EVERY) persistSession(now);
+  }
 
-  var identity = {};
-  try { identity = JSON.parse(get(ls, 'emg_identity') || '{}') || {}; } catch (e) { identity = {}; }
-
+  // ---- Event queue with batching + retry + offline persistence ------------------------------------------
   var QUEUE_KEY = 'emg_queue';
   var queue = [];
   try { queue = JSON.parse(get(ls, QUEUE_KEY) || '[]') || []; } catch (e) { queue = []; }
@@ -108,49 +131,80 @@
   function param(name) {
     try { return new URLSearchParams(location.search).get(name) || ''; } catch (e) { return ''; }
   }
+  function referrerOrigin() {
+    try { return document.referrer ? new URL(document.referrer).origin : undefined; } catch (e) { return undefined; }
+  }
 
   function baseFields() {
     return {
       property: config.property,
-      organization: config.organization,
       visitorId: visitorId,
       sessionId: sessionId,
-      page: location.pathname + location.search,
-      url: location.href,
-      title: document.title,
-      referrer: document.referrer || undefined,
+      page: location.pathname,
+      title: bound(document.title, 120),
+      referrer: referrerOrigin(),
       source: (param('utm_source') || param('gclid')) ? (param('utm_source') || 'paid') : undefined,
-      campaign: param('utm_campaign') || undefined,
-      medium: param('utm_medium') || undefined,
-      screen: (window.screen ? window.screen.width + 'x' + window.screen.height : undefined),
-      email: identity.email,
-      phone: identity.phone
+      medium: param('utm_medium') || undefined
     };
   }
 
-  function track(event, props) {
+  function push(event, props, now) {
     var ev = baseFields();
     ev.event = event;
     ev.id = uuid();
-    ev.timestamp = new Date().toISOString();
-    if (props) { for (var k in props) { if (Object.prototype.hasOwnProperty.call(props, k) && props[k] !== undefined) ev[k] = props[k]; } }
+    ev.timestamp = new Date(now).toISOString();
+    if (props) { for (var k in props) { if (Object.prototype.hasOwnProperty.call(props, k) && props[k] !== undefined && props[k] !== null && props[k] !== '') ev[k] = props[k]; } }
     queue.push(ev);
+  }
+
+  // Record an event. `activity` events keep the visit alive (and may open a new one after 30 idle minutes).
+  function track(event, props, activity) {
+    var now = Date.now();
+    if (activity !== false) {
+      touch(now);
+      if (pendingStart && event !== 'session_start') { pendingStart = false; push('session_start', {}, now); }
+    } else if (!sessionId || now - lastActive >= SESSION_MAX_IDLE) {
+      // Not activity, and the visit has lapsed: it belongs to no visit. Never open a new one for it.
+      return;
+    }
+    push(event, props, now);
     persistQueue();
     log('queued', event, props || {});
     if (queue.length >= config.batchSize) flush();
   }
 
+  // Delivery is a CORS-SIMPLE request: a text/plain body (the JSON text) and no custom header -- the public ingest
+  // key travels in the body. A simple request needs no preflight, so a page-hide beacon and a keepalive fetch both
+  // survive navigation (browsers drop preflighted requests at unload, which lost events before v1.1.0).
+  var CONTENT_TYPE = 'text/plain;charset=UTF-8';
+  function forget(batch) {
+    var sent = {};
+    for (var i = 0; i < batch.length; i++) sent[batch[i].id] = true;
+    // By id, never by position: events queued while a request was in flight stay queued.
+    queue = queue.filter(function (e) { return !sent[e.id]; });
+    persistQueue();
+  }
+
   function flush(useBeacon) {
-    if (flushing || queue.length === 0) return;
+    if (queue.length === 0) return;
+    // Leaving or hiding the page: hand EVERYTHING pending to the browser, even while a request is in flight. A
+    // duplicate carries the same event id and is stored once.
+    if (useBeacon && navigator.sendBeacon) {
+      var all = queue.slice(0);
+      try {
+        var blob = new Blob([JSON.stringify({ property: config.property, ingestKey: config.ingestKey, events: all })], { type: CONTENT_TYPE });
+        if (navigator.sendBeacon(config.endpoint, blob)) { forget(all); return; }
+      } catch (e) {}
+    }
+    if (flushing) return;
     flushing = true;
     var batch = queue.slice(0, Math.max(config.batchSize, queue.length));
-    var body = JSON.stringify({ property: config.property, organization: config.organization, ingestKey: config.ingestKey, events: batch });
+    var body = JSON.stringify({ property: config.property, ingestKey: config.ingestKey, events: batch });
 
     function onDone(ok) {
       flushing = false;
       if (ok) {
-        queue = queue.slice(batch.length);
-        persistQueue();
+        forget(batch);
         retries = 0;
         if (queue.length > 0) flush();
       } else {
@@ -161,19 +215,10 @@
       }
     }
 
-    if (useBeacon && navigator.sendBeacon) {
-      try {
-        var blob = new Blob([body], { type: 'application/json' });
-        var sent = navigator.sendBeacon(config.endpoint, blob);
-        onDone(sent);
-        return;
-      } catch (e) {}
-    }
-
     try {
       fetch(config.endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-EMG-Ingest-Key': config.ingestKey || '' },
+        headers: { 'Content-Type': CONTENT_TYPE },
         body: body,
         keepalive: true,
         credentials: 'omit'
@@ -183,8 +228,38 @@
     } catch (e) { onDone(false); }
   }
 
+  // ---- Minimization helpers --------------------------------------------------------------------------
+  var EMAIL_LIKE = /[^\s@/]+@[^\s@/]+\.[a-z]{2,}/i;
+  var PHONE_LIKE = /(?:\d[\s().-]*){7,}/;
+  function bound(text, max) {
+    var s = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!s) return undefined;
+    if (EMAIL_LIKE.test(s) || PHONE_LIKE.test(s)) return undefined;
+    return s.length > max ? s.slice(0, max) : s;
+  }
+  // A clickable element's human label: aria-label, an explicit CTA name, its RENDERED text (never hidden text),
+  // its title, an image's alt, or a button input's own caption. Never an input's typed value.
+  function labelOf(el) {
+    var a = el.getAttribute && (el.getAttribute('aria-label') || el.getAttribute('data-emg-cta') || el.getAttribute('data-cta'));
+    if (a && a !== 'true' && a !== '') return bound(a, 80);
+    if (el.tagName === 'INPUT') {
+      var t = (el.getAttribute('type') || '').toLowerCase();
+      return (t === 'submit' || t === 'button' || t === 'reset') ? bound(el.getAttribute('value'), 80) : undefined;
+    }
+    var text = typeof el.innerText === 'string' ? el.innerText : '';
+    if (bound(text, 80)) return bound(text, 80);
+    if (el.getAttribute && el.getAttribute('title')) return bound(el.getAttribute('title'), 80);
+    var img = el.querySelector && el.querySelector('img[alt]');
+    return img ? bound(img.getAttribute('alt'), 80) : undefined;
+  }
+  function parseHref(href) {
+    try { return new URL(href, location.href); } catch (e) { return null; }
+  }
+  function isDownloadPath(path) { return /\.(pdf|zip|csv|xlsx?|docx?|pptx?|mp3|mp4|dmg|exe|pkg)$/i.test(path || ''); }
+  function isZip(v) { return /^\d{5}(-\d{4})?$/.test(v || ''); }
+
+  // ---- Instrumentation --------------------------------------------------------------------------------
   function instrument() {
-    if (isNewSession) track('session_start', {});
     track('page_view', {});
 
     var hit = {};
@@ -199,16 +274,36 @@
     }
     window.addEventListener('scroll', throttle(onScroll, 400), { passive: true });
 
+    // Meaningful clicks only: links, buttons, explicit CTAs. Never coordinates, never the DOM, never other elements.
     document.addEventListener('click', function (e) {
-      var a = closest(e.target, 'a, button, [data-emg-cta]');
-      if (!a) return;
-      var href = (a.getAttribute && a.getAttribute('href')) || '';
-      var cta = (a.getAttribute && (a.getAttribute('data-emg-cta') || a.getAttribute('data-cta'))) || textOf(a);
-      if (href.indexOf('tel:') === 0) { track('phone_click', { cta: cta, phone_target: href.slice(4) }); return; }
-      if (href.indexOf('mailto:') === 0) { track('email_click', { cta: cta, email_target: href.slice(7) }); return; }
-      if (isDownload(href)) { track('download', { cta: cta, file: href }); return; }
-      if (isOutbound(href)) { track('external_link_click', { cta: cta, target: href }); return; }
-      if (a.hasAttribute && (a.hasAttribute('data-emg-cta') || a.hasAttribute('data-cta'))) { track('cta_click', { cta: cta }); }
+      var el = closest(e.target, 'a[href], button, [role="button"], input[type="submit"], input[type="button"], [data-emg-cta], [data-cta]');
+      if (!el) return;
+      var label = labelOf(el);
+      var explicit = el.hasAttribute && (el.hasAttribute('data-emg-cta') || el.hasAttribute('data-cta'));
+      var href = (el.tagName === 'A' && el.getAttribute('href')) || '';
+      if (href) {
+        var lower = href.toLowerCase();
+        if (lower.indexOf('tel:') === 0) { track('phone_click', { cta: label, elementType: 'phone' }); return; }
+        if (lower.indexOf('mailto:') === 0) { track('email_click', { cta: label, elementType: 'email' }); return; }
+        var u = parseHref(href);
+        if (u && (u.protocol === 'http:' || u.protocol === 'https:')) {
+          var internal = u.host === location.host;
+          if (isDownloadPath(u.pathname)) {
+            track('download', internal ? { cta: label, elementType: 'download', destination: u.pathname } : { cta: label, elementType: 'download', destinationHost: u.host });
+            return;
+          }
+          if (!internal) { track('external_link_click', { cta: label, elementType: 'outbound', destinationHost: u.host }); return; }
+          if (explicit) { track('cta_click', { cta: label, elementType: 'cta', destination: u.pathname }); return; }
+          // A same-page anchor is not a navigation.
+          if (u.pathname === location.pathname && u.hash) return;
+          track('link_click', { cta: label, elementType: 'link', destination: u.pathname });
+          return;
+        }
+        if (!explicit) return;
+      }
+      if (explicit) { track('cta_click', { cta: label, elementType: 'cta' }); return; }
+      var type = (el.getAttribute && (el.getAttribute('type') || '').toLowerCase()) || '';
+      track('button_click', { cta: label, elementType: type === 'submit' ? 'submit' : 'button' });
     }, true);
 
     var started = {};
@@ -220,36 +315,42 @@
       var f = e.target;
       if (!f || f.tagName !== 'FORM') return;
       var name = formName(f);
-      var q = searchValue(f);
-      if (isZip(q)) { track('zip_search', { query: q, form: name }); return; }
-      if (/search/i.test(name) || q) { track('search_performed', { query: q, form: name }); return; }
+      var zip = zipValue(f);
+      if (zip) { track('zip_search', { zip: zip, form: name }); return; }
+      if (/search/i.test(name) || hasSearchInput(f)) { track('search_performed', { form: name }); return; }
       if (/appoint|book|schedule/i.test(name)) { track('appointment_requested', { form: name }); return; }
       track('form_submitted', { form: name });
     }, true);
   }
 
-  setInterval(function () { track('heartbeat', { visible: !document.hidden }); }, config.heartbeatMs);
+  // A heartbeat while the page is VISIBLE is activity; a hidden tab sends nothing and lets the visit lapse.
+  setInterval(function () { if (!document.hidden) track('heartbeat', {}); }, config.heartbeatMs);
   setInterval(function () { flush(); }, config.flushIntervalMs);
-  document.addEventListener('visibilitychange', function () { if (document.hidden) flush(true); });
-  window.addEventListener('pagehide', function () { track('session_end', {}); flush(true); });
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) { persistSession(Date.now()); flush(true); }
+  });
+  // Leaving a page (including moving to the next one) is NOT the end of the visit: the visit ends only after 30
+  // minutes without activity. Persist the visit clock so the next page continues it.
+  window.addEventListener('pagehide', function () {
+    track('page_leave', {}, false);
+    persistSession(Date.now());
+    flush(true);
+  });
   window.addEventListener('online', function () { flush(); });
 
   window.emgLoop = {
-    version: '1.0.0',
-    config: { property: config.property, organization: config.organization, endpoint: config.endpoint, ingestKey: config.ingestKey },
-    track: track,
+    version: '1.1.0',
+    config: { property: config.property, endpoint: config.endpoint, ingestKey: config.ingestKey },
+    track: function (event, props) { track(String(event || 'custom'), {}); },
     flush: function () { flush(); },
-    identify: function (traits) {
-      if (!traits) return;
-      for (var k in traits) { if (Object.prototype.hasOwnProperty.call(traits, k) && traits[k]) identity[k] = traits[k]; }
-      set(ls, 'emg_identity', JSON.stringify(identity));
-      track('identify', {});
-    },
-    chatStart: function (p) { track('chat_started', p || {}); },
-    chatComplete: function (p) { track('chat_completed', p || {}); },
-    plannerStart: function (p) { track('planner_started', p || {}); },
-    plannerSave: function (p) { track('planner_saved', p || {}); },
-    search: function (q, p) { track('search_performed', Object.assign({ query: q }, p || {})); }
+    // Anonymous by design: identify() records that the site identified the browser, and sends no traits.
+    identify: function () { track('identify', {}, false); },
+    chatStart: function () { track('chat_started', {}); },
+    chatComplete: function () { track('chat_completed', {}); },
+    plannerStart: function () { track('planner_started', {}); },
+    plannerSave: function () { track('planner_saved', {}); },
+    // Only a ZIP code ever leaves the browser; free-text search terms do not.
+    search: function (q) { var z = String(q || '').trim(); track(isZip(z) ? 'zip_search' : 'search_performed', isZip(z) ? { zip: z } : {}); }
   };
 
   function throttle(fn, ms) {
@@ -260,19 +361,18 @@
     while (el && el.nodeType === 1) { if (el.matches && el.matches(sel)) return el; el = el.parentElement; }
     return null;
   }
-  function textOf(el) { return (el.textContent || '').trim().slice(0, 80); }
-  function isOutbound(href) {
-    if (!href || href.indexOf('http') !== 0) return false;
-    try { return new URL(href).host !== location.host; } catch (e) { return false; }
+  function formId(f) { return f.id || f.getAttribute('name') || (f.getAttribute('action') || '') + ':' + (f.className || ''); }
+  function formName(f) { return bound(f.getAttribute('name') || f.getAttribute('id') || f.getAttribute('data-emg-form') || 'form', 80) || 'form'; }
+  function searchInput(f) {
+    return f.querySelector('input[type=search], input[name*=search i], input[name*=query i], input[name*=zip i], input[type=text]');
   }
-  function isDownload(href) { return /\.(pdf|zip|csv|xlsx?|docx?|pptx?|mp3|mp4|dmg|exe|pkg)(\?|$)/i.test(href || ''); }
-  function formId(f) { return f.id || f.name || (f.action || '') + ':' + (f.className || ''); }
-  function formName(f) { return f.getAttribute('name') || f.getAttribute('id') || f.getAttribute('data-emg-form') || 'form'; }
-  function searchValue(f) {
-    var el = f.querySelector('input[type=search], input[name*=search i], input[name*=query i], input[name*=zip i], input[type=text]');
-    return el && el.value ? String(el.value).trim().slice(0, 120) : '';
+  function hasSearchInput(f) { return !!f.querySelector('input[type=search], input[name*=search i], input[name*=query i]'); }
+  // The ONLY input value ever read: a ZIP code, sent only when the whole value is one.
+  function zipValue(f) {
+    var el = searchInput(f);
+    var v = el && el.value ? String(el.value).trim() : '';
+    return isZip(v) ? v : '';
   }
-  function isZip(v) { return /^\d{5}(-\d{4})?$/.test(v || ''); }
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', instrument);

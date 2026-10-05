@@ -136,8 +136,47 @@ event=COMMISSION_BATCH_RESULT requested=7 commissioned=6 unchanged=1 refused=0 r
 
 ### 6. Deploy web (Netlify)
 
-`GET /api/webhooks/website` returns `tenancy: "registered-property"`. Only LIVE + ENABLED properties' events
-are admitted.
+This deploy must include the 2026-10-05 tracker fixes (`feat/website-visitor-journeys`):
+
+- **CORS.** The webhook now answers cross-origin requests. Before it, every browser refused to send every tracker
+  event, so no site could deliver anything however it was installed. Tracker v1.1.0 also sends CORS-simple
+  requests (no preflight at all), so delivery survives navigation.
+- **Install snippet.** The generated `<script>` tag is now closed. Before it, a pasted snippet left the element
+  open and swallowed the page markup after it.
+
+Read back:
+
+- `curl -si -X OPTIONS https://app.emgloop.com/api/webhooks/website -H 'Origin: https://servicesinmycity.com' -H 'Access-Control-Request-Method: POST' -H 'Access-Control-Request-Headers: content-type,x-emg-ingest-key'`
+  answers `204` with `access-control-allow-origin: *` and `access-control-allow-headers: Content-Type, X-EMG-Ingest-Key`.
+- `GET /api/webhooks/website` returns `tenancy: "registered-property"`.
+
+### 6a. Install the tracker on each LIVE site
+
+Registration and commissioning do not install anything. As of 2026-10-05, none of the seven LIVE sites' public
+homepages (or the first-party scripts they load) contains the EMG Loop tracker. `homesinmycity.com` serves a
+parked-domain lander, not a site.
+
+For each site, take the snippet from **Integrations → EMG Websites → the property**
+(`/crm/integrations/website/property/<key>`). Paste it once into the `<head>` of **every page**, or the site's
+shared layout or template. The snippet is public (no secret):
+
+```html
+<script
+  src="https://app.emgloop.com/sdk/emg-loop.js"
+  data-property="<key>"
+  data-ingest-key="pk_emg_<key>"
+  data-organization="servicesinmycity-demo"
+  async>
+</script>
+```
+
+`<key>` is the registered property key, e.g. `careinmycity`. `data-organization` is ignored by the server:
+tenancy is the registry's. The site must be served from its registered domain or a subdomain of it (e.g.
+`www.`), because production checks the browser's Origin.
+
+Check one page load in the browser's network panel: a POST to `/api/webhooks/website`, with a `text/plain`
+body and no preflight (tracker v1.1.0), answering `200` with `"ok":true`. Leaving the page sends a beacon,
+which some panels list as type `ping`. `window.emgLoop.version` in the console reads `1.1.0`.
 
 ### 7. Read Intelligence State
 
@@ -145,13 +184,23 @@ For the organization, confirm:
 
 - `WEBSITE_PROPERTY registered=17` with the lifecycle counts;
 - `WEBSITE_PROPERTY_STATE state=LIVE_INGESTING count=<live sites>`;
-- `WEBSITE_EVENTS total>0` with a recent `newestAt`;
-- `SOURCE_COVERAGE source=WEBSITE_EVENTS coverage=COVERED`;
-- the four external sources as `connection=NOT_CONNECTED coverage=GAP_NOT_CONNECTED`. That is correct, because
-  LIVE sites exist and nothing is connected yet.
+- **`WEBSITE_COLLECTION property=<key> ... verdict=...`, one line per property.** This is the line that says
+  whether each LIVE site is actually delivering:
 
-An organization with no LIVE property shows `coverage=NOT_APPLICABLE`. Refusals for unregistered properties
-appear only in Netlify function logs (`WEBSITE_INGEST_REFUSED code=PROPERTY_UNREGISTERED`).
+  | Verdict | Meaning |
+  |---|---|
+  | `FLOWING` | events are arriving (at least one page view a day, newest within 48 hours) |
+  | `SPARSE` | some events, but fewer than that, or gone quiet |
+  | `NO_EVENTS` | LIVE + ENABLED and nothing admitted in 14 days. The tracker is not installed, or not reaching Loop. |
+  | `NOT_APPLICABLE` | not LIVE + ENABLED, so expected to be quiet |
+
+  `WEBSITE_COLLECTION_SUMMARY` counts them.
+- `SOURCE_COVERAGE source=WEBSITE_EVENTS`. `coverage=COVERED` only means some first-party evidence exists; it
+  never replaces the per-property verdict.
+- The four external sources show `connection=NOT_CONNECTED coverage=GAP_NOT_CONNECTED`. That is correct.
+
+Then open **Website Visitors** (`/crm/live/websites`). Each visit shows where it came from, its landing page,
+pages and actions, and opens into its journey.
 
 ### 8. Redeploy the connections worker
 

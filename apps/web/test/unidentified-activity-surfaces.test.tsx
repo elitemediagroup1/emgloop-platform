@@ -34,8 +34,12 @@ describe('Activity with no Person is labelled as unidentified', () => {
     assert.match(feed, /'Unidentified caller'/);
   });
 
-  it('a live website session with no Person says Unidentified visitor', () => {
-    assert.match(code(read('apps/web/src/app/crm/live/LiveFeed.tsx')), /Unidentified visitor/);
+  it('a website visit is an anonymous browser, never an unknown customer or a blank (Website Visitors, 2026-10-05)', () => {
+    for (const page of ['apps/web/src/app/crm/live/websites/page.tsx', 'apps/web/src/app/crm/live/websites/session/page.tsx']) {
+      const src = code(read(page));
+      assert.match(src, /Anonymous/, page);
+      assert.doesNotMatch(src, /customerId|customerName|\/crm\/customers\//, `${page}: a visit links to no Person`);
+    }
   });
 
   it('the Brain rail never renders an empty label for a call with no Person and no caller ID', () => {

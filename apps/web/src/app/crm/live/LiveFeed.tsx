@@ -13,16 +13,11 @@ import { formatInstant, relativeTime as sharedRelativeTime, type TimeZoneSource 
 //
 // Honest data: rows show provider + external id (traceability), missing
 // attribution is labelled 'Unknown vendor/source/campaign' (never a fake
-// partner), and the websites variant has an EMG property selector.
+// partner). Website visits are not a feed: they are journeys (/crm/live/websites).
 
 type Json = Record<string, unknown>;
 
-export type LiveFeedVariant = 'activity' | 'calls' | 'websites';
-
-export interface PropertyOption {
-  key: string;
-  name: string;
-}
+export type LiveFeedVariant = 'activity' | 'calls';
 
 export interface LiveFeedProps {
   endpoint: string;
@@ -30,7 +25,6 @@ export interface LiveFeedProps {
   intervalMs?: number;
   emptyText: string;
   windowLabel?: string;
-  properties?: PropertyOption[];
   /** The reader's display timezone, resolved on the server (Loop Time Authority). */
   timeZone: string;
   timeZoneSource: TimeZoneSource;
@@ -85,7 +79,6 @@ const KIND_COLOR: Record<string, string> = {
   customer: 'var(--crm-accent, #14b8a6)', booking: 'var(--crm-accent, #14b8a6)', integration: 'var(--crm-faint, #9ca3af)',
 };
 
-interface WebEvent { id?: unknown; eventType?: unknown; label?: unknown; journeyStage?: unknown; provider?: unknown; externalId?: unknown; at?: unknown; }
 
 function renderActivity(items: Json[], clock: FeedClock) {
   return (
@@ -159,79 +152,36 @@ function renderCalls(items: Json[], clock: FeedClock) {
   );
 }
 
-function renderWebsites(items: Json[], clock: FeedClock) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-      {items.map((s) => {
-        const events = Array.isArray(s.events) ? (s.events as WebEvent[]) : [];
-        return (
-          <div key={String(s.sessionKey)} className="crm-card" style={{ margin: 0 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: '0.5rem' }}>
-              <div className="crm-tl-title">
-                {s.website ? String(s.website) : 'Website session'}
-                {s.customerId ? (
-                  <>{' · '}<Link href={'/crm/customers/' + String(s.customerId)} className="crm-link">{String(s.customerName ?? 'View customer')}</Link></>
-                ) : ' · Unidentified visitor'}
-              </div>
-              <span className="crm-tl-meta">{events.length} event{events.length === 1 ? '' : 's'} · {relativeTime(s.lastAt, clock)}</span>
-            </div>
-            <ul className="crm-timeline" style={{ marginTop: '0.6rem' }}>
-              {events.map((e) => (
-                <li key={String(e.id)}>
-                  <span className="crm-tl-dot" style={{ background: 'var(--crm-blue, #3b82f6)' }} />
-                  <div>
-                    <div className="crm-tl-title">{String(e.label ?? e.eventType ?? 'Website activity')}</div>
-                    <div className="crm-tl-meta">
-                      {e.eventType ? String(e.eventType).replace(/^web\./, '') : 'event'}
-                      {e.journeyStage ? ' · ' + String(e.journeyStage) : ''}
-                      {e.externalId ? ' · id ' + shortId(e.externalId) : ''}
-                      {' · '}
-                      {relativeTime(e.at, clock)}
-                    </div>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 function renderVariant(variant: LiveFeedVariant, items: Json[], clock: FeedClock) {
   switch (variant) {
     case 'calls': return renderCalls(items, clock);
-    case 'websites': return renderWebsites(items, clock);
     case 'activity':
     default: return renderActivity(items, clock);
   }
 }
 
-export default function LiveFeed({ endpoint, variant, intervalMs = 8000, emptyText, windowLabel, properties, timeZone, timeZoneSource }: LiveFeedProps) {
+export default function LiveFeed({ endpoint, variant, intervalMs = 8000, emptyText, windowLabel, timeZone, timeZoneSource }: LiveFeedProps) {
   const clock: FeedClock = { timeZone, withZone: timeZoneSource === 'fallback' };
   const [items, setItems] = useState<Json[]>([]);
   const [status, setStatus] = useState<'loading' | 'live' | 'error' | 'unconfigured'>('loading');
   const [lastSync, setLastSync] = useState<string | null>(null);
-  const [property, setProperty] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
   const mounted = useRef(true);
 
   const poll = useCallback(async () => {
     try {
-      const url = property ? endpoint + (endpoint.includes('?') ? '&' : '?') + 'property=' + encodeURIComponent(property) : endpoint;
-      const res = await fetch(url, { cache: 'no-store' });
+      const res = await fetch(endpoint, { cache: 'no-store' });
       if (!res.ok) { if (mounted.current) setStatus('error'); return; }
       const data = (await res.json()) as Json;
       if (!mounted.current) return;
       if (data.orgReady === false) { setStatus('unconfigured'); setItems([]); return; }
-      const raw = data.items ?? data.calls ?? data.sessions;
+      const raw = data.items ?? data.calls;
       const next = Array.isArray(raw) ? (raw as Json[]) : [];
       setItems(next);
       setStatus('live');
       setLastSync(formatInstant(new Date(), timeZone, 'timeWithSeconds', { withZone: timeZoneSource === 'fallback' }));
     } catch { if (mounted.current) setStatus('error'); }
-  }, [endpoint, property]);
+  }, [endpoint]);
 
   useEffect(() => {
     mounted.current = true;
@@ -240,25 +190,8 @@ export default function LiveFeed({ endpoint, variant, intervalMs = 8000, emptyTe
     return () => { mounted.current = false; if (timer.current) clearInterval(timer.current); };
   }, [poll, intervalMs]);
 
-  const selectedName = property && properties ? properties.find((pp) => pp.key === property)?.name : null;
-  const emptyForProperty = selectedName ? 'Awaiting live website events for ' + selectedName + '.' : emptyText;
-
   return (
     <div>
-      {properties && properties.length > 0 ? (
-        <div className="crm-prop-selector" style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginBottom: '0.85rem' }}>
-          <button type="button" onClick={() => setProperty(null)}
-            style={{ padding: '0.3rem 0.7rem', borderRadius: 999, border: '1px solid var(--crm-border, #e5e7eb)', background: property === null ? 'var(--crm-accent, #14b8a6)' : 'transparent', color: property === null ? '#fff' : 'inherit', cursor: 'pointer', fontSize: '0.8rem' }}>
-            All properties
-          </button>
-          {properties.map((pp) => (
-            <button key={pp.key} type="button" onClick={() => setProperty(pp.key)}
-              style={{ padding: '0.3rem 0.7rem', borderRadius: 999, border: '1px solid var(--crm-border, #e5e7eb)', background: property === pp.key ? 'var(--crm-accent, #14b8a6)' : 'transparent', color: property === pp.key ? '#fff' : 'inherit', cursor: 'pointer', fontSize: '0.8rem' }}>
-              {pp.name}
-            </button>
-          ))}
-        </div>
-      ) : null}
       <div className="crm-live-statusbar" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.85rem', fontSize: '0.75rem', color: 'var(--crm-faint)' }}>
         <span className={status === 'live' ? 'crm-dot-live' : 'ds-status-dot'}
           style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: status === 'live' ? '#22c55e' : status === 'error' ? '#f87171' : '#9ca3af' }} />
@@ -270,7 +203,7 @@ export default function LiveFeed({ endpoint, variant, intervalMs = 8000, emptyTe
         </span>
       </div>
       {items.length === 0 ? (
-        <p className="crm-empty" style={{ margin: 0 }}>{status === 'loading' ? 'Loading…' : emptyForProperty}</p>
+        <p className="crm-empty" style={{ margin: 0 }}>{status === 'loading' ? 'Loading…' : emptyText}</p>
       ) : (
         renderVariant(variant, items, clock)
       )}

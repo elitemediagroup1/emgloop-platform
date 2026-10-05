@@ -407,7 +407,9 @@ export function sdkInstallScript(property: CatalogWebsiteProperty, organizationS
     '  data-property="' + property.key + '"',
     '  data-ingest-key="' + propertyIngestKey(property) + '"',
     '  data-organization="' + organizationSlug + '"',
-    '  async',
+    // The opening tag MUST close here. Until 2026-10-05 it did not (`async` was followed directly by `</script>`),
+    // so a pasted snippet left the <script> element open and swallowed the page markup after it.
+    '  async>',
     "</script>",
   ].join('\n');
 }

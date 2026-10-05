@@ -27,6 +27,8 @@ import { IntegrationRepository } from './integration.repository';
 import { NormalizationEngine } from './normalization.repository';
 import { AnalyticsRepository } from './analytics.repository';
 import { WebsiteAnalyticsRepository } from './website-analytics.repository';
+import { WebsiteJourneyRepository } from './website-journey.repository';
+import { WebPropertyRepository } from './web-property.repository';
 import { IntelligenceRepository } from './intelligence.repository';
 import { LiveOperationsRepository } from './live-operations.repository';
 import { RevenueIntelligenceRepository } from './revenue-intelligence.repository';
@@ -186,8 +188,6 @@ export type {
   LiveActivityItem,
   LiveActivityKind,
   LiveCallRow,
-  LiveWebsiteRow,
-  LiveWebsiteSession,
 } from './live-operations.repository';
 export { RevenueIntelligenceRepository } from './revenue-intelligence.repository';
 export type {
@@ -418,6 +418,10 @@ export interface Repositories {
   integrations: IntegrationRepository;
   analytics: AnalyticsRepository;
   websiteAnalytics: WebsiteAnalyticsRepository;
+  /** Anonymous visitor journeys from the governed first-party website events (Live Websites). Read-only. */
+  websiteJourneys: WebsiteJourneyRepository;
+  /** The authoritative EMG website-property registry (lifecycle, ingestion, owner). */
+  webProperties: WebPropertyRepository;
   intelligence: IntelligenceRepository;
   liveOperations: LiveOperationsRepository;
   revenueIntelligence: RevenueIntelligenceRepository;
@@ -464,6 +468,8 @@ export function createRepositories(prisma: PrismaClient): Repositories {
     integrations: new IntegrationRepository(prisma),
     analytics: new AnalyticsRepository(prisma),
     websiteAnalytics: new WebsiteAnalyticsRepository(prisma),
+    websiteJourneys: new WebsiteJourneyRepository(prisma),
+    webProperties: new WebPropertyRepository(prisma),
     intelligence: new IntelligenceRepository(prisma),
     liveOperations: new LiveOperationsRepository(prisma),
     revenueIntelligence: new RevenueIntelligenceRepository(prisma),
