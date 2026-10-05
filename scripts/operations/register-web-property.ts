@@ -16,6 +16,14 @@
 //                       disables ingestion; entering LIVE does NOT enable it.
 //   enable-ingestion    allow first-party telemetry (LIVE only).
 //   disable-ingestion   stop accepting it.
+//   commission-live-sites  converge a LIST of this organization's already-registered properties to LIVE with
+//                       ingestion ENABLED in one run (--property-keys a,b,c; at most WEB_PROPERTY_COMMISSION_BATCH_MAX
+//                       = 25). VALIDATE, MUTATE, READ BACK: the whole list is preflighted first -- keys, ownership,
+//                       the governed lifecycle transition, ingestion -- and one refusal writes nothing; the writes run
+//                       in one database transaction; then every property is re-read. Per property: WOULD_COMMISSION /
+//                       UNCHANGED / REFUSED:<CODE>, and after a real run COMMISSIONED / UNCHANGED / READBACK_FAILED.
+//                       A property already LIVE + ENABLED is UNCHANGED and not rewritten, so a re-run converges. It
+//                       only ever writes lifecycle and ingestion: never a registration, an owner, a domain or a binding.
 //
 // It contacts no provider, holds no provider credential and connects nothing: the GA4 / Search Console / Bing /
 // Clarity fields only record which external property belongs here. DRY RUN FIRST: `--dry-run` resolves,
@@ -28,18 +36,22 @@
 //     [--search-console-site sc-domain:example.com] [--bing-site https://example.com/] [--clarity-project-id x] [--dry-run]
 //   npm run register:web-property -- --organization <slug> --key <key> --action set-lifecycle --lifecycle LIVE [--dry-run]
 //   npm run register:web-property -- --organization <slug> --key <key> --action enable-ingestion [--dry-run]
+//   npm run register:web-property -- --organization <slug> --action commission-live-sites \
+//     --property-keys consumersupporthelp,careinmycity [--dry-run]
 //
 // Credentials come from the environment and are never printed:
 //   DATABASE_URL   the DIRECT (non-pooled) endpoint
 
 import {
+  WEB_PROPERTY_COMMISSION_BATCH_MAX,
   isWebPropertyLifecycle,
+  parseWebPropertyKeyList,
   webPropertyIngestionChange,
   webPropertyLifecycleTransition,
   type WebPropertyIngestion,
   type WebPropertyLifecycle,
 } from '@emgloop/shared';
-import type { WebPropertyRegistration } from '@emgloop/database';
+import type { LiveCommissionEntry, LiveCommissionOutcome, WebPropertyRegistration } from '@emgloop/database';
 
 interface PropertyView {
   key: string;
@@ -56,6 +68,8 @@ export interface WebPropertyRegistrar {
   transitionLifecycle(organizationId: string, key: string, to: WebPropertyLifecycle, now: Date): Promise<StateChange>;
   setIngestion(organizationId: string, key: string, to: WebPropertyIngestion): Promise<StateChange>;
   findForOrganization(organizationId: string, key: string): Promise<PropertyView | null>;
+  previewLiveCommission(organizationId: string, keys: readonly string[]): Promise<LiveCommissionOutcome>;
+  commissionLive(organizationId: string, keys: readonly string[], now: Date): Promise<LiveCommissionOutcome>;
 }
 
 /** Read-only organization lookup. This runner never provisions one. */
@@ -72,13 +86,15 @@ export interface RunDeps {
   log: (line: string) => void;
 }
 
-export const RUN_ACTIONS = ['register', 'register-portfolio', 'set-lifecycle', 'enable-ingestion', 'disable-ingestion'] as const;
+export const RUN_ACTIONS = ['register', 'register-portfolio', 'set-lifecycle', 'enable-ingestion', 'disable-ingestion', 'commission-live-sites'] as const;
 export type RunAction = (typeof RUN_ACTIONS)[number];
 
 export interface RunRequest {
   organizationSlug: string;
   action: string;
   key: string;
+  /** commission-live-sites: the raw comma-separated key list, parsed strictly by parseWebPropertyKeyList. */
+  propertyKeys: string;
   primaryDomain: string;
   lifecycle: string | null;
   label: string | null;
@@ -91,8 +107,8 @@ export interface RunRequest {
 }
 
 export type RunOutcome =
-  | 'REGISTERED' | 'UPDATED' | 'UNCHANGED' | 'CHANGED' | 'PORTFOLIO_REGISTERED'
-  | 'WOULD_REGISTER' | 'WOULD_UPDATE' | 'WOULD_BE_UNCHANGED' | 'WOULD_CHANGE' | 'WOULD_REGISTER_PORTFOLIO'
+  | 'REGISTERED' | 'UPDATED' | 'UNCHANGED' | 'CHANGED' | 'PORTFOLIO_REGISTERED' | 'COMMISSIONED'
+  | 'WOULD_REGISTER' | 'WOULD_UPDATE' | 'WOULD_BE_UNCHANGED' | 'WOULD_CHANGE' | 'WOULD_REGISTER_PORTFOLIO' | 'WOULD_COMMISSION'
   | 'REFUSED' | 'FAILED_PRECONDITION';
 
 export const REFUSED_ORGANIZATION_STATUSES = ['SUSPENDED', 'CANCELED'] as const;
@@ -107,7 +123,7 @@ function line(fields: Record<string, string | number | boolean | null>): string 
 const code = (p: string) => (CODE.test(p) ? p : 'UNRECOGNIZED');
 
 export function parseArgs(argv: readonly string[]): RunRequest {
-  const r: RunRequest = { organizationSlug: '', action: 'register', key: '', primaryDomain: '', lifecycle: null, label: null, domains: [], ga4PropertyId: null, searchConsoleSite: null, bingSite: null, clarityProjectId: null, dryRun: false };
+  const r: RunRequest = { organizationSlug: '', action: 'register', key: '', propertyKeys: '', primaryDomain: '', lifecycle: null, label: null, domains: [], ga4PropertyId: null, searchConsoleSite: null, bingSite: null, clarityProjectId: null, dryRun: false };
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
     const value = (argv[i + 1] ?? '').trim();
@@ -118,6 +134,7 @@ export function parseArgs(argv: readonly string[]): RunRequest {
     if (flag === '--organization' || flag === '--org') r.organizationSlug = take();
     else if (flag === '--action') r.action = take();
     else if (flag === '--key') r.key = take();
+    else if (flag === '--property-keys') r.propertyKeys = take();
     else if (flag === '--primary-domain') r.primaryDomain = take().toLowerCase();
     else if (flag === '--lifecycle') r.lifecycle = take() || null;
     else if (flag === '--label') r.label = take() || null;
@@ -145,7 +162,17 @@ export async function runRegisterWebProperty(request: RunRequest, deps: RunDeps)
   if (!SLUG.test(request.organizationSlug)) return refuse('--organization must be lowercase letters, digits and hyphens');
   if (!(RUN_ACTIONS as readonly string[]).includes(request.action)) return refuse(`--action must be one of ${RUN_ACTIONS.join(' | ')}`);
   const action = request.action as RunAction;
-  if (action !== 'register-portfolio' && !request.key) return refuse('--key is required');
+  if (action !== 'register-portfolio' && action !== 'commission-live-sites' && !request.key) return refuse('--key is required');
+  let commissionKeys: string[] = [];
+  if (action === 'commission-live-sites') {
+    if (request.key) return refuse('commission-live-sites takes --property-keys, not --key');
+    const parsed = parseWebPropertyKeyList(request.propertyKeys);
+    if (!parsed.ok) {
+      for (const r of parsed.refusals) deps.log(line({ event: 'INPUT_REFUSED', position: r.position, key: r.key, code: r.code }));
+      return refuse(`--property-keys must be 1-${WEB_PROPERTY_COMMISSION_BATCH_MAX} distinct, well-formed, comma-separated property keys`);
+    }
+    commissionKeys = parsed.keys;
+  }
   if (action === 'set-lifecycle' && !isWebPropertyLifecycle(request.lifecycle)) return refuse('--lifecycle must be OWNED | BUILDING | LIVE | PAUSED | RETIRED');
   if (action === 'register' && request.lifecycle !== null && !isWebPropertyLifecycle(request.lifecycle)) return refuse('--lifecycle must be OWNED | BUILDING | LIVE | PAUSED | RETIRED');
 
@@ -153,6 +180,68 @@ export async function runRegisterWebProperty(request: RunRequest, deps: RunDeps)
   if (!org) return refuse('unknown organization');
   if ((REFUSED_ORGANIZATION_STATUSES as readonly string[]).includes(org.status)) return refuse('organization is not active');
   deps.log(line({ event: 'ORGANIZATION', organization: org.slug, action, dryRun: request.dryRun }));
+
+  // --- Commission live sites: VALIDATE the whole list, then MUTATE in one transaction, then READ BACK ---------
+  if (action === 'commission-live-sites') {
+    const state = (st: { lifecycle: string; ingestion: string } | null) => (st ? `${code(st.lifecycle)}/${code(st.ingestion)}` : null);
+    const report = (entries: readonly LiveCommissionEntry[]) => {
+      for (const e of entries) {
+        deps.log(line({
+          event: 'COMMISSION_PREFLIGHT',
+          property: e.key,
+          result: e.result === 'REFUSED' ? `REFUSED:${code(e.code ?? 'UNKNOWN')}` : e.result,
+          before: state(e.before),
+          after: e.result === 'REFUSED' ? null : 'LIVE/ENABLED',
+        }));
+      }
+    };
+    const tally = (entries: readonly LiveCommissionEntry[]) => ({
+      eligible: entries.filter((e) => e.result === 'WOULD_COMMISSION').length,
+      unchanged: entries.filter((e) => e.result === 'UNCHANGED').length,
+      refused: entries.filter((e) => e.result === 'REFUSED').length,
+    });
+
+    // 1. VALIDATE: the complete preflight over every requested property. Nothing is written here.
+    const plan = await deps.properties.previewLiveCommission(org.id, commissionKeys);
+    report(plan.entries);
+    if (plan.outcome !== 'PLANNED') {
+      if (plan.listCode) deps.log(line({ event: 'INPUT_REFUSED', position: 0, key: null, code: plan.listCode }));
+      deps.log(line({ event: 'COMMISSION_BATCH_RESULT', requested: commissionKeys.length, ...tally(plan.entries), written: 0, dryRun: request.dryRun }));
+      return { outcome: 'REFUSED', problems: plan.listCode ? [plan.listCode] : plan.entries.filter((e) => e.result === 'REFUSED').map((e) => `${e.key}:${e.code}`) };
+    }
+    if (request.dryRun) {
+      deps.log(line({ event: 'COMMISSION_BATCH_RESULT', requested: commissionKeys.length, ...tally(plan.entries), written: 0, dryRun: true }));
+      return { outcome: 'WOULD_COMMISSION', problems: [] };
+    }
+
+    // 2. MUTATE: the repository re-runs the same preflight and the writes in ONE transaction (all or nothing).
+    const result = await deps.properties.commissionLive(org.id, commissionKeys, deps.now());
+    if (result.outcome !== 'COMMISSIONED') {
+      report(result.entries);
+      deps.log(line({ event: 'COMMISSION_BATCH_RESULT', requested: commissionKeys.length, ...tally(result.entries), written: 0, dryRun: false }));
+      return { outcome: 'REFUSED', problems: result.entries.filter((e) => e.result === 'REFUSED').map((e) => `${e.key}:${e.code}`) };
+    }
+
+    // 3. READ BACK every requested property from the database -- success is what the rows say, not what the
+    //    write returned. COMMISSIONED / UNCHANGED only when it is now this organization's, LIVE and ENABLED.
+    let commissioned = 0;
+    let unchanged = 0;
+    let readbackFailed = 0;
+    let ownerChanges = 0;
+    for (const entry of result.entries) {
+      const stored = await deps.properties.findForOrganization(org.id, entry.key);
+      const ownerUnchanged = !!stored && stored.organizationId === org.id;
+      if (!ownerUnchanged) ownerChanges++;
+      const ok = ownerUnchanged && stored!.lifecycle === 'LIVE' && stored!.ingestion === 'ENABLED';
+      const outcome = !ok ? 'READBACK_FAILED' : entry.result === 'UNCHANGED' ? 'UNCHANGED' : 'COMMISSIONED';
+      if (outcome === 'COMMISSIONED') commissioned++;
+      else if (outcome === 'UNCHANGED') unchanged++;
+      else readbackFailed++;
+      deps.log(line({ event: 'COMMISSION_READBACK', property: entry.key, result: outcome, after: state(stored ? { lifecycle: stored.lifecycle, ingestion: stored.ingestion } : null), ownerUnchanged }));
+    }
+    deps.log(line({ event: 'COMMISSION_BATCH_RESULT', requested: commissionKeys.length, commissioned, unchanged, refused: 0, readbackFailed, ownerChanges, ownerUnchanged: ownerChanges === 0, dryRun: false }));
+    return { outcome: 'COMMISSIONED', problems: readbackFailed > 0 ? ['READBACK_FAILED'] : [] };
+  }
 
   // --- State changes: lifecycle and ingestion, each its own act ------------------------------------------
   if (action === 'set-lifecycle' || action === 'enable-ingestion' || action === 'disable-ingestion') {
@@ -247,7 +336,7 @@ async function main(): Promise<number> {
       findBySlug: (slug) => prisma.organization.findUnique({ where: { slug }, select: { id: true, slug: true, status: true } }),
     };
     const result = await runRegisterWebProperty(parseArgs(process.argv.slice(2)), { properties, organizations, portfolio: EMG_WEBSITE_PROPERTIES, now: () => new Date(), log });
-    return result.outcome === 'REFUSED' || result.outcome === 'FAILED_PRECONDITION' ? 1 : 0;
+    return result.outcome === 'REFUSED' || result.outcome === 'FAILED_PRECONDITION' || result.problems.length > 0 ? 1 : 0;
   } finally {
     await prisma.$disconnect();
   }

@@ -27,8 +27,10 @@ import {
   isWebPropertyKey,
   isWebPropertyLifecycle,
   normalizeWebDomain,
+  WEB_PROPERTY_COMMISSION_BATCH_MAX,
   webPropertyIngestionChange,
   webPropertyLifecycleTransition,
+  webPropertyLiveCommission,
   webSiteBindingHost,
   type WebPropertyIngestion,
   type WebPropertyLifecycle,
@@ -63,6 +65,39 @@ export interface WebPropertyRegistration {
 export type WebPropertyRegistrationOutcome =
   | { readonly outcome: 'REGISTERED' | 'UPDATED' | 'UNCHANGED'; readonly property: WebProperty }
   | { readonly outcome: 'REFUSED'; readonly problems: readonly string[] };
+
+/**
+ * One requested property's place in a live-site commissioning batch -- every requested key gets exactly one entry,
+ * in request order, whether the batch is refused or not (the operator sees the whole picture at once).
+ *   WOULD_COMMISSION  it will be (or, after the write, was) moved to LIVE + ENABLED; `plan` says what that takes.
+ *   UNCHANGED         it is already LIVE + ENABLED and is not written.
+ *   REFUSED           it fails preflight; `code` says why. One REFUSED entry refuses the whole batch.
+ */
+export interface LiveCommissionEntry {
+  readonly key: string;
+  /** The state preflight read (`LIFECYCLE/INGESTION`), or null when the key named no property of this organization. */
+  readonly before: { readonly lifecycle: string; readonly ingestion: string } | null;
+  readonly result: 'WOULD_COMMISSION' | 'UNCHANGED' | 'REFUSED';
+  readonly plan?: 'LIFECYCLE_AND_INGESTION' | 'INGESTION_ONLY';
+  readonly code?: string;
+}
+
+/**
+ * PLANNED: preflight passed (nothing written). COMMISSIONED: the batch was written, in one transaction. REFUSED:
+ * nothing was written -- `listCode` for a malformed request, otherwise the REFUSED entries say which keys and why.
+ */
+export interface LiveCommissionOutcome {
+  readonly outcome: 'PLANNED' | 'COMMISSIONED' | 'REFUSED';
+  readonly entries: readonly LiveCommissionEntry[];
+  readonly listCode?: 'EMPTY_LIST' | 'TOO_MANY_KEYS' | 'DUPLICATE_KEY' | 'KEY_SHAPE';
+}
+
+/** A write inside the batch transaction found its row changed since the preflight: the whole batch rolls back. */
+class LiveCommissionConflict extends Error {
+  constructor(readonly key: string) {
+    super('live commission conflict');
+  }
+}
 
 export type WebPropertyStateChange =
   | { readonly outcome: 'CHANGED'; readonly property: WebProperty }
@@ -242,6 +277,49 @@ export class WebPropertyRepository {
     });
   }
 
+  /**
+   * PREFLIGHT for `commissionLive`, writing nothing: every key must name one of THIS organization's properties
+   * (another organization's, or no property at all, is PROPERTY_NOT_IN_ORGANIZATION -- cross-organization is
+   * not-found), and every property must be able to reach LIVE + ENABLED through the governed state machine. One
+   * refusal refuses the batch; every refusal is reported.
+   */
+  async previewLiveCommission(organizationId: string, keys: readonly string[]): Promise<LiveCommissionOutcome> {
+    return planLiveCommission(this.prisma, organizationId, keys);
+  }
+
+  /**
+   * Converge a batch of this organization's properties to LIVE with ingestion ENABLED -- ALL OR NOTHING. The
+   * preflight and the writes run in ONE transaction: if any property is refused, nothing is written; if any row
+   * changed after the preflight read it (each write is conditional on the state it read), the transaction throws and
+   * every write in it rolls back. Each property changes in a single write (lifecycle and ingestion together), so no
+   * property is ever left LIVE with ingestion DISABLED by this act. A property already LIVE + ENABLED is left as it
+   * is, so a re-run converges instead of failing. `organizationId` is never written.
+   */
+  async commissionLive(organizationId: string, keys: readonly string[], now: Date): Promise<LiveCommissionOutcome> {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const planned = await planLiveCommission(tx, organizationId, keys);
+        if (planned.outcome !== 'PLANNED') return planned;
+        for (const entry of planned.entries) {
+          if (entry.result !== 'WOULD_COMMISSION' || !entry.before) continue;
+          // Conditional on exactly the state preflight read, and never touching organizationId, the primary domain,
+          // allowed domains or any binding: only lifecycle, ingestion and (when the lifecycle moves) its timestamp.
+          const updated = await tx.webProperty.updateMany({
+            where: { organizationId, key: entry.key, lifecycle: entry.before.lifecycle, ingestion: entry.before.ingestion },
+            data: { lifecycle: 'LIVE', ingestion: 'ENABLED', ...(entry.plan === 'LIFECYCLE_AND_INGESTION' ? { lifecycleChangedAt: now } : {}) },
+          });
+          if (updated.count !== 1) throw new LiveCommissionConflict(entry.key);
+        }
+        return { outcome: 'COMMISSIONED' as const, entries: planned.entries };
+      });
+    } catch (error) {
+      if (!(error instanceof LiveCommissionConflict)) throw error;
+      // The transaction rolled back: report every key, the changed one as refused.
+      const entries = keys.map((key): LiveCommissionEntry => (key === error.key ? { key, before: null, result: 'REFUSED', code: 'CONCURRENT_CHANGE' } : { key, before: null, result: 'REFUSED', code: 'BATCH_ROLLED_BACK' }));
+      return { outcome: 'REFUSED', entries };
+    }
+  }
+
   /** This organization's properties, by key. */
   async listForOrganization(organizationId: string): Promise<WebProperty[]> {
     return this.prisma.webProperty.findMany({ where: { organizationId }, orderBy: { key: 'asc' } });
@@ -251,4 +329,29 @@ export class WebPropertyRepository {
   async findForOrganization(organizationId: string, key: string): Promise<WebProperty | null> {
     return this.prisma.webProperty.findFirst({ where: { organizationId, key } });
   }
+}
+
+/** The shared preflight: scoped to the organization, every key accounted for, the governed state machine applied. */
+async function planLiveCommission(db: Pick<PrismaClient, 'webProperty'>, organizationId: string, keys: readonly string[]): Promise<LiveCommissionOutcome> {
+  // The request itself (the operator script parses it first; this is the repository's own backstop).
+  if (keys.length === 0) return { outcome: 'REFUSED', entries: [], listCode: 'EMPTY_LIST' };
+  if (keys.length > WEB_PROPERTY_COMMISSION_BATCH_MAX) return { outcome: 'REFUSED', entries: [], listCode: 'TOO_MANY_KEYS' };
+  if (new Set(keys).size !== keys.length) return { outcome: 'REFUSED', entries: [], listCode: 'DUPLICATE_KEY' };
+  if (keys.some((key) => !isWebPropertyKey(key))) return { outcome: 'REFUSED', entries: [], listCode: 'KEY_SHAPE' };
+  // Only THIS organization's rows are ever read: another organization's property is indistinguishable from none.
+  const rows = await db.webProperty.findMany({
+    where: { organizationId, key: { in: [...keys] } },
+    select: { key: true, organizationId: true, lifecycle: true, ingestion: true },
+  });
+  const entries = keys.map((key): LiveCommissionEntry => {
+    const matches = rows.filter((r) => r.key === key);
+    if (matches.length !== 1 || matches[0]!.organizationId !== organizationId) return { key, before: null, result: 'REFUSED', code: 'PROPERTY_NOT_IN_ORGANIZATION' };
+    const row = matches[0]!;
+    const before = { lifecycle: row.lifecycle, ingestion: row.ingestion };
+    const plan = webPropertyLiveCommission(row);
+    if (!plan.ok) return { key, before, result: 'REFUSED', code: plan.code };
+    if (!plan.lifecycleChange && !plan.ingestionChange) return { key, before, result: 'UNCHANGED' };
+    return { key, before, result: 'WOULD_COMMISSION', plan: plan.lifecycleChange ? 'LIFECYCLE_AND_INGESTION' : 'INGESTION_ONLY' };
+  });
+  return { outcome: entries.some((e) => e.result === 'REFUSED') ? 'REFUSED' : 'PLANNED', entries };
 }
