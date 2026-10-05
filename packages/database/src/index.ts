@@ -927,6 +927,7 @@ export { TelegramTriageWindowJudge, TELEGRAM_TRIAGE_WINDOW_POLICY, decideTriageW
 // it, the organization-owned connection credential store (sealed bytes only; nothing connected yet) and the
 // minimized aggregate evidence store for external website sources (empty until a connector exists).
 export { WebPropertyRepository, webPropertyRegistrationProblems } from './repositories/web-property.repository';
+export type { LiveCommissionEntry, LiveCommissionOutcome } from './repositories/web-property.repository';
 export type { WebPropertyAdmission, WebPropertyRegistration, WebPropertyRegistrationOutcome } from './repositories/web-property.repository';
 export { admitWebsiteDelivery } from './services/website/website-ingress';
 export type { WebsiteDeliveryInput, WebsiteAdmission, WebsiteAdmittedBatch, WebsiteRejection } from './services/website/website-ingress';

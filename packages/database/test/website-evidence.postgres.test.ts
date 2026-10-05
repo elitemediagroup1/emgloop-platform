@@ -458,3 +458,182 @@ test('the registry holds the whole EMG portfolio: known properties that are not 
 function webBindingOutside(): string[] {
   return webPropertyRegistrationProblems({ key: 'foodinmycity', primaryDomain: 'foodinmycity.com', searchConsoleSiteUrl: 'sc-domain:petsinmycity.com' });
 }
+
+// --- commission-live-sites (2026-09-30): all or nothing, in one transaction ---------------------------------
+
+/** A client whose batch transaction misbehaves on its Nth property write: `throw` (a crash) or `stale` (count 0). */
+function faultyOnWrite(prisma: PrismaClient, nth: number, mode: 'throw' | 'stale'): PrismaClient {
+  let writes = 0;
+  const bind = (o: any, p: PropertyKey) => (typeof o[p] === 'function' ? o[p].bind(o) : o[p]);
+  return new Proxy(prisma, {
+    get(target: any, prop) {
+      if (prop !== '$transaction') return bind(target, prop);
+      return (fn: (tx: unknown) => Promise<unknown>) =>
+        target.$transaction((tx: any) =>
+          fn(new Proxy(tx, {
+            get(t: any, p) {
+              if (p !== 'webProperty') return bind(t, p);
+              return new Proxy(t.webProperty, {
+                get(w: any, q) {
+                  if (q !== 'updateMany') return bind(w, q);
+                  return async (args: unknown) => {
+                    writes += 1;
+                    if (writes === nth) {
+                      if (mode === 'throw') throw new Error('injected mid-batch failure');
+                      return { count: 0 };
+                    }
+                    return w.updateMany(args);
+                  };
+                },
+              });
+            },
+          })),
+        );
+    },
+  }) as PrismaClient;
+}
+
+test('commission-live-sites against Postgres: validate first, mutate second (one transaction), converge on re-run', { skip }, async (t) => {
+  const prisma = new PrismaClient({ datasources: { db: { url: URL } } });
+  const properties = new WebPropertyRepository(prisma);
+  t.after(() => prisma.$disconnect());
+  const now = new Date();
+  const O = await org(prisma, 'commission');
+  const X = await org(prisma, 'foreign');
+
+  /** Register properties for an organization in given states, through the real state machine. */
+  async function seed(organizationId: string, states: Record<string, 'OWNED' | 'BUILDING' | 'LIVE_OFF' | 'LIVE_ON' | 'PAUSED' | 'RETIRED'>) {
+    const keys: Record<string, string> = {};
+    for (const [label, st] of Object.entries(states)) {
+      const k = key(label);
+      keys[label] = k;
+      assert.equal((await properties.register(organizationId, { key: k, primaryDomain: `${k}.example`, ga4PropertyId: `7${String(Math.floor(Math.random() * 1e9)).padStart(9, '0')}` })).outcome, 'REGISTERED');
+      if (st === 'BUILDING') await properties.transitionLifecycle(organizationId, k, 'BUILDING', now);
+      if (st === 'LIVE_OFF' || st === 'LIVE_ON' || st === 'PAUSED') await properties.transitionLifecycle(organizationId, k, 'LIVE', now);
+      if (st === 'LIVE_ON') await properties.setIngestion(organizationId, k, 'ENABLED');
+      if (st === 'PAUSED') await properties.transitionLifecycle(organizationId, k, 'PAUSED', now);
+      if (st === 'RETIRED') await properties.transitionLifecycle(organizationId, k, 'RETIRED', now);
+    }
+    return keys;
+  }
+  /** Every column of the named rows -- owner, domain, allowed domains, bindings, state, timestamps. */
+  const snapshot = async (keys: string[]) => JSON.stringify(await prisma.webProperty.findMany({ where: { key: { in: keys } }, orderBy: { key: 'asc' } }));
+  const rowOf = (k: string) => prisma.webProperty.findUnique({ where: { key: k } });
+
+  await t.test('success: three properties of one organization commission together; ownership and everything else unchanged', async () => {
+    const k = await seed(O, { s1: 'OWNED', s2: 'OWNED', s3: 'OWNED' });
+    const keys = Object.values(k);
+    const before = await Promise.all(keys.map(rowOf));
+    const r = await properties.commissionLive(O, keys, now);
+    assert.equal(r.outcome, 'COMMISSIONED');
+    assert.deepEqual(r.entries.map((e) => e.result), ['WOULD_COMMISSION', 'WOULD_COMMISSION', 'WOULD_COMMISSION']);
+    for (const [i, key] of keys.entries()) {
+      const after = (await rowOf(key))!;
+      assert.deepEqual([after.lifecycle, after.ingestion], ['LIVE', 'ENABLED']);
+      const b = before[i]!;
+      assert.deepEqual([after.organizationId, after.primaryDomain, after.allowedDomains, after.ga4PropertyId, after.searchConsoleSiteUrl, after.bingSiteUrl, after.clarityProjectId], [b.organizationId, b.primaryDomain, b.allowedDomains, b.ga4PropertyId, b.searchConsoleSiteUrl, b.bingSiteUrl, b.clarityProjectId], 'only lifecycle and ingestion moved');
+    }
+  });
+
+  await t.test('mixed starting states: OWNED, BUILDING and PAUSED become LIVE; LIVE+DISABLED gets ingestion; LIVE+ENABLED is UNCHANGED and untouched', async () => {
+    const k = await seed(O, { owned: 'OWNED', building: 'BUILDING', paused: 'PAUSED', liveoff: 'LIVE_OFF', liveon: 'LIVE_ON' });
+    const keys = Object.values(k);
+    const liveOnBefore = (await rowOf(k.liveon!))!;
+    const r = await properties.commissionLive(O, keys, now);
+    assert.equal(r.outcome, 'COMMISSIONED');
+    assert.deepEqual(r.entries.map((e) => [e.result, e.plan ?? null]), [
+      ['WOULD_COMMISSION', 'LIFECYCLE_AND_INGESTION'],
+      ['WOULD_COMMISSION', 'LIFECYCLE_AND_INGESTION'],
+      ['WOULD_COMMISSION', 'LIFECYCLE_AND_INGESTION'],
+      ['WOULD_COMMISSION', 'INGESTION_ONLY'],
+      ['UNCHANGED', null],
+    ]);
+    for (const key of keys) assert.deepEqual([(await rowOf(key))!.lifecycle, (await rowOf(key))!.ingestion, (await rowOf(key))!.organizationId], ['LIVE', 'ENABLED', O]);
+    assert.equal((await rowOf(k.liveon!))!.updatedAt.getTime(), liveOnBefore.updatedAt.getTime(), 'the UNCHANGED row was not rewritten');
+  });
+
+  await t.test('idempotency: the exact same batch twice -- the second run writes nothing, every entry UNCHANGED', async () => {
+    const k = await seed(O, { i1: 'OWNED', i2: 'BUILDING', i3: 'LIVE_OFF' });
+    const keys = Object.values(k);
+    assert.equal((await properties.commissionLive(O, keys, now)).outcome, 'COMMISSIONED');
+    const after1 = await snapshot(keys);
+    const again = await properties.commissionLive(O, keys, new Date(now.getTime() + 60_000));
+    assert.equal(again.outcome, 'COMMISSIONED');
+    assert.ok(again.entries.every((e) => e.result === 'UNCHANGED'));
+    assert.equal(await snapshot(keys), after1, 'zero writes: every column, updatedAt included, is identical');
+  });
+
+  await t.test('five valid + one property of ANOTHER organization -> ZERO properties changed', async () => {
+    const mine = Object.values(await seed(O, { c1: 'OWNED', c2: 'OWNED', c3: 'BUILDING', c4: 'LIVE_OFF', c5: 'PAUSED' }));
+    const theirs = Object.values(await seed(X, { x1: 'OWNED' }));
+    const before = await snapshot([...mine, ...theirs]);
+    const r = await properties.commissionLive(O, [...mine, ...theirs], now);
+    assert.equal(r.outcome, 'REFUSED');
+    assert.deepEqual(r.entries.filter((e) => e.result === 'REFUSED').map((e) => [e.key, e.code, e.before]), [[theirs[0], 'PROPERTY_NOT_IN_ORGANIZATION', null]], 'another organization\'s property is not-found: its state is never read or reported');
+    assert.equal(r.entries.filter((e) => e.result === 'WOULD_COMMISSION').length, 5, 'the whole batch is reported');
+    assert.equal(await snapshot([...mine, ...theirs]), before, 'not one property changed');
+  });
+
+  await t.test('five valid + one UNKNOWN key -> ZERO properties changed', async () => {
+    const mine = Object.values(await seed(O, { u1: 'OWNED', u2: 'OWNED', u3: 'OWNED', u4: 'OWNED', u5: 'OWNED' }));
+    const before = await snapshot(mine);
+    const r = await properties.commissionLive(O, [...mine, 'no-such-property'], now);
+    assert.equal(r.outcome, 'REFUSED');
+    assert.deepEqual(r.entries.at(-1), { key: 'no-such-property', before: null, result: 'REFUSED', code: 'PROPERTY_NOT_IN_ORGANIZATION' });
+    assert.equal(await snapshot(mine), before);
+  });
+
+  await t.test('a property that cannot legally become LIVE (RETIRED) -> ZERO properties changed, no intermediate state invented', async () => {
+    const k = await seed(O, { v1: 'OWNED', v2: 'OWNED', retired: 'RETIRED' });
+    const keys = Object.values(k);
+    const before = await snapshot(keys);
+    const r = await properties.commissionLive(O, keys, now);
+    assert.equal(r.outcome, 'REFUSED');
+    assert.deepEqual(r.entries.find((e) => e.key === k.retired), { key: k.retired, before: { lifecycle: 'RETIRED', ingestion: 'DISABLED' }, result: 'REFUSED', code: 'LIFECYCLE_TRANSITION_REFUSED' });
+    assert.equal(await snapshot(keys), before);
+  });
+
+  await t.test('duplicate, malformed, empty or oversized requests are refused by the repository too, with no read and no write', async () => {
+    const [k1] = Object.values(await seed(O, { d1: 'OWNED' }));
+    const before = await snapshot([k1!]);
+    assert.deepEqual(await properties.commissionLive(O, [k1!, k1!], now), { outcome: 'REFUSED', entries: [], listCode: 'DUPLICATE_KEY' });
+    assert.deepEqual(await properties.commissionLive(O, [k1!, 'Bad Key'], now), { outcome: 'REFUSED', entries: [], listCode: 'KEY_SHAPE' });
+    assert.deepEqual(await properties.commissionLive(O, [], now), { outcome: 'REFUSED', entries: [], listCode: 'EMPTY_LIST' });
+    assert.deepEqual(await properties.commissionLive(O, Array.from({ length: 26 }, (_, i) => `x${i}`), now), { outcome: 'REFUSED', entries: [], listCode: 'TOO_MANY_KEYS' });
+    assert.equal(await snapshot([k1!]), before);
+  });
+
+  await t.test('dry run (preview): the complete preflight and report, zero mutations', async () => {
+    const keys = Object.values(await seed(O, { p1: 'OWNED', p2: 'LIVE_OFF', p3: 'LIVE_ON' }));
+    const before = await snapshot(keys);
+    const plan = await properties.previewLiveCommission(O, keys);
+    assert.equal(plan.outcome, 'PLANNED');
+    assert.deepEqual(plan.entries.map((e) => e.result), ['WOULD_COMMISSION', 'WOULD_COMMISSION', 'UNCHANGED']);
+    assert.equal(await snapshot(keys), before);
+  });
+
+  await t.test('a mid-batch crash or a row changed since preflight rolls back EVERY write in the batch; a re-run converges', async () => {
+    const keys = Object.values(await seed(O, { r1: 'OWNED', r2: 'BUILDING', r3: 'OWNED', r4: 'LIVE_OFF' }));
+    const before = await snapshot(keys);
+    await assert.rejects(new WebPropertyRepository(faultyOnWrite(prisma, 3, 'throw')).commissionLive(O, keys, now), /injected mid-batch failure/);
+    assert.equal(await snapshot(keys), before, 'the two writes before the crash were rolled back');
+    const stale = await new WebPropertyRepository(faultyOnWrite(prisma, 2, 'stale')).commissionLive(O, keys, now);
+    assert.equal(stale.outcome, 'REFUSED');
+    assert.deepEqual(stale.entries.map((e) => e.code), ['BATCH_ROLLED_BACK', 'CONCURRENT_CHANGE', 'BATCH_ROLLED_BACK', 'BATCH_ROLLED_BACK']);
+    assert.equal(await snapshot(keys), before, 'the first write was rolled back');
+    // Retry: the same batch now converges every property.
+    assert.equal((await properties.commissionLive(O, keys, now)).outcome, 'COMMISSIONED');
+    for (const key of keys) assert.deepEqual([(await rowOf(key))!.lifecycle, (await rowOf(key))!.ingestion, (await rowOf(key))!.organizationId], ['LIVE', 'ENABLED', O]);
+  });
+
+  await t.test('commissioned properties admit telemetry through the unchanged admission path; another organization cannot commission them', async () => {
+    const [k1] = Object.values(await seed(O, { t1: 'OWNED' }));
+    assert.equal((await properties.commissionLive(O, [k1!], now)).outcome, 'COMMISSIONED');
+    const ok = await deliver(prisma, { tier: 'SIGNED', body: { events: [{ event: 'page_view', id: `c-${now.getTime()}`, property: k1 }] } });
+    assert.deepEqual(ok.batches.map((b) => b.organizationId), [O]);
+    const before = await snapshot([k1!]);
+    const r = await properties.commissionLive(X, [k1!], now);
+    assert.deepEqual(r, { outcome: 'REFUSED', entries: [{ key: k1, before: null, result: 'REFUSED', code: 'PROPERTY_NOT_IN_ORGANIZATION' }] });
+    assert.equal(await snapshot([k1!]), before);
+  });
+});

@@ -15,34 +15,32 @@ registered property that is **LIVE with ingestion ENABLED**. Everything else is 
 - a registered property that is OWNED or BUILDING: `PROPERTY_NOT_LIVE`;
 - a LIVE property whose ingestion is not enabled: `INGESTION_DISABLED`.
 
-Register the portfolio, and move each site that is **currently sending traffic** to LIVE with ingestion
-ENABLED, *before* the web deploy reaches production. Otherwise accept a gap in that site's website events.
+Register the portfolio, and commission each site that is **currently sending traffic** (steps 2–5), *before*
+the web deploy reaches production. Otherwise accept a gap in that site's website events.
 
 ## Sequence
 
-### 1. Merge the PR (Matt)
+Steps 0–1 are done in production: the migration was applied and the portfolio was registered on 2026-09-30,
+and `servicesinmycity` is LIVE + ENABLED.
 
-### 2. Apply the migration
+### 0. Apply the migration (done)
 
 Dispatch **Deploy Prisma Migrations**. It applies `20261009000000_website_evidence_foundation`, which is
 additive only:
 
 - the `web_properties` table (empty);
 - the `source_metric_windows` table (empty);
-- ten nullable columns on `provider_connections` (all NULL).
+- nullable columns on `provider_connections`.
 
-Read back: the run log lists the migration as applied.
-
-### 3. Register the whole EMG portfolio
+### 1. Register the whole EMG portfolio (done)
 
 Dispatch **Register Web Property** with:
 
 - `action: register-portfolio`;
-- `organization_slug`: the organization that owns the portfolio. Today every EMG site's events land in
-  `servicesinmycity-demo`, but that is Matt's decision to make here;
+- `organization_slug`: the owning organization (`servicesinmycity-demo`);
 - `dry_run: true` first, then `dry_run: false`.
 
-This registers every domain in the portfolio list, each one **OWNED with ingestion DISABLED**:
+This registers every portfolio domain **OWNED with ingestion DISABLED**:
 
 - activitiesinmycity.com, artistsinmycity.com, careinmycity.com, carsinmycity.com
 - consumersupporthelp.com, faithinmycity.com, familiesinmycity.com, foodinmycity.com
@@ -52,64 +50,130 @@ This registers every domain in the portfolio list, each one **OWNED with ingesti
 
 Read back: `event=REGISTRATION_RESULT registered=17 ... readBack=FOUND`. A re-run reports `unchanged=17`.
 
-After this step, OWNED properties are known and quiet: they produce no events, no gap and no
-missing-connection limitation.
+OWNED properties are known and quiet: they produce no events, no gap and no missing-connection limitation.
 
-### 4. Mark each site's real state, one dispatch per act
+### 2. Dry-run `commission-live-sites` with the explicitly confirmed live properties
 
-For each site **currently live and sending traffic** (as far as the code knows, the sites whose snippets
-have been installed: servicesinmycity, consumersupporthelp, marriageinmycity, careinmycity, petsinmycity,
-gamedayinmycity, homesinmycity; confirm each one):
+Dispatch **Register Web Property** with:
 
-1. `action: set-lifecycle`, `property_key: <key>`, `lifecycle: LIVE`. Ingestion stays DISABLED.
-2. `action: enable-ingestion`, `property_key: <key>`.
+| Input | Value |
+|---|---|
+| `action` | `commission-live-sites` |
+| `organization_slug` | `servicesinmycity-demo` |
+| `property_keys` | the confirmed live sites, comma-separated, e.g. `servicesinmycity,consumersupporthelp,marriageinmycity,careinmycity,petsinmycity,gamedayinmycity,homesinmycity` |
+| `dry_run` | `true` |
 
-For each site under construction: `set-lifecycle` → `BUILDING`, and leave ingestion disabled.
+Leave `property_key`, `primary_domain`, `lifecycle` and the binding inputs empty.
 
-Every other site stays `OWNED`.
+Only the keys you list are touched; the action never commissions anything you did not name. At most **25**
+keys are accepted (`WEB_PROPERTY_COMMISSION_BATCH_MAX`). Surrounding whitespace is trimmed. The whole run is
+refused, before any database lookup, if the list:
 
-The optional external bindings (`ga4_property_id`, `search_console_site`, `bing_site`, `clarity_project_id`)
-can be recorded with `action: register` on the same key and primary domain. They connect nothing, must lie
-within the property's domain, and never change its lifecycle.
+- is empty;
+- has an empty entry;
+- has a malformed key;
+- repeats a key;
+- has more than 25 keys.
 
-Read back: `event=STATE_RESULT written=true lifecycle=LIVE ingestion=ENABLED ownerUnchanged=true`.
+### 3. Inspect the results
 
-### 5. Deploy web (Netlify)
+The dry run performs the **complete preflight** and writes nothing. It prints one line per requested property:
 
-Read back:
+```
+event=COMMISSION_PREFLIGHT property=careinmycity result=WOULD_COMMISSION before=OWNED/DISABLED after=LIVE/ENABLED
+event=COMMISSION_PREFLIGHT property=servicesinmycity result=UNCHANGED before=LIVE/ENABLED after=LIVE/ENABLED
+event=COMMISSION_PREFLIGHT property=<key> result=REFUSED:<CODE> before=<state or -> after=-
+```
 
-- `GET /api/webhooks/website` returns `tenancy: "registered-property"`.
-- In **Read Intelligence State**, for the organization:
-  - `WEBSITE_PROPERTY registered=17` with the lifecycle counts;
-  - `WEBSITE_PROPERTY_STATE state=LIVE_INGESTING count=<live sites>`;
-  - `WEBSITE_EVENTS total>0` with a recent `newestAt`;
-  - `SOURCE_COVERAGE source=WEBSITE_EVENTS coverage=COVERED`;
-  - the four external sources show `connection=NOT_CONNECTED coverage=GAP_NOT_CONNECTED`. That is correct,
-    because LIVE sites exist and nothing is connected yet.
-- An organization with no LIVE property shows `coverage=NOT_APPLICABLE` instead.
-- `WEBSITE_REFUSALS` counts `PROPERTY_NOT_LIVE` / `INGESTION_DISABLED` for the organization.
-- Refusals for unregistered properties appear only in Netlify function logs as
-  `WEBSITE_INGEST_REFUSED code=PROPERTY_UNREGISTERED`.
+It ends with a batch summary:
 
-### 6. Redeploy the connections worker
+```
+event=COMMISSION_BATCH_RESULT requested=7 eligible=6 unchanged=1 refused=0 written=0 dryRun=true
+```
 
-This runs the aggregate-window retention step (the table is empty, so it is a no-op). It does **not** purge raw
-website telemetry. `LOOP_WEBSITE_TELEMETRY_RETENTION` stays unset.
+**Any `REFUSED` line refuses the whole batch.** Nothing is written for any property, the valid ones included.
+Fix the named key (or remove it from the list) and dry-run again. Refusal codes:
 
-### 7. Switch the website reading to @2 (only if website readings are commissioned)
+| Code | Meaning |
+|---|---|
+| `PROPERTY_NOT_IN_ORGANIZATION` | the key is not one of this organization's registered properties: unknown, or owned by another organization. They are deliberately indistinguishable, because cross-organization is not-found. |
+| `LIFECYCLE_TRANSITION_REFUSED` | the property cannot go to LIVE directly under the lifecycle state machine (today: RETIRED; move it to OWNED with `set-lifecycle` first if that is really intended). |
+| `STATE_UNRECOGNIZED` | the stored state is outside the vocabulary. Investigate; never forced. |
+| `CONCURRENT_CHANGE` / `BATCH_ROLLED_BACK` | (real run only) a property changed between preflight and write. The whole transaction rolled back; re-run. |
 
-If `LOOP_INTELLIGENCE_PRODUCERS` names `website.domain@1`, replace it with `website.domain@2`. `@1` no longer
-exists.
+### 4. Run `commission-live-sites` for real
 
-`@2` reads Loop's own events only. It names unconnected external sources as a coverage limitation, and only when
-the organization has a LIVE property. It uses the existing `website.domain.reading` task; there is no new AI
-task.
+Dispatch the same inputs with `dry_run: false`. The run:
 
-## Later lifecycle changes
+1. **Validates** the whole batch again, inside the write transaction.
+2. **Mutates** in ONE database transaction. Each property's lifecycle and ingestion change together, in one
+   write conditional on the state preflight read. A property already LIVE + ENABLED is `UNCHANGED` and not
+   rewritten. A crash or a concurrent change rolls back every write.
+3. **Reads back** every property afterwards.
 
-A site goes live, pauses or retires through `set-lifecycle`, and its telemetry is allowed or stopped through
-`enable-ingestion` / `disable-ingestion`. Pausing or retiring a site disables its ingestion in the same write.
-None of these acts changes which organization owns it.
+It only ever writes lifecycle and ingestion. It never registers, reassigns or moves a property, and never
+changes a domain, allowed domains or any binding.
+
+### 5. Verify the read-back
+
+Each property gets one line:
+
+```
+event=COMMISSION_READBACK property=careinmycity result=COMMISSIONED after=LIVE/ENABLED ownerUnchanged=true
+event=COMMISSION_READBACK property=servicesinmycity result=UNCHANGED after=LIVE/ENABLED ownerUnchanged=true
+```
+
+Then the batch line:
+
+```
+event=COMMISSION_BATCH_RESULT requested=7 commissioned=6 unchanged=1 refused=0 readbackFailed=0 ownerChanges=0 ownerUnchanged=true dryRun=false
+```
+
+- `readbackFailed` must be 0 and `ownerUnchanged=true`.
+- A `READBACK_FAILED` line means the database does not show the property as this organization's, LIVE and
+  ENABLED. The run then exits red whatever the write reported.
+- Re-running the same batch is safe: every entry reports `UNCHANGED`, and nothing is written.
+
+### 6. Deploy web (Netlify)
+
+`GET /api/webhooks/website` returns `tenancy: "registered-property"`. Only LIVE + ENABLED properties' events
+are admitted.
+
+### 7. Read Intelligence State
+
+For the organization, confirm:
+
+- `WEBSITE_PROPERTY registered=17` with the lifecycle counts;
+- `WEBSITE_PROPERTY_STATE state=LIVE_INGESTING count=<live sites>`;
+- `WEBSITE_EVENTS total>0` with a recent `newestAt`;
+- `SOURCE_COVERAGE source=WEBSITE_EVENTS coverage=COVERED`;
+- the four external sources as `connection=NOT_CONNECTED coverage=GAP_NOT_CONNECTED`. That is correct, because
+  LIVE sites exist and nothing is connected yet.
+
+An organization with no LIVE property shows `coverage=NOT_APPLICABLE`. Refusals for unregistered properties
+appear only in Netlify function logs (`WEBSITE_INGEST_REFUSED code=PROPERTY_UNREGISTERED`).
+
+### 8. Redeploy the connections worker
+
+This runs the aggregate-window retention step, a no-op on the empty table. It does **not** purge raw website
+telemetry. `LOOP_WEBSITE_TELEMETRY_RETENTION` stays unset.
+
+### 9. Verify `website.domain@2` activation, as appropriate
+
+If website readings are commissioned, `LOOP_INTELLIGENCE_PRODUCERS` must name `website.domain@2`, not `@1`,
+which no longer exists. `@2` reads Loop's own events only, and names unconnected external sources only when a
+LIVE property expects them. It uses the existing `website.domain.reading` task; there is no new AI task.
+
+## Later one-site changes
+
+Use the single-property actions, each its own dispatch (dry run first). They are unchanged:
+
+- `set-lifecycle` (`property_key`, `lifecycle`) moves a site along the lifecycle: BUILDING, LIVE, PAUSED,
+  RETIRED. Pausing or retiring disables its ingestion in the same write. Entering LIVE never enables ingestion.
+- `enable-ingestion` / `disable-ingestion` (`property_key`) allows or stops a LIVE site's telemetry.
+
+A single newly-live site can also go through `commission-live-sites` with a one-key list. None of these acts
+changes which organization owns a property.
 
 ## Deliberately NOT done here
 

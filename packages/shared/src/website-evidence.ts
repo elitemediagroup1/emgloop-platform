@@ -84,6 +84,61 @@ export function webPropertyIngestionChange(lifecycle: WebPropertyLifecycle, to: 
   return to === 'ENABLED' && lifecycle !== 'LIVE' ? { ok: false, code: 'INGESTION_REQUIRES_LIVE' } : { ok: true };
 }
 
+// --- Commissioning live sites in one operator act -------------------------------------------------------
+
+/** The most properties one `commission-live-sites` run may name. The EMG portfolio is 17; this is headroom, not a target. */
+export const WEB_PROPERTY_COMMISSION_BATCH_MAX = 25;
+
+/**
+ * An operator's comma-separated property-key list, parsed strictly: surrounding whitespace is trimmed, and an empty
+ * entry, a malformed key, a duplicate or more than WEB_PROPERTY_COMMISSION_BATCH_MAX keys refuses the WHOLE list.
+ * Nothing is silently skipped. Refusals name the entry's position, and the key only when it is well-formed.
+ */
+export function parseWebPropertyKeyList(raw: string):
+  | { ok: true; keys: string[] }
+  | { ok: false; refusals: { position: number; key: string | null; code: 'EMPTY_LIST' | 'EMPTY_KEY' | 'KEY_SHAPE' | 'DUPLICATE_KEY' | 'TOO_MANY_KEYS' }[] } {
+  const text = String(raw ?? '').trim();
+  if (!text) return { ok: false, refusals: [{ position: 0, key: null, code: 'EMPTY_LIST' }] };
+  const entries = text.split(',').map((e) => e.trim());
+  if (entries.length > WEB_PROPERTY_COMMISSION_BATCH_MAX) return { ok: false, refusals: [{ position: 0, key: null, code: 'TOO_MANY_KEYS' }] };
+  const refusals: { position: number; key: string | null; code: 'EMPTY_KEY' | 'KEY_SHAPE' | 'DUPLICATE_KEY' }[] = [];
+  const seen = new Set<string>();
+  entries.forEach((key, i) => {
+    const position = i + 1;
+    if (!key) refusals.push({ position, key: null, code: 'EMPTY_KEY' });
+    else if (!isWebPropertyKey(key)) refusals.push({ position, key: null, code: 'KEY_SHAPE' });
+    else if (seen.has(key)) refusals.push({ position, key, code: 'DUPLICATE_KEY' });
+    else seen.add(key);
+  });
+  return refusals.length > 0 ? { ok: false, refusals } : { ok: true, keys: entries };
+}
+
+/**
+ * What commissioning one property as a live site takes: LIVE with ingestion ENABLED, through the SAME state machine
+ * the single-property acts use -- a lifecycle transition to LIVE (when not already LIVE), then enabling ingestion.
+ * A property already LIVE + ENABLED needs nothing (the run converges; it is not refused). A property that may not
+ * become LIVE (RETIRED -> LIVE is not a transition) is refused.
+ */
+export function webPropertyLiveCommission(from: { lifecycle: string; ingestion: string }):
+  | { ok: true; lifecycleChange: boolean; ingestionChange: boolean }
+  | { ok: false; code: 'STATE_UNRECOGNIZED' | 'LIFECYCLE_TRANSITION_REFUSED' | 'INGESTION_REQUIRES_LIVE' } {
+  if (!isWebPropertyLifecycle(from.lifecycle) || !isWebPropertyIngestion(from.ingestion)) return { ok: false, code: 'STATE_UNRECOGNIZED' };
+  let lifecycle: WebPropertyLifecycle = from.lifecycle;
+  let lifecycleChange = false;
+  if (lifecycle !== 'LIVE') {
+    const t = webPropertyLifecycleTransition({ lifecycle, ingestion: from.ingestion }, 'LIVE');
+    if (!t.ok) return { ok: false, code: 'LIFECYCLE_TRANSITION_REFUSED' };
+    lifecycle = t.lifecycle;
+    lifecycleChange = true;
+  }
+  const ingestionChange = from.ingestion !== 'ENABLED';
+  if (ingestionChange) {
+    const e = webPropertyIngestionChange(lifecycle, 'ENABLED');
+    if (!e.ok) return { ok: false, code: e.code };
+  }
+  return { ok: true, lifecycleChange, ingestionChange };
+}
+
 /** Whether a property may admit first-party website events now. Only LIVE + ENABLED. */
 export function webPropertyAdmitsTelemetry(p: { lifecycle: string; ingestion: string }): boolean {
   return p.lifecycle === 'LIVE' && p.ingestion === 'ENABLED';
