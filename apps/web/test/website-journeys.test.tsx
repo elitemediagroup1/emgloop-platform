@@ -40,7 +40,7 @@ describe('Website Visitors pages', () => {
     assert.equal(trafficLabel({ kind: 'CAMPAIGN', source: 'google', medium: 'cpc' }), 'google / cpc');
     assert.equal(trafficLabel({ kind: 'REFERRAL', referrerHost: 'www.bing.com' }), 'www.bing.com');
     assert.equal(trafficLabel({ kind: 'DIRECT' }), 'Direct');
-    const zero = { pageViews: 3, ctaClicks: 0, phoneClicks: 0, emailClicks: 0, outboundClicks: 0, downloads: 0, searches: 0, formStarts: 0, formSubmits: 0, appointmentRequests: 0, chat: 0, planner: 0 };
+    const zero = { pageViews: 3, linkClicks: 0, buttonClicks: 0, ctaClicks: 0, phoneClicks: 0, emailClicks: 0, outboundClicks: 0, downloads: 0, searches: 0, formStarts: 0, formSubmits: 0, appointmentRequests: 0, chat: 0, planner: 0 };
     assert.equal(actionSummary(zero), 'Browsing only');
     assert.equal(actionSummary({ ...zero, searches: 2, formSubmits: 1, phoneClicks: 1 }), '2 searches · form submitted · phone click');
   });

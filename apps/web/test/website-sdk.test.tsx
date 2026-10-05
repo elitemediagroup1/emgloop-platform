@@ -116,7 +116,7 @@ function browser() {
     };
     class FakeDate extends Date {
       constructor(...a: unknown[]) { if (a.length === 0) super(clock.now); else super(...(a as [number])); }
-      static now() { return clock.now; }
+      static override now() { return clock.now; }
     }
     const win: Record<string, unknown> = {
       localStorage: ls,
