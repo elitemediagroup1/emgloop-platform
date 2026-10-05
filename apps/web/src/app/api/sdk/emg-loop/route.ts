@@ -2,10 +2,9 @@ import { EMG_LOOP_SDK_SOURCE, EMG_LOOP_SDK_VERSION } from '../../../sdk/sdk-sour
 
 // GET /api/sdk/emg-loop - serves the real EMG Loop browser SDK (Sprint 17).
 //
-// The public URL is /sdk/emg-loop.js (a Next.js rewrite in next.config.mjs maps
-// it here). A route segment containing a dot ('emg-loop.js') is treated by the
-// Next/Netlify runtime as a static file request and 404s, so the handler lives
-// at this dotless path and the rewrite gives sites the familiar .js URL.
+// Sites load the STATIC copy, apps/web/public/sdk/emg-loop.js, at /sdk/emg-loop.js -- there is no rewrite to this
+// route (next.config.mjs). This route serves the same source (sdk-source.ts) for programmatic consumers. The two
+// copies are kept behaviorally identical by hand; the static file is the one browsers run.
 //
 // The SDK is plain, dependency-free browser JavaScript returned verbatim with a
 // JavaScript content type and long-lived caching. No secrets, no per-request

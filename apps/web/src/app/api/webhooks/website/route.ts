@@ -10,6 +10,7 @@ import {
 } from '@emgloop/database';
 import { getWebsiteProvider, mapWebsiteEventType } from '@emgloop/providers';
 import type { ProviderContext } from '@emgloop/providers';
+import { websiteIngestPreflight, withWebsiteIngestCors } from './website-cors';
 import {
   mayAllowUnsigned,
   toVerificationDiagnostic,
@@ -97,7 +98,17 @@ async function websiteConnectionFor(organizationId: string) {
   });
 }
 
-export async function POST(req: Request) {
+// The browser tier is cross-origin: the preflight and every POST reply carry CORS headers (website-cors.ts), or no
+// browser would ever send an event. CORS grants nothing -- admission below is the authority.
+export function OPTIONS(): Response {
+  return websiteIngestPreflight();
+}
+
+export async function POST(req: Request): Promise<Response> {
+  return withWebsiteIngestCors(await receive(req));
+}
+
+async function receive(req: Request): Promise<Response> {
   const rawBody = await req.text();
   const headers = headerMap(req);
   const host = hostOf(req);
