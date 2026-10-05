@@ -159,8 +159,9 @@ function detailOf(e: JourneyEvent): string | null {
 }
 
 /** Events that are instrumentation, folded into the session rather than shown as steps. */
+/** Instrumentation folded into the session (page leaves are handled first: they close the open page view). */
 function isFolded(eventType: string): boolean {
-  return eventType === 'web.heartbeat' || eventType === 'web.scroll_depth' || eventType === 'web.identify' || isPageLeave(eventType);
+  return eventType === 'web.heartbeat' || eventType === 'web.scroll_depth' || eventType === 'web.identify';
 }
 
 function isPageLeave(eventType: string): boolean {

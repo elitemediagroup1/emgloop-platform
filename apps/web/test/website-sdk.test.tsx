@@ -427,6 +427,12 @@ describe('click coverage: meaningful clicks, minimized at the source', () => {
     assert.doesNotMatch(JSON.stringify(ev), /HIDDEN-ADMIN-NOTE|u-123|data-/);
   });
 
+  it('hidden text never reaches a label, even when the visible label is short', () => {
+    const ev = clickOne(el('button', {}, { text: 'Book now', hiddenText: ' internal-sku-4471 staff-only' }));
+    assert.equal(ev[0]!['cta'], 'Book now');
+    assert.doesNotMatch(JSON.stringify(ev), /sku|staff-only/);
+  });
+
   it('a click payload holds only the minimized fields', () => {
     const ev = clickOne(el('a', { href: '/x' }, { text: 'X' }))[0]!;
     assert.deepEqual(Object.keys(ev).sort(), ['cta', 'destination', 'elementType', 'event', 'id', 'page', 'property', 'sessionId', 'timestamp', 'title', 'visitorId']);
