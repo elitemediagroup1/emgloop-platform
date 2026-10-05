@@ -138,8 +138,9 @@ event=COMMISSION_BATCH_RESULT requested=7 commissioned=6 unchanged=1 refused=0 r
 
 This deploy must include the 2026-10-05 tracker fixes (`feat/website-visitor-journeys`):
 
-- **CORS.** The webhook now answers the tracker's cross-origin preflight. Before it, every browser refused to send
-  every tracker event, so no site could deliver anything however it was installed.
+- **CORS.** The webhook now answers cross-origin requests. Before it, every browser refused to send every tracker
+  event, so no site could deliver anything however it was installed. Tracker v1.1.0 also sends CORS-simple
+  requests (no preflight at all), so delivery survives navigation.
 - **Install snippet.** The generated `<script>` tag is now closed. Before it, a pasted snippet left the element
   open and swallowed the page markup after it.
 
@@ -173,8 +174,9 @@ shared layout or template. The snippet is public (no secret):
 tenancy is the registry's. The site must be served from its registered domain or a subdomain of it (e.g.
 `www.`), because production checks the browser's Origin.
 
-Check one page load in the browser's network panel: an OPTIONS and then a POST to
-`/api/webhooks/website`, the POST answering `200` with `"ok":true`.
+Check one page load in the browser's network panel: a POST to `/api/webhooks/website`, with a `text/plain`
+body and no preflight (tracker v1.1.0), answering `200` with `"ok":true`. Leaving the page sends a beacon,
+which some panels list as type `ping`. `window.emgLoop.version` in the console reads `1.1.0`.
 
 ### 7. Read Intelligence State
 

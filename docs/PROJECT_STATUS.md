@@ -2653,6 +2653,11 @@ with no open PR). Always open a draft PR and report its URL; Matt merges.
 - per-property `WEBSITE_COLLECTION` diagnostics (FLOWING / SPARSE / NO_EVENTS / NOT_APPLICABLE);
 - **Website Visitors**: anonymous visit journeys from admitted integration_events. It replaces the
   Interaction-based Live Website Feed and the hard-coded six-site list.
+- **Tracker v1.1.0**:
+  - a visit ends after 30 minutes of inactivity, and activity keeps it alive;
+  - `page_leave` replaces `session_end`;
+  - privacy-safe link/button/CTA/outbound/download clicks;
+  - CORS-simple delivery that survives navigation. Before it, events before a navigation were lost.
 
 **Next (Matt):**
 1. Merge and deploy web.
