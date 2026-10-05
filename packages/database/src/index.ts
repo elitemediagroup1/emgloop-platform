@@ -946,3 +946,5 @@ export type { SourceMetricWindowWrite, StoredSourceMetricWindow } from './reposi
 export { WebsiteTelemetryRetentionRepository } from './repositories/website-telemetry-retention.repository';
 export { storedWebsiteEventType, WEBSITE_RANKING_SCAN_LIMIT } from './repositories/website-analytics.repository';
 export { declaredExternalWebsiteSources, websiteCoveragePort } from './services/intelligence-fabric/website-coverage';
+export { WebsiteJourneyRepository, JOURNEY_SCAN_LIMIT, JOURNEY_SESSION_EVENT_LIMIT, JOURNEY_VISITOR_LOOKBACK_DAYS } from './repositories/website-journey.repository';
+export type { JourneySessionSummary, JourneySessionList, JourneySessionDetail, JourneyVisitorSession } from './repositories/website-journey.repository';

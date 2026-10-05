@@ -216,6 +216,8 @@ export * from './situation';
 // Governed website evidence (2026-09-30): property identity, telemetry minimization, event classes, the
 // external aggregate evidence contract (null is not zero; PRELIMINARY is not FINAL).
 export * from './website-evidence';
+// Website journeys (2026-10-05): an anonymous visitor's sessions from the governed, minimized first-party events.
+export * from './website-journey';
 // Whether a stored digest may feed synthesis (situations, the Briefing): the shared freshness contract.
 export * from './intelligence-eligibility';
 // Loop Intelligence Phase D: the Mail content governance gate (counterparty consent: UNRESOLVED).

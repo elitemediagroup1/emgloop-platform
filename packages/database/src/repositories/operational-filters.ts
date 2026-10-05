@@ -7,7 +7,7 @@
 //   2. Reject fabricated attribution labels (e.g. 'Vendor A', 'Buyer X',
 //      'E2E Traffic Partner A') so missing attribution is shown honestly as
 //      'Unknown ...' rather than a fake partner name.
-//   3. Provide recency windows and canonical EMG property names.
+//   3. Provide recency windows. (Website properties are the web_properties registry, never a list here.)
 //
 // No schema changes: detection uses existing columns (tags, email, phone,
 // externalId) and Interaction.metadata only. An Interaction is judged by its own
@@ -21,46 +21,11 @@ export const DAY = 24 * HOUR;
 
 export const LIVE_ACTIVITY_WINDOW_MS = DAY; // last 24h
 export const LIVE_CALLS_WINDOW_MS = DAY; // last 24h
-export const LIVE_WEBSITE_WINDOW_MS = 60 * MINUTE; // last 60 min (active sessions)
 export const TRAFFIC_DEFAULT_WINDOW_MS = 7 * DAY; // last 7 days
 export const REVENUE_DEFAULT_WINDOW_MS = 7 * DAY; // last 7 days
 
 export function since(windowMs: number, now: Date = new Date()): Date {
   return new Date(now.getTime() - windowMs);
-}
-
-// --- EMG properties -------------------------------------------------------
-// The canonical EMG web properties, in display order. The Live Website Feed
-// property selector is driven by this list.
-export interface EmgProperty {
-  key: string; // canonical machine key, e.g. 'servicesinmycity'
-  name: string; // display name, e.g. 'ServicesInMyCity'
-  domains: string[]; // raw property/website strings that map to this property
-}
-
-export const EMG_PROPERTIES: EmgProperty[] = [
-  { key: 'servicesinmycity', name: 'ServicesInMyCity', domains: ['servicesinmycity', 'servicesinmycity.com'] },
-  { key: 'consumersupporthelp', name: 'ConsumerSupportHelp', domains: ['consumersupporthelp', 'consumersupporthelp.com'] },
-  { key: 'careinmycity', name: 'CareInMyCity', domains: ['careinmycity', 'careinmycity.com'] },
-  { key: 'petsinmycity', name: 'PetsInMyCity', domains: ['petsinmycity', 'petsinmycity.com'] },
-  { key: 'marriageinmycity', name: 'MarriageInMyCity', domains: ['marriageinmycity', 'marriageinmycity.com'] },
-  { key: 'gamedayinmycity', name: 'GameDayInMyCity', domains: ['gamedayinmycity', 'gamedayinmycity.com'] },
-];
-
-// Map a raw property/website string to a canonical EMG property key, or null.
-export function propertyKeyOf(raw: string | null | undefined): string | null {
-  if (!raw) return null;
-  const r = raw.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '');
-  for (const p of EMG_PROPERTIES) {
-    if (p.domains.some((d) => r === d || r.startsWith(d + '/') || r.startsWith(d))) return p.key;
-  }
-  return null;
-}
-
-export function propertyNameOf(raw: string | null | undefined): string | null {
-  const key = propertyKeyOf(raw);
-  if (!key) return null;
-  return EMG_PROPERTIES.find((p) => p.key === key)?.name ?? null;
 }
 
 // --- Excluded (demo / QA / E2E / test) record detection -------------------

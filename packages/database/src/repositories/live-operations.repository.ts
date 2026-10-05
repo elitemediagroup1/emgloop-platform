@@ -24,12 +24,9 @@ import {
   isExcludedExternalId,
   isExcludedInteraction,
   realAttr,
-  propertyNameOf,
-  propertyKeyOf,
   since,
   LIVE_ACTIVITY_WINDOW_MS,
   LIVE_CALLS_WINDOW_MS,
-  LIVE_WEBSITE_WINDOW_MS,
 } from './operational-filters';
 
 function jsonVal(value: Prisma.JsonValue | null | undefined, key: string): string | null {
@@ -76,31 +73,6 @@ export interface LiveCallRow {
   assignedHuman: string | null;
   nextBestAction: string | null;
   at: string;
-}
-
-export interface LiveWebsiteRow {
-  id: string;
-  provider: string | null;
-  externalId: string | null;
-  website: string | null;
-  propertyKey: string | null;
-  sessionId: string | null;
-  customerId: string | null;
-  customerName: string | null;
-  eventType: string | null;
-  label: string;
-  journeyStage: string | null;
-  at: string;
-}
-
-export interface LiveWebsiteSession {
-  sessionKey: string;
-  website: string | null;
-  propertyKey: string | null;
-  customerId: string | null;
-  customerName: string | null;
-  events: LiveWebsiteRow[];
-  lastAt: string;
 }
 
 const CALL_EVENT_PREFIXES = ['call.', 'callgrid.'];
@@ -296,65 +268,5 @@ export class LiveOperationsRepository {
 
   // Live website feed — recent website interactions grouped into sessions.
   // Optional propertyKey filters to a single EMG property.
-  async listLiveWebsiteActivity(
-    organizationId: string,
-    limit = 60,
-    propertyKey?: string | null,
-  ): Promise<LiveWebsiteSession[]> {
-    const cutoff = since(LIVE_WEBSITE_WINDOW_MS);
-    const rows = await this.prisma.interaction.findMany({
-      where: { organizationId, provider: 'website', occurredAt: { gte: cutoff } },
-      orderBy: { occurredAt: 'desc' },
-      take: limit * 2,
-      include: { customer: { select: CUSTOMER_SELECT } },
-    });
 
-    const flat: LiveWebsiteRow[] = rows
-      .filter((i) => !isExcludedInteraction(i))
-      .map((i) => {
-        const md = i.metadata;
-        const et = jsonVal(md, 'eventType');
-        const rawSite = jsonVal(md, 'property') ?? jsonVal(md, 'website');
-        return {
-          id: i.id,
-          provider: i.provider ?? null,
-          externalId: i.externalId ?? null,
-          website: propertyNameOf(rawSite) ?? rawSite,
-          propertyKey: propertyKeyOf(rawSite),
-          sessionId: jsonVal(md, 'sessionId'),
-          customerId: i.customerId ?? null,
-          customerName: nameOf(i.customer),
-          eventType: et,
-          label: i.summary ?? et ?? 'Website activity',
-          journeyStage: jsonVal(md, 'journeyStage') ?? jsonVal(md, 'intent'),
-          at: i.occurredAt.toISOString(),
-        };
-      });
-
-    const filtered = propertyKey ? flat.filter((r) => r.propertyKey === propertyKey) : flat;
-
-    const groups = new Map<string, LiveWebsiteSession>();
-    for (const r of filtered) {
-      const key = r.sessionId ?? r.customerId ?? r.id;
-      const existing = groups.get(key);
-      if (existing) {
-        existing.events.push(r);
-        if (r.at > existing.lastAt) existing.lastAt = r.at;
-      } else {
-        groups.set(key, {
-          sessionKey: key,
-          website: r.website,
-          propertyKey: r.propertyKey,
-          customerId: r.customerId,
-          customerName: r.customerName,
-          events: [r],
-          lastAt: r.at,
-        });
-      }
-    }
-
-    return Array.from(groups.values())
-      .sort((a, b) => (a.lastAt < b.lastAt ? 1 : a.lastAt > b.lastAt ? -1 : 0))
-      .slice(0, limit);
-  }
 }
