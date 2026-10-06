@@ -151,7 +151,8 @@ export class CrmRelationshipRepository {
   async forParty(organizationId: string, partyId: string): Promise<CrmRelationship[]> {
     if (!organizationId?.trim() || !partyId?.trim()) return [];
     const rows = await this.prisma.crmParticipant.findMany({
-      where: { organizationId, partyId, state: 'ACTIVE' },
+      // Relationship participations only: an Opportunity participation must not use up this scan.
+      where: { organizationId, partyId, state: 'ACTIVE', relationshipId: { not: null } },
       select: { relationshipId: true },
     });
     const ids = [...new Set(rows.map((r) => r.relationshipId).filter((id): id is string => id !== null))];
