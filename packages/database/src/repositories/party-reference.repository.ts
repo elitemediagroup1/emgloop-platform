@@ -32,18 +32,18 @@ import {
   type PartyReferenceResolution,
   type PartyType,
 } from '@emgloop/shared';
-import { PartyRepository } from './cognitive/party.repository';
+import { PartyRepository, type PartyView } from './cognitive/party.repository';
 
 export type PartyReferenceRequirement =
   | { readonly ok: true; readonly reference: PartyReference; readonly partyType: PartyType }
   | { readonly ok: false; readonly resolution: PartyReferenceResolution };
 
 export interface PartyReferenceRepositoryDeps {
-  parties?: Pick<PartyRepository, 'findParty'>;
+  parties?: Pick<PartyRepository, 'findParty'> & Partial<Pick<PartyRepository, 'findParties'>>;
 }
 
 export class PartyReferenceRepository {
-  private readonly parties: Pick<PartyRepository, 'findParty'>;
+  private readonly parties: Pick<PartyRepository, 'findParty'> & Partial<Pick<PartyRepository, 'findParties'>>;
 
   constructor(prisma: PrismaClient, deps: PartyReferenceRepositoryDeps = {}) {
     this.parties = deps.parties ?? new PartyRepository(prisma);
@@ -65,6 +65,40 @@ export class PartyReferenceRepository {
   }
 
   /**
+   * `resolve` for many references at once: the first hop of every chain is read in one batch,
+   * and only a superseded record walks further, one hop at a time, exactly as `resolve` does
+   * (the same `partyReferenceStep`, so the bounds and refusals are the same). Built for list
+   * pages, which must not ask once per row. Every requested id gets an answer.
+   */
+  async resolveMany(organizationId: string, partyIds: readonly string[]): Promise<Map<string, PartyReferenceResolution>> {
+    const unique = [...new Set(partyIds)];
+    const out = new Map<string, PartyReferenceResolution>();
+    const first = this.parties.findParties && organizationId?.trim()
+      ? await this.parties.findParties(organizationId, unique.filter((id) => isPartyReference({ organizationId, partyId: id })))
+      : new Map<string, PartyView>();
+    for (const partyId of unique) {
+      if (!isPartyReference({ organizationId, partyId })) {
+        out.set(partyId, PARTY_REFERENCE_NOT_FOUND);
+        continue;
+      }
+      const walked: PartyReferenceNode[] = [];
+      let id = partyId;
+      for (;;) {
+        const preloaded = first.get(id);
+        const node = preloaded ? nodeFrom(preloaded) : this.parties.findParties && walked.length === 0 ? null : await this.node(organizationId, id);
+        const step = partyReferenceStep(partyId, walked, node);
+        if ('resolved' in step) {
+          out.set(partyId, step.resolved);
+          break;
+        }
+        if (node) walked.push(node);
+        id = step.next;
+      }
+    }
+    return out;
+  }
+
+  /**
    * The reference a writer may store: an ESTABLISHED, non-superseded,
    * non-archived Party in this organization. Anything else is refused with its
    * resolution, so a superseded id comes back with its canonical id rather than
@@ -80,13 +114,16 @@ export class PartyReferenceRepository {
 
   private async node(organizationId: string, id: string): Promise<PartyReferenceNode | null> {
     const party = await this.parties.findParty(organizationId, id);
-    if (!party) return null;
-    return {
-      id: party.id,
-      partyType: party.partyType,
-      established: party.establishment.established,
-      archived: party.status === 'ARCHIVED',
-      supersededByPartyId: party.supersededByIdentityId,
-    };
+    return party ? nodeFrom(party) : null;
   }
+}
+
+function nodeFrom(party: PartyView): PartyReferenceNode {
+  return {
+    id: party.id,
+    partyType: party.partyType,
+    established: party.establishment.established,
+    archived: party.status === 'ARCHIVED',
+    supersededByPartyId: party.supersededByIdentityId,
+  };
 }

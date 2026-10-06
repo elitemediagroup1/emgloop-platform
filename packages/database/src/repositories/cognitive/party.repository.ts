@@ -90,21 +90,35 @@ export class PartyRepository {
   async findParty(organizationId: string, id: string, now: Date = new Date()): Promise<PartyView | null> {
     const row = await this.prisma.cognitiveIdentity.findFirst({ where: { id, organizationId } });
     if (!row || !isPartyType(row.entityType)) return null;
-    const bases = await this.recordedBases(organizationId, row.id, now);
-    if (row.establishedAt && row.establishmentBasis && ACTOR_BASES.includes(row.establishmentBasis)) {
-      bases.push({
-        method: row.establishmentBasis,
-        provenance: { ...NO_GOVERNED_PROVENANCE, authorizedActorUserId: row.establishedByUserId },
-      });
+    return partyViewFrom(row, await this.recordedBases(organizationId, row.id, now));
+  }
+
+  /**
+   * `findParty` for many ids in TWO queries, whatever the count: the records, then their
+   * evidence. The same view `findParty` builds, row for row -- one definition of a Party, read
+   * in bulk so a list page does not ask once per row. Ids that are not a Party of this
+   * organization are absent from the map.
+   */
+  async findParties(organizationId: string, ids: readonly string[], now: Date = new Date()): Promise<Map<string, PartyView>> {
+    const unique = [...new Set(ids.filter((id) => typeof id === 'string' && id.trim() !== ''))];
+    const out = new Map<string, PartyView>();
+    if (!organizationId?.trim() || unique.length === 0) return out;
+    const rows = await this.prisma.cognitiveIdentity.findMany({ where: { organizationId, id: { in: unique } } });
+    const parties = rows.filter((r) => isPartyType(r.entityType));
+    if (parties.length === 0) return out;
+    const evidence = await this.prisma.identityEvidence.findMany({
+      where: {
+        organizationId,
+        identityId: { in: parties.map((r) => r.id) },
+        revokedAt: null,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+      },
+      select: { identityId: true, evidenceType: true },
+    });
+    for (const row of parties) {
+      out.set(row.id, partyViewFrom(row, basesFromEvidence(evidence.filter((e) => e.identityId === row.id))));
     }
-    return {
-      id: row.id,
-      organizationId: row.organizationId,
-      partyType: row.entityType,
-      status: row.status,
-      establishment: partyEstablishment({ entityType: row.entityType, bases }),
-      supersededByIdentityId: row.supersededByIdentityId ?? null,
-    };
+    return out;
   }
 
   /**
@@ -145,11 +159,49 @@ export class PartyRepository {
         OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
       },
     });
-    const bases: PartyBasis[] = [];
-    for (const e of evidence) {
-      const method = EVIDENCE_BASIS[e.evidenceType];
-      if (method) bases.push({ method, provenance: NO_GOVERNED_PROVENANCE });
-    }
-    return bases;
+    return basesFromEvidence(evidence);
   }
+}
+
+function basesFromEvidence(evidence: readonly { evidenceType: IdentityEvidenceType }[]): PartyBasis[] {
+  const bases: PartyBasis[] = [];
+  for (const e of evidence) {
+    const method = EVIDENCE_BASIS[e.evidenceType];
+    if (method) bases.push({ method, provenance: NO_GOVERNED_PROVENANCE });
+  }
+  return bases;
+}
+
+/** The one construction of a PartyView from its record and its evidence bases. */
+function partyViewFrom(
+  row: {
+    id: string;
+    organizationId: string;
+    entityType: CognitiveEntityType;
+    status: CognitiveIdentityStatus;
+    establishedAt: Date | null;
+    establishmentBasis: IdentityResolutionMethod | null;
+    establishedByUserId: string | null;
+    supersededByIdentityId: string | null;
+  },
+  evidenceBases: PartyBasis[],
+): PartyView {
+  // Callers pass Party records only; checked again here rather than asserted.
+  const entityType = row.entityType;
+  if (!isPartyType(entityType)) throw new Error('partyViewFrom: not a Party record');
+  const bases = [...evidenceBases];
+  if (row.establishedAt && row.establishmentBasis && ACTOR_BASES.includes(row.establishmentBasis)) {
+    bases.push({
+      method: row.establishmentBasis,
+      provenance: { ...NO_GOVERNED_PROVENANCE, authorizedActorUserId: row.establishedByUserId },
+    });
+  }
+  return {
+    id: row.id,
+    organizationId: row.organizationId,
+    partyType: entityType,
+    status: row.status,
+    establishment: partyEstablishment({ entityType, bases }),
+    supersededByIdentityId: row.supersededByIdentityId ?? null,
+  };
 }
