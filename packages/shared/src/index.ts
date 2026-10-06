@@ -442,6 +442,10 @@ export * from './crm-relationship-read-model';
 // Party, for reaching it. NOT identity evidence; exact keyed-hash matching only. See
 // ./crm-contact-point.ts and docs/architecture/crm-contact-points.md.
 export * from './crm-contact-point';
+// CRM Opportunity authority (PD-F-11, approved 2026-10-06): the act/role grants, AI_EMPLOYEE
+// hard-denied, and owner eligibility. Ownership is accountability, never access. See
+// ./crm-opportunity-authority.ts.
+export * from './crm-opportunity-authority';
 
 // --- Decision card composition (presentation only) ---
 // Confidence, the operational consequence, the ways a decision can end, and the

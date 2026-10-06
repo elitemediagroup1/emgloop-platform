@@ -125,9 +125,9 @@ test('invariant 7: one Party may hold several roles in one subject, each its own
 
 // --- 3. Subjects that exist -----------------------------------------------------------
 
-test('only RELATIONSHIP is an available subject; Opportunity and Campaign are refused until they exist', () => {
-  assert.deepEqual([...CRM_PARTICIPANT_SUBJECT_KINDS], ['RELATIONSHIP']);
-  assert.deepEqual([...CRM_PARTICIPANT_RESERVED_SUBJECT_KINDS], ['OPPORTUNITY', 'CAMPAIGN']);
+test('RELATIONSHIP and OPPORTUNITY are available subjects; Campaign is refused until it exists', () => {
+  assert.deepEqual([...CRM_PARTICIPANT_SUBJECT_KINDS], ['RELATIONSHIP', 'OPPORTUNITY']);
+  assert.deepEqual([...CRM_PARTICIPANT_RESERVED_SUBJECT_KINDS], ['CAMPAIGN']);
   for (const reserved of CRM_PARTICIPANT_RESERVED_SUBJECT_KINDS) {
     assert.ok(!(CRM_PARTICIPANT_SUBJECT_KINDS as readonly string[]).includes(reserved), reserved);
     assert.deepEqual(validateCrmParticipant(assertion({ subjectKind: reserved })), ['SUBJECT_KIND_NOT_AVAILABLE'], reserved);
@@ -135,7 +135,26 @@ test('only RELATIONSHIP is an available subject; Opportunity and Campaign are re
   assert.deepEqual(validateCrmParticipant(assertion({ subjectKind: 'CUSTOMER' })), ['SUBJECT_KIND_NOT_AVAILABLE']);
   // An unavailable subject stops the check: nothing downstream is evaluated against
   // a subject the platform has no authority for.
-  assert.equal(validateCrmParticipant(assertion({ subjectKind: 'OPPORTUNITY', role: 'NONSENSE' })).length, 1);
+  assert.equal(validateCrmParticipant(assertion({ subjectKind: 'CAMPAIGN', role: 'NONSENSE' })).length, 1);
+});
+
+test('an Opportunity admits exactly BRAND (a COMPANY) and PRIMARY_CONTACT (a PERSON), with no side', () => {
+  const opp = (role: string, partyType: 'PERSON' | 'COMPANY', extra: Record<string, unknown> = {}) =>
+    validateCrmParticipant(assertion({ subjectKind: 'OPPORTUNITY', relationshipKind: null, role, partyType, side: null, actsForSide: null, ...extra }));
+  assert.deepEqual(opp('BRAND', 'COMPANY'), []);
+  assert.deepEqual(opp('PRIMARY_CONTACT', 'PERSON'), []);
+  assert.deepEqual(opp('BRAND', 'PERSON'), ['PARTY_TYPE_NOT_PERMITTED_FOR_ROLE'], 'a brand is never a Person here');
+  assert.deepEqual(opp('PRIMARY_CONTACT', 'COMPANY'), ['PARTY_TYPE_NOT_PERMITTED_FOR_ROLE'], 'a primary contact is never a Company');
+  for (const role of ['CREATOR', 'AGENCY', 'DECISION_MAKER', 'BILLING_CONTACT', 'CLIENT']) {
+    if (!CRM_PARTICIPANT_ROLE_DEFINITIONS.some((r) => r.role === role)) continue;
+    assert.deepEqual(opp(role, 'PERSON').filter((v) => v !== 'PARTY_TYPE_NOT_PERMITTED_FOR_ROLE'), ['ROLE_NOT_PERMITTED_FOR_SUBJECT'], role);
+  }
+  assert.deepEqual(opp('NONSENSE', 'PERSON'), ['UNKNOWN_ROLE']);
+  assert.deepEqual(opp('BRAND', 'COMPANY', { side: 'A' }), ['SIDE_NOT_PERMITTED_FOR_SUBJECT']);
+  assert.deepEqual(opp('PRIMARY_CONTACT', 'PERSON', { actsForSide: 'B' }), ['SIDE_NOT_PERMITTED_FOR_SUBJECT']);
+  assert.deepEqual(opp('BRAND', 'COMPANY', { relationshipKind: 'CLIENT' }), ['SIDE_NOT_PERMITTED_FOR_SUBJECT']);
+  // The Relationship subject is untouched: BRAND there still follows the role definitions.
+  assert.deepEqual(validateCrmParticipant(assertion({ role: 'BRAND', partyType: 'PERSON', relationshipKind: 'CLIENT', side: 'COUNTERPARTY', actsForSide: null })), []);
 });
 
 // --- 4. Sides (sections 3.1 and 6) ----------------------------------------------------
