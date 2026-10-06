@@ -25,6 +25,43 @@ NOT by seeing it render or run. Those must be checked on the deploy.
 
 ---
 
+## CRM Contact Points (PD-F-05) + brand-outreach import — SLICES 1–2 IN REVIEW (2026-10-06) · NOT deployed · migration 61 not dispatched
+
+**Where it stands.** Matt approved PD-F-05, PD-F-11 and PD-F-12 (2026-10-06).
+- **Slice 1** (docs, draft #358, `chore/pd-f-05-11-12-decisions`): the decisions recorded in
+  `docs/architecture/crm-contact-points.md`, the handoff and the opportunity and identity records.
+- **Slice 2** (`feat/crm-contact-points`, stacked on slice 1): the Contact Point authority, built.
+  - Contract, two tables with CHECKs, repository and governed service.
+  - A read-only Person panel.
+  - Tests: Postgres (11), fences (3), contract (11), mutation-checked.
+  - Migration `20261010000000_crm_contact_points` is not applied anywhere but local.
+
+**Merge order.** #358 first, then slice 2: prove each landed on `main` (CLAUDE.md git rule 10).
+
+**Not built:**
+- a write UI, and a Company record page;
+- suppression, reactivation and purge;
+- attribution of an UNATTRIBUTED value;
+- the importer.
+
+**Next slices, in order:**
+1. Opportunity `ownerUserId` + OPPORTUNITY participants + the PD-F-11 grants.
+2. An organization-wide Opportunities staff surface (a prerequisite for commissioning).
+3. Import provenance + the importer (S3/OIDC source; dry run first).
+4. A dry run on Matt's final structured file.
+5. Human review of route classification and of creator aliases.
+6. The import, only on explicit approval.
+
+**Open before the importer:**
+- the Opportunity creation and stage mapping (directory statuses are NOT stages);
+- a governed home for titles;
+- the creator alias table;
+- route classification.
+
+The PDF snapshot is design evidence only.
+
+---
+
 ## Loop Home — COMPOSITION CORRECTED (2026-09-24, PR open on `fix/loop-home-composition`) · over merged #335
 
 **Why.** Matt's review of merged #335: the data and governance were right, the rendered Home was an admin
