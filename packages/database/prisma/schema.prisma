@@ -271,6 +271,8 @@ model Organization {
   crmRelationships            CrmRelationship[]
   crmRelationshipEvents       CrmRelationshipEvent[]
   crmParticipants             CrmParticipant[]
+  crmContactPoints            CrmContactPoint[]
+  crmContactPointEvents       CrmContactPointEvent[]
   aiInvocations               AiInvocation[]
   // --- Brain durable execution (B4) ---
   brainJobs                   BrainJob[]
@@ -457,6 +459,8 @@ model User {
   crmRelationshipsCreated   CrmRelationship[]       @relation("CrmRelationshipCreator")
   crmRelationshipEvents     CrmRelationshipEvent[]  @relation("CrmRelationshipEventActor")
   crmParticipantsAdded      CrmParticipant[]        @relation("CrmParticipantCreator")
+  crmContactPointsAdded     CrmContactPoint[]       @relation("CrmContactPointAdder")
+  crmContactPointEvents     CrmContactPointEvent[]  @relation("CrmContactPointEventActor")
   crmParticipantsEnded      CrmParticipant[]        @relation("CrmParticipantEnder")
   crmParticipantsVoided     CrmParticipant[]        @relation("CrmParticipantVoider")
   aiInvocations             AiInvocation[]          @relation("AiInvocationPrincipal")
@@ -3116,6 +3120,9 @@ enum OutboxSubjectType {
   /// CRM Relationship and its Participants (slice R2). Subscribers can then filter
   /// commercial-relationship changes without reading every state change.
   RELATIONSHIP
+  /// CRM Contact Points (PD-F-05). Payloads carry ids, kind, classification and states -- never a
+  /// value or its hash.
+  CONTACT_POINT
 }
 
 model StateChangeOutbox {
@@ -5278,6 +5285,115 @@ model CrmParticipant {
   @@index([organizationId, relationshipId, state])
   @@index([organizationId, partyId, state])
   @@map("crm_participants")
+}
+
+// ---------------------------------------------------------------------------
+// CRM Contact Points (PD-F-05, Product 2026-10-06)
+//
+// A business email or phone a person recorded or imported for an established Party, so staff
+// can reach it. An operational CRM record, NOT identity evidence: it establishes nothing, raises
+// no tier, proves no affiliation and is never verified by being stored. The decision record is
+// docs/architecture/crm-contact-points.md; the vocabulary, lifecycle and grants are
+// `@emgloop/shared` crm-contact-point.ts. Vocabularies are strings validated at the boundary and
+// by the CHECKs in the migration, as in the Relationship authority.
+// ---------------------------------------------------------------------------
+
+/// One way to reach one Party. The value is immutable: a correction is retire or void, then add.
+model CrmContactPoint {
+  id             String @id @default(cuid())
+  organizationId String
+
+  /// The Party, resolved through the Party Reference contract before it is written (established,
+  /// non-superseded, non-archived, this organization) and NEVER rewritten afterwards.
+  partyId   String
+  /// The Party type the authority reported at write time. A record, never authority.
+  partyType String
+
+  /// EMAIL | PHONE.
+  kind           String
+  /// INDIVIDUAL (PERSON) | ROLE_INBOX (COMPANY) | UNATTRIBUTED (COMPANY).
+  classification String
+  /// BUSINESS_CONTACT. Never a legal basis.
+  purpose        String @default("BUSINESS_CONTACT")
+
+  /// The normalized value, for authorized human display only. NULL once erased under retention
+  /// (`valueErasedAt`); the hash stays so a suppression can outlive the value. Read only through
+  /// `CrmContactPointRepository.revealValues`, never selected by default.
+  value              String?
+  valueErasedAt      DateTime?
+  /// Keyed HMAC (organization-salted, namespaced to Contact Points) of the normalized value. The
+  /// only thing ever compared. Never equal to an IdentityEvidence hash.
+  valueHash          String
+  /// Fingerprint of the key `valueHash` was taken under, so a key change shows itself.
+  hashKeyFingerprint String
+
+  /// The projection of `events`.
+  state        String
+  lastSequence Int     @default(0)
+  /// `crmContactPointCurrentKey` while ACTIVE or UNDELIVERABLE; NULL once RETIRED or VOIDED.
+  currentKey   String?
+
+  /// OPERATOR_RECORDED | IMPORTED. Provenance, not a legal conclusion.
+  basis     String
+  /// An opaque import reference (batch / source / row). Required for IMPORTED, refused otherwise.
+  sourceRef String?
+
+  /// The retention policy key this point is kept under (`CRM_CONTACT_POINT_RETENTION_POLICIES`).
+  retentionPolicy    String    @default("crm.contact_point.retention.v1")
+  /// The latest recorded human outreach or interaction for this point, when one is known. Never
+  /// defaulted; the retention anchor falls back to `addedAt`.
+  lastHumanContactAt DateTime?
+
+  addedByUserId   String?
+  addedAt         DateTime  @default(now())
+  undeliverableAt DateTime?
+  retiredAt       DateTime?
+  voidedAt        DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  addedBy      User?                  @relation("CrmContactPointAdder", fields: [addedByUserId], references: [id], onDelete: SetNull)
+  events       CrmContactPointEvent[]
+
+  @@unique([organizationId, currentKey])
+  @@index([organizationId, partyId, state])
+  @@index([organizationId, kind, valueHash])
+  @@map("crm_contact_points")
+}
+
+/// The append-only history of a Contact Point. Safe before/after only: states and ids. A reason is
+/// the actor's own words and is refused if it carries a contact value.
+model CrmContactPointEvent {
+  id             String @id @default(cuid())
+  organizationId String
+  contactPointId String
+
+  sequence Int
+  /// CRM_CONTACT_POINT_EVENT_TYPES.
+  type     String
+
+  occurredAt      DateTime
+  occurredAtBasis String
+  recordedAt      DateTime @default(now())
+
+  /// HUMAN for every act. A machine never records, retires or voids a Contact Point.
+  actorType   String
+  actorUserId String?
+  reason      String?
+
+  fromState String?
+  toState   String
+
+  createdAt DateTime @default(now())
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  contactPoint CrmContactPoint @relation(fields: [contactPointId], references: [id], onDelete: Cascade)
+  actor        User?           @relation("CrmContactPointEventActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@unique([contactPointId, sequence])
+  @@index([organizationId, contactPointId, sequence])
+  @@map("crm_contact_point_events")
 }
 
 /// The durable AI usage ledger. One row per invocation ATTEMPT -- answered, refused,
