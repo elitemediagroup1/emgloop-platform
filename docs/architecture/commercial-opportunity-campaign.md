@@ -16,6 +16,17 @@ attributed; the creator side is the Party Reference (`creatorPartyId`). **Since 
 
 These are all governed by `CrmOpportunityService`.
 
+**Since CRM slice 4 (2026-10-06):** a read-only staff surface, `/app/crm/opportunities` (list and
+record), over `CrmOpportunityReadService`:
+- the PD-F-11 VIEW act (all human roles; AI_EMPLOYEE and CREATOR refused);
+- Party names behind `identityResolution:view`;
+- `internalNotes` and transition notes for EMPLOYEE and above only, as for contact values;
+- Contact Points read per contact through the Contact Point authority, on the record page only;
+- a fixed number of queries per page (`PartyReferenceRepository.resolveMany`).
+
+It writes nothing. There is still no governed notes authority: `internalNotes` is one free-text
+field with no author or history.
+
 **Not yet built:**
 - versioned stage sets;
 - the outbox subject;
@@ -23,7 +34,8 @@ These are all governed by `CrmOpportunityService`.
 - the Intake → Opportunity act;
 - governed create/update/reopen/void services (the PD-F-11 grants for them exist; only the creator-hub
   designation is wired to them today);
-- a staff Opportunities surface. The writer is `CrmCommercialRepository` (`packages/database/src/creator/`). Everything below
+- staff acts on the surface (owner, participants, stage); they are governed services with no UI yet;
+- a governed notes authority. The writer is `CrmCommercialRepository` (`packages/database/src/creator/`). Everything below
 that describes the full contract still stands as the target.
 
 ---

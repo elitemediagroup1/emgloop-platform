@@ -25,30 +25,33 @@ NOT by seeing it render or run. Those must be checked on the deploy.
 
 ---
 
-## CRM authority for the brand-outreach import — SLICES 1–2 COMMISSIONED · SLICE 3 IN REVIEW (2026-10-06)
+## CRM authority for the brand-outreach import — SLICES 1–3 COMMISSIONED · SLICE 4 IN REVIEW (2026-10-06)
 
 **Where it stands.**
-- **Slices 1 and 2 are merged and commissioned.**
+- **Slices 1–3 are merged and commissioned.**
   - #358: the PD-F-05, -11 and -12 decisions.
   - #359 (`cb211ca`): the CRM Contact Point authority. Migration `20261010000000_crm_contact_points`
-    is applied in production, and the code is deployed.
-- **Slice 3** (`feat/crm-opportunity-owner-participants`, draft PR) is built:
-  - accountable `CrmOpportunity.ownerUserId`;
-  - BRAND (COMPANY) and PRIMARY_CONTACT (PERSON) Participants on the one CRM Participant table;
-  - the PD-F-11 act table and the `opportunities` RBAC gate;
-  - `CrmOpportunityService`;
-  - the creator-hub designation wired to PD-F-11.
+    is applied in production.
+  - #360 (`9adba1d`): Opportunity owner, BRAND and PRIMARY_CONTACT Participants, and the PD-F-11
+    grants. Migration `20261011000000_crm_opportunity_owner_participants` is applied in production,
+    and Netlify is deployed.
+- **Slice 4** (`feat/crm-opportunities-staff-surface`, draft PR) is built:
+  - the organization-wide staff surface `/app/crm/opportunities` (list and record), read-only;
+  - `CrmOpportunityReadService`, with names behind the Party gate, notes for EMPLOYEE and above, and
+    a fixed number of queries per page;
+  - the CRM nav entry `opportunities:view`.
 
-  Migration `20261011000000_crm_opportunity_owner_participants` is **not dispatched**.
+  **No migration.**
 
 **Not built:**
-- governed create/update/reopen/void Opportunity services;
-- the staff Opportunities surface (slice 4);
+- governed create/update/reopen/void Opportunity services, and staff acts on the surface;
+- a governed notes authority (`internalNotes` is a single legacy free-text field);
 - import provenance and the importer (slice 5).
 
 **Next, in order:**
-1. Slice 4: the staff Opportunities surface.
-2. Slice 5: import provenance + the importer.
+1. Review and merge slice 4, deploy the web app, then verify access in production per role. After
+   that, a controlled staff test.
+2. Slice 5: import provenance and the importer.
 3. A dry run on Matt's final structured file.
 4. Human review.
 5. The import, only on explicit approval.
@@ -62,6 +65,7 @@ NOT by seeing it render or run. Those must be checked on the deploy.
 **Known debt, not fixed here:**
 - `CrmRelationshipService` stores `ownerUserId` with no organization or membership check.
 - `CrmRelationshipService` resolves `actorName` inside its transaction (pool starvation under concurrency).
+- The legacy `/crm` Command Center still lists Relationships and Opportunities under "Upcoming".
 
 ---
 
