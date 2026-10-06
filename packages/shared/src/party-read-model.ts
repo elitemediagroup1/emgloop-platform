@@ -17,9 +17,10 @@
 // until identity evidence is collected (slices 2.1b-2.3); that is stated, not
 // hidden.
 //
-// NO CONTACT VALUES. No phone, email or address is part of a Party read model:
-// contact points have no authority yet (PD-F-05). A UI may show contact data only
-// from a linked Intake Record, labeled as Intake-derived.
+// NO CONTACT VALUES. No phone, email or address is part of a Party read model.
+// Contact points are their own authority (PD-F-05, ./crm-contact-point.ts), read
+// separately through `CrmContactPointService` so a value is revealed only to a
+// viewer holding VIEW_VALUE. Intake contact data stays labeled Intake-derived.
 //
 // ACTIONS ARE SERVER-DECIDED. `capabilities` tells the UI what the viewer may do;
 // every act is authorized again, server-side, when it is attempted.
