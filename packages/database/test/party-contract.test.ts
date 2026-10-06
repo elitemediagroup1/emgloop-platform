@@ -203,14 +203,15 @@ test('identity evidence stays organization-salted: the same email hashes differe
   assert.equal(await repos.identityEvidence.findIdentityIdByValue(ORG_B, 'EMAIL', 'pat@example.com'), null);
 });
 
-test('no global Party existence probe: the Party surface is two org-first reads by id, and every query is org-scoped', () => {
+test('no global Party existence probe: the Party surface is org-first reads by id (one, a batch, a posture), and every query is org-scoped', () => {
   const src = readFileSync(new URL('../src/repositories/cognitive/party.repository.ts', import.meta.url), 'utf8');
   const code = src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
 
   const publicMethods = [...code.matchAll(/^ {2}(?!private\b)(?:async\s+)?([a-zA-Z]+)\(([^)]*)/gm)]
     .filter(([, name]) => name !== 'constructor')
     .map(([, name, params]) => ({ name: name!, first: params!.split(',')[0]!.trim() }));
-  assert.deepEqual(publicMethods.map((m) => m.name), ['findParty', 'samePartyPosture']);
+  // `findParties` (CRM slice 4) is `findParty` for a page of ids: by id, in one organization, never a search.
+  assert.deepEqual(publicMethods.map((m) => m.name), ['findParty', 'findParties', 'samePartyPosture']);
   for (const m of publicMethods) {
     assert.equal(m.first, 'organizationId: string', `${m.name} takes organizationId first`);
   }

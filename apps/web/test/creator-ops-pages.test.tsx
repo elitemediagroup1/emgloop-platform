@@ -262,7 +262,7 @@ describe('The Person record and its creator context', () => {
     assert.match(src, /const creatorHref = creatorProfile && resolveWorkspaceRole\(session\) === 'ADMIN' \? EMG_HREFS\.creator\(creatorProfile\.id\) : null;/);
     assert.match(src, /\{ label: 'Opportunities', href: `\$\{creatorHref\}#commercial` \}/);
     assert.match(src, /\{ label: 'Work', href: `\$\{creatorHref\}#content` \}/);
-    assert.match(src, /reason: creatorProfile \? CREATOR_ELSEWHERE : 'Opportunities are not tracked in Loop yet\.'/);
+    assert.match(src, /reason: creatorProfile \? CREATOR_ELSEWHERE : 'Opportunities are not listed per person yet\. They are listed under CRM, Opportunities\.'/);
     assert.match(src, /reason: creatorProfile \? CREATOR_ELSEWHERE : 'Work is not linked to a person yet\.'/);
     assert.match(src, /<Panel title="Creator">/);
     assert.match(src, /\{creatorHref \? <Link href=\{creatorHref\}>Open creator operations<\/Link> : CREATOR_ELSEWHERE\}/);

@@ -4,14 +4,15 @@
 // the services check each permission again before reading. See crm-subject-reads.ts.
 
 import 'server-only';
-import { CrmContactPointService, CrmRelationshipReadService, PartyRecordService, absentUntilMigrated, prisma } from '@emgloop/database';
-import type { CrmContactPointViewV1 } from '@emgloop/shared';
+import { CrmContactPointService, CrmOpportunityReadService, CrmRelationshipReadService, PartyRecordService, absentUntilMigrated, prisma } from '@emgloop/database';
+import type { CrmOpportunityListFiltersV1, CrmContactPointViewV1 } from '@emgloop/shared';
 import { crmRepos, requireCrmContext } from './crm-data';
 import type { CrmSubjectReadDeps } from './crm-subject-reads';
 
 const records = new PartyRecordService(prisma);
 const reads = new CrmRelationshipReadService(prisma);
 const contactPoints = new CrmContactPointService(prisma);
+const opportunities = new CrmOpportunityReadService(prisma);
 
 export const PEOPLE_HREF = '/app/crm/people';
 export const RELATIONSHIPS_HREF = '/app/crm/relationships';
@@ -42,3 +43,20 @@ export async function readContactPoints(partyId: string): Promise<{ outcome: 'OK
   const ctx = await requireCrmContext();
   return absentUntilMigrated(contactPoints.listForParty({ organizationId: ctx.organizationId, userId: ctx.userId }, partyId));
 }
+
+/**
+ * Staff reads of the organization's Opportunities (CRM slice 4). The service checks PD-F-11 VIEW,
+ * the Party gate for names and the notes grant; this only binds the session. `null` while the
+ * Opportunity owner/participant migration has not reached this database.
+ */
+export async function readOpportunities(options: { cursor: string | null; filters: CrmOpportunityListFiltersV1 }) {
+  const ctx = await requireCrmContext();
+  return absentUntilMigrated(opportunities.list({ organizationId: ctx.organizationId, userId: ctx.userId }, { cursor: options.cursor, filters: options.filters, limit: OPPORTUNITIES_PAGE_SIZE }));
+}
+
+export async function readOpportunity(opportunityId: string) {
+  const ctx = await requireCrmContext();
+  return absentUntilMigrated(opportunities.getRecord({ organizationId: ctx.organizationId, userId: ctx.userId }, opportunityId));
+}
+
+export const OPPORTUNITIES_PAGE_SIZE = 25;

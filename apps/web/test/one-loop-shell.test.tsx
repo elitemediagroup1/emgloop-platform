@@ -216,6 +216,7 @@ describe('Grouping', () => {
       // Canonical People (established PERSON Parties, C-04) and Relationships, redesigned.
       ['People', '/app/crm/people', false, false],
       ['Relationships', '/app/crm/relationships', false, false],
+      ['Opportunities', '/app/crm/opportunities', false, false],
       ['Command Center', '/crm', false, false],
       ['Conversations', '/crm/conversations', false, true],
       ['Intake Records', '/crm/customers', false, true],
@@ -263,11 +264,12 @@ describe('Grouping', () => {
   it('the intake board is never presented as the Opportunity pipeline', () => {
     assert.equal(find('Intake Board').href, '/crm/pipeline');
     assert.equal(items.some((i) => /pipeline/i.test(i.label)), false);
-    // The organization has no Opportunities or Campaigns entry: neither is built, and the
-    // Command Center lists both under Upcoming. The only Opportunities item is the creator
-    // seat's own, and it is not the intake board.
+    // The organization's Opportunities entry is the staff list of the Opportunity authority (CRM
+    // slice 4); the creator seat has its own. Neither is the intake board, and Campaigns has no
+    // entry: it is not built, and the Command Center lists it under Upcoming.
     assert.equal(items.some((i) => i.href === '/crm/opportunities' || i.href === '/crm/campaigns'), false);
-    assert.deepEqual(items.filter((i) => i.label === 'Opportunities').map((i) => [i.group, i.href]), [['Creator', '/app/creator/opportunities']]);
+    assert.deepEqual(items.filter((i) => i.label === 'Opportunities').map((i) => [i.group, i.href]), [['CRM', '/app/crm/opportunities'], ['Creator', '/app/creator/opportunities']]);
+    assert.notEqual(find('Opportunities', '/app/crm/opportunities').href, '/crm/pipeline');
     assert.notEqual(find('Opportunities', '/app/creator/opportunities').href, '/crm/pipeline');
     const command = code(read('app/crm/page.tsx'));
     assert.match(command, /<UpcomingItem label="Opportunities"/);
@@ -338,11 +340,11 @@ describe('Navigation follows the authority each page enforces', () => {
   it('Employees get the CRM, the intelligence they can read, their own work queue, and nothing administrative they cannot open', () => {
     const intelligence = ['Intelligence Flow ▸', 'Analytics ▸', 'Traffic ▸', 'Revenue ▸'];
     const operations = ['Live Operations ▸', 'Live Calls ▸', 'Websites ▸'];
-    const crm = ['People', 'Relationships', 'Command Center', 'Conversations ▸', 'Intake Records ▸', 'Intake Board ▸', 'Identity Review ▸', 'Inbox ▸', 'Search ▸', 'Automations ▸'];
+    const crm = ['People', 'Relationships', 'Opportunities', 'Command Center', 'Conversations ▸', 'Intake Records ▸', 'Intake Board ▸', 'Identity Review ▸', 'Inbox ▸', 'Search ▸', 'Automations ▸'];
     // A PERSON employee reaches canonical identity and the commercial area; an AI
     // principal reaches NEITHER. `identityResolution` has its own grant table with no
-    // READ_ONLY fallback, and `relationships` hard-denies AI_EMPLOYEE because PD-F-04
-    // grants view to human workspace roles and it is not one. Those two denials are
+    // READ_ONLY fallback, and `relationships` and `opportunities` hard-deny AI_EMPLOYEE because
+    // PD-F-04 and PD-F-11 grant view to human workspace roles and it is not one. Those denials are
     // the whole reason these roles are asserted separately rather than in one loop.
     assert.deepEqual(labels(navForRole('EMPLOYEE')), [
       ['', ['Home', 'Mail', 'Chats', 'Calendar', 'Connections']],
@@ -356,7 +358,8 @@ describe('Navigation follows the authority each page enforces', () => {
       // No Mail, Chats, Calendar or Connections: an AI Employee holds neither a Google connection
       // nor the work state derived from one, and no Permission row can give it either.
       ['', ['Home']],
-      ['CRM', crm.filter((l) => !['People', 'Relationships', 'Identity Review ▸'].includes(l))],
+      // Nor Opportunities: PD-F-11 hard-denies AI_EMPLOYEE view.
+      ['CRM', crm.filter((l) => !['People', 'Relationships', 'Opportunities', 'Identity Review ▸'].includes(l))],
       ['Work', ['My Work']],
       ['Intelligence', intelligence],
       ['Operations', operations],
@@ -375,7 +378,7 @@ describe('Navigation follows the authority each page enforces', () => {
       ['', ['Home', 'Mail', 'Chats', 'Calendar', 'Connections']],
       // READ_ONLY holds identityResolution:view and relationships:view, and may
       // perform no act through either -- capabilities decide that, not the nav.
-      ['CRM', ['People', 'Relationships', 'Command Center', 'Conversations ▸', 'Intake Records ▸', 'Intake Board ▸', 'Identity Review ▸', 'Inbox ▸', 'Search ▸', 'Automations ▸']],
+      ['CRM', ['People', 'Relationships', 'Opportunities', 'Command Center', 'Conversations ▸', 'Intake Records ▸', 'Intake Board ▸', 'Identity Review ▸', 'Inbox ▸', 'Search ▸', 'Automations ▸']],
       ['Intelligence', intelligence],
       ['Operations', operations],
       ['Administration', ['AI Employees ▸']],
@@ -385,7 +388,7 @@ describe('Navigation follows the authority each page enforces', () => {
     // has no such fallback, so it does NOT see People or Identity Review. Least, never more.
     assert.deepEqual(labels(navForRole('SOMETHING_NEW')), [
       ['', ['Home']],
-      ['CRM', ['Relationships', 'Command Center', 'Conversations ▸', 'Intake Records ▸', 'Intake Board ▸', 'Inbox ▸', 'Search ▸', 'Automations ▸']],
+      ['CRM', ['Relationships', 'Opportunities', 'Command Center', 'Conversations ▸', 'Intake Records ▸', 'Intake Board ▸', 'Inbox ▸', 'Search ▸', 'Automations ▸']],
       ['Intelligence', intelligence],
       ['Operations', operations],
       ['Administration', ['AI Employees ▸']],
@@ -476,8 +479,9 @@ describe('The shell is about the person, not a role-branded workspace', () => {
     assert.match(html, /<a class="loop-sb__link is-active" aria-current="page" href="\/crm\/customers">/);
     assert.equal(html.includes('/app/admin'), false, 'nothing from a tree Read Only cannot open');
     assert.equal(html.includes('>Work<'), false, 'no Work area for a role without a queue');
-    // Nothing unbuilt is offered: Opportunities and Campaigns have no entry at all.
-    assert.equal(/opportunities|campaigns/i.test(html), false);
+    // Nothing unbuilt is offered: Campaigns has no entry at all. Opportunities is the built staff list.
+    assert.equal(/campaigns/i.test(html), false);
+    assert.match(html, /href="\/app\/crm\/opportunities"/, 'Opportunities is reachable (PD-F-11 grants Read Only view)');
     assert.match(html, /href="\/app\/crm\/relationships"/, 'Relationships is reachable');
     assert.match(html, /href="\/app\/crm\/people"/, 'People is reachable');
     // Every Administration item folds, so the foot has no heading: its disclosure row carries the label.

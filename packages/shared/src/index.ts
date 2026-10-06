@@ -446,6 +446,10 @@ export * from './crm-contact-point';
 // hard-denied, and owner eligibility. Ownership is accountability, never access. See
 // ./crm-opportunity-authority.ts.
 export * from './crm-opportunity-authority';
+// The staff read model of CRM Opportunities (CRM slice 4): a projection of the Opportunity,
+// its Participants, creator and owner. Unknown stays unknown; names follow the Party gate.
+// See ./crm-opportunity-read-model.ts.
+export * from './crm-opportunity-read-model';
 
 // --- Decision card composition (presentation only) ---
 // Confidence, the operational consequence, the ways a decision can end, and the

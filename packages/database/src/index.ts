@@ -133,6 +133,13 @@ export { CrmOpportunityService } from './services/crm-opportunity.service';
 export type { CrmOpportunityActor, CrmOpportunityServiceResult, CrmOpportunityServiceDeps } from './services/crm-opportunity.service';
 export { CrmOpportunityRepository } from './repositories/crm-opportunity.repository';
 export type { CrmOpportunityRef, CrmOpportunityWriteResult, CrmOpportunityParticipantAddInput } from './repositories/crm-opportunity.repository';
+// Staff reads of Opportunities across an organization (CRM slice 4): PD-F-11 VIEW, names behind
+// the Party gate, notes EMPLOYEE+, a fixed number of queries per page.
+// See ./services/crm-opportunity-read.service.ts.
+export { CrmOpportunityReadService } from './services/crm-opportunity-read.service';
+export type { CrmOpportunityViewer, CrmOpportunityReadResult, CrmOpportunityReadServiceDeps } from './services/crm-opportunity-read.service';
+export { CrmOpportunityReadModelRepository, CrmOpportunityCursorError, CRM_OPPORTUNITY_NAME_MATCH_LIMIT } from './repositories/crm-opportunity-read-model.repository';
+export type { CrmOpportunityListOptions, CrmOpportunityReadScope, CrmOpportunityReadModelDeps } from './repositories/crm-opportunity-read-model.repository';
 // Universal Activity reads, authorized (slice A2). Every source is read under its
 // own guard; the service grants nothing. See ./services/activity.service.ts.
 export { ActivityService } from './services/activity.service';

@@ -502,7 +502,7 @@ describe('The redesigned pages', () => {
     for (const channel of ['Email', 'Call', 'Message']) assert.match(person, new RegExp(`channel\\('${channel}'\\)`));
     assert.match(person, /const channel = \(label: string\): ActionSpec => \(\{ label, href: null, reason: NO_CHANNEL \}\);/);
     assert.match(person, /label: 'Opportunities', value: null/);
-    assert.match(code(read(PAGES.people)), /Opportunities are not tracked in Loop yet/);
+    assert.match(code(read(PAGES.people)), /Opportunities are not summarised per person here\. <Link href="\/app\/crm\/opportunities">Open Opportunities<\/Link>/);
   });
 
   it('each list route has a loading state; no new CSS file was added', () => {
