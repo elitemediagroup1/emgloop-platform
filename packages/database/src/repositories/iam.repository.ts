@@ -72,6 +72,12 @@ export type Resource =
   // vocabulary to keep in step with the first. A Permission row adding
   // `relationships:manage` therefore grants no act; a test says so.
   | 'relationships'
+  // SEEING CRM OPPORTUNITIES AT ALL -- the coarse gate (PD-F-11, approved 2026-10-06): every
+  // authorized human role holds `view`, and nothing more. The acts (create, update, owner,
+  // participants, reopen, void) are governed by `CRM_OPPORTUNITY_ACT_ROLES` in `@emgloop/shared`,
+  // the same split the Relationship authority uses. AI_EMPLOYEE is hard-denied in both `can` and
+  // `canEach`, so no Permission row can grant it.
+  | 'opportunities'
   // THE ORGANIZATION'S WORK EXECUTION AS A WHOLE: seeing and administering every
   // work item in the organization, its blueprints and its team queues -- the
   // capability the `/app/admin/work` tree carries today.
@@ -304,6 +310,7 @@ const IDENTITY_RESOLUTION_FORBIDDEN_ROLES: readonly string[] = ['AI_EMPLOYEE'];
 
 /** Roles that may never see the commercial Relationship area (PD-F-04's recorded reading). */
 const RELATIONSHIP_FORBIDDEN_ROLES: readonly string[] = ['AI_EMPLOYEE'];
+const OPPORTUNITY_FORBIDDEN_ROLES: readonly string[] = ['AI_EMPLOYEE'];
 
 // The capability matrix. Deny-by-default: anything not listed is denied.
 // Sprint 10 adds analytics/integrations/intelligence columns.
@@ -312,13 +319,13 @@ const MATRIX: Record<string, Partial<Record<Resource, Action[]>>> = {
     customers: ALL, pipeline: ALL, inbox: ALL, workflows: ALL, users: ALL,
     organizations: ALL, aiEmployees: ALL, settings: ALL, audit: ALL,
     analytics: ALL, integrations: ALL, intelligence: ALL,
-    commercialIntelligence: ALL, work: ALL, relationships: RO,
+    commercialIntelligence: ALL, work: ALL, relationships: RO, opportunities: RO,
   },
   ADMIN: {
     customers: ALL, pipeline: ALL, inbox: ALL, workflows: ALL, users: ALL,
     organizations: ['view', 'update'], aiEmployees: ALL, settings: ALL, audit: ['view'],
     analytics: ALL, integrations: ALL, intelligence: ALL,
-    commercialIntelligence: ALL, work: ALL, relationships: RO,
+    commercialIntelligence: ALL, work: ALL, relationships: RO, opportunities: RO,
   },
   MANAGER: {
     customers: RW, pipeline: RW, inbox: RW, workflows: RW, users: ['view'],
@@ -327,6 +334,7 @@ const MATRIX: Record<string, Partial<Record<Resource, Action[]>>> = {
     // NARROWED DELIBERATELY -- see the note above the matrix.
     commercialIntelligence: RO,
     relationships: RO,
+    opportunities: RO,
     // MANAGER resolves to the ADMIN workspace, so it opens the whole work tree
     // today. Granting less here would take away access it already has.
     work: ALL,
@@ -335,11 +343,11 @@ const MATRIX: Record<string, Partial<Record<Resource, Action[]>>> = {
     customers: RW, pipeline: RW, inbox: RW, workflows: RO, users: [],
     organizations: [], aiEmployees: RO, settings: [], audit: [],
     analytics: RO, integrations: [], intelligence: RO,
-    commercialIntelligence: RO, relationships: RO,
+    commercialIntelligence: RO, relationships: RO, opportunities: RO,
   },
   READ_ONLY: {
     customers: RO, pipeline: RO, inbox: RO, workflows: RO, users: [],
-    relationships: RO,
+    relationships: RO, opportunities: RO,
     organizations: [], aiEmployees: RO, settings: [], audit: [],
     analytics: RO, integrations: [], intelligence: RO,
     commercialIntelligence: RO,
@@ -382,6 +390,7 @@ export function matrixAllows(role: string, resource: Resource, action: Action): 
   // is NOT changed here -- this denies one resource to one role, the same device
   // `identityResolution` already uses.
   if (resource === 'relationships' && RELATIONSHIP_FORBIDDEN_ROLES.includes(role)) return false;
+  if (resource === 'opportunities' && OPPORTUNITY_FORBIDDEN_ROLES.includes(role)) return false;
   const grants = MATRIX[role] ?? MATRIX.READ_ONLY ?? {};
   const allowed = grants[resource] ?? [];
   if (allowed.includes('manage')) return true;
@@ -485,6 +494,8 @@ export class IamRepository {
     const role = authority.systemRole;
     // A machine never asserts identity: no Permission row can grant it.
     if (resource === 'identityResolution' && IDENTITY_RESOLUTION_FORBIDDEN_ROLES.includes(role)) return false;
+    // Nor sees or works an Opportunity (PD-F-11).
+    if (resource === 'opportunities' && OPPORTUNITY_FORBIDDEN_ROLES.includes(role)) return false;
     // Nor holds a Google connection.
     if (resource === 'googleWorkspace' && GOOGLE_WORKSPACE_FORBIDDEN_ROLES.includes(role)) return false;
     // Nor work state derived from one.
@@ -552,6 +563,7 @@ export class IamRepository {
       if (resource === 'employeeIntelligence' && EMPLOYEE_INTELLIGENCE_FORBIDDEN_ROLES.includes(role)) return false;
       if (resource === 'employeeMail' && EMPLOYEE_MAIL_FORBIDDEN_ROLES.includes(role)) return false;
       if (resource === 'sourceConnections' && SOURCE_CONNECTION_FORBIDDEN_ROLES.includes(role)) return false;
+      if (resource === 'opportunities' && OPPORTUNITY_FORBIDDEN_ROLES.includes(role)) return false;
       const applicable = rules.filter((r) => r.resource === resource && r.action === action);
       if (applicable.some((r) => r.userId === userId && r.effect === 'DENY')) return false;
       if (applicable.some((r) => r.systemRole === role && r.effect === 'DENY')) return false;
