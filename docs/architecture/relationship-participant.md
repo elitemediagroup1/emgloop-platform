@@ -184,14 +184,15 @@ No audit row is written for a write that did not happen.
 ## 5. What a Participant is
 
 A **Participant** is a governed, time-bounded assertion that an **established Party holds a contextual
-role within a CRM subject**: a Relationship now, and an Opportunity or Campaign once those authorities
-exist.
+role within a CRM subject**: a Relationship, an Opportunity (since CRM slice 3, 2026-10-06), and a
+Campaign once that authority exists.
 
 **One CRM Participant authority, not a table per subject.**
 - Storage is a single table with an exclusive-arc subject reference: exactly one of `relationshipId`,
-  later `opportunityId`, later `campaignId`. Each is a real FK, enforced by a CHECK.
+  `opportunityId` (built), later `campaignId`. Each is a real FK, enforced by a CHECK.
 - This keeps FK integrity without three parallel participation systems.
-- Opportunity and Campaign add their columns additively when those authorities are built.
+- Campaign adds its column additively when that authority is built. Opportunity added its column in
+  migration `20261011000000_crm_opportunity_owner_participants`.
 
 **Not CRM Participants:**
 - **Activity participants** (who was on a call, who sent a message) are recorded by the source authority
@@ -222,8 +223,10 @@ exist.
   - `party.ts`'s list stays a statement of which cognitive entity types are not Party types.
   - Organization-configurable roles are **deferred**.
 - **Side.** On a Relationship, a Participant either **is** a side (side A or B, or the counterparty side
-  under PD-F-01) or **acts for** a side (an engagement role naming that side). Opportunity and Campaign
-  define their own side semantics when built.
+  under PD-F-01) or **acts for** a side (an engagement role naming that side). **An Opportunity has no
+  sides.** It admits exactly BRAND, held by a COMPANY, and PRIMARY_CONTACT, held by a PERSON
+  (`CRM_OPPORTUNITY_PARTICIPANT_ROLES`); the database CHECK holds the same rule. Its creator is
+  `creatorPartyId`, never a Participant. Campaign defines its own semantics when built.
 - **Multiple roles.** One Party may hold several different roles in the same subject, one row per role.
 - **Direction.** Roles are not directional by themselves; direction comes from the side (§3.1).
 - **Time.** Rows carry `effectiveFrom` and `effectiveTo` business dates (null for unknown) and a state of
