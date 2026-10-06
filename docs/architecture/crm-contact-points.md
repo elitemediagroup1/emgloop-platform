@@ -1,7 +1,11 @@
 # CRM Contact Points — decision record (PD-F-05)
 
-**Status:** Product approved 2026-10-06 (Matt). The authority is built in the slice that follows this
-record. Until that slice merges, **nothing described in §3–§9 exists in code.** **Audience:** engineers
+**Status:** Product approved 2026-10-06 (Matt). **Built** (§3–§9): contract `packages/shared/src/crm-contact-point.ts`,
+`CrmContactPointRepository` / `CrmContactPointService`, migration `20261010000000_crm_contact_points`, and a
+read-only Contact points panel on the Person record. **Not built:** a write UI, a Company record page, the
+importer (§10), suppression, reactivation, attribution of an UNATTRIBUTED value, and any purge. The migration
+reaches production only through the manual migration workflow; until then the Person panel says Contact
+Points are not available. **Audience:** engineers
 building on Parties, the CRM UI track, and anyone writing an importer.
 
 A CRM Contact Point is a business email address or phone number that an authorized person recorded

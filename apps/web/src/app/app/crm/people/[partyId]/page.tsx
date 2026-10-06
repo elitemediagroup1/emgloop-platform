@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { absentUntilMigrated } from '@emgloop/database';
 import { notFound } from 'next/navigation';
 import { hasPermission, requirePermission } from '../../../../../auth/guard';
-import { crmSubjectReads, personHref, PEOPLE_HREF, relationshipHref } from '../../../../../crm/crm-slice-data';
+import { crmSubjectReads, personHref, PEOPLE_HREF, readContactPoints, relationshipHref } from '../../../../../crm/crm-slice-data';
 import { readPersonView } from '../../../../../crm/crm-subject-reads';
 import { governedTerm, partyIdentityState } from '../../../../../crm/subject-display';
 import { viewerTime } from '../../../../../time/viewer-time';
@@ -34,7 +34,9 @@ export const dynamic = 'force-dynamic';
 // REAL DATA ONLY. Identity comes from PartyRecordService, context from the
 // Relationships authority. What no authority answers yet is said, never filled:
 //   - Email, Call and Message: a Party has no governed communication channel, so
-//     the actions are shown as unavailable and do nothing.
+//     the actions are shown as unavailable and do nothing. Recorded Contact Points
+//     (PD-F-05) are shown -- values only to EMPLOYEE and above -- but recording an
+//     address is not a channel, and nothing here sends.
 //   - Opportunities, Campaigns and open Work: no authority links them to a Party.
 //   - Activity and Intelligence: no Party subject exists in either yet.
 // States: Established; Identity review required; Superseded (points to the current
@@ -42,6 +44,8 @@ export const dynamic = 'force-dynamic';
 // A missing, foreign or non-person id is not found.
 
 const NO_CHANNEL = 'Loop has no governed communication channel for a person yet.';
+
+const CONTACT_KIND: Record<string, string> = { EMAIL: 'Email', PHONE: 'Phone' };
 
 const LIMITATION_TEXT: Record<string, string> = {
   EVIDENCE_NOT_COLLECTED: 'No identity evidence is collected yet: establishment is a decision a person made, not a verification.',
@@ -68,6 +72,7 @@ export default async function PersonPage({ params }: { params: { partyId: string
   const canOpenIntake = await hasPermission('customers', 'view');
   const activeLinks = record.linkedIntakeRecords.filter((l) => l.state === 'ACTIVE');
   const relationships = view.relationships;
+  const contactPoints = await readContactPoints(record.partyId);
 
   const channel = (label: string): ActionSpec => ({ label, href: null, reason: NO_CHANNEL });
   // A creator profile for this person, within the session's organization. Its operating view
@@ -250,6 +255,31 @@ export default async function PersonPage({ params }: { params: { partyId: string
               )}
               <p className="loop-note" style={{ marginTop: 10 }}>
                 Intake records are evidence of how this person entered Loop. They are not the person.
+              </p>
+            </Panel>
+
+            <Panel title="Contact points">
+              {contactPoints === null ? (
+                <p className="loop-note">Contact points are not available on this workspace yet.</p>
+              ) : contactPoints.outcome !== 'OK' ? (
+                <p className="loop-note">Your role cannot see contact points.</p>
+              ) : contactPoints.value.length === 0 ? (
+                <p className="loop-note">No contact point is recorded for this person.</p>
+              ) : (
+                <ul className="loop-stack" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+                  {contactPoints.value.map((point) => (
+                    <li key={point.id} className="loop-note">
+                      {CONTACT_KIND[point.kind]}:{' '}
+                      {point.value ?? (point.valueWithheld === 'ERASED' ? 'removed under retention' : 'hidden for your role')} ·{' '}
+                      {governedTerm(point.classification)} · {governedTerm(point.state)} · unverified, {point.basis === 'IMPORTED' ? 'imported' : 'recorded'}{' '}
+                      {time.date(point.addedAt)}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <p className="loop-note" style={{ marginTop: 10 }}>
+                Business contact details recorded for reaching this person. They are not identity evidence, and recording one
+                does not verify it.
               </p>
             </Panel>
 

@@ -438,6 +438,10 @@ export * from './crm-participant';
 // and SAYS SO; a write refuses it. Neither ever rewrites a stored id. Duplicates that
 // resolve alike are reported for a person, never merged. See ./crm-relationship-read-model.ts.
 export * from './crm-relationship-read-model';
+// CRM Contact Points (PD-F-05, 2026-10-06): a business email or phone recorded for an established
+// Party, for reaching it. NOT identity evidence; exact keyed-hash matching only. See
+// ./crm-contact-point.ts and docs/architecture/crm-contact-points.md.
+export * from './crm-contact-point';
 
 // --- Decision card composition (presentation only) ---
 // Confidence, the operational consequence, the ways a decision can end, and the

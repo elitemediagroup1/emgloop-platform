@@ -119,6 +119,13 @@ export { PartyRecordService } from './services/party-record.service';
 // row in ONE transaction. See ./services/crm-relationship.service.ts.
 export { CrmRelationshipService } from './services/crm-relationship.service';
 export type { CrmRelationshipActor, CrmRelationshipServiceResult, CrmRelationshipServiceDeps } from './services/crm-relationship.service';
+// CRM Contact Points (PD-F-05): a business email or phone for an established Party. Not identity
+// evidence; values are revealed only under VIEW_VALUE and never reach audit, outbox or logs. See
+// ./services/crm-contact-point.service.ts and docs/architecture/crm-contact-points.md.
+export { CrmContactPointService } from './services/crm-contact-point.service';
+export type { CrmContactPointActor, CrmContactPointServiceResult, CrmContactPointMatchResult, CrmContactPointServiceDeps } from './services/crm-contact-point.service';
+export { CrmContactPointRepository, crmContactPointValueHash } from './repositories/crm-contact-point.repository';
+export type { CrmContactPointSummary, CrmContactPointAddInput, CrmContactPointWriteResult } from './repositories/crm-contact-point.repository';
 // Universal Activity reads, authorized (slice A2). Every source is read under its
 // own guard; the service grants nothing. See ./services/activity.service.ts.
 export { ActivityService } from './services/activity.service';
