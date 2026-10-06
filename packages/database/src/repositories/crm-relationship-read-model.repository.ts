@@ -115,7 +115,8 @@ export class CrmRelationshipReadModelRepository {
     // The id as stored. A Party that has since been superseded still appears under
     // the id its participations were written with -- because that is what happened.
     const participations = await this.prisma.crmParticipant.findMany({
-      where: { organizationId, partyId, state: 'ACTIVE' },
+      // Relationship participations only: an Opportunity participation must not use up this scan.
+      where: { organizationId, partyId, state: 'ACTIVE', relationshipId: { not: null } },
       select: { relationshipId: true },
       take: DUPLICATE_SCAN_LIMIT * 2,
     });

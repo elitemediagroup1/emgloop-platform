@@ -460,6 +460,7 @@ model User {
   crmRelationshipEvents     CrmRelationshipEvent[]  @relation("CrmRelationshipEventActor")
   crmParticipantsAdded      CrmParticipant[]        @relation("CrmParticipantCreator")
   crmContactPointsAdded     CrmContactPoint[]       @relation("CrmContactPointAdder")
+  crmOpportunitiesOwned     CrmOpportunity[]        @relation("CrmOpportunityOwner")
   crmContactPointEvents     CrmContactPointEvent[]  @relation("CrmContactPointEventActor")
   crmParticipantsEnded      CrmParticipant[]        @relation("CrmParticipantEnder")
   crmParticipantsVoided     CrmParticipant[]        @relation("CrmParticipantVoider")
@@ -5232,10 +5233,13 @@ model CrmParticipant {
   id             String @id @default(cuid())
   organizationId String
 
-  /// EXCLUSIVE ARC. Exactly one subject, enforced by a CHECK. `opportunityId` and
-  /// `campaignId` are added additively when those authorities exist, rather than
-  /// forking a participation table per subject.
+  /// EXCLUSIVE ARC. Exactly one subject, enforced by a CHECK: a Relationship or (CRM slice 3) an
+  /// Opportunity. `campaignId` joins additively when that authority exists, rather than forking a
+  /// participation table per subject.
   relationshipId String?
+  /// The Opportunity this Party takes part in. On an Opportunity there are no sides, and the
+  /// role must be BRAND (a COMPANY) or PRIMARY_CONTACT (a PERSON) -- the CHECK enforces it.
+  opportunityId  String?
 
   /// The Party, by id, inside this organization. Resolved through the Party
   /// Reference contract before it is written and NEVER rewritten afterwards.
@@ -5277,12 +5281,14 @@ model CrmParticipant {
 
   organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   relationship CrmRelationship? @relation(fields: [relationshipId], references: [id], onDelete: Cascade)
+  opportunity  CrmOpportunity?  @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
   addedBy      User?            @relation("CrmParticipantCreator", fields: [addedByUserId], references: [id], onDelete: SetNull)
   endedBy      User?            @relation("CrmParticipantEnder", fields: [endedByUserId], references: [id], onDelete: SetNull)
   voidedBy     User?            @relation("CrmParticipantVoider", fields: [voidedByUserId], references: [id], onDelete: SetNull)
 
   @@unique([organizationId, activeKey])
   @@index([organizationId, relationshipId, state])
+  @@index([organizationId, opportunityId, state])
   @@index([organizationId, partyId, state])
   @@map("crm_participants")
 }
@@ -7275,15 +7281,25 @@ model CrmOpportunity {
   /// Optional: the Relationship this pursuit sits under (PD-F-02).
   relationshipId String?
 
+  /// The User ACCOUNTABLE for this pursuit (CRM slice 3). Accountability, never access: it hides
+  /// nothing and grants nothing (PD-F-11 decides who may see and act). Set only through
+  /// `CrmOpportunityService.assignOwner`, which requires an ACTIVE member of this organization who
+  /// may work Opportunities; every change is audited. NULL is "no owner recorded", never a default.
+  /// Not `createdByUserId`, which stays creation provenance.
+  ownerUserId String?
+
   createdByUserId String
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
   organization Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  owner        User?                      @relation("CrmOpportunityOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
   transitions  CrmOpportunityTransition[]
   campaigns    CrmCampaign[]
+  participants CrmParticipant[]
 
   @@index([organizationId, creatorPartyId])
+  @@index([organizationId, ownerUserId])
   @@index([organizationId, category])
   @@map("crm_opportunities")
 }

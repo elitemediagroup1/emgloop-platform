@@ -17,6 +17,13 @@
 // ON A RELATIONSHIP, a Participant either IS a side (it fills a side the kind
 // declares) or ACTS FOR a side. Engagement roles only ever act for a side.
 //
+// ON AN OPPORTUNITY (CRM slice 3, 2026-10-06) there are no sides. The subject
+// admits exactly the roles in CRM_OPPORTUNITY_PARTICIPANT_ROLES, each held by one
+// Party type: the BRAND being pursued is a COMPANY, and a PRIMARY_CONTACT is a
+// PERSON. These constraints apply to this subject only; a Relationship's roles
+// and types are unchanged. A creator is not a Participant here -- the Opportunity
+// names its creator through `CrmOpportunity.creatorPartyId`.
+//
 // A PARTICIPANT IS NEVER A CREDENTIAL. It grants no access in this release.
 //
 // PURE. No clock, no I/O.
@@ -25,11 +32,21 @@ import type { PartyType } from './party';
 import { PARTY_CAPACITIES, type PartyCapacity } from './party-reference';
 import { CRM_RELATIONSHIP_ACTS, crmRelationshipKind, type CrmRelationshipAct, type CrmRelationshipSide } from './crm-relationship';
 
-export const CRM_PARTICIPANT_SUBJECT_KINDS = ['RELATIONSHIP'] as const;
+export const CRM_PARTICIPANT_SUBJECT_KINDS = ['RELATIONSHIP', 'OPPORTUNITY'] as const;
 export type CrmParticipantSubjectKind = (typeof CRM_PARTICIPANT_SUBJECT_KINDS)[number];
 
 /** Subjects named for the future; a Participant cannot reference them until their authority exists. */
-export const CRM_PARTICIPANT_RESERVED_SUBJECT_KINDS = ['OPPORTUNITY', 'CAMPAIGN'] as const;
+export const CRM_PARTICIPANT_RESERVED_SUBJECT_KINDS = ['CAMPAIGN'] as const;
+
+/**
+ * The roles an Opportunity admits, and the one Party type each may be held by. Anything else on
+ * an Opportunity is refused. Not a change to the roles themselves: BRAND on a Relationship still
+ * follows CRM_PARTICIPANT_ROLE_DEFINITIONS.
+ */
+export const CRM_OPPORTUNITY_PARTICIPANT_ROLES: Readonly<Record<string, PartyType>> = Object.freeze({
+  BRAND: 'COMPANY',
+  PRIMARY_CONTACT: 'PERSON',
+});
 
 export const CRM_PARTICIPANT_ENGAGEMENT_ROLES = ['PRIMARY_CONTACT', 'DECISION_MAKER', 'BILLING_CONTACT'] as const;
 export type CrmParticipantEngagementRole = (typeof CRM_PARTICIPANT_ENGAGEMENT_ROLES)[number];
@@ -92,6 +109,8 @@ export const CRM_PARTICIPANT_VIOLATIONS = [
   'ENGAGEMENT_ROLE_CANNOT_BE_A_SIDE',
   'MUST_BE_OR_ACT_FOR_A_SIDE',
   'BOTH_SIDE_AND_ACTS_FOR',
+  'ROLE_NOT_PERMITTED_FOR_SUBJECT',
+  'SIDE_NOT_PERMITTED_FOR_SUBJECT',
 ] as const;
 export type CrmParticipantViolation = (typeof CRM_PARTICIPANT_VIOLATIONS)[number];
 
@@ -103,6 +122,7 @@ export type CrmParticipantViolation = (typeof CRM_PARTICIPANT_VIOLATIONS)[number
 export function validateCrmParticipant(a: CrmParticipantAssertion): CrmParticipantViolation[] {
   const out: CrmParticipantViolation[] = [];
   if (!(CRM_PARTICIPANT_SUBJECT_KINDS as readonly string[]).includes(a.subjectKind)) return ['SUBJECT_KIND_NOT_AVAILABLE'];
+  if (a.subjectKind === 'OPPORTUNITY') return validateOpportunityParticipant(a);
   const role = crmParticipantRole(a.role);
   if (!role) out.push('UNKNOWN_ROLE');
   else if (!role.partyTypes.includes(a.partyType)) out.push('PARTY_TYPE_NOT_PERMITTED_FOR_ROLE');
@@ -118,6 +138,17 @@ export function validateCrmParticipant(a: CrmParticipantAssertion): CrmParticipa
     const sideDef = kind.sides.find((s) => s.side === a.side);
     if (sideDef && !sideDef.partyTypes.includes(a.partyType)) out.push('PARTY_TYPE_NOT_PERMITTED_FOR_SIDE');
   }
+  return out;
+}
+
+/** An Opportunity Participant: one of the admitted roles, held by its one Party type, with no side. */
+function validateOpportunityParticipant(a: CrmParticipantAssertion): CrmParticipantViolation[] {
+  const out: CrmParticipantViolation[] = [];
+  const required = CRM_OPPORTUNITY_PARTICIPANT_ROLES[a.role];
+  if (!crmParticipantRole(a.role)) out.push('UNKNOWN_ROLE');
+  else if (!required) out.push('ROLE_NOT_PERMITTED_FOR_SUBJECT');
+  else if (required !== a.partyType) out.push('PARTY_TYPE_NOT_PERMITTED_FOR_ROLE');
+  if (a.side !== null || a.actsForSide !== null || a.relationshipKind !== null) out.push('SIDE_NOT_PERMITTED_FOR_SUBJECT');
   return out;
 }
 

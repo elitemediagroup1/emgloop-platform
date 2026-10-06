@@ -126,6 +126,13 @@ export { CrmContactPointService } from './services/crm-contact-point.service';
 export type { CrmContactPointActor, CrmContactPointServiceResult, CrmContactPointMatchResult, CrmContactPointServiceDeps } from './services/crm-contact-point.service';
 export { CrmContactPointRepository, crmContactPointValueHash } from './repositories/crm-contact-point.repository';
 export type { CrmContactPointSummary, CrmContactPointAddInput, CrmContactPointWriteResult } from './repositories/crm-contact-point.repository';
+// CRM Opportunity ownership and Participants (CRM slice 3): PD-F-11 grants, accountable owner
+// (never access), BRAND/PRIMARY_CONTACT on the one participation table. See
+// ./services/crm-opportunity.service.ts.
+export { CrmOpportunityService } from './services/crm-opportunity.service';
+export type { CrmOpportunityActor, CrmOpportunityServiceResult, CrmOpportunityServiceDeps } from './services/crm-opportunity.service';
+export { CrmOpportunityRepository } from './repositories/crm-opportunity.repository';
+export type { CrmOpportunityRef, CrmOpportunityWriteResult, CrmOpportunityParticipantAddInput } from './repositories/crm-opportunity.repository';
 // Universal Activity reads, authorized (slice A2). Every source is read under its
 // own guard; the service grants nothing. See ./services/activity.service.ts.
 export { ActivityService } from './services/activity.service';

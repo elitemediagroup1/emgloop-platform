@@ -17,7 +17,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { repositories, userSystemRole, type DeclareDeliverableInput } from '@emgloop/database';
+import { CrmOpportunityService, prisma, repositories, userSystemRole, type DeclareDeliverableInput } from '@emgloop/database';
 import {
   CAMPAIGN_STATES,
   CREATOR_VISIBLE_OPPORTUNITY_STATES,
@@ -220,9 +220,15 @@ export async function relayBrandFeedbackAction(formData: FormData): Promise<void
 
 // ---- commercial designations (CRM records, EMG side) ---------------------------------------------
 
+const opportunityAuthority = new CrmOpportunityService(prisma);
+
 export async function designateOpportunityAction(formData: FormData): Promise<void> {
   const { actor } = await requireEmgActor();
   const back = returnPath(formData);
+  // The EMG seat admits the EMPLOYEE workspace, which AI_EMPLOYEE also resolves to. Designating
+  // what a creator sees is an Opportunity UPDATE, and PD-F-11 grants that to EMPLOYEE and above
+  // only, so the act table is checked as well -- never the workspace alone.
+  if (!(await opportunityAuthority.permits(actor, 'UPDATE'))) refuse(back, 'NOT_ALLOWED');
   const opportunityId = str(formData, 'opportunityId');
   if (!opportunityId) refuse(back, 'INVALID');
   const stateRaw = str(formData, 'creatorVisibleState');

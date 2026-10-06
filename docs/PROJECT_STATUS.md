@@ -25,32 +25,33 @@ NOT by seeing it render or run. Those must be checked on the deploy.
 
 ---
 
-## CRM Contact Points (PD-F-05) + brand-outreach import — SLICES 1–2 IN REVIEW (2026-10-06) · NOT deployed · migration 61 not dispatched
+## CRM authority for the brand-outreach import — SLICES 1–2 COMMISSIONED · SLICE 3 IN REVIEW (2026-10-06)
 
-**Where it stands.** Matt approved PD-F-05, PD-F-11 and PD-F-12 (2026-10-06).
-- **Slice 1** (docs, draft #358, `chore/pd-f-05-11-12-decisions`): the decisions recorded in
-  `docs/architecture/crm-contact-points.md`, the handoff and the opportunity and identity records.
-- **Slice 2** (`feat/crm-contact-points`, stacked on slice 1): the Contact Point authority, built.
-  - Contract, two tables with CHECKs, repository and governed service.
-  - A read-only Person panel.
-  - Tests: Postgres (11), fences (3), contract (11), mutation-checked.
-  - Migration `20261010000000_crm_contact_points` is not applied anywhere but local.
+**Where it stands.**
+- **Slices 1 and 2 are merged and commissioned.**
+  - #358: the PD-F-05, -11 and -12 decisions.
+  - #359 (`cb211ca`): the CRM Contact Point authority. Migration `20261010000000_crm_contact_points`
+    is applied in production, and the code is deployed.
+- **Slice 3** (`feat/crm-opportunity-owner-participants`, draft PR) is built:
+  - accountable `CrmOpportunity.ownerUserId`;
+  - BRAND (COMPANY) and PRIMARY_CONTACT (PERSON) Participants on the one CRM Participant table;
+  - the PD-F-11 act table and the `opportunities` RBAC gate;
+  - `CrmOpportunityService`;
+  - the creator-hub designation wired to PD-F-11.
 
-**Merge order.** #358 first, then slice 2: prove each landed on `main` (CLAUDE.md git rule 10).
+  Migration `20261011000000_crm_opportunity_owner_participants` is **not dispatched**.
 
 **Not built:**
-- a write UI, and a Company record page;
-- suppression, reactivation and purge;
-- attribution of an UNATTRIBUTED value;
-- the importer.
+- governed create/update/reopen/void Opportunity services;
+- the staff Opportunities surface (slice 4);
+- import provenance and the importer (slice 5).
 
-**Next slices, in order:**
-1. Opportunity `ownerUserId` + OPPORTUNITY participants + the PD-F-11 grants.
-2. An organization-wide Opportunities staff surface (a prerequisite for commissioning).
-3. Import provenance + the importer (S3/OIDC source; dry run first).
-4. A dry run on Matt's final structured file.
-5. Human review of route classification and of creator aliases.
-6. The import, only on explicit approval.
+**Next, in order:**
+1. Slice 4: the staff Opportunities surface.
+2. Slice 5: import provenance + the importer.
+3. A dry run on Matt's final structured file.
+4. Human review.
+5. The import, only on explicit approval.
 
 **Open before the importer:**
 - the Opportunity creation and stage mapping (directory statuses are NOT stages);
@@ -58,7 +59,9 @@ NOT by seeing it render or run. Those must be checked on the deploy.
 - the creator alias table;
 - route classification.
 
-The PDF snapshot is design evidence only.
+**Known debt, not fixed here:**
+- `CrmRelationshipService` stores `ownerUserId` with no organization or membership check.
+- `CrmRelationshipService` resolves `actorName` inside its transaction (pool starvation under concurrency).
 
 ---
 

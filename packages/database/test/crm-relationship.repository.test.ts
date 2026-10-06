@@ -588,14 +588,15 @@ test('fence: the migration is additive, ASCII, and drops nothing', () => {
 
 test('fence: the schema and the migration describe the same three tables', () => {
   const schema = readFileSync(join(__dirname, '..', 'prisma', 'schema.prisma'), 'utf8');
-  const sql = readFileSync(
-    join(__dirname, '..', 'prisma', 'migrations', '20260917000000_crm_r2_relationship_participant', 'migration.sql'),
-    'utf8',
-  );
+  // R2 created the three tables; CRM slice 3 added `crm_participants.opportunityId`. Every column
+  // the schema declares must come from one of the migrations that shaped these tables.
+  const sql = ['20260917000000_crm_r2_relationship_participant', '20261011000000_crm_opportunity_owner_participants']
+    .map((dir) => readFileSync(join(__dirname, '..', 'prisma', 'migrations', dir, 'migration.sql'), 'utf8'))
+    .join('\n');
   for (const [model, table] of [['CrmRelationship', 'crm_relationships'], ['CrmRelationshipEvent', 'crm_relationship_events'], ['CrmParticipant', 'crm_participants']] as const) {
     const body = schema.slice(schema.indexOf(`model ${model} {`), schema.indexOf(`@@map("${table}")`));
     assert.ok(body.length > 0, `${model} exists`);
-    const columns = [...body.matchAll(/^\s{2}(\w+)\s+\w/gm)].map((m) => m[1]!).filter((c) => !/^(organization|owner|createdBy|relationship|events|participants|actor|addedBy|endedBy|voidedBy)$/.test(c));
+    const columns = [...body.matchAll(/^\s{2}(\w+)\s+\w/gm)].map((m) => m[1]!).filter((c) => !/^(organization|owner|createdBy|relationship|opportunity|events|participants|actor|addedBy|endedBy|voidedBy)$/.test(c));
     for (const column of columns) {
       assert.match(sql, new RegExp(`"${column}"`), `${table}.${column} is in the migration`);
     }

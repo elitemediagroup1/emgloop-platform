@@ -8,9 +8,22 @@ organization FKs, each with an append-only transition table (`CrmOpportunityTran
 `CrmCampaignTransition`: prior state, new state, actor, time) and a `CampaignDeliverable` row per
 governed deliverable. Categories are OPEN / CLOSED_WON / CLOSED_LOST as read in §3.3; the stage is a
 free string per organization until stage sets are built; the forecast fields are human-entered and
-attributed; the creator side is the Party Reference (`creatorPartyId`). **Not yet built:** versioned
-stage sets, the RBAC resource, the outbox subject, `activity.v1` composition and the Intake → Opportunity
-act. The writer is `CrmCommercialRepository` (`packages/database/src/creator/`). Everything below
+attributed; the creator side is the Party Reference (`creatorPartyId`). **Since CRM slice 3 (2026-10-06):**
+- the `opportunities` RBAC resource (the coarse `view` gate, AI_EMPLOYEE hard-denied);
+- the PD-F-11 act table (`CRM_OPPORTUNITY_ACT_ROLES`);
+- an accountable `ownerUserId`: accountability, never access;
+- BRAND / PRIMARY_CONTACT Participants on the one CRM Participant table.
+
+These are all governed by `CrmOpportunityService`.
+
+**Not yet built:**
+- versioned stage sets;
+- the outbox subject;
+- `activity.v1` composition;
+- the Intake → Opportunity act;
+- governed create/update/reopen/void services (the PD-F-11 grants for them exist; only the creator-hub
+  designation is wired to them today);
+- a staff Opportunities surface. The writer is `CrmCommercialRepository` (`packages/database/src/creator/`). Everything below
 that describes the full contract still stands as the target.
 
 ---
