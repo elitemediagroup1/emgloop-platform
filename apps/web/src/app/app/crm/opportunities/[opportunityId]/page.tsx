@@ -35,8 +35,10 @@ export const dynamic = 'force-dynamic';
 //
 // CONTACT POINTS come from their own authority, per contact, on the server: EMPLOYEE and above see
 // values, READ_ONLY sees kind, classification and state. Nothing here masks or reveals a value
-// itself. Internal notes are a single legacy free-text field with no author or history -- shown to
-// EMPLOYEE and above only, because free text can carry contact details.
+// itself.
+//
+// NOTES: only THAT an internal note or a transition note was recorded, never its text, for anyone.
+// There is no governed Opportunity-note authority yet, and no other domain's grant stands in for one.
 //
 // Read-only. Changing owners, participants and stages stays with the governed acts.
 
@@ -165,8 +167,7 @@ export default async function OpportunityPage({ params }: { params: { opportunit
                           <time dateTime={t.occurredAt}>{time.dateTime(t.occurredAt)}</time> · {memberText(t.actor, 'Actor not recorded')}
                           {t.creatorVisible ? ' · shown to the creator' : ''}
                         </p>
-                        {t.note ? <p className="loop-note">{t.note}</p> : null}
-                        {t.noteWithheld ? <p className="loop-note">A note was recorded. Notes are shown to employees and above.</p> : null}
+                        {t.noteRecorded ? <p className="loop-note">Transition note recorded</p> : null}
                       </li>
                     ))}
                   </ol>
@@ -222,16 +223,11 @@ export default async function OpportunityPage({ params }: { params: { opportunit
               </Panel>
             </section>
 
-            <Panel title="Internal notes" lead="One free-text field on the opportunity, with no author or history. EMG only.">
-              {record.notes.state === 'SHOWN' ? (
-                <p className="loop-note" style={{ whiteSpace: 'pre-wrap' }}>
-                  {record.notes.text}
-                </p>
-              ) : record.notes.state === 'EMPTY' ? (
-                <p className="loop-note">No internal notes.</p>
-              ) : (
-                <p className="loop-note">Internal notes are shown to employees and above, because they can contain contact details.</p>
-              )}
+            <Panel title="Internal notes">
+              <p className="loop-note">{record.notes.state === 'RECORDED' ? 'Internal note recorded' : 'No internal note recorded'}</p>
+              <p className="loop-note" style={{ marginTop: 10 }}>
+                Note text is not shown here: no governed authority for Opportunity notes exists yet.
+              </p>
             </Panel>
           </>
         }

@@ -6,7 +6,8 @@
 //     refused; another tenant's Opportunity is NOT_FOUND;
 //   - projection: creator, owner (never createdByUserId), missing owner, BRANDs, PRIMARY_CONTACTs,
 //     none, several, and ENDED / VOIDED never shown as current; superseded Parties keep their id;
-//   - names follow the Party gate; notes are withheld from READ_ONLY; no contact value anywhere;
+//   - names follow the Party gate; no role receives note text (only THAT one was recorded), and the
+//     source notes are untouched; contact values only through the Contact Point authority;
 //   - tenant safety: another tenant's Party, User and Opportunity never resolve;
 //   - search and filters: deterministic, organization-scoped, no name search without the gate;
 //   - pagination: stable keyset order, no duplicates or gaps, a forged cursor refused;
@@ -120,8 +121,8 @@ test('access: every human role reads; AI_EMPLOYEE (even with an ALLOW row) and C
     const owner = await reads.list(t.actor('OWNER'));
     const readOnly = await reads.list(t.actor('READ_ONLY'));
     assert.ok(owner.outcome === 'OK' && readOnly.outcome === 'OK');
-    assert.deepEqual(owner.capabilities, { changeOwner: true, addParticipant: true, endParticipant: true, voidParticipant: true, update: true, readNotes: true });
-    assert.deepEqual(readOnly.capabilities, { changeOwner: false, addParticipant: false, endParticipant: false, voidParticipant: false, update: false, readNotes: false });
+    assert.deepEqual(owner.capabilities, { changeOwner: true, addParticipant: true, endParticipant: true, voidParticipant: true, update: true });
+    assert.deepEqual(readOnly.capabilities, { changeOwner: false, addParticipant: false, endParticipant: false, voidParticipant: false, update: false });
   } finally {
     await prisma.$disconnect();
   }
@@ -198,7 +199,7 @@ test('projection: creator, owner, BRANDs, PRIMARY_CONTACTs -- none, several, end
   }
 });
 
-test('names follow the Party gate; notes are withheld from READ_ONLY; no contact value is ever in the read model', { skip }, async () => {
+test('names follow the Party gate; no role receives note text; contact values only through the Contact Point authority', { skip }, async () => {
   const prisma = new PrismaClient({ datasources: { db: { url: URL } } });
   try {
     const t = await tenant(prisma, 'privacy');
@@ -214,18 +215,36 @@ test('names follow the Party gate; notes are withheld from READ_ONLY; no contact
     const added = await points.add(t.actor('OWNER'), { partyId: pat, kind: 'EMAIL', value: 'pat.private@example.test', classification: 'INDIVIDUAL', basis: 'OPERATOR_RECORDED' });
     assert.equal(added.outcome, 'RECORDED');
 
-    const emp = await reads.getRecord(t.actor('EMPLOYEE'), opp);
-    assert.ok(emp.outcome === 'OK');
-    assert.deepEqual(emp.value.notes, { state: 'SHOWN', text: 'Call pat.private@example.test or +1 415 555 0100' });
-    assert.equal(emp.value.transitions[0]?.note, 'Reached on +1 415 555 0100');
-
+    // No Opportunity-note authority exists, so NO role receives note text -- not even OWNER.
+    for (const role of ['OWNER', 'ADMIN', 'MANAGER', 'EMPLOYEE', 'READ_ONLY'] as const) {
+      const rec = await reads.getRecord(t.actor(role), opp);
+      assert.ok(rec.outcome === 'OK', role);
+      assert.deepEqual(rec.value.notes, { state: 'RECORDED' }, `${role}: THAT an internal note exists`);
+      assert.equal(rec.value.transitions[0]?.noteRecorded, true, `${role}: THAT a transition note exists`);
+      const json = JSON.stringify(rec.value);
+      assert.ok(!json.includes('Call pat') && !json.includes('Reached on'), `${role}: no note text`);
+      assert.ok(!json.includes('example.test') && !json.includes('555'), `${role}: no contact value in the read model`);
+    }
     const ro = await reads.getRecord(t.actor('READ_ONLY'), opp);
     assert.ok(ro.outcome === 'OK');
-    assert.deepEqual(ro.value.notes, { state: 'WITHHELD' });
-    assert.deepEqual([ro.value.transitions[0]?.note, ro.value.transitions[0]?.noteWithheld], [null, true]);
     assert.equal(ro.value.primaryContacts[0]?.name, 'Pat Contact', 'READ_ONLY holds identityResolution:view, so names show');
-    const roJson = JSON.stringify(ro.value);
-    assert.ok(!roJson.includes('example.test') && !roJson.includes('555'), 'no contact value in what READ_ONLY receives');
+    // The source rows are only read, never rewritten.
+    assert.equal((await prisma.crmOpportunity.findUniqueOrThrow({ where: { id: opp } })).internalNotes, 'Call pat.private@example.test or +1 415 555 0100');
+    assert.equal((await prisma.crmOpportunityTransition.findFirstOrThrow({ where: { opportunityId: opp } })).note, 'Reached on +1 415 555 0100');
+    const blank = await opportunity(prisma, t.organizationId, t.users.ADMIN, { title: 'No notes' });
+    // The writer records 'Opened' on the first transition; clear it to prove an absent note reads as absent.
+    await prisma.crmOpportunityTransition.updateMany({ where: { opportunityId: blank }, data: { note: null } });
+    const blankRec = await reads.getRecord(t.actor('OWNER'), blank);
+    assert.ok(blankRec.outcome === 'OK');
+    assert.deepEqual([blankRec.value.notes, blankRec.value.transitions[0]?.noteRecorded], [{ state: 'EMPTY' }, false]);
+
+    // Actual Contact Points keep their own authority, unchanged: the record page asks it per contact.
+    const cpEmp = await points.listForParty(t.actor('EMPLOYEE'), pat);
+    const cpRo = await points.listForParty(t.actor('READ_ONLY'), pat);
+    assert.ok(cpEmp.outcome === 'OK' && cpRo.outcome === 'OK');
+    assert.equal(cpEmp.value[0]?.value, 'pat.private@example.test', 'EMPLOYEE+ receives the value through the Contact Point authority');
+    assert.deepEqual([cpRo.value[0]?.value, cpRo.value[0]?.valueWithheld, cpRo.value[0]?.kind], [null, 'NOT_PERMITTED', 'EMAIL'], 'READ_ONLY: summary only');
+    assert.deepEqual(await points.listForParty(t.actor('AI_EMPLOYEE'), pat), { outcome: 'NOT_AUTHORIZED' });
 
     for (const role of ['OWNER', 'EMPLOYEE', 'READ_ONLY'] as const) {
       const list = await reads.list(t.actor(role));
@@ -242,8 +261,9 @@ test('names follow the Party gate; notes are withheld from READ_ONLY; no contact
     assert.deepEqual(denied.value.items, [], 'no name search without the Party gate');
     const all = await reads.list(t.actor('EMPLOYEE'));
     assert.ok(all.outcome === 'OK');
-    assert.equal(all.value.items[0]?.primaryContacts[0]?.name, null);
-    assert.equal(all.value.items[0]?.creator.name, null);
+    const privateItem = all.value.items.find((i) => i.opportunityId === opp);
+    assert.equal(privateItem?.primaryContacts[0]?.name, null);
+    assert.equal(privateItem?.creator.name, null);
   } finally {
     await prisma.$disconnect();
   }

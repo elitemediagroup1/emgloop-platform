@@ -37,8 +37,10 @@ NOT by seeing it render or run. Those must be checked on the deploy.
     and Netlify is deployed.
 - **Slice 4** (`feat/crm-opportunities-staff-surface`, draft PR) is built:
   - the organization-wide staff surface `/app/crm/opportunities` (list and record), read-only;
-  - `CrmOpportunityReadService`, with names behind the Party gate, notes for EMPLOYEE and above, and
-    a fixed number of queries per page;
+  - `CrmOpportunityReadService`, with names behind the Party gate, and a fixed number of queries per
+    page;
+  - no note text for anyone (only "Internal note recorded" / "Transition note recorded"); a governed
+    Opportunity-note authority is a separate decision;
   - the CRM nav entry `opportunities:view`.
 
   **No migration.**

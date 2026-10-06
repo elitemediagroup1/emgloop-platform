@@ -19,6 +19,9 @@
 // records (`identityResolution:view`), the same rule People and Relationships use; otherwise
 // `name` is null and `namesReadable` says why. Contact values never appear here at all.
 //
+// NO NOTE TEXT. `internalNotes` and transition notes are free text with no governed Opportunity-note
+// authority, so this model carries only THAT a note was recorded.
+//
 // PURE. No clock, no I/O.
 
 import type { PartyType } from './party';
@@ -145,18 +148,17 @@ export interface CrmOpportunityTransitionViewV1 {
   readonly toStage: string;
   readonly actor: CrmOpportunityUserRefV1 | null;
   readonly occurredAt: string;
-  /** The note as written, when the viewer may read Opportunity notes; otherwise null. */
-  readonly note: string | null;
-  readonly noteWithheld: boolean;
+  /** THAT a note was recorded on this move, never its words: no Opportunity-note authority exists yet. */
+  readonly noteRecorded: boolean;
   readonly creatorVisible: boolean;
 }
 
-/** The text an Opportunity carries in `internalNotes`: a single free-text field, with no author or history. */
-export type CrmOpportunityNotesV1 =
-  | { readonly state: 'SHOWN'; readonly text: string }
-  | { readonly state: 'EMPTY' }
-  /** The viewer may not read notes, which can carry contact details (PD-F-05). */
-  | { readonly state: 'WITHHELD' };
+/**
+ * Whether the Opportunity's `internalNotes` holds text -- never the text. It is one free-text field
+ * with no author or history, and no governed Opportunity-note authority decides who may read it,
+ * so this surface does not borrow another domain's grant to show it (Creator Hub keeps its own view).
+ */
+export type CrmOpportunityNotesV1 = { readonly state: 'RECORDED' } | { readonly state: 'EMPTY' };
 
 export interface CrmOpportunityRecordV1 extends CrmOpportunityListItemV1 {
   readonly createdBy: CrmOpportunityUserRefV1 | null;
@@ -190,8 +192,6 @@ export interface CrmOpportunityCapabilitiesV1 {
   readonly endParticipant: boolean;
   readonly voidParticipant: boolean;
   readonly update: boolean;
-  /** Free-text notes (internalNotes, transition notes): EMPLOYEE and above, as for contact values. */
-  readonly readNotes: boolean;
 }
 
 /** Which of an item's facts are missing. Pure; the facts are already on the item. */

@@ -7,6 +7,7 @@
 //   - the nav entry states that authority and nothing else;
 //   - no role strings decide access in the pages, nothing is a client component, no AI widget;
 //   - the list reads no contact point; the record asks only the Contact Point authority;
+//   - note text is never shown (no Opportunity-note authority exists); only THAT a note was recorded;
 //   - importer directory statuses are never stages;
 //   - the wording helpers keep unknown unknown, name every BRAND and contact, and refuse contact
 //     values as search text.
@@ -82,6 +83,17 @@ describe('Opportunities pages', () => {
     assert.equal(/crmContactPoint|revealValues|prisma/.test(record), false, 'no direct read, no reimplemented masking');
     assert.match(record, /<ContactPointList read=\{points\}/);
     assert.match(code(read('app/app/crm/people/[partyId]/page.tsx')), /<ContactPointList read=\{contactPoints\}/, 'one rendering for Person and Opportunity');
+  });
+
+  it('shows THAT a note was recorded, never its text, and borrows no other domain\'s grant for notes', () => {
+    const record = code(read(RECORD));
+    assert.match(record, /t\.noteRecorded \? <p className="loop-note">Transition note recorded<\/p>/);
+    assert.match(record, /record\.notes\.state === 'RECORDED' \? 'Internal note recorded'/);
+    assert.equal(/notes\.text|t\.note\b|internalNotes|readNotes/.test(record), false, 'no note text reaches the page');
+    for (const file of ['../../../packages/database/src/services/crm-opportunity-read.service.ts', '../../../packages/database/src/repositories/crm-opportunity-read-model.repository.ts']) {
+      const src = code(read(file));
+      assert.equal(/crmContactPointActPermitted|VIEW_VALUE|notesReadable|readNotes/.test(src), false, `${file}: no Contact Point grant governs Opportunity notes`);
+    }
   });
 
   it('writes nothing: no server action, no form that posts (the filter form is a GET to the list)', () => {

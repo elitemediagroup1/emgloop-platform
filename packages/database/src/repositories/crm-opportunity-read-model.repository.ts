@@ -1,7 +1,10 @@
 // Reading CRM Opportunities across an organization (CRM slice 4, 2026-10-06).
 //
 // Persistence only. `CrmOpportunityReadService` authorizes (PD-F-11 VIEW) before anything here
-// runs and decides whether names and notes are readable; this file is not a security boundary.
+// runs and decides whether names are readable; this file is not a security boundary.
+//
+// NO NOTE TEXT LEAVES THIS FILE. `internalNotes` and transition notes become `RECORDED` / `EMPTY`
+// and `noteRecorded`: there is no governed Opportunity-note authority to say who may read them.
 //
 // A PROJECTION, NEVER AN AUTHORITY. It reads the Opportunity, its transition log, its
 // Participants (`crm_participants`, opportunity arc), its creator reference, its owner and its
@@ -63,8 +66,6 @@ export interface CrmOpportunityReadScope {
   readonly viewerUserId: string;
   /** Party names may be shown and searched (`identityResolution:view`). */
   readonly namesReadable: boolean;
-  /** Free-text notes may be shown (EMPLOYEE and above). */
-  readonly notesReadable: boolean;
 }
 
 export interface CrmOpportunityReadModelDeps {
@@ -186,14 +187,13 @@ export class CrmOpportunityReadModelRepository {
       creatorPartyIds: [row.creatorPartyId],
     });
     const active = row.participants.filter((p) => p.state === 'ACTIVE');
-    const notes = row.internalNotes?.trim();
 
     return {
       ...this.listItem(row, active, lookups),
       createdBy: lookups.user(row.createdByUserId),
       // Current first, then history; each oldest first. ENDED and VOIDED stay exactly as recorded.
       participants: [...active, ...row.participants.filter((p) => p.state !== 'ACTIVE')].map((p) => participantView(p, lookups)),
-      transitions: row.transitions.map((t) => transitionView(t, lookups, scope.notesReadable)),
+      transitions: row.transitions.map((t) => transitionView(t, lookups)),
       forecast: {
         probability: row.forecastProbability,
         authoredBy: lookups.user(row.forecastAuthoredByUserId),
@@ -211,7 +211,7 @@ export class CrmOpportunityReadModelRepository {
         brandVisibleToCreator: row.brandVisibleToCreator,
         summaryForCreator: row.summaryForCreator,
       },
-      notes: !scope.notesReadable ? { state: 'WITHHELD' } : notes ? { state: 'SHOWN', text: row.internalNotes ?? '' } : { state: 'EMPTY' },
+      notes: nonBlank(row.internalNotes) ? { state: 'RECORDED' } : { state: 'EMPTY' },
     };
   }
 
@@ -398,8 +398,7 @@ function participantView(p: CrmParticipant, lookups: Lookups): CrmOpportunityPar
   };
 }
 
-function transitionView(t: CrmOpportunityTransition, lookups: Lookups, notesReadable: boolean): CrmOpportunityTransitionViewV1 {
-  const note = nonBlank(t.note);
+function transitionView(t: CrmOpportunityTransition, lookups: Lookups): CrmOpportunityTransitionViewV1 {
   return {
     sequence: t.sequence,
     fromCategory: t.fromCategory,
@@ -408,8 +407,8 @@ function transitionView(t: CrmOpportunityTransition, lookups: Lookups, notesRead
     toStage: t.toStage,
     actor: lookups.user(t.actorUserId),
     occurredAt: t.occurredAt.toISOString(),
-    note: notesReadable ? note : null,
-    noteWithheld: !notesReadable && note !== null,
+    // THAT a note was recorded, never its words.
+    noteRecorded: nonBlank(t.note) !== null,
     creatorVisible: t.creatorVisible,
   };
 }

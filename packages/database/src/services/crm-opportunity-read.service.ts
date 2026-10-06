@@ -10,20 +10,18 @@
 // Somebody refused learns nothing -- not whether an Opportunity exists, nor how many there are.
 // Owning an Opportunity changes none of this: ownership is accountability, not access.
 //
-// TWO FURTHER READING RULES, decided here and never in a UI:
-//   - Party NAMES follow the Party gate, `identityResolution:view`, as People and Relationships do.
-//     Without it every name is null and name search is off.
-//   - Free-text NOTES (`internalNotes`, transition notes) are shown to EMPLOYEE and above only:
-//     they are unstructured and can carry an email or phone number, so they follow the Contact
-//     Point VIEW_VALUE grant (PD-F-05) rather than the wider VIEW. READ_ONLY sees that a note
-//     exists, not its words.
+// NAMES follow the Party gate, `identityResolution:view`, as People and Relationships do -- decided
+// here, never in a UI. Without it every name is null and name search is off.
+//
+// NO NOTE TEXT, for anyone. `internalNotes` and transition notes have no governed Opportunity-note
+// authority, and one domain's grant (e.g. Contact Point VIEW_VALUE) never governs another domain's
+// fact because the content may look alike. The read model says only THAT a note was recorded.
 //
 // CAPABILITIES COME BACK WITH THE DATA, from the PD-F-11 act table. A UI renders them; every act is
 // authorized again by `CrmOpportunityService` when it is performed.
 
 import type { PrismaClient } from '@prisma/client';
 import {
-  crmContactPointActPermitted,
   crmOpportunityActPermitted,
   type CrmOpportunityCapabilitiesV1,
   type CrmOpportunityListPageV1,
@@ -101,16 +99,14 @@ export class CrmOpportunityReadService {
     const may = (act: string) => crmOpportunityActPermitted({ act, role, actorType: 'HUMAN' });
     if (!may('VIEW')) return null;
 
-    const notesReadable = crmContactPointActPermitted({ act: 'VIEW_VALUE', role, actorType: 'HUMAN' });
     return {
-      scope: { organizationId: viewer.organizationId, viewerUserId: viewer.userId, namesReadable: canReadParties === true, notesReadable },
+      scope: { organizationId: viewer.organizationId, viewerUserId: viewer.userId, namesReadable: canReadParties === true },
       capabilities: {
         changeOwner: may('CHANGE_OWNER'),
         addParticipant: may('ADD_PARTICIPANT'),
         endParticipant: may('END_PARTICIPANT'),
         voidParticipant: may('VOID_PARTICIPANT'),
         update: may('UPDATE'),
-        readNotes: notesReadable,
       },
     };
   }

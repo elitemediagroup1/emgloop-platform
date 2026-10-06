@@ -20,7 +20,9 @@ These are all governed by `CrmOpportunityService`.
 record), over `CrmOpportunityReadService`:
 - the PD-F-11 VIEW act (all human roles; AI_EMPLOYEE and CREATOR refused);
 - Party names behind `identityResolution:view`;
-- `internalNotes` and transition notes for EMPLOYEE and above only, as for contact values;
+- no note text for anyone: `internalNotes` and transition notes show only THAT a note was
+  recorded, because no governed Opportunity-note authority exists and no other domain's grant
+  (such as Contact Point VIEW_VALUE) stands in for one. Creator Hub's own view is unchanged;
 - Contact Points read per contact through the Contact Point authority, on the record page only;
 - a fixed number of queries per page (`PartyReferenceRepository.resolveMany`).
 
