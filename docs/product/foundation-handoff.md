@@ -1,7 +1,8 @@
 # Foundation Handoff — backend truth for the Loop redesign
 
 **Status:** 2026-09-15, against `main` `543c645`. **Product decisions recorded:** PD-F-01, -02, -03,
--04, -06, -07 and -08 approved. PD-F-05, -09 and -10 deferred. **Audience:** Charlie and Lexi (UI track),
+-04, -06, -07 and -08 approved (2026-09-15); PD-F-05, -11 and -12 approved (2026-10-06). PD-F-09
+and -10 deferred. **Audience:** Charlie and Lexi (UI track),
 Product, and engineering. The UI-track summary is `docs/product/ui-track-handoff.md`. This is the single handoff describing which backend truth exists, which contracts are
 locked, what is missing, and which surfaces the redesign may build now.
 
@@ -66,7 +67,7 @@ presentation convenience.
 
 | | |
 |---|---|
-| Classification | **CONTRACT LOCKED / IMPLEMENTATION MISSING.** Profile attributes and contact points: **DEFERRED** (PD-F-05). The UI may show linked Intake contact data labeled Intake-derived. |
+| Classification | **CONTRACT LOCKED / IMPLEMENTATION MISSING.** Contact points: **APPROVED** (PD-F-05, 2026-10-06), a separate CRM authority that is not identity evidence (`docs/architecture/crm-contact-points.md`). Profile attributes (titles included): still **DEFERRED**. The UI may show linked Intake contact data labeled Intake-derived. |
 | Canonical authority | Party contract over `CognitiveIdentity` (type PERSON); `PartyService`; `PartyRepository` |
 | Identifier | `(organizationId, partyId)` |
 | Tenant | Organization-local. Cross-organization Party deferred. |
@@ -104,7 +105,7 @@ presentation convenience.
 
 | | |
 |---|---|
-| Classification | **CONTRACT LOCKED / IMPLEMENTATION MISSING.** Company attributes: **DEFERRED** (PD-F-05). |
+| Classification | **CONTRACT LOCKED / IMPLEMENTATION MISSING.** Contact points: **APPROVED** (PD-F-05, 2026-10-06; ROLE_INBOX and UNATTRIBUTED attach to a COMPANY). Company profile attributes: still **DEFERRED**. |
 | Canonical authority | Party contract, type COMPANY |
 | Identifier | `(organizationId, partyId)` |
 | Tenant | Organization-local. **The Company is never the Workspace Organization** (PD-I2-07). |
@@ -227,7 +228,7 @@ roleFamily: CAPACITY | ENGAGEMENT, side | actsForSide, effectiveFrom, effectiveT
 
 | | |
 |---|---|
-| Classification | **CONTRACT LOCKED FOR DESIGN / IMPLEMENTATION MISSING** (PD-F-02, -06 approved). Service grants and reading confirmations: PD-F-11, PD-F-12 (non-blocking for design). |
+| Classification | **CONTRACT LOCKED FOR DESIGN / IMPLEMENTATION MISSING** (PD-F-02, -06 approved). Service grants (PD-F-11) and reading confirmations (PD-F-12) **approved 2026-10-06** as written in §8. |
 | Canonical authority | New CRM authority (not intake status, not `ServiceRequest`) |
 | Identifier | `(organizationId, opportunityId)` |
 | Read / write contract | Not built |
@@ -314,8 +315,8 @@ roleFamily: CAPACITY | ENGAGEMENT, side | actsForSide, effectiveFrom, effectiveT
 - Explicit creation from Intake, requiring an established Party. Intake stays Intake.
 - AI recommends but never authors stage, forecast, close or outcome.
 
-**Still to confirm before its service slice:** grants (PD-F-11); the categories and loss-reason list,
-and the amount and expected-close fields (PD-F-12).
+**Confirmed 2026-10-06:** grants (PD-F-11); the categories and loss-reason list, and the amount and
+expected-close fields (PD-F-12), as written in §8.
 
 **Campaign: locked for design** (PD-F-07).
 - CRM owns identity, lifecycle, agreed terms, participants (when activated) and associations.
@@ -323,8 +324,8 @@ and the amount and expected-close fields (PD-F-12).
 - Multiple provider campaigns over time.
 - No automatic Campaign on win; lifecycle never inferred from traffic.
 
-**Still to confirm before its service slice:** lifecycle vocabulary and the one-CRM-Campaign-per-provider-
-campaign-per-period rule (PD-F-12); grants (PD-F-11).
+**Confirmed 2026-10-06:** lifecycle vocabulary and the one-CRM-Campaign-per-provider-campaign-per-period
+rule (PD-F-12); grants (PD-F-11).
 
 Full detail: `docs/architecture/commercial-opportunity-campaign.md`.
 
@@ -386,9 +387,9 @@ Full detail: `docs/architecture/commercial-opportunity-campaign.md`.
 | Context drawers | **GREEN** | Context chain is navigation state only | — |
 | Responsive / mobile | **GREEN** | Specification density and priority rules | — |
 | People | **YELLOW** | `PersonRecordV1` list: established, non-superseded PERSON Parties (P1) | Empty list today (0 established Parties) with an honest explanation; no Intake rows |
-| Person Detail | **YELLOW** | `PersonRecordV1`: display name, establishment posture, reference state, linked Intake Records | Contact info only from linked Intake Records, **labeled Intake-derived** (PD-F-05); Relationships after R3; Activity after A2 (Intake context) and identity 2.5 (attributed) |
+| Person Detail | **YELLOW** | `PersonRecordV1`: display name, establishment posture, reference state, linked Intake Records | Contact info from linked Intake Records, **labeled Intake-derived**; CRM Contact Points once the PD-F-05 authority is built (`crm-contact-points.md`); Relationships after R3; Activity after A2 (Intake context) and identity 2.5 (attributed) |
 | Companies | **YELLOW** | `CompanyRecordV1` list (P1) | Empty today; never the tenant; never CallGrid buyers |
-| Company Detail | **YELLOW** | `CompanyRecordV1` | As Person Detail; company profile fields unavailable (PD-F-05) |
+| Company Detail | **YELLOW** | `CompanyRecordV1` | As Person Detail; company profile fields still deferred |
 | Intake | **GREEN** (provenance segment YELLOW) | Existing Customer authority under Intake Records naming; `IntakeRecordV1` | Provenance segment until the Intake Records read model lands; no merge action |
 | Universal Activity | **YELLOW** | `activity.v1` | Known Party / Known Company lanes empty until identity 2.5; adapters land progressively (Case, Work, Intake, organization feed) |
 | Relationships | **YELLOW** | `relationship-participant.md` §3 and §9: kinds (OWN / THIRD_PARTY), sides, lifecycle, grants | Empty until R3 and until Parties can be established (P1); actions shown only when the server allows |
@@ -437,13 +438,19 @@ is independent and merges first.
 | PD-F-07 | Campaign policy (§4.3) |
 | PD-F-08 | AI runtime architecture approved; Case Explanation first; no AI domain writes; activation gates |
 
+**Approved (2026-10-06, Matt)**
+
+| ID | Decision |
+|---|---|
+| PD-F-05 | Party contact points: a separate CRM Contact Point authority, not IdentityEvidence. The OPERATOR_RECORDED evidence rule is unchanged. Retention is 36 months after the latest human contact. Classifications INDIVIDUAL / ROLE_INBOX / UNATTRIBUTED. Grants: READ_ONLY sees no values; EMPLOYEE+ view values and add; MANAGER+ retire or mark undeliverable; OWNER/ADMIN void; AI_EMPLOYEE denied. Matching is exact only. Profile attributes stay deferred. Full record: `docs/architecture/crm-contact-points.md`. |
+| PD-F-11 | Approved **as written below**, without reinterpretation: grants for `opportunities` and `campaigns` mirror PD-F-04. View for human roles. Create/update (including Opportunity stage, forecast and close) EMPLOYEE+. Reopen, Campaign lifecycle transitions and provider link declarations MANAGER+. Void OWNER/ADMIN. AI_EMPLOYEE denied. |
+| PD-F-12 | Approved **as written below**: the categories OPEN / CLOSED_WON / CLOSED_LOST, with WITHDRAWN as a CLOSED_LOST loss reason; the governed starting loss reasons; human-entered forecast amount and expected close date; Campaign lifecycle states; one CRM Campaign per provider campaign per period (the readings in `commercial-opportunity-campaign.md` §3.3 and §4.3, confirmed unchanged). |
+
 **Deferred, non-blocking:**
-- **PD-F-05 (Party contact points).** The UI may show contact information from linked Intake Records,
-  labeled Intake-derived and never implied verified.
 - **PD-F-09 (raw caller and message visibility).** Its own security slice.
 - **PD-F-10 (universal search).** Deferred until the Party and Activity read models exist.
 
-**Still needed** (non-blocking for UI design; blocks only the named service slices):
+**Recorded for reference** (PD-F-11 and PD-F-12 were approved on 2026-10-06 exactly as recommended here; AI activation is still needed):
 
 | ID | Question | Recommendation | Blocks |
 |---|---|---|---|

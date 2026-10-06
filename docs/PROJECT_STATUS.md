@@ -1893,9 +1893,9 @@ change are in `docs/product/intake-party-linking-recommendation.md`.
     `brain-execution-architecture.md` §5a.
   - DRAFT as a sixth result type, distinct from PROPOSED_ACTION; a draft never authorizes or
     performs a send (2026-09-16, after B3).
-- **Deferred:** PD-F-05, -09, -10.
+- **Deferred:** PD-F-09, -10. (PD-F-05, -11 and -12 were approved 2026-10-06; see the CRM Contact
+  Points workstream.)
 - **Still needed:**
-  - PD-F-11 and PD-F-12;
   - AI budget values, per-job budgets and the paid-attempt limit;
   - MANAGER as a Case Explanation invoker;
   - Fable 5.1 versus Opus 5 (retention trade-off);
@@ -1929,7 +1929,7 @@ change are in `docs/product/intake-party-linking-recommendation.md`.
 6. The Node maintenance PR: workflows on `.nvmrc`, `engines >= 22`.
 7. Unrelated to AI:
    - the Relationship list filtered by kind (creator roster);
-   - Opportunity and Campaign, after PD-F-11 and PD-F-12.
+   - Opportunity and Campaign (PD-F-11 and PD-F-12 approved 2026-10-06).
 
 ## Google Workspace connection — PRIVATE V1 MERGED (#286, `e16a07c`) · MIGRATION 37 APPLIED · OAUTH CLIENT CREATED
 

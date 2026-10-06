@@ -1,6 +1,7 @@
 # Opportunity and Campaign — readiness record
 
-**Status:** CONTRACT LOCKED FOR DESIGN (2026-09-15). Product approved PD-F-02, PD-F-06 and PD-F-07.
+**Status:** CONTRACT LOCKED FOR DESIGN (2026-09-15). Product approved PD-F-02, PD-F-06 and PD-F-07, and on
+2026-10-06 PD-F-11 (grants) and PD-F-12 (the readings below), both as written.
 **A minimum slice of both authorities exists since 2026-09-22** (Creator Hub demo, migration
 `20260930000000_creator_hub_foundation`): `CrmOpportunity` and `CrmCampaign`, tenant-local with real
 organization FKs, each with an append-only transition table (`CrmOpportunityTransition`,
@@ -110,7 +111,7 @@ Opportunity may reference it.
 | What AI may not do | Silently author or modify stage, human forecast, close state or commercial outcome |
 | Prohibited | Using `Customer.status` / `pipelineStatus` as the canonical pipeline; reusing the CallGrid/shared `Opportunity` finding type as the CRM authority |
 
-**Readings recorded with the decision** (fail-closed; confirm or change in PD-F-12):
+**Readings recorded with the decision** (confirmed unchanged by PD-F-12, 2026-10-06):
 1. **Lifecycle categories are OPEN, CLOSED_WON and CLOSED_LOST.** The decision names only closed-won and
    closed-lost outcomes, so the proposed WITHDRAWN category is not adopted. A withdrawn pursuit closes
    as CLOSED_LOST with loss reason WITHDRAWN.
@@ -121,8 +122,8 @@ Opportunity may reference it.
 4. **Reopening a closed Opportunity** requires a reason and is an appended transition. Grants are in
    PD-F-11.
 5. **The forecast** is human-authored probability plus attribution and time. The decision names only
-   probability. Amount (integer minor units and ISO currency) and expected close date stay proposed
-   human-entered fields until confirmed (PD-F-12).
+   probability. Amount (integer minor units and ISO currency) and expected close date are human-entered
+   fields (confirmed in PD-F-12).
 
 ### 3.4 Minimum contract the UI may design against (shape only; not built)
 
@@ -181,8 +182,8 @@ Opportunity may reference it.
 - Winning an Opportunity **does not** create a Campaign. Campaign creation is an explicit governed act.
 - Campaign lifecycle is **never inferred** from traffic or provider activity.
 
-**Readings recorded with the decision** (fail-closed; confirm or change in PD-F-12):
-1. **Lifecycle states (proposed):** DRAFT, AGREED, ACTIVE, PAUSED, ENDED, CANCELLED. Human-declared,
+**Readings recorded with the decision** (confirmed unchanged by PD-F-12, 2026-10-06):
+1. **Lifecycle states:** DRAFT, AGREED, ACTIVE, PAUSED, ENDED, CANCELLED. Human-declared,
    effective-dated transitions.
 2. **One provider campaign links to at most one CRM Campaign in any effective period.** This prevents
    one provider campaign's measurement being composed into two commercial programs at once.
@@ -239,7 +240,7 @@ Opportunity may reference it.
 7. **AI authority.** New commercial resources hard-deny AI_EMPLOYEE writes instead of inheriting the
    READ_ONLY fallback.
 
-## 6. Confirmations still needed (non-blocking for UI design)
+## 6. Confirmations (both approved as written, 2026-10-06)
 
 | ID | Question | Recommendation | Blocks |
 |---|---|---|---|
@@ -253,4 +254,6 @@ Opportunity may reference it.
 | 2026-09-15 | PD-F-02 approved: Relationship optional for Opportunity; no placeholder Relationship |
 | 2026-09-15 | PD-F-06 approved: fixed categories, organization-configurable stages, append-only history, human-authored attributed forecast probability, closed-won/closed-lost with governed loss reasons, no close approval at launch, explicit creation from Intake requiring an established Party, AI recommends but never authors stage, forecast, close or outcome |
 | 2026-09-15 | PD-F-07 approved: CRM owns Campaign identity, lifecycle, terms, participants (when activated) and associations; Accounting owns transactions, invoices, payment and settlement; multiple provider campaigns over time; no automatic Campaign on win; lifecycle never inferred from traffic |
-
+| 2026-10-06 | PD-F-11 approved as written in §6, without reinterpretation: view for all human workspace roles; create/update EMPLOYEE+; reopen, Campaign lifecycle transitions and provider link declarations MANAGER+; void OWNER/ADMIN; AI_EMPLOYEE denied |
+| 2026-10-06 | PD-F-12 approved as written in §6: the §3.3 and §4.3 readings are confirmed unchanged |
+| 2026-10-06 | A directory or tracker outreach status (Not due, Historical, Other hold, Human reply–hold, Excluded, Pending draft) is never an Opportunity stage. Creating an Opportunity from such a source and its initial stage need a separate explicit mapping decision (`crm-contact-points.md` §10) |
