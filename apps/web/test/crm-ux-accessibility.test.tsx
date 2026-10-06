@@ -61,9 +61,10 @@ describe('Shell and navigation', () => {
     assert.ok(intake, '/crm/pipeline is in the CRM nav');
     assert.equal(intake!.label, 'Intake Board');
     assert.equal(navItems().some((i) => /pipeline/i.test(i.label)), false);
-    // Opportunities is an unbuilt Phase 2 domain. Since 2026-09-24 nothing unbuilt is in the
-    // rail, so it has no CRM nav entry at all; the Command Center names it under Upcoming.
-    assert.equal(navItems().some((i) => i.label === 'Opportunities' || i.href === '/crm/opportunities'), false);
+    // Opportunities (CRM slice 4) is the Opportunity authority's own staff list under /app/crm,
+    // never the intake board and never a legacy /crm route.
+    assert.deepEqual(navItems().filter((i) => i.label === 'Opportunities').map((i) => i.href), ['/app/crm/opportunities']);
+    assert.equal(navItems().some((i) => i.href === '/crm/opportunities'), false);
     assert.match(COMMAND, /<UpcomingItem label="Opportunities"/);
   });
 

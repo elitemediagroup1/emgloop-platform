@@ -54,7 +54,7 @@ describe('The fold model is data in the one registry', () => {
       // Home is all primary and unlabelled: no heading, no fold.
       ['', null, ['Home', 'Mail', 'Chats', 'Calendar', 'Connections'], null],
       // CRM keeps the redesigned surfaces and the Command Center primary; the intake tools fold.
-      ['CRM', 'CRM', ['People', 'Relationships', 'Command Center'], {
+      ['CRM', 'CRM', ['People', 'Relationships', 'Opportunities', 'Command Center'], {
         key: 'crm-intake-tools', id: 'loop-fold-crm-intake-tools', label: 'Intake tools', count: 7,
         items: ['Conversations', 'Intake Records', 'Intake Board', 'Identity Review', 'Inbox', 'Search', 'Automations'],
         activeInside: false,
@@ -84,7 +84,7 @@ describe('The fold model is data in the one registry', () => {
   it('for an employee: the same folds over what they can open, and no fold where nothing folds for them', () => {
     assert.deepEqual(shape(navForRole('EMPLOYEE')), [
       ['', null, ['Home', 'Mail', 'Chats', 'Calendar', 'Connections'], null],
-      ['CRM', 'CRM', ['People', 'Relationships', 'Command Center'], {
+      ['CRM', 'CRM', ['People', 'Relationships', 'Opportunities', 'Command Center'], {
         key: 'crm-intake-tools', id: 'loop-fold-crm-intake-tools', label: 'Intake tools', count: 7,
         items: ['Conversations', 'Intake Records', 'Intake Board', 'Identity Review', 'Inbox', 'Search', 'Automations'],
         activeInside: false,

@@ -35,8 +35,8 @@ export const dynamic = 'force-dynamic';
 // From the Relationships authority: kind (its own label), state, sides, participants
 // and the recorded history. Participant roles and states have no approved display
 // labels, so their governed values are shown as themselves. Accountability is a
-// workspace user, not a participant, and is shown as such. Opportunities, Work and
-// Universal Activity have no authority for a Relationship yet and say so.
+// workspace user, not a participant, and is shown as such. Opportunities are not listed
+// per Relationship yet, and Work and Universal Activity have no authority for one; each says so.
 //
 // Governed acts (end, reactivate, void, participants) still live on the temporary
 // verification screen; this page links there only when the viewer may act.
@@ -133,7 +133,7 @@ export default async function RelationshipPage({ params }: { params: { relations
         items={[
           { label: 'Since', value: since, unknownText: 'Not recorded' },
           { label: 'Participants', value: `${activeParticipants.length} active` },
-          { label: 'Opportunities', value: null, unknownText: 'Not tracked yet' },
+          { label: 'Opportunities', value: null, unknownText: 'Not summarised here' },
           { label: 'Open work', value: null, unknownText: 'Not linked yet' },
         ]}
       />
@@ -145,7 +145,7 @@ export default async function RelationshipPage({ params }: { params: { relations
           { label: 'Participants', href: '#participants' },
           { label: 'History', href: '#history' },
           { label: 'Activity', href: null, reason: 'Universal Activity does not cover relationships yet.' },
-          { label: 'Opportunities', href: null, reason: 'Opportunities are not tracked in Loop yet.' },
+          { label: 'Opportunities', href: null, reason: 'Opportunities are not listed per relationship yet. They are listed under CRM, Opportunities.' },
           { label: 'Work', href: null, reason: 'Work is not linked to relationships yet.' },
         ]}
       />

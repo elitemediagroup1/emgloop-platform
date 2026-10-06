@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { absentUntilMigrated } from '@emgloop/database';
 import { notFound } from 'next/navigation';
 import { hasPermission, requirePermission } from '../../../../../auth/guard';
+import { ContactPointList } from '../../../../../crm/contact-point-list';
 import { crmSubjectReads, personHref, PEOPLE_HREF, readContactPoints, relationshipHref } from '../../../../../crm/crm-slice-data';
 import { readPersonView } from '../../../../../crm/crm-subject-reads';
 import { governedTerm, partyIdentityState } from '../../../../../crm/subject-display';
@@ -45,8 +46,6 @@ export const dynamic = 'force-dynamic';
 
 const NO_CHANNEL = 'Loop has no governed communication channel for a person yet.';
 
-const CONTACT_KIND: Record<string, string> = { EMAIL: 'Email', PHONE: 'Phone' };
-
 const LIMITATION_TEXT: Record<string, string> = {
   EVIDENCE_NOT_COLLECTED: 'No identity evidence is collected yet: establishment is a decision a person made, not a verification.',
   VERIFICATION_NOT_AVAILABLE: 'No contact detail has a recorded verification.',
@@ -87,7 +86,7 @@ export default async function PersonPage({ params }: { params: { partyId: string
     { label: 'Activity', href: null, reason: 'Activity is not projected onto a person yet.' },
     creatorHref
       ? { label: 'Opportunities', href: `${creatorHref}#commercial` }
-      : { label: 'Opportunities', href: null, reason: creatorProfile ? CREATOR_ELSEWHERE : 'Opportunities are not tracked in Loop yet.' },
+      : { label: 'Opportunities', href: null, reason: creatorProfile ? CREATOR_ELSEWHERE : 'Opportunities are not listed per person yet. They are listed under CRM, Opportunities.' },
     creatorHref
       ? { label: 'Work', href: `${creatorHref}#content` }
       : { label: 'Work', href: null, reason: creatorProfile ? CREATOR_ELSEWHERE : 'Work is not linked to a person yet.' },
@@ -140,7 +139,7 @@ export default async function PersonPage({ params }: { params: { partyId: string
             value: context.activeCount === null ? null : `${context.activeCount} active`,
             unknownText: 'Not available to you',
           },
-          { label: 'Opportunities', value: null, unknownText: 'Not tracked yet' },
+          { label: 'Opportunities', value: null, unknownText: 'Not summarised here' },
           { label: 'Campaigns', value: null, unknownText: 'Not tracked yet' },
           { label: 'Open work', value: null, unknownText: 'Not linked yet' },
         ]}
@@ -259,24 +258,7 @@ export default async function PersonPage({ params }: { params: { partyId: string
             </Panel>
 
             <Panel title="Contact points">
-              {contactPoints === null ? (
-                <p className="loop-note">Contact points are not available on this workspace yet.</p>
-              ) : contactPoints.outcome !== 'OK' ? (
-                <p className="loop-note">Your role cannot see contact points.</p>
-              ) : contactPoints.value.length === 0 ? (
-                <p className="loop-note">No contact point is recorded for this person.</p>
-              ) : (
-                <ul className="loop-stack" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-                  {contactPoints.value.map((point) => (
-                    <li key={point.id} className="loop-note">
-                      {CONTACT_KIND[point.kind]}:{' '}
-                      {point.value ?? (point.valueWithheld === 'ERASED' ? 'removed under retention' : 'hidden for your role')} ·{' '}
-                      {governedTerm(point.classification)} · {governedTerm(point.state)} · unverified, {point.basis === 'IMPORTED' ? 'imported' : 'recorded'}{' '}
-                      {time.date(point.addedAt)}
-                    </li>
-                  ))}
-                </ul>
-              )}
+              <ContactPointList read={contactPoints} time={time} none="No contact point is recorded for this person." />
               <p className="loop-note" style={{ marginTop: 10 }}>
                 Business contact details recorded for reaching this person. They are not identity evidence, and recording one
                 does not verify it.

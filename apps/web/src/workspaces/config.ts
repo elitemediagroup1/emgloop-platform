@@ -204,6 +204,8 @@ export function workspaceFor(role: WorkspaceRole): WorkspaceConfig {
 // requirePermission itself, and the read services check again before reading.
 const IDENTITY_VIEW = { resource: 'identityResolution', action: 'view' } as const;
 const RELATIONSHIPS_VIEW = { resource: 'relationships', action: 'view' } as const;
+// PD-F-11: every human workspace role; AI_EMPLOYEE is hard-denied and a creator login holds nothing.
+const OPPORTUNITIES_VIEW = { resource: 'opportunities', action: 'view' } as const;
 const INTAKE_RECORDS_VIEW = { resource: 'customers', action: 'view' } as const;
 const CONVERSATIONS_VIEW = { resource: 'inbox', action: 'view' } as const;
 const INTAKE_VIEW = { resource: 'pipeline', action: 'view' } as const;
@@ -261,6 +263,7 @@ export const LOOP_NAV: ShellConfig = {
         // Canonical People first: the redesigned CRM slice.
         { href: '/app/crm/people', label: 'People', icon: 'users', requires: IDENTITY_VIEW },
         { href: '/app/crm/relationships', label: 'Relationships', icon: 'flow', requires: RELATIONSHIPS_VIEW },
+        { href: '/app/crm/opportunities', label: 'Opportunities', icon: 'target', requires: OPPORTUNITIES_VIEW },
         // The operator's landing page reads intake records first; it enforces
         // customers:view itself, so a login that holds nothing (a creator) is not offered it.
         { href: '/crm', label: 'Command Center', icon: 'grid', requires: INTAKE_RECORDS_VIEW },

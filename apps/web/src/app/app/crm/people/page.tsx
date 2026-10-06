@@ -15,8 +15,8 @@ export const dynamic = 'force-dynamic';
 // and linked to the governed identity review, which is its own workflow.
 //
 // Columns are what an authority can answer: the person, their relationship context
-// and their identity state. Opportunities have no authority yet, so there is no
-// column that would have to show a made-up "0".
+// and their identity state. Opportunities are listed on their own page; no per-person count
+// is read here, so there is no column that would have to show a made-up "0".
 
 const IDENTITY_REVIEW_HREF = '/crm/parties';
 
@@ -130,7 +130,9 @@ export default async function PeoplePage({ searchParams }: { searchParams?: { af
                   ))}
                 </tbody>
               </table>
-              <p className="loop-note">Opportunities are not tracked in Loop yet, so they are not shown for anyone.</p>
+              <p className="loop-note">
+                Opportunities are not summarised per person here. <Link href="/app/crm/opportunities">Open Opportunities</Link>
+              </p>
               {directory.nextCursor || !directory.firstPage ? (
                 <nav className="loop-pager" aria-label="More people">
                   {!directory.firstPage ? (
