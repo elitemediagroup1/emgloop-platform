@@ -1,0 +1,13 @@
+{
+  "version": "crm-outreach-import-config.v1",
+  "creatorAliases": [
+    { "alias": "Example Creator", "creatorPartyId": "REPLACE_WITH_AN_ESTABLISHED_CREATOR_PERSON_PARTY_ID" }
+  ],
+  "routes": [
+    { "routeKey": "example-brand", "classification": "BRAND_COMPANY", "proposedCompanyName": "Example Brand" },
+    { "routeKey": "example-agency", "classification": "AGENCY", "proposedCompanyName": "Example Agency", "representedBrandRouteKey": "example-brand" },
+    { "routeKey": "example-personal", "classification": "PERSONAL_GENERIC" },
+    { "routeKey": "example-internal", "classification": "INTERNAL" }
+  ],
+  "stageMapping": []
+}
