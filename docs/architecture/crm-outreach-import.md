@@ -15,7 +15,7 @@ governed writers. It never writes a CRM table itself:
 | Write | Governed writer |
 |---|---|
 | Company / Person | `PartyService.create`, then `establish` with basis `MANUAL` (the operator's act) |
-| Email / phone | `CrmContactPointService.add`, basis `IMPORTED`, `sourceRef = crm-outreach-import.v1:<row key>` |
+| Email / phone | `CrmContactPointService.add`, basis `IMPORTED`, `sourceRef = crm-outreach-import.v2:<row key>` |
 | Opportunity | `CrmOpportunityService.create` (PD-F-11 CREATE) |
 | BRAND / PRIMARY_CONTACT | `CrmOpportunityService.addParticipant` |
 
@@ -23,7 +23,12 @@ Each writer accepts a caller's transaction, so one import unit is atomic. The au
 Party Reference check, audit row and outbox event are the same whether a writer runs alone or inside a
 unit. Matching is the Contact Point authority's exact keyed-hash `match`, and nothing else.
 
-## 2. Canonical source CSV (`crm-outreach-import.v1`)
+## 2. Canonical source CSV (`crm-outreach-import.v2`)
+
+**v2 (2026-10-07): `creator_alias` is optional.** EMG's CRM imports business contacts generally, not
+only creator pursuits. A row without a creator may import its governed Company, Person and Contact Points,
+but can never create an Opportunity (§4). v1 required a creator on every row; the version changed because
+the same file now plans differently, and approvals bind the version.
 
 UTF-8, RFC 4180 (quoted fields, doubled quotes, CRLF or LF, an optional BOM). The header names are
 exact. An unknown or repeated column refuses the whole file, and so does a missing required one. No
@@ -33,7 +38,7 @@ CSV.
 | Column | Required | Meaning / rule |
 |---|---|---|
 | `source_row_key` | yes | Stable across re-exports. `[A-Za-z0-9._:/-]`, 1–120 characters, no contact value. **Its identity across runs.** A duplicated key refuses every row that carries it. |
-| `creator_alias` | yes | The creator as the source labels them. Resolved only through a reviewed alias. |
+| `creator_alias` | no | The creator as the source labels them, resolved only through a reviewed alias. **Blank means no creator**: never inferred from a note, route, address, brand, title or domain, and the row can never create an Opportunity. |
 | `route_key` | yes | The route (heading or mailbox group). Resolved only through a reviewed route classification. No contact value. |
 | `source_status` | yes | The outreach status. **Not a stage.** Resolved only through the reviewed stage mapping. |
 | `route_name`, `brand_name` | no | Review evidence only. Never used to name, find or match a Company. |
@@ -105,7 +110,17 @@ be a proposal.
     `HELD_BY_ANOTHER_PARTY`, `CONFLICT` and `TYPE_MISMATCH`.
 - **AFFILIATION: never.** Not from an email domain, a route, a title, or a BRAND + PRIMARY_CONTACT pair.
   No Relationship is created (decision R), and `relationshipId` is always null.
-- **Opportunity grain (decision D):** one per **creator × governed brand Company**.
+- **Rows without a creator (v2).** They follow every rule above for their Company, Person and Contact
+  Points, and never feed a pursuit.
+  - Status `CONTACTS_ONLY`: the contacts are imported (`CONTACTS_ONLY`).
+  - Status maps to `OPPORTUNITY`: the whole row is held as `OPPORTUNITY_REQUIRES_CREATOR`. An
+    Opportunity needs a creator and none is invented, so nothing the row would cause is written until a
+    person resolves it.
+  - Unmapped, excluded or unrouted: the same gates as any row.
+  - A creator-less row beside a creator pursuit on the same brand never joins it: its Person is not a
+    PRIMARY_CONTACT of that pursuit.
+- **Opportunity grain (decision D):** one per **creator × governed brand Company**, from rows that name
+  a creator.
   - The title is exactly `<Creator display name> × <Brand Company display name>`.
   - All its rows' governed People are PRIMARY_CONTACTs; none is chosen over another.
   - BRAND is the brand Company.
@@ -247,8 +262,9 @@ production's `COGNITIVE_HASH_SECRET`. Exact Contact Point matching compares keye
 **Two more safeguards:**
 - **The dry run checks the identifier key.** It refuses with `HASH_KEY_MISMATCH` if an existing
   Contact Point was hashed under a different key.
-- **The importer version is unchanged** (`crm-outreach-import.v1`). PR B wires infrastructure and a
-  safety precondition; normalization, matching, planning and provenance are as in PR A.
+- **The importer version.** PR B left it at `crm-outreach-import.v1`, since it wired infrastructure
+  and a safety precondition only. The optional-creator change (2026-10-07) made it
+  `crm-outreach-import.v2`, because the same file now plans differently.
 
 ## 11. Not built
 

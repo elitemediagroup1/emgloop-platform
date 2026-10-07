@@ -186,6 +186,8 @@ export interface SourceInventoryCounts {
   readonly duplicatedSourceRowKeys: number;
   readonly rowsWithDuplicatedKeys: number;
   readonly distinctCreatorAliases: number;
+  /** Rows naming no creator: they may import contacts, never an Opportunity. */
+  readonly rowsWithoutCreatorAlias: number;
   readonly distinctRouteKeys: number;
   readonly distinctSourceStatuses: number;
   readonly personEligibleRows: number;
@@ -234,7 +236,7 @@ export function sourceInventory(text: string, now: Date): SourceInventory {
   };
   const byRowKey = tally(rows, (r) => r.sourceRowKey);
   const dupKeys = [...byRowKey].filter(([, e]) => e.n > 1);
-  const aliases = tally(rows, (r) => crmImportKey(r.creatorAlias));
+  const aliases = tally(rows.filter((r) => r.creatorAlias !== null), (r) => crmImportKey(r.creatorAlias));
   const routes = tally(rows, (r) => crmImportKey(r.routeKey));
   const statuses = tally(rows, (r) => crmImportKey(r.sourceStatus));
   const invalidByViolation: Record<string, number> = {};
@@ -250,6 +252,7 @@ export function sourceInventory(text: string, now: Date): SourceInventory {
     duplicatedSourceRowKeys: dupKeys.length,
     rowsWithDuplicatedKeys: dupKeys.reduce((n, [, e]) => n + e.n, 0),
     distinctCreatorAliases: aliases.size,
+    rowsWithoutCreatorAlias: count((r) => r.creatorAlias === null),
     distinctRouteKeys: routes.size,
     distinctSourceStatuses: statuses.size,
     personEligibleRows: count((r) => crmImportPersonEligible(r)),
@@ -270,7 +273,7 @@ export function sourceInventory(text: string, now: Date): SourceInventory {
   const sortByKey = <T extends { key: string }>(xs: T[]) => xs.sort((a, b) => a.key.localeCompare(b.key));
   const distinct = (xs: (string | null)[]) => [...new Set(xs.filter((x): x is string => x !== null))].sort();
   const detail: SourceInventoryDetail = {
-    creatorAliases: sortByKey([...aliases].map(([key, e]) => ({ alias: e.first.creatorAlias, key, rows: e.n }))),
+    creatorAliases: sortByKey([...aliases].map(([key, e]) => ({ alias: e.first.creatorAlias ?? '', key, rows: e.n }))),
     routes: sortByKey(
       [...routes].map(([key, e]) => {
         const of = rows.filter((r) => crmImportKey(r.routeKey) === key);
@@ -339,7 +342,8 @@ export function reviewRows(prepared: Pick<CrmImportPrepared, 'plan' | 'rows' | '
       src?.routeKey ?? '',
       r.routeClassification ?? 'UNMAPPED',
       src?.creatorAlias ?? '',
-      r.creatorPartyId ? `MAPPED:${r.creatorPartyId}` : 'UNMAPPED',
+      // NONE: the row names no creator (it can never create an Opportunity). UNMAPPED: it names one nobody mapped.
+      r.creatorPartyId ? `MAPPED:${r.creatorPartyId}` : src?.creatorAlias ? 'UNMAPPED' : 'NONE',
       r.companyAction ?? '',
       r.companyKey ?? '',
       r.companyName ?? '',

@@ -19,8 +19,14 @@
 
 import { crmContactPointReasonCarriesContactValue } from './crm-contact-point';
 
-/** Recorded on every run. Change it whenever normalization, matching, mapping or planning changes. */
-export const CRM_IMPORT_VERSION = 'crm-outreach-import.v1' as const;
+/**
+ * Recorded on every run. Change it whenever normalization, matching, mapping or planning changes.
+ *   v1 (2026-10-07) every row named a creator.
+ *   v2 (2026-10-07) `creator_alias` is OPTIONAL: a row without one may still import its governed
+ *       Company, Person and Contact Points, but can never create an Opportunity. A v1 plan is never
+ *       reinterpreted under v2 (approvals bind the version).
+ */
+export const CRM_IMPORT_VERSION = 'crm-outreach-import.v2' as const;
 
 // --- Who may do what (decided 2026-10-07) --------------------------------------------------
 
@@ -116,8 +122,14 @@ export function crmImportSourceRowKeyValid(key: unknown): key is string {
  * repeated column refuses the whole file: a column the importer does not understand is never
  * silently ignored.
  */
-export const CRM_IMPORT_REQUIRED_COLUMNS = ['source_row_key', 'creator_alias', 'route_key', 'source_status'] as const;
+export const CRM_IMPORT_REQUIRED_COLUMNS = ['source_row_key', 'route_key', 'source_status'] as const;
+/**
+ * `creator_alias` is optional (v2): EMG's CRM imports any business contact, not only creator pursuits. A
+ * blank alias means "no creator" -- never inferred from a note, route, address, brand, title or domain --
+ * and a row without one can never create an Opportunity.
+ */
 export const CRM_IMPORT_OPTIONAL_COLUMNS = [
+  'creator_alias',
   'route_name',
   'brand_name',
   'contact_name',
@@ -144,7 +156,8 @@ export interface CrmImportSourceRow {
   /** 1-based data line (the header is line 1), for messages only; never an identity. */
   readonly line: number;
   readonly sourceRowKey: string;
-  readonly creatorAlias: string;
+  /** The creator as the source labels them, or null: no creator, and so no Opportunity from this row. */
+  readonly creatorAlias: string | null;
   readonly routeKey: string;
   readonly sourceStatus: string;
   readonly routeName: string | null;
@@ -163,7 +176,6 @@ export interface CrmImportSourceRow {
 export type CrmImportRowViolation =
   | 'SOURCE_ROW_KEY_INVALID'
   | 'KEY_CARRIES_CONTACT_VALUE'
-  | 'CREATOR_ALIAS_REQUIRED'
   | 'ROUTE_KEY_REQUIRED'
   | 'SOURCE_STATUS_REQUIRED'
   | 'CONTACT_NAME_VERIFIED_INVALID'
@@ -286,8 +298,8 @@ export function parseCrmImportCsv(text: string): CrmImportParseResult {
     };
     const rowKey = blank(get('source_row_key'));
     if (!crmImportSourceRowKeyValid(rowKey)) violations.push('SOURCE_ROW_KEY_INVALID');
+    // Optional: blank is "no creator", never a violation.
     const creatorAlias = blank(get('creator_alias'));
-    if (!creatorAlias) violations.push('CREATOR_ALIAS_REQUIRED');
     const routeKey = blank(get('route_key'));
     if (!routeKey) violations.push('ROUTE_KEY_REQUIRED');
     // Aliases and route keys are kept in provenance and plans; an address or a number never is.
@@ -313,7 +325,7 @@ export function parseCrmImportCsv(text: string): CrmImportParseResult {
     rows.push({
       line,
       sourceRowKey: rowKey!,
-      creatorAlias: creatorAlias!,
+      creatorAlias,
       routeKey: routeKey!,
       sourceStatus: status!,
       routeName: blank(get('route_name')),
@@ -547,6 +559,12 @@ export const CRM_IMPORT_OUTCOMES = [
   'COMPANY_NAME_REQUIRED',
   'CREATOR_ALIAS_UNMAPPED',
   'CREATOR_NOT_REFERENCEABLE',
+  /**
+   * The row's status maps to OPPORTUNITY, but the row names no creator. An Opportunity needs a creator,
+   * and none is ever invented, so the row is held for review -- its Company, Person and Contact Points
+   * too, because its mapping says it belongs to a pursuit that cannot be built.
+   */
+  'OPPORTUNITY_REQUIRES_CREATOR',
   'STAGE_MAPPING_REQUIRED',
   'STAGE_CONFLICT',
   'CONTACT_VALUE_INVALID',
