@@ -213,12 +213,48 @@ host must be local.
 **Before PR B runs a dry run against production data,** the importer's process must be keyed with
 production's `COGNITIVE_HASH_SECRET`. Exact Contact Point matching compares keyed hashes.
 
-## 10. Not built (PR B and later)
+## 10. The production path (PR B, 2026-10-07)
 
-- **The private production import bucket and a dedicated least-privilege GitHub OIDC read role.**
-  - The existing migrate/deploy roles must not become S3 readers.
-  - The proposed workflow inputs carry no contact data: mode, S3 object key, expected SHA-256,
-    organization, importer version, configuration fingerprint, confirmation.
+**Implemented. Not deployed. Procedure:** `docs/runbooks/crm-outreach-import.md`.
+
+**Where things live:**
+- **Bucket:** `loop-crm-import-080891698678`, with three prefixes:
+  - `crm-import/source/`: sources, uploaded by a human;
+  - `crm-import/config/`: reviewed configurations;
+  - `crm-import/review/run-<id>/`: review artifacts.
+- **Template:** `infra/connections/access/crm-import-source-access.yaml`, deployed by Matt.
+- **The one identity, `loop-crm-import-github-production`:**
+  - assumable only by `connections-production`;
+  - reads sources and configs;
+  - writes review files;
+  - nothing else.
+
+**The workflow, `CRM Outreach Import`:**
+- **Modes:** `validate`, `inventory`, `record-config` and `dry-run`. There is no mode that writes
+  canonical CRM records.
+- **Where it runs:** from `main` only, in `connections-production`, for the one organization the
+  environment pins.
+- **Before parsing:** it verifies the object's SHA-256 over its bytes.
+- **The database URL** is read with the unchanged migrate role.
+- **The identifier key** comes from the repository secret, to the import step only.
+- **Review files** go to the private prefix, and the runner's copy is removed.
+
+**The command's production target:**
+- read and dry-run only;
+- inside GitHub Actions on `refs/heads/main`;
+- with `--expected-sha256`, `--importer-version` and `--source-ref s3:<key>:v:<version>`.
+
+**Two more safeguards:**
+- **The dry run checks the identifier key.** It refuses with `HASH_KEY_MISMATCH` if an existing
+  Contact Point was hashed under a different key.
+- **The importer version is unchanged** (`crm-outreach-import.v1`). PR B wires infrastructure and a
+  safety precondition; normalization, matching, planning and provenance are as in PR A.
+
+## 11. Not built
+
+- **Production APPLY and approval.** A separate reviewed commissioning change, after the real dry
+  run is reviewed and the stage mapping approved.
 - **Alias and route administration UI.**
 - **A governed job-title / employment / affiliation authority.**
 - **A governed Opportunity-note authority.**
+- **An XLSX-to-canonical-CSV transformation.** It is written once the real source's layout is known.

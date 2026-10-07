@@ -25,47 +25,40 @@ NOT by seeing it render or run. Those must be checked on the deploy.
 
 ---
 
-## CRM authority for the brand-outreach import — SLICES 1–4.1 COMMISSIONED · SLICE 5 PR A IN REVIEW (2026-10-07)
+## CRM authority for the brand-outreach import — SLICE 5 PR A COMMISSIONED · PR B IN PROGRESS (2026-10-07)
 
 **Where it stands.**
-- **Slices 1–4.1 are merged and commissioned:** #358–#363.
-- **Slice 5, PR A** (`feat/crm-import-provenance`, draft) is built:
-  - the governed importer and its provenance (`docs/architecture/crm-outreach-import.md`);
-  - `CrmOpportunityService.create`;
-  - caller-transaction variants of the Party, Contact Point and Opportunity writers;
-  - reviewed creator aliases and route classifications (OWNER/ADMIN);
-  - a local dry run with review artifacts;
-  - a gated APPLY. **Production APPLY is refused in code.**
-  - Migration `20261012000000_crm_import_provenance` is **not dispatched**.
+- **PR A (#364) merged** (`d8177a3`). Its migration `20261012000000_crm_import_provenance` is applied
+  in production.
+- **PR B** (`feat/crm-import-production-source`) is built: the private source bucket, a dedicated
+  read role, the `CRM Outreach Import` workflow (validate / inventory / record-config / dry-run), the
+  command's production target, and the hash-key check.
+- **PR B is not deployed.**
+  - The access stack and the three environment variables are Matt's (`docs/runbooks/crm-outreach-import.md`).
+  - This session has no AWS access and cannot dispatch workflows.
 
-**Not built:**
-- PR B: private S3 + dedicated GitHub OIDC import role;
-- alias and route admin UI;
-- governed job-title / affiliation authority;
-- governed Opportunity notes;
-- update/reopen/void Opportunity services.
+**Blocked on:**
+- **`FINAL_SOURCE_REQUIRED`.** Only the 2026-10-06 PDF exists, and it is design evidence, not a
+  source.
+- **Deployment of PR B** (Matt).
 
 **Next, in order:**
-1. Review PR A, then its migration; merge; deploy the migration.
-2. PR B (S3/OIDC), reviewed and merged.
-3. Upload the private source.
-4. A real dry run, then human review.
-5. Approve the stage mapping, the route and creator mappings, and then the APPLY.
-6. A controlled first import, CRM UI verification, then the scaled import.
-
-**Blocks the first real dry run:**
-- the final structured CSV (stable row keys, `contact_kind`, `contact_name_verified`, E.164 phones);
-- reviewed aliases and routes;
-- PR B;
-- the deployed migration.
-
-The stage mapping blocks every write, not the dry run.
+1. Deploy the access stack and set the environment variables.
+2. Export and upload the final CSV.
+3. `inventory`.
+4. Reviewed aliases and routes, then `record-config`.
+5. `dry-run`, then human review.
+6. Stage mapping approval.
+7. A separate change commissioning production APPLY.
+8. Explicit approval of the controlled first import.
 
 **Known debt, not fixed here:**
 - `CrmRelationshipService` owner validation does not enforce same-org active membership.
 - `CrmRelationshipService` resolves `actorName` inside its transaction.
 - The legacy `/crm` Command Center still lists Relationships and Opportunities under "Upcoming".
-- `intelligence_digests.entityRefs` default drifts from the Prisma schema (pre-existing on `main`).
+- `intelligence_digests.entityRefs` default drifts from the schema (pre-existing).
+- The #362 web test `crm-relationship-linked-opportunities` fails on `main` (its regex matches the
+  Relationship page's `capabilities.addParticipant`).
 
 ---
 
