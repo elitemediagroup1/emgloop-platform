@@ -21,7 +21,7 @@
 // future CRM Participant, and this work does not rename or touch it. The CRM
 // Participant authority is designed on this contract, after this slice.
 
-import type { PrismaClient } from '@prisma/client';
+import type { Prisma, PrismaClient } from '@prisma/client';
 import {
   PARTY_REFERENCE_NOT_FOUND,
   isPartyReference,
@@ -33,6 +33,9 @@ import {
   type PartyType,
 } from '@emgloop/shared';
 import { PartyRepository, type PartyView } from './cognitive/party.repository';
+
+/** A caller's transaction, when a reference check must see that transaction's own writes. */
+export type PartyReferenceDb = PrismaClient | Prisma.TransactionClient;
 
 export type PartyReferenceRequirement =
   | { readonly ok: true; readonly reference: PartyReference; readonly partyType: PartyType }
@@ -50,13 +53,17 @@ export class PartyReferenceRepository {
   }
 
   /** What the reference (organizationId, partyId) names, superseded records resolved forward. */
-  async resolve(organizationId: string, partyId: string): Promise<PartyReferenceResolution> {
+  /**
+   * `db`, when given, is the caller's transaction: a writer checking a Party it created earlier in
+   * the same unit must see that write. The rules are the same on either client.
+   */
+  async resolve(organizationId: string, partyId: string, db?: PartyReferenceDb): Promise<PartyReferenceResolution> {
     if (!isPartyReference({ organizationId, partyId })) return PARTY_REFERENCE_NOT_FOUND;
     const walked: PartyReferenceNode[] = [];
     let id = partyId;
     // `partyReferenceStep` bounds the walk (cycle and depth), so this loop ends.
     for (;;) {
-      const node = await this.node(organizationId, id);
+      const node = await this.node(organizationId, id, db);
       const step = partyReferenceStep(partyId, walked, node);
       if ('resolved' in step) return step.resolved;
       if (node) walked.push(node);
@@ -104,16 +111,16 @@ export class PartyReferenceRepository {
    * resolution, so a superseded id comes back with its canonical id rather than
    * being swapped for it.
    */
-  async requireReferenceable(organizationId: string, partyId: string): Promise<PartyReferenceRequirement> {
-    const resolution = await this.resolve(organizationId, partyId);
+  async requireReferenceable(organizationId: string, partyId: string, db?: PartyReferenceDb): Promise<PartyReferenceRequirement> {
+    const resolution = await this.resolve(organizationId, partyId, db);
     if (resolution.state === 'ESTABLISHED' && partyReferenceWritable(resolution)) {
       return { ok: true, reference: { organizationId, partyId: resolution.partyId }, partyType: resolution.partyType };
     }
     return { ok: false, resolution };
   }
 
-  private async node(organizationId: string, id: string): Promise<PartyReferenceNode | null> {
-    const party = await this.parties.findParty(organizationId, id);
+  private async node(organizationId: string, id: string, db?: PartyReferenceDb): Promise<PartyReferenceNode | null> {
+    const party = db ? await this.parties.findParty(organizationId, id, undefined, db) : await this.parties.findParty(organizationId, id);
     return party ? nodeFrom(party) : null;
   }
 }

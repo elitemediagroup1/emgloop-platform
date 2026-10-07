@@ -72,3 +72,43 @@ export function crmOpportunityActPermitted(request: { readonly act: string; read
 export function crmOpportunityOwnerEligible(role: string): boolean {
   return crmOpportunityActPermitted({ act: 'UPDATE', role, actorType: 'HUMAN' });
 }
+
+// --- Creating an Opportunity (CRM slice 5, 2026-10-07) -------------------------------------
+
+/** The longest title and stage label a governed create accepts. Longer input is refused, never cut. */
+export const CRM_OPPORTUNITY_TITLE_MAX = 200;
+export const CRM_OPPORTUNITY_STAGE_MAX = 120;
+
+const CREATE_CATEGORIES: readonly string[] = ['OPEN', 'CLOSED_WON', 'CLOSED_LOST'];
+
+export type CrmOpportunityCreateViolation =
+  | 'TITLE_REQUIRED'
+  | 'TITLE_TOO_LONG'
+  | 'UNKNOWN_CATEGORY'
+  | 'STAGE_REQUIRED'
+  | 'STAGE_TOO_LONG'
+  | 'CREATOR_REQUIRED';
+
+/**
+ * The shape a governed create needs, checked before anything is read. The creator is the
+ * Opportunity's `creatorPartyId` (a PERSON, checked against the Party authority by the writer) --
+ * never a Participant. Stage is the organization's own label, kept as given; nothing here maps,
+ * defaults or derives one.
+ */
+export function validateCrmOpportunityCreate(shape: {
+  readonly title: unknown;
+  readonly category: unknown;
+  readonly stage: unknown;
+  readonly creatorPartyId: unknown;
+}): CrmOpportunityCreateViolation[] {
+  const out: CrmOpportunityCreateViolation[] = [];
+  const title = typeof shape.title === 'string' ? shape.title.trim() : '';
+  if (!title) out.push('TITLE_REQUIRED');
+  else if (title.length > CRM_OPPORTUNITY_TITLE_MAX) out.push('TITLE_TOO_LONG');
+  if (typeof shape.category !== 'string' || !CREATE_CATEGORIES.includes(shape.category)) out.push('UNKNOWN_CATEGORY');
+  const stage = typeof shape.stage === 'string' ? shape.stage.trim() : '';
+  if (!stage) out.push('STAGE_REQUIRED');
+  else if (stage.length > CRM_OPPORTUNITY_STAGE_MAX) out.push('STAGE_TOO_LONG');
+  if (typeof shape.creatorPartyId !== 'string' || !shape.creatorPartyId.trim()) out.push('CREATOR_REQUIRED');
+  return out;
+}

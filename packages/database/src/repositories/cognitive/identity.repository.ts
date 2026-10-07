@@ -40,6 +40,9 @@ function boundTake(take?: number): number {
 // CognitiveIdentity
 // ---------------------------------------------------------------------------
 
+/** The repository's client, or a caller's transaction (the Party writer's import unit). */
+export type IdentityDb = PrismaClient | Prisma.TransactionClient;
+
 export interface CreateIdentityInput {
   entityType: CognitiveEntityType;
   canonicalKey: string;
@@ -51,8 +54,8 @@ export interface CreateIdentityInput {
 export class CognitiveIdentityRepository {
   constructor(private readonly prisma: PrismaClient) {}
 
-  create(organizationId: string, input: CreateIdentityInput): Promise<CognitiveIdentity> {
-    return this.prisma.cognitiveIdentity.create({
+  create(organizationId: string, input: CreateIdentityInput, db: IdentityDb = this.prisma): Promise<CognitiveIdentity> {
+    return db.cognitiveIdentity.create({
       data: {
         organizationId,
         entityType: input.entityType,
@@ -65,8 +68,8 @@ export class CognitiveIdentityRepository {
   }
 
   /** Resolve within org, fail closed to null. Cross-org id → null. */
-  findById(organizationId: string, id: string): Promise<CognitiveIdentity | null> {
-    return this.prisma.cognitiveIdentity.findFirst({ where: { id, organizationId } });
+  findById(organizationId: string, id: string, db: IdentityDb = this.prisma): Promise<CognitiveIdentity | null> {
+    return db.cognitiveIdentity.findFirst({ where: { id, organizationId } });
   }
 
   findByCanonicalKey(
@@ -137,8 +140,9 @@ export class CognitiveIdentityRepository {
     organizationId: string,
     id: string,
     input: { establishedByUserId: string; basis: 'MANUAL' | 'EXPLICIT_LINK'; at: Date },
+    db: IdentityDb = this.prisma,
   ): Promise<CognitiveIdentity | null> {
-    const { count } = await this.prisma.cognitiveIdentity.updateMany({
+    const { count } = await db.cognitiveIdentity.updateMany({
       where: { id, organizationId, establishedAt: null, entityType: { in: ['PERSON', 'COMPANY'] } },
       data: {
         establishedAt: input.at,
@@ -147,7 +151,7 @@ export class CognitiveIdentityRepository {
       },
     });
     if (count === 0) return null;
-    return this.findById(organizationId, id);
+    return this.findById(organizationId, id, db);
   }
 
   async archive(organizationId: string, id: string): Promise<CognitiveIdentity | null> {
