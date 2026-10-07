@@ -1,0 +1,159 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Loop CRM outreach import - the PRIVATE production source area and its ONE GitHub Actions identity.
+  A private, versioned, encrypted bucket with crm-import/source, crm-import/config and crm-import/review
+  prefixes, and a role that only the connections-production environment of
+  elitemediagroup1/emgloop-platform may assume, which may read sources and configs and write review
+  artifacts -- nothing else. Deployed once by a human administrator, in the production workload
+  account, us-east-1 (checked before deploying); never by the pipeline it authorizes.
+
+# Stack: LoopCrmImport-production-source-access, in 080891698678, us-east-1. Termination protection on.
+# Procedure: docs/runbooks/crm-outreach-import.md. Checks: infra/connections/test/crm-import-access.test.ts.
+#
+# PRODUCTION ONLY. There is no staging import of the real outreach directory, so there is no Stage
+# parameter: the template takes nothing but the account it is deployed in.
+#
+# SEPARATE IDENTITY ON PURPOSE (decision M). The deploy and migrate roles are untouched and gain no S3
+# authority. This role cannot deploy, cannot migrate, cannot read any secret, cannot touch the database
+# and cannot reach any other bucket. The workflow reads the database URL with the EXISTING migrate role
+# (unchanged: it can read that one secret), exactly as record-ai-budget.yml does.
+#
+# LEAST PRIVILEGE:
+#   - s3:GetObject + s3:GetObjectVersion on crm-import/source/* and crm-import/config/* only;
+#   - s3:PutObject on crm-import/review/* only (the protected review artifacts the dry run writes);
+#   - no s3:ListBucket (a missing object is simply a refused read), no delete, no ACL, no policy.
+# UPLOADING A SOURCE IS A HUMAN ACT: an administrator signed in through Identity Center uploads it
+# (CloudShell or console). No CI identity can write a source or a config.
+#
+# THE BUCKET: all public access blocked, bucket-owner-enforced ownership (no ACLs), SSE-S3 encryption
+# (the repository's convention, as the media bucket), versioning on (a replaced source keeps its
+# history and an object version can be named), TLS required by policy, retained on stack deletion.
+# Lifecycle (no repository standard exists; a conservative default, documented in the runbook):
+#   - a source's or config's NON-CURRENT versions expire after 90 days (the current one is kept until
+#     a person deletes it);
+#   - review artifacts (sensitive: the protected one carries contact values) expire after 90 days;
+#   - incomplete multipart uploads are aborted after 1 day.
+# Database provenance is never touched by any of this.
+
+Resources:
+  CrmImportBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub 'loop-crm-import-${AWS::AccountId}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: source-noncurrent-versions-90-days
+            Status: Enabled
+            Prefix: crm-import/source/
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 90
+          - Id: config-noncurrent-versions-90-days
+            Status: Enabled
+            Prefix: crm-import/config/
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 90
+          - Id: review-artifacts-90-days
+            Status: Enabled
+            Prefix: crm-import/review/
+            ExpirationInDays: 90
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 1
+          - Id: abort-incomplete-multipart-uploads
+            Status: Enabled
+            Prefix: crm-import/
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+      Tags:
+        - { Key: app, Value: loop }
+        - { Key: component, Value: crm-import-source }
+        - { Key: env, Value: production }
+        - { Key: data-classification, Value: sensitive }
+
+  CrmImportBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    DependsOn: CrmImportBucket
+    Properties:
+      Bucket: !Sub 'loop-crm-import-${AWS::AccountId}'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !Sub 'arn:aws:s3:::loop-crm-import-${AWS::AccountId}'
+              - !Sub 'arn:aws:s3:::loop-crm-import-${AWS::AccountId}/*'
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+
+  GitHubCrmImportRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: loop-crm-import-github-production
+      Description: GitHub Actions (connections-production environment) reads CRM import sources and configs and writes review artifacts, in the CRM import bucket only.
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: ConnectionsProductionEnvironmentOnly
+            Effect: Allow
+            Principal:
+              Federated: !Sub 'arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com'
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: repo:elitemediagroup1/emgloop-platform:environment:connections-production
+      Policies:
+        - PolicyName: crm-import-read-sources-and-configs-only
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ReadImportSourcesAndConfigsOnly
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                Resource:
+                  - !Sub 'arn:aws:s3:::loop-crm-import-${AWS::AccountId}/crm-import/source/*'
+                  - !Sub 'arn:aws:s3:::loop-crm-import-${AWS::AccountId}/crm-import/config/*'
+        - PolicyName: crm-import-write-review-artifacts-only
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: WriteReviewArtifactsOnly
+                Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource:
+                  - !Sub 'arn:aws:s3:::loop-crm-import-${AWS::AccountId}/crm-import/review/*'
+      Tags:
+        - { Key: app, Value: loop }
+        - { Key: component, Value: crm-import-access }
+        - { Key: env, Value: production }
+
+Outputs:
+  CrmImportRoleArn:
+    Description: The import role ARN, which becomes the connections-production environment variable CRM_IMPORT_ROLE_ARN.
+    Value: !GetAtt GitHubCrmImportRole.Arn
+  CrmImportBucketName:
+    Description: The import bucket, which becomes the connections-production environment variable CRM_IMPORT_BUCKET.
+    Value: !Sub 'loop-crm-import-${AWS::AccountId}'
