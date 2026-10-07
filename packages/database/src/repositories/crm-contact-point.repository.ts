@@ -154,6 +154,21 @@ export class CrmContactPointRepository {
     return [...rows.filter((r) => crmContactPointIsCurrent(r.state)), ...rows.filter((r) => !crmContactPointIsCurrent(r.state))];
   }
 
+  /**
+   * The key fingerprints the organization's current Contact Points were hashed under, with counts.
+   * A writer about to MATCH must be keyed the same way, or exact matching silently finds nothing. A
+   * fingerprint is a one-way digest of the key, never the key; no value is read.
+   */
+  async hashKeyFingerprints(organizationId: string): Promise<{ fingerprint: string | null; count: number }[]> {
+    if (!organizationId?.trim()) return [];
+    const rows = await this.prisma.crmContactPoint.groupBy({
+      by: ['hashKeyFingerprint'],
+      where: { organizationId, state: { in: ['ACTIVE', 'UNDELIVERABLE'] } },
+      _count: { _all: true },
+    });
+    return rows.map((r) => ({ fingerprint: r.hashKeyFingerprint, count: r._count._all }));
+  }
+
   /** Every current (ACTIVE or UNDELIVERABLE) holder of a hash in this organization and kind. */
   async currentHolders(organizationId: string, kind: CrmContactPointKind, valueHash: string): Promise<{ partyId: string; state: string }[]> {
     if (!organizationId?.trim()) return [];

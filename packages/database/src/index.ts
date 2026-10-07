@@ -15,7 +15,9 @@ declare global {
 const basePrisma: PrismaClient =
     global.__emgloopPrisma ??
     new PrismaClient({
-          log: process.env.NODE_ENV === 'development' ? ['query', 'warn', 'error'] : ['error'],
+          // LOOP_PRISMA_LOG=none: no client logging at all. The CRM import workflow sets it, because a
+          // Prisma error line can carry a query's arguments and that log must hold codes only.
+          log: process.env.LOOP_PRISMA_LOG === 'none' ? [] : process.env.NODE_ENV === 'development' ? ['query', 'warn', 'error'] : ['error'],
     });
 
 // Serverless containers stay warm across invocations, so this client outlives a

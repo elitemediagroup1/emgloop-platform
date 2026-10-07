@@ -187,7 +187,12 @@ export type CrmImportParseResult =
       /** Rows refused by shape, by line. Their contents are not echoed. */
       readonly invalid: readonly { readonly line: number; readonly sourceRowKey: string | null; readonly violations: readonly CrmImportRowViolation[] }[];
     }
-  | { readonly ok: false; readonly problem: CrmImportFileProblem; readonly column?: string };
+  /**
+   * `column` is named only when it is one of the contract's own column names. An unknown header cell is
+   * reported by its 1-based POSITION: a headerless export would otherwise put a data cell -- an address,
+   * a name -- into an error message.
+   */
+  | { readonly ok: false; readonly problem: CrmImportFileProblem; readonly column?: string; readonly position?: number };
 
 /** RFC 4180 records: quoted fields, doubled quotes, CRLF or LF, a leading BOM ignored. */
 export function parseCsvRecords(text: string): { ok: true; records: string[][] } | { ok: false; problem: 'UNTERMINATED_QUOTE' } {
@@ -258,8 +263,8 @@ export function parseCrmImportCsv(text: string): CrmImportParseResult {
   if (!header || header.every((h) => h.trim() === '')) return { ok: false, problem: 'EMPTY_FILE' };
   const names = header.map((h) => h.trim());
   const seen = new Set<string>();
-  for (const name of names) {
-    if (!(CRM_IMPORT_COLUMNS as readonly string[]).includes(name)) return { ok: false, problem: 'UNKNOWN_COLUMN', column: name };
+  for (const [i, name] of names.entries()) {
+    if (!(CRM_IMPORT_COLUMNS as readonly string[]).includes(name)) return { ok: false, problem: 'UNKNOWN_COLUMN', position: i + 1 };
     if (seen.has(name)) return { ok: false, problem: 'DUPLICATE_COLUMN', column: name };
     seen.add(name);
   }

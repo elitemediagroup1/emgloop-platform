@@ -48,8 +48,8 @@ import {
 
 import { IamRepository } from '../repositories/iam.repository';
 import { PartyReferenceRepository } from '../repositories/party-reference.repository';
-import { crmContactPointValueHash } from '../repositories/crm-contact-point.repository';
-import { keyedDigest } from '../repositories/cognitive/hashing';
+import { CrmContactPointRepository, crmContactPointValueHash } from '../repositories/crm-contact-point.repository';
+import { identifierKeyFingerprint, keyedDigest } from '../repositories/cognitive/hashing';
 import { PartyService } from '../services/party.service';
 import { CrmContactPointService } from '../services/crm-contact-point.service';
 import { CrmOpportunityService } from '../services/crm-opportunity.service';
@@ -87,6 +87,8 @@ export interface CrmImportInvalidRow {
 export interface CrmImportPrepared {
   readonly sourceSha256: string;
   readonly importerVersion: typeof CRM_IMPORT_VERSION;
+  /** One-way fingerprint of the identifier key this plan matched with (never the key). */
+  readonly keyFingerprint: string;
   readonly configFingerprint: string;
   readonly planDigest: string;
   readonly plan: CrmImportPlan;
@@ -99,9 +101,14 @@ export interface CrmImportPrepared {
 export type CrmImportPrepareResult =
   | { readonly outcome: 'OK'; readonly prepared: CrmImportPrepared }
   | { readonly outcome: 'NOT_AUTHORIZED' }
-  | { readonly outcome: 'SOURCE_INVALID'; readonly problem: string; readonly column?: string }
+  | { readonly outcome: 'SOURCE_INVALID'; readonly problem: string; readonly column?: string; readonly position?: number }
   | { readonly outcome: 'STAGE_MAPPING_INVALID'; readonly violations: readonly { at: string; code: string }[] }
-  | { readonly outcome: 'SOURCE_REF_INVALID' };
+  | { readonly outcome: 'SOURCE_REF_INVALID' }
+  /**
+   * The organization's Contact Points were hashed under a different key than this process holds, so
+   * exact matching could not find them and the plan would propose duplicates. Refused, never guessed.
+   */
+  | { readonly outcome: 'HASH_KEY_MISMATCH'; readonly keyFingerprint: string; readonly mismatchedContactPoints: number };
 
 export type CrmImportApplyResult =
   | { readonly outcome: 'APPLIED' | 'APPLIED_WITH_FAILURES'; readonly runId: string; readonly counts: Readonly<Record<string, number>>; readonly failureCodes: readonly string[] }
@@ -143,6 +150,7 @@ export class CrmImportService {
   private readonly opportunities: CrmOpportunityService;
   private readonly applyTargetGuard: () => boolean;
   private readonly clock: () => Date;
+  private readonly contactPointRows: Pick<CrmContactPointRepository, 'hashKeyFingerprints'>;
 
   constructor(
     private readonly prisma: PrismaClient,
@@ -156,6 +164,7 @@ export class CrmImportService {
     this.opportunities = deps.opportunities ?? new CrmOpportunityService(prisma);
     this.applyTargetGuard = deps.applyTargetGuard ?? localDatabaseOnly;
     this.clock = deps.clock ?? (() => new Date());
+    this.contactPointRows = new CrmContactPointRepository(prisma);
   }
 
   // --- Dry run ---------------------------------------------------------------------------------
@@ -297,8 +306,15 @@ export class CrmImportService {
     if (stageViolations.length > 0) return { outcome: 'STAGE_MAPPING_INVALID', violations: stageViolations };
 
     const parsed = parseCrmImportCsv(source.csvText);
-    if (!parsed.ok) return { outcome: 'SOURCE_INVALID', problem: parsed.problem, ...(parsed.column ? { column: parsed.column } : {}) };
+    if (!parsed.ok) return { outcome: 'SOURCE_INVALID', problem: parsed.problem, ...(parsed.column ? { column: parsed.column } : {}), ...(parsed.position ? { position: parsed.position } : {}) };
     const org = actor.organizationId;
+
+    // Exact matching compares keyed hashes: this process must hold the key the existing Contact Points
+    // were written under, or every match would silently miss and the plan would propose duplicates.
+    const keyFingerprint = identifierKeyFingerprint();
+    const keyed = await this.contactPointRows.hashKeyFingerprints(org);
+    const mismatched = keyed.filter((k) => k.fingerprint !== keyFingerprint).reduce((n, k) => n + k.count, 0);
+    if (mismatched > 0) return { outcome: 'HASH_KEY_MISMATCH', keyFingerprint, mismatchedContactPoints: mismatched };
     const now = this.clock();
 
     // Rows whose last-contacted date lies in the future are refused, not clamped.
@@ -381,6 +397,7 @@ export class CrmImportService {
       prepared: {
         sourceSha256: sha256(source.csvText),
         importerVersion: CRM_IMPORT_VERSION,
+        keyFingerprint,
         configFingerprint: configFingerprint(aliasRows, routeRows, stageMapping),
         planDigest: planDigest(plan, invalid),
         plan,

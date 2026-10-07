@@ -439,6 +439,28 @@ test('Contact Point matching is exact and per tenant: an existing holder is reus
   }
 });
 
+test('a dry run under a different identifier key than the organization\'s Contact Points is refused, never planned', { skip }, async () => {
+  const prisma = new PrismaClient({ datasources: { db: { url: URL } } });
+  try {
+    const t = await setup(prisma, 'hashkey');
+    const sam = await t.party('PERSON', 'Sam Lee');
+    const added = await new CrmContactPointService(prisma).add(t.actor('OWNER'), { partyId: sam, kind: 'EMAIL', value: 'sam@brother.example.test', classification: 'INDIVIDUAL', basis: 'OPERATOR_RECORDED' });
+    assert.ok(added.outcome === 'RECORDED');
+    const source = { csvText: csv(ROWS.slice(0, 1)), sourceRef: 'local' };
+    const ok = await local(prisma).dryRun(t.actor('OWNER'), source, t.cfg.stageMapping);
+    assert.ok(ok.outcome === 'OK' && /^[0-9a-f]{16}$/.test(ok.prepared.keyFingerprint), 'the same key: planned, with the key fingerprint (never the key)');
+    // As if the Contact Point had been written by a runtime holding another key.
+    await prisma.crmContactPoint.update({ where: { id: added.value.id }, data: { hashKeyFingerprint: '0000000000000000' } });
+    const runs = await prisma.crmImportRun.count({ where: { organizationId: t.organizationId } });
+    const refused = await local(prisma).dryRun(t.actor('OWNER'), source, t.cfg.stageMapping);
+    assert.deepEqual(refused.outcome, 'HASH_KEY_MISMATCH');
+    assert.equal('mismatchedContactPoints' in refused && refused.mismatchedContactPoints, 1);
+    assert.equal(await prisma.crmImportRun.count({ where: { organizationId: t.organizationId } }), runs, 'nothing recorded for a refused plan');
+  } finally {
+    await prisma.$disconnect();
+  }
+});
+
 test('atomicity and resumption: a failed unit leaves no half-created Company; a later approved run completes it once', { skip }, async () => {
   const prisma = new PrismaClient({ datasources: { db: { url: URL } } });
   try {
