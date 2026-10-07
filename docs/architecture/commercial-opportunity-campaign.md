@@ -29,6 +29,12 @@ record), over `CrmOpportunityReadService`:
 It writes nothing. There is still no governed notes authority: `internalNotes` is one free-text
 field with no author or history.
 
+**Since CRM slice 4.1 (2026-10-06):** Relationship detail also projects linked Opportunities using
+only the stored `CrmOpportunity.relationshipId`. Relationship access does not imply Opportunity
+access: the Opportunity read authority is checked separately before any linked rows are read, so a
+denied viewer learns no count, ids, titles or existence. The section reuses the Slice 4 projection
+and batching, shows no Contact Point values or Opportunity note text, and has no write controls.
+
 **Not yet built:**
 - versioned stage sets;
 - the outbox subject;
