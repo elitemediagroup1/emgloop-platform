@@ -25,42 +25,47 @@ NOT by seeing it render or run. Those must be checked on the deploy.
 
 ---
 
-## CRM authority for the brand-outreach import — SLICES 1–4.1 COMMISSIONED · SLICE 5 NEXT (2026-10-06)
+## CRM authority for the brand-outreach import — SLICES 1–4.1 COMMISSIONED · SLICE 5 PR A IN REVIEW (2026-10-07)
 
 **Where it stands.**
-- **Slices 1–4 are merged and commissioned.**
-  - #358: PD-F-05, PD-F-11 and PD-F-12 decisions.
-  - #359: CRM Contact Point authority; migration applied in production.
-  - #360: Opportunity owner, BRAND / PRIMARY_CONTACT Participants and PD-F-11; migration applied in production.
-  - #361 (`0003afd`): organization-wide staff Opportunities list/detail, read-only; production Netlify deployed and staff list loaded successfully.
-- **Slice 4.1** (#362, `629e964`) is merged and deployed to production:
-  - Relationship detail shows Opportunities whose stored `CrmOpportunity.relationshipId` explicitly points to that Relationship;
-  - projection reuses the Slice 4 Opportunity read model, including Party-name and ownership rules;
-  - Opportunity access is authorized separately, so Relationship access alone leaks no Opportunity count or existence;
-  - no Contact Point values, Opportunity note text or write controls;
-  - no migration; Netlify production is READY on the merge commit.
+- **Slices 1–4.1 are merged and commissioned:** #358–#363.
+- **Slice 5, PR A** (`feat/crm-import-provenance`, draft) is built:
+  - the governed importer and its provenance (`docs/architecture/crm-outreach-import.md`);
+  - `CrmOpportunityService.create`;
+  - caller-transaction variants of the Party, Contact Point and Opportunity writers;
+  - reviewed creator aliases and route classifications (OWNER/ADMIN);
+  - a local dry run with review artifacts;
+  - a gated APPLY. **Production APPLY is refused in code.**
+  - Migration `20261012000000_crm_import_provenance` is **not dispatched**.
 
 **Not built:**
-- governed create/update/reopen/void Opportunity services and staff write UI;
-- a governed Opportunity notes authority;
-- import provenance and the importer (Slice 5).
+- PR B: private S3 + dedicated GitHub OIDC import role;
+- alias and route admin UI;
+- governed job-title / affiliation authority;
+- governed Opportunity notes;
+- update/reopen/void Opportunity services.
 
 **Next, in order:**
-1. Slice 5: import provenance + importer.
-2. Dry run on Matt's final structured source file.
-3. Human review of creator aliases, route classification and import mapping.
-4. Production import only on explicit approval.
+1. Review PR A, then its migration; merge; deploy the migration.
+2. PR B (S3/OIDC), reviewed and merged.
+3. Upload the private source.
+4. A real dry run, then human review.
+5. Approve the stage mapping, the route and creator mappings, and then the APPLY.
+6. A controlled first import, CRM UI verification, then the scaled import.
 
-**Open before the importer:**
-- Opportunity creation and source-status → stage mapping (directory outreach statuses are NOT stages);
-- governed home for titles;
-- creator alias mapping;
-- route classification.
+**Blocks the first real dry run:**
+- the final structured CSV (stable row keys, `contact_kind`, `contact_name_verified`, E.164 phones);
+- reviewed aliases and routes;
+- PR B;
+- the deployed migration.
+
+The stage mapping blocks every write, not the dry run.
 
 **Known debt, not fixed here:**
 - `CrmRelationshipService` owner validation does not enforce same-org active membership.
 - `CrmRelationshipService` resolves `actorName` inside its transaction.
 - The legacy `/crm` Command Center still lists Relationships and Opportunities under "Upcoming".
+- `intelligence_digests.entityRefs` default drifts from the Prisma schema (pre-existing on `main`).
 
 ---
 

@@ -1,4 +1,5 @@
-// The governed CRM Opportunity authority for ownership and Participants (CRM slice 3, 2026-10-06).
+// The governed CRM Opportunity authority: creation (CRM slice 5, 2026-10-07), ownership and
+// Participants (CRM slice 3, 2026-10-06). Every act also runs inside a caller's transaction when given.
 //
 // PD-F-11 IS THE PERMISSION MODEL. Every act checks three independent refusals, as the
 // Relationship and Contact Point authorities do:
@@ -29,6 +30,7 @@ import { IamRepository } from '../repositories/iam.repository';
 import { membershipAuthority } from '../repositories/membership.repository';
 import {
   CrmOpportunityRepository,
+  type CrmOpportunityCreateInput,
   type CrmOpportunityParticipantAddInput,
   type CrmOpportunityRef,
   type CrmOpportunityWriteResult,
@@ -83,6 +85,37 @@ export class CrmOpportunityService {
     return { outcome: 'OK', value: { opportunity, participants: await this.opportunities.participants(actor.organizationId, opportunity.id) } };
   }
 
+  // --- Creation --------------------------------------------------------------------------
+
+  /**
+   * Create an Opportunity (CRM slice 5; PD-F-11 CREATE, EMPLOYEE and above). The creator must be
+   * an established, current PERSON of this organization and stays `creatorPartyId`, never a
+   * Participant; a Relationship is optional and never created here. The row, its first transition
+   * (no note) and the audit row are one transaction -- the caller's, when `options.tx` is given
+   * (the importer's pursuit unit). There is no Opportunity outbox subject yet, so none is invented.
+   * No owner is set: `createdByUserId` is provenance, and ownership is a separate governed act.
+   */
+  async create(
+    actor: CrmOpportunityActor,
+    input: Omit<CrmOpportunityCreateInput, 'actorUserId'>,
+    options: { readonly tx?: Prisma.TransactionClient } = {},
+  ): Promise<CrmOpportunityServiceResult<CrmOpportunityRef>> {
+    if (!(await this.permits(actor, 'CREATE'))) return { outcome: 'NOT_AUTHORIZED' };
+    const actorName = await this.actorName(actor);
+    return this.inTransaction(options.tx, async (tx) => {
+      const result = await this.opportunities.createOpportunity(actor.organizationId, { ...input, actorUserId: actor.userId }, tx);
+      if (result.outcome !== 'RECORDED') return result;
+      // Ids and labels only: the title can name a creator and a brand.
+      await this.record(tx, actor, actorName, 'opportunity.created', result.value.id, {
+        category: input.category,
+        stage: input.stage.trim(),
+        creatorPartyId: result.value.creatorPartyId,
+        relationshipLinked: Boolean(input.relationshipId?.trim()),
+      });
+      return result;
+    });
+  }
+
   // --- Ownership -------------------------------------------------------------------------
 
   /**
@@ -121,10 +154,11 @@ export class CrmOpportunityService {
   async addParticipant(
     actor: CrmOpportunityActor,
     input: Omit<CrmOpportunityParticipantAddInput, 'actorUserId'>,
+    options: { readonly tx?: Prisma.TransactionClient } = {},
   ): Promise<CrmOpportunityServiceResult<CrmParticipant>> {
     if (!(await this.permits(actor, 'ADD_PARTICIPANT'))) return { outcome: 'NOT_AUTHORIZED' };
     const actorName = await this.actorName(actor);
-    return this.prisma.$transaction(async (tx) => {
+    return this.inTransaction(options.tx, async (tx) => {
       const result = await this.opportunities.addParticipant(actor.organizationId, { ...input, actorUserId: actor.userId }, tx);
       if (result.outcome !== 'RECORDED') return result;
       await this.record(tx, actor, actorName, 'opportunity.participant_added', input.opportunityId, {
@@ -178,6 +212,11 @@ export class CrmOpportunityService {
       });
       return { outcome: 'RECORDED' as const, value: after };
     });
+  }
+
+  /** The caller's transaction when given (one step of an atomic unit); otherwise the act's own. */
+  private inTransaction<T>(tx: Prisma.TransactionClient | undefined, run: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+    return tx ? run(tx) : this.prisma.$transaction(run);
   }
 
   private async record(

@@ -1,0 +1,7 @@
+source_row_key,creator_alias,route_key,source_status,route_name,brand_name,contact_name,contact_name_verified,contact_kind,contact_title,email,phone,source_notes,source_last_contacted_at
+sample-001,Example Creator,example-brand,Sample status A,Example Brand heading,Example Brand,Casey Example,TRUE,INDIVIDUAL,Partnerships Lead,casey@brand.example.test,,Synthetic note,2026-08-01
+sample-002,Example Creator,example-brand,Sample status A,,,,,ROLE_INBOX,,team@brand.example.test,,,
+sample-003,Example Creator,example-brand,Sample status A,,,Name not verified,TRUE,INDIVIDUAL,,someone@brand.example.test,,,
+sample-004,Example Creator,example-agency,Sample status A,,,Robin Example,TRUE,INDIVIDUAL,,robin@agency.example.test,+1 555 010 0199,,
+sample-005,Example Creator,example-personal,Sample status B,,,,,,,person@mail.example.test,,,
+sample-006,Example Creator,example-internal,Sample status A,,,,,,,staff@internal.example.test,,,

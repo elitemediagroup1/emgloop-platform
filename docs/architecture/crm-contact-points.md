@@ -149,9 +149,10 @@ namespaced to Contact Points, so they never compare with IdentityEvidence hashes
   - A nullable `valueErasedAt` lets a future purge remove the raw value and keep the fingerprint, so
     suppression survives. That purge is not built.
 
-## 10. Rules for the brand-outreach directory import (approved 2026-10-06; importer not built)
+## 10. Rules for the brand-outreach directory import (approved 2026-10-06)
 
-These bind the future importer.
+These bind the importer. Its implementation (CRM slice 5, PR A, 2026-10-07) is recorded in
+`crm-outreach-import.md`. The production path is not commissioned yet.
 
 - **Route classification first.** Every directory route is classified before any import.
   - Personal-mail routes (e.g. `gmail.com`), EMG internal domains and creator personal domains are

@@ -32,6 +32,7 @@
 // No confidence column is read here.
 
 import type {
+  Prisma,
   PrismaClient,
   CognitiveEntityType,
   CognitiveIdentityStatus,
@@ -70,6 +71,9 @@ const EVIDENCE_BASIS: Partial<Record<IdentityEvidenceType, IdentityResolutionMet
   EXPLICIT_LINK: 'EXPLICIT_LINK',
 };
 
+/** The client a Party read runs on: the repository's own, or a caller's transaction. */
+export type PartyDb = PrismaClient | Prisma.TransactionClient;
+
 export interface PartyView {
   id: string;
   organizationId: string;
@@ -86,11 +90,16 @@ const ACTOR_BASES: readonly string[] = ['MANUAL', 'EXPLICIT_LINK'];
 export class PartyRepository {
   constructor(private readonly prisma: PrismaClient) {}
 
+
   /** A Party record inside the organization, or null. Non-Party types are null. */
-  async findParty(organizationId: string, id: string, now: Date = new Date()): Promise<PartyView | null> {
-    const row = await this.prisma.cognitiveIdentity.findFirst({ where: { id, organizationId } });
+  /**
+   * `db` is a caller's transaction when the read must see that transaction's own writes (a Party
+   * created earlier in the same import unit); otherwise the repository's client.
+   */
+  async findParty(organizationId: string, id: string, now: Date = new Date(), db: PartyDb = this.prisma): Promise<PartyView | null> {
+    const row = await db.cognitiveIdentity.findFirst({ where: { id, organizationId } });
     if (!row || !isPartyType(row.entityType)) return null;
-    return partyViewFrom(row, await this.recordedBases(organizationId, row.id, now));
+    return partyViewFrom(row, await this.recordedBases(organizationId, row.id, now, db));
   }
 
   /**
@@ -150,8 +159,8 @@ export class PartyRepository {
     );
   }
 
-  private async recordedBases(organizationId: string, identityId: string, now: Date): Promise<PartyBasis[]> {
-    const evidence = await this.prisma.identityEvidence.findMany({
+  private async recordedBases(organizationId: string, identityId: string, now: Date, db: PartyDb = this.prisma): Promise<PartyBasis[]> {
+    const evidence = await db.identityEvidence.findMany({
       where: {
         organizationId,
         identityId,

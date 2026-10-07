@@ -272,6 +272,12 @@ model Organization {
   crmRelationshipEvents       CrmRelationshipEvent[]
   crmParticipants             CrmParticipant[]
   crmContactPoints            CrmContactPoint[]
+  crmImportCreatorAliases     CrmImportCreatorAlias[]
+  crmImportRouteMappings      CrmImportRouteMapping[]
+  crmImportRuns               CrmImportRun[]
+  crmImportApprovals          CrmImportApproval[]
+  crmImportEntries            CrmImportEntry[]
+  crmImportKeys               CrmImportKey[]
   crmContactPointEvents       CrmContactPointEvent[]
   aiInvocations               AiInvocation[]
   // --- Brain durable execution (B4) ---
@@ -7725,4 +7731,235 @@ model SourceMetricWindow {
   @@index([organizationId, sourceId, windowEnd])
   @@index([windowEnd])
   @@map("source_metric_windows")
+}
+
+// ===========================================================================
+// CRM IMPORT AUTHORITY (CRM slice 5, decisions 2026-10-07)
+//
+// The governed outreach importer's own records. The source file is evidence, not CRM authority:
+// these tables hold the REVIEWED rules that interpret it (creator aliases, route classifications),
+// the runs that read it, what each row was planned and applied as, and the keys that make a
+// re-run idempotent. They are NOT a copy of the source: no email, phone, contact name, title or
+// note is stored here -- only source hashes, keyed row fingerprints, codes, mapping ids and the CRM
+// subject ids the governed services returned. Every CRM write still goes through the Party,
+// Contact Point and Opportunity services.
+// ===========================================================================
+
+/// A reviewed creator alias: the exact (normalized) label the source uses for a creator, mapped by
+/// an OWNER/ADMIN to the creator's Party. APPEND-ONLY: a changed mapping retires the old row and
+/// writes a new one. No fuzzy match ever reaches this table.
+model CrmImportCreatorAlias {
+  id             String @id @default(cuid())
+  organizationId String
+
+  /// `crmImportKey(alias)`: NFKC, trimmed, whitespace collapsed, lower-cased. Nothing else.
+  aliasKey       String
+  /// The alias as the reviewer wrote it, for display.
+  aliasText      String
+  /// The creator's PERSON Party, checked through the Party Reference contract when written.
+  creatorPartyId String
+
+  /// ACTIVE | RETIRED
+  state     String
+  /// `aliasKey` while ACTIVE, NULL once RETIRED: one active mapping per alias.
+  activeKey String?
+
+  createdByUserId String
+  createdAt       DateTime  @default(now())
+  retiredAt       DateTime?
+  retiredByUserId String?
+  /// The mapping that replaced this one, when it was replaced rather than retired.
+  replacedById    String?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, activeKey])
+  @@index([organizationId, aliasKey])
+  @@map("crm_import_creator_aliases")
+}
+
+/// A reviewed route classification: what a source route IS (`CRM_IMPORT_ROUTE_CLASSIFICATIONS`),
+/// and the Company it is or speaks for, decided by an OWNER/ADMIN. APPEND-ONLY like aliases. The
+/// only way an import selects an existing Company: no name, domain or fuzzy matching exists.
+model CrmImportRouteMapping {
+  id             String @id @default(cuid())
+  organizationId String
+
+  /// `crmImportKey(routeKey)`.
+  routeKey                 String
+  routeText                String
+  classification           String
+  /// An existing Company this route IS (BRAND_COMPANY / AGENCY / PARENT_COMPANY).
+  targetCompanyPartyId     String?
+  /// The reviewed name of the Company this route PROPOSES when it has no target.
+  proposedCompanyName      String?
+  /// The brand a representing route speaks for: an existing Company, or a BRAND_COMPANY route key.
+  representedBrandPartyId  String?
+  representedBrandRouteKey String?
+
+  /// ACTIVE | RETIRED
+  state     String
+  activeKey String?
+
+  createdByUserId String
+  createdAt       DateTime  @default(now())
+  retiredAt       DateTime?
+  retiredByUserId String?
+  replacedById    String?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, activeKey])
+  @@index([organizationId, routeKey])
+  @@map("crm_import_route_mappings")
+}
+
+/// One read of one source file: a DRY_RUN (plans, writes no CRM row) or an APPLY (executes an
+/// approved dry run's plan through the governed services). Records who, when, which file (by
+/// SHA-256), which importer version and which configuration (by fingerprint), and the counts.
+model CrmImportRun {
+  id             String @id @default(cuid())
+  organizationId String
+
+  /// DRY_RUN | APPLY
+  mode              String
+  /// RUNNING | SUCCEEDED | FAILED | ABANDONED
+  state             String
+  importerVersion   String
+  /// CSV (the canonical structured source).
+  sourceType        String
+  /// An opaque, contact-free reference to where the file came from (e.g. `local`, later an S3 key).
+  sourceRef         String
+  sourceSha256      String
+  /// SHA-256 of the canonical active aliases, routes and stage mapping the plan used.
+  configFingerprint String
+  /// SHA-256 of the plan's intent (what would exist when done), set when planning succeeds.
+  planDigest        String?
+  rowCount          Int      @default(0)
+  /// Outcome and action codes -> counts. Never a value.
+  counts            Json     @default("{}")
+  /// Failure codes, never messages that could carry source text.
+  failureCodes      String[] @default([])
+
+  /// The approval this APPLY run CLAIMED. Null for a dry run. UNIQUE: an approval is consumed the
+  /// moment one APPLY run claims it -- whatever that run's outcome (succeeded, failed, abandoned).
+  /// Recovery is a fresh dry run and a fresh approval, never a re-used one.
+  approvalId   String? @unique
+  /// `organizationId` while an APPLY is RUNNING, NULL otherwise: one APPLY at a time per organization.
+  applyLockKey String? @unique
+
+  startedByUserId   String
+  startedAt         DateTime  @default(now())
+  completedAt       DateTime?
+  abandonedByUserId String?
+
+  organization     Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  entries          CrmImportEntry[]
+  importKeys       CrmImportKey[]
+  /// The approval this APPLY run claimed. NO ACTION on delete: one provenance row never erases
+  /// another by cascade (deleting the organization still removes all of it, in one statement).
+  approval         CrmImportApproval? @relation("CrmImportApprovalClaim", fields: [approvalId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  /// The approval of this dry run, when it was approved.
+  approvalOfDryRun CrmImportApproval? @relation("CrmImportApprovalDryRun")
+
+  @@index([organizationId, startedAt])
+  @@index([organizationId, sourceSha256, mode, state])
+  @@map("crm_import_runs")
+}
+
+/// An OWNER/ADMIN's approval of one successful dry run, binding the exact source, importer version,
+/// configuration and plan. An APPLY may execute only an approved plan, and only while all four
+/// still match.
+model CrmImportApproval {
+  id             String @id @default(cuid())
+  organizationId String
+
+  dryRunId          String   @unique
+  sourceSha256      String
+  importerVersion   String
+  configFingerprint String
+  planDigest        String
+  approvedByUserId  String
+  approvedAt        DateTime @default(now())
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  /// The real dry run this approves.
+  dryRun       CrmImportRun  @relation("CrmImportApprovalDryRun", fields: [dryRunId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  /// The one APPLY run that claimed (consumed) this approval, if any.
+  claimedBy    CrmImportRun? @relation("CrmImportApprovalClaim")
+
+  @@map("crm_import_approvals")
+}
+
+/// What one source row was planned (and, in an APPLY, applied) as. Codes, ids and a KEYED row
+/// fingerprint only -- never the row's contents.
+model CrmImportEntry {
+  id             String @id @default(cuid())
+  organizationId String
+  importRunId    String
+
+  /// The data line in this run's file, unique within the run (a duplicated row key is two lines).
+  line           Int
+  sourceRowKey   String?
+  /// Keyed HMAC of the row's canonical contents: detects a changed row without storing it.
+  rowFingerprint String?
+
+  routeMappingId      String?
+  routeClassification String?
+  creatorAliasId      String?
+  /// `<creatorPartyId>|<brand key>` when the row feeds a pursuit.
+  pursuitKey          String?
+
+  /// `CRM_IMPORT_OUTCOMES`.
+  outcome             String
+  /// The finer review reason, when the outcome needs one (e.g. a Contact Point match outcome).
+  ambiguityCode       String?
+  companyAction       String?
+  personAction        String?
+  opportunityAction   String?
+  /// [{ kind, classification, action }] -- never a value or its hash.
+  contactPointActions Json    @default("[]")
+
+  companyPartyId  String?
+  personPartyId   String?
+  opportunityId   String?
+  contactPointIds String[]  @default([])
+  appliedAt       DateTime?
+
+  createdAt DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  run          CrmImportRun @relation(fields: [importRunId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([importRunId, line])
+  @@index([organizationId, sourceRowKey])
+  @@map("crm_import_entries")
+}
+
+/// THE IDEMPOTENCY AUTHORITY. One row per CRM subject the importer created: the deterministic key it
+/// was planned under -> the subject the governed service returned. Claimed in the same transaction
+/// as the subject's creation, so two concurrent applies cannot both create it, a retried unit finds
+/// it, and a later run resolves a proposal to the subject it already became.
+model CrmImportKey {
+  id             String @id @default(cuid())
+  organizationId String
+
+  /// COMPANY | PERSON | OPPORTUNITY
+  keyKind     String
+  /// COMPANY: `route:<routeKey>`; PERSON: `email:<keyed hash>` | `phone:<keyed hash>` | `row:<rowKey>`;
+  /// OPPORTUNITY: `<creatorPartyId>|<brandPartyId>`.
+  keyValue    String
+  /// PARTY | CRM_OPPORTUNITY
+  subjectType String
+  subjectId   String
+  importRunId String
+  createdAt   DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  /// The real run that created the subject.
+  run          CrmImportRun @relation(fields: [importRunId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([organizationId, keyKind, keyValue])
+  @@index([organizationId, subjectId])
+  @@map("crm_import_keys")
 }

@@ -27,6 +27,10 @@
 // NO CONFIDENCE, NO INFERENCE. Nothing here accepts a score, matches on contact
 // values, or reads the dormant resolver.
 //
+// ONE TRANSACTION PER ACT, OR THE CALLER'S. Each act writes its row and its audit row together. A
+// caller composing several governed acts into one atomic unit (the CRM importer) passes its own
+// transaction; the authorization, validation and audit are exactly the same either way.
+//
 // The actor is always the session's user, established by the caller from the
 // session and never from input. Audit rows name that user: the caller passes the
 // session's display name, and without one the member's name is read from the
@@ -34,7 +38,7 @@
 // is known.
 
 import { randomUUID } from 'crypto';
-import type { PrismaClient } from '@prisma/client';
+import type { Prisma, PrismaClient } from '@prisma/client';
 import { isPartyType } from '@emgloop/shared';
 
 import { IamRepository } from '../repositories/iam.repository';
@@ -66,6 +70,13 @@ export type PartyWriteResult =
  */
 export interface PartyActOptions {
   actorName?: string | null;
+  /**
+   * A caller's transaction, when this act is one step of a larger atomic unit (the CRM importer's
+   * Company or Person unit). The SAME authorization, validation and audit run either way; only
+   * the transaction boundary moves to the caller, so a later failure in the unit rolls this act
+   * back too. Without it the act opens its own transaction (row and audit row together).
+   */
+  tx?: Prisma.TransactionClient;
 }
 
 export interface PartyServiceDeps {
@@ -83,7 +94,10 @@ export class PartyService {
   private readonly parties: PartyRepository;
   private readonly audit: Pick<AuditRepository, 'record'>;
 
-  constructor(prisma: PrismaClient, deps: PartyServiceDeps = {}) {
+  constructor(
+    private readonly prisma: PrismaClient,
+    deps: PartyServiceDeps = {},
+  ) {
     this.iam = deps.iam ?? new IamRepository(prisma);
     this.identities = deps.identities ?? new CognitiveIdentityRepository(prisma);
     this.parties = deps.parties ?? new PartyRepository(prisma);
@@ -110,27 +124,26 @@ export class PartyService {
     if (!isPartyType(input.partyType)) return { outcome: 'INVALID', reason: 'NOT_A_PARTY_TYPE' };
     if (!(await this.canCreate(organizationId, actorUserId))) return { outcome: 'NOT_AUTHORIZED' };
 
+    const partyType = input.partyType;
     const name = typeof input.displayName === 'string' ? input.displayName.trim().slice(0, DISPLAY_NAME_MAX) : '';
-    const row = await this.identities.create(organizationId, {
-      entityType: input.partyType,
-      canonicalKey: `party:${randomUUID()}`,
-      displayName: name.length > 0 ? name : null,
-      status: 'KNOWN',
+    // Resolved before any transaction: a lookup on the outer client from inside one needs a second
+    // pooled connection (the Contact Point slice's pool-starvation finding).
+    const actorName = await this.actorName(organizationId, actorUserId, options);
+    return this.inTransaction(options.tx, async (db): Promise<PartyWriteResult> => {
+      const row = await this.identities.create(
+        organizationId,
+        { entityType: partyType, canonicalKey: `party:${randomUUID()}`, displayName: name.length > 0 ? name : null, status: 'KNOWN' },
+        db,
+      );
+      const party = await this.parties.findParty(organizationId, row.id, undefined, db);
+      if (!party) return { outcome: 'NOT_FOUND' };
+      // No Party name in the audit entry: the trail records the act, not the person.
+      await this.audit.record(
+        { organizationId, userId: actorUserId, actorName, action: 'party.created', entityType: 'party', entityId: row.id, metadata: { partyType } },
+        db,
+      );
+      return { outcome: 'RECORDED', party };
     });
-    const party = await this.parties.findParty(organizationId, row.id);
-    if (!party) return { outcome: 'NOT_FOUND' };
-
-    // No Party name in the audit entry: the trail records the act, not the person.
-    await this.audit.record({
-      organizationId,
-      userId: actorUserId,
-      actorName: await this.actorName(organizationId, actorUserId, options),
-      action: 'party.created',
-      entityType: 'party',
-      entityId: row.id,
-      metadata: { partyType: input.partyType },
-    });
-    return { outcome: 'RECORDED', party };
   }
 
   /** Establish a Party record as canonical identity, on a governed basis. */
@@ -145,35 +158,39 @@ export class PartyService {
       return { outcome: 'INVALID', reason: 'NOT_A_GOVERNED_BASIS' };
     }
     if (!(await this.canEstablish(organizationId, actorUserId))) return { outcome: 'NOT_AUTHORIZED' };
+    const actorName = await this.actorName(organizationId, actorUserId, options);
 
-    const existing = await this.parties.findParty(organizationId, partyId);
-    if (!existing) return { outcome: 'NOT_FOUND' };
-    if (existing.establishment.established) return { outcome: 'ALREADY_ESTABLISHED', party: existing };
-    const row = await this.identities.findById(organizationId, partyId);
-    if (!row) return { outcome: 'NOT_FOUND' };
-    if (row.archivedAt || row.status === 'ARCHIVED') return { outcome: 'INVALID', reason: 'ARCHIVED' };
+    return this.inTransaction(options.tx, async (db): Promise<PartyWriteResult> => {
+      const existing = await this.parties.findParty(organizationId, partyId, undefined, db);
+      if (!existing) return { outcome: 'NOT_FOUND' };
+      if (existing.establishment.established) return { outcome: 'ALREADY_ESTABLISHED', party: existing };
+      const row = await this.identities.findById(organizationId, partyId, db);
+      if (!row) return { outcome: 'NOT_FOUND' };
+      if (row.archivedAt || row.status === 'ARCHIVED') return { outcome: 'INVALID', reason: 'ARCHIVED' };
 
-    const written = await this.identities.recordEstablishment(organizationId, partyId, {
-      establishedByUserId: actorUserId,
-      basis: basis as PartyEstablishmentBasis,
-      at: new Date(),
+      const written = await this.identities.recordEstablishment(
+        organizationId,
+        partyId,
+        { establishedByUserId: actorUserId, basis: basis as PartyEstablishmentBasis, at: new Date() },
+        db,
+      );
+      const party = await this.parties.findParty(organizationId, partyId, undefined, db);
+      if (!party) return { outcome: 'NOT_FOUND' };
+      // Somebody else established it between the read and the write: their record
+      // stands, and no audit entry is written for a write that did not happen.
+      if (!written) return { outcome: 'ALREADY_ESTABLISHED', party };
+
+      await this.audit.record(
+        { organizationId, userId: actorUserId, actorName, action: 'party.established', entityType: 'party', entityId: partyId, metadata: { basis } },
+        db,
+      );
+      return { outcome: 'RECORDED', party };
     });
-    const party = await this.parties.findParty(organizationId, partyId);
-    if (!party) return { outcome: 'NOT_FOUND' };
-    // Somebody else established it between the read and the write: their record
-    // stands, and no audit entry is written for a write that did not happen.
-    if (!written) return { outcome: 'ALREADY_ESTABLISHED', party };
+  }
 
-    await this.audit.record({
-      organizationId,
-      userId: actorUserId,
-      actorName: await this.actorName(organizationId, actorUserId, options),
-      action: 'party.established',
-      entityType: 'party',
-      entityId: partyId,
-      metadata: { basis },
-    });
-    return { outcome: 'RECORDED', party };
+  /** The caller's transaction when given; otherwise one of this act's own. */
+  private inTransaction<T>(tx: Prisma.TransactionClient | undefined, run: (db: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+    return tx ? run(tx) : this.prisma.$transaction(run);
   }
 
   /** The session's display name when the caller has one; otherwise the member's recorded name. */

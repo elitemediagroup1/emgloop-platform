@@ -181,7 +181,8 @@ export class CrmContactPointRepository {
   /** Record a Contact Point for an established Party, with its first event, in the caller's transaction. */
   async add(organizationId: string, input: CrmContactPointAddInput, tx: CrmContactPointTx): Promise<CrmContactPointWriteResult<CrmContactPointSummary>> {
     if (!organizationId?.trim()) return { outcome: 'NOT_FOUND' };
-    const required = await this.references.requireReferenceable(organizationId, input.partyId);
+    // Checked on the caller's transaction, so a Party created earlier in the same unit is seen.
+    const required = await this.references.requireReferenceable(organizationId, input.partyId, tx);
     if (!required.ok) {
       const refusal = partyReferenceForWrite(required.resolution);
       return refusal.ok
@@ -203,6 +204,11 @@ export class CrmContactPointRepository {
 
     const kind = input.kind as CrmContactPointKind;
     const valueHash = crmContactPointValueHash(organizationId, kind, normalized.value);
+    const currentKey = crmContactPointCurrentKey(required.reference.partyId, kind, valueHash);
+    // Already current on this Party: answered by a read, not by a failed insert. A failed statement
+    // aborts the whole Postgres transaction, which would poison a caller's unit (the importer). The
+    // unique key below still settles a concurrent race; then the caller's unit rolls back whole.
+    if (await tx.crmContactPoint.findFirst({ where: { organizationId, currentKey }, select: { id: true } })) return { outcome: 'DUPLICATE' };
     try {
       const row = await tx.crmContactPoint.create({
         data: {
@@ -217,7 +223,7 @@ export class CrmContactPointRepository {
           hashKeyFingerprint: identifierKeyFingerprint(),
           state: 'ACTIVE',
           lastSequence: 1,
-          currentKey: crmContactPointCurrentKey(required.reference.partyId, kind, valueHash),
+          currentKey,
           basis: input.basis as CrmContactPointBasis,
           sourceRef,
           retentionPolicy: CRM_CONTACT_POINT_DEFAULT_RETENTION_POLICY,

@@ -141,22 +141,36 @@ export class CrmContactPointService {
 
   // --- Acts ------------------------------------------------------------------------------
 
+  /**
+   * Record a Contact Point. `options.tx` is a caller's transaction when this is one step of a
+   * larger atomic unit (the CRM importer's Company or Person unit): the same grant, validation,
+   * Party Reference check, audit row and outbox event run, inside the caller's boundary.
+   */
   async add(
     actor: CrmContactPointActor,
     input: Omit<CrmContactPointAddInput, 'actorUserId' | 'occurredAt'> & { readonly occurredAt?: Date },
+    options: { readonly tx?: Prisma.TransactionClient } = {},
   ): Promise<CrmContactPointServiceResult<CrmContactPointSummary>> {
     if (!(await this.may(actor, 'ADD'))) return { outcome: 'NOT_AUTHORIZED' };
     const actorName = await this.actorName(actor);
-    return this.prisma.$transaction(async (tx) => {
-      const result = await this.contactPoints.add(
-        actor.organizationId,
-        { ...input, actorUserId: actor.userId, occurredAt: input.occurredAt ?? new Date() },
-        tx,
-      );
-      if (result.outcome !== 'RECORDED') return result;
-      await this.record(tx, actor, actorName, 'ADD', result.value, null, false);
-      return result;
-    });
+    const run = (tx: Prisma.TransactionClient) => this.addIn(tx, actor, actorName, input);
+    return options.tx ? run(options.tx) : this.prisma.$transaction(run);
+  }
+
+  private async addIn(
+    tx: Prisma.TransactionClient,
+    actor: CrmContactPointActor,
+    actorName: string | undefined,
+    input: Omit<CrmContactPointAddInput, 'actorUserId' | 'occurredAt'> & { readonly occurredAt?: Date },
+  ): Promise<CrmContactPointServiceResult<CrmContactPointSummary>> {
+    const result = await this.contactPoints.add(
+      actor.organizationId,
+      { ...input, actorUserId: actor.userId, occurredAt: input.occurredAt ?? new Date() },
+      tx,
+    );
+    if (result.outcome !== 'RECORDED') return result;
+    await this.record(tx, actor, actorName, 'ADD', result.value, null, false);
+    return result;
   }
 
   /** A bounce or "address not found". A deliverability fact, never verification. MANAGER and above. */

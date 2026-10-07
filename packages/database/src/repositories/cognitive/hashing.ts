@@ -92,3 +92,13 @@ export function hashIdentifier(
     .update(`${organizationId}:${evidenceType}:${normalized}`)
     .digest('hex');
 }
+
+/**
+ * A keyed HMAC of an exact value, under the same configured secret as `hashIdentifier` but with no
+ * normalization: the caller has already put the value in its canonical form (the CRM importer's
+ * row fingerprint and Person keys). Namespaced and organization-salted, so it never equals an
+ * evidence or Contact Point hash.
+ */
+export function keyedDigest(organizationId: string, namespace: string, canonicalValue: string): string {
+  return createHmac('sha256', resolveSecret()).update(`${organizationId}:${namespace}:${canonicalValue}`).digest('hex');
+}

@@ -1,4 +1,4 @@
-// CRM Opportunity ownership and Opportunity Participants, persisted (CRM slice 3, 2026-10-06).
+// CRM Opportunity creation (slice 5), ownership and Opportunity Participants (slice 3), persisted.
 //
 // Persistence only. `CrmOpportunityService` adds PD-F-11 authorization and the audit row in the
 // same transaction; this file is therefore not a security boundary, and says so.
@@ -21,6 +21,7 @@
 
 import type { CrmParticipant, Prisma, PrismaClient } from '@prisma/client';
 import {
+  validateCrmOpportunityCreate,
   crmParticipantActiveKey,
   crmParticipantRole,
   partyReferenceForWrite,
@@ -62,7 +63,18 @@ export type CrmOpportunityWriteResult<T> =
   | { readonly outcome: 'ILLEGAL_TRANSITION'; readonly from: string }
   | { readonly outcome: 'REASON_REQUIRED' }
   | { readonly outcome: 'UNCHANGED' }
-  | { readonly outcome: 'RETRY' };
+  | { readonly outcome: 'RETRY' }
+  /** A relationshipId that names no non-voided Relationship of this organization. */
+  | { readonly outcome: 'RELATIONSHIP_REFUSED' };
+
+export interface CrmOpportunityCreateInput {
+  readonly title: string;
+  readonly category: string;
+  readonly stage: string;
+  readonly creatorPartyId: string;
+  readonly relationshipId?: string | null;
+  readonly actorUserId: string;
+}
 
 export interface CrmOpportunityParticipantAddInput {
   readonly opportunityId: string;
@@ -94,6 +106,70 @@ export class CrmOpportunityRepository {
   async findOpportunity(organizationId: string, id: string, db: CrmOpportunityTx | PrismaClient = this.prisma): Promise<CrmOpportunityRef | null> {
     if (!organizationId?.trim() || !id?.trim()) return null;
     return db.crmOpportunity.findFirst({ where: { id, organizationId }, select: OPPORTUNITY_REF_SELECT });
+  }
+
+  /**
+   * Create an Opportunity and its first transition in the caller's transaction (CRM slice 5).
+   *
+   * The creator must be an established, current, non-archived PERSON of this organization -- the
+   * Party Reference contract decides, on `tx`, so a creator checked inside an import unit is seen.
+   * A superseded id is refused with its canonical id, never swapped. The creator stays
+   * `creatorPartyId`; it is never written as a Participant. A Relationship is optional and, when
+   * named, must be a non-voided Relationship of this organization; none is created.
+   *
+   * The first transition records the lifecycle fact only: no note (there is no governed meaning
+   * for one), never creator-visible. `createdByUserId` is provenance; no owner is set.
+   */
+  async createOpportunity(organizationId: string, input: CrmOpportunityCreateInput, tx: CrmOpportunityTx): Promise<CrmOpportunityWriteResult<CrmOpportunityRef>> {
+    if (!organizationId?.trim()) return { outcome: 'NOT_FOUND' };
+    const violations = validateCrmOpportunityCreate(input);
+    if (violations.length > 0) return { outcome: 'INVALID', violations };
+
+    const required = await this.references.requireReferenceable(organizationId, input.creatorPartyId, tx);
+    if (!required.ok) {
+      const refusal = partyReferenceForWrite(required.resolution);
+      return refusal.ok
+        ? { outcome: 'PARTY_REFUSED', refusal: 'NOT_FOUND' }
+        : { outcome: 'PARTY_REFUSED', refusal: refusal.refusal, ...(refusal.canonicalPartyId ? { canonicalPartyId: refusal.canonicalPartyId } : {}) };
+    }
+    if (required.partyType !== 'PERSON') return { outcome: 'INVALID', violations: ['CREATOR_NOT_A_PERSON'] };
+
+    const relationshipId = input.relationshipId?.trim() || null;
+    if (relationshipId) {
+      const relationship = await tx.crmRelationship.findFirst({ where: { id: relationshipId, organizationId, state: { not: 'VOIDED' } }, select: { id: true } });
+      if (!relationship) return { outcome: 'RELATIONSHIP_REFUSED' };
+    }
+
+    const title = input.title.trim();
+    const stage = input.stage.trim();
+    const row = await tx.crmOpportunity.create({
+      data: {
+        organizationId,
+        title,
+        category: input.category,
+        stage,
+        creatorPartyId: required.reference.partyId,
+        relationshipId,
+        ownerUserId: null,
+        createdByUserId: input.actorUserId,
+      },
+      select: OPPORTUNITY_REF_SELECT,
+    });
+    await tx.crmOpportunityTransition.create({
+      data: {
+        organizationId,
+        opportunityId: row.id,
+        sequence: 1,
+        fromCategory: null,
+        fromStage: null,
+        toCategory: input.category,
+        toStage: stage,
+        actorUserId: input.actorUserId,
+        note: null,
+        creatorVisible: false,
+      },
+    });
+    return { outcome: 'RECORDED', value: row };
   }
 
   /** An Opportunity's Participants, current first, then history, oldest first within each. */
@@ -134,7 +210,8 @@ export class CrmOpportunityRepository {
     const opportunity = await this.findOpportunity(organizationId, input.opportunityId, tx);
     if (!opportunity) return { outcome: 'NOT_FOUND' };
 
-    const required = await this.references.requireReferenceable(organizationId, input.partyId);
+    // On the caller's transaction, so a Party created earlier in the same import unit is seen.
+    const required = await this.references.requireReferenceable(organizationId, input.partyId, tx);
     if (!required.ok) {
       const refusal = partyReferenceForWrite(required.resolution);
       return refusal.ok
@@ -153,6 +230,10 @@ export class CrmOpportunityRepository {
     if (violations.length > 0) return { outcome: 'INVALID', violations };
 
     const role = input.role as CrmParticipantRole;
+    const activeKey = crmParticipantActiveKey('OPPORTUNITY', opportunity.id, required.reference.partyId, role, 'ACTIVE');
+    // Already held: answered by a read, not by a failed insert, which would abort a caller's
+    // transaction. The unique key still settles a concurrent race.
+    if (await tx.crmParticipant.findFirst({ where: { organizationId, activeKey }, select: { id: true } })) return { outcome: 'DUPLICATE' };
     try {
       const value = await tx.crmParticipant.create({
         data: {
@@ -166,7 +247,7 @@ export class CrmOpportunityRepository {
           side: null,
           actsForSide: null,
           state: 'ACTIVE',
-          activeKey: crmParticipantActiveKey('OPPORTUNITY', opportunity.id, required.reference.partyId, role, 'ACTIVE'),
+          activeKey,
           effectiveFrom: input.effectiveFrom ?? null,
           addedByUserId: input.actorUserId,
         },
