@@ -128,6 +128,14 @@ test('the SHA-256 is verified before the importer runs, and the hash key reaches
   assert.match(runStep, /COGNITIVE_HASH_SECRET: \$\{\{ secrets\.COGNITIVE_HASH_SECRET \}\}/);
   assert.match(runStep, /--expected-sha256/, 'the importer re-checks the hash itself');
   assert.match(runStep, /LOOP_CRM_IMPORT_TARGET: production/);
+  assert.match(runStep, /LOOP_PRISMA_LOG: none/, 'no Prisma client logging: an error line can carry query arguments');
+  assert.match(runStep, /exec 2> "\$\{WORK\}\/stderr\.log"/, 'stderr is withheld from the log');
+  assert.match(WORKFLOW, /echo "SOURCE_REF=s3:\$\{SOURCE_KEY\}" >> "\$GITHUB_ENV"/, 'provenance names the object; the SHA pins its content');
+});
+
+test('a malformed header never echoes a cell: an unknown column is reported by position', () => {
+  const inv = sourceInventory('r1,Trevon,lund,Not due,pat@lund.example.test\n', new Date());
+  assert.deepEqual(inv, { ok: false, problem: 'UNKNOWN_COLUMN', column: null, position: 1 });
 });
 
 test('the command\'s production target: read and dry-run only, from main in Actions, for the pinned organization', () => {

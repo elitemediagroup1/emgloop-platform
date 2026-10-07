@@ -101,7 +101,7 @@ export interface CrmImportPrepared {
 export type CrmImportPrepareResult =
   | { readonly outcome: 'OK'; readonly prepared: CrmImportPrepared }
   | { readonly outcome: 'NOT_AUTHORIZED' }
-  | { readonly outcome: 'SOURCE_INVALID'; readonly problem: string; readonly column?: string }
+  | { readonly outcome: 'SOURCE_INVALID'; readonly problem: string; readonly column?: string; readonly position?: number }
   | { readonly outcome: 'STAGE_MAPPING_INVALID'; readonly violations: readonly { at: string; code: string }[] }
   | { readonly outcome: 'SOURCE_REF_INVALID' }
   /**
@@ -306,7 +306,7 @@ export class CrmImportService {
     if (stageViolations.length > 0) return { outcome: 'STAGE_MAPPING_INVALID', violations: stageViolations };
 
     const parsed = parseCrmImportCsv(source.csvText);
-    if (!parsed.ok) return { outcome: 'SOURCE_INVALID', problem: parsed.problem, ...(parsed.column ? { column: parsed.column } : {}) };
+    if (!parsed.ok) return { outcome: 'SOURCE_INVALID', problem: parsed.problem, ...(parsed.column ? { column: parsed.column } : {}), ...(parsed.position ? { position: parsed.position } : {}) };
     const org = actor.organizationId;
 
     // Exact matching compares keyed hashes: this process must hold the key the existing Contact Points

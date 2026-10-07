@@ -7,8 +7,14 @@ APPLY on its own.
 
 **Who does what:**
 - **Matt:** every step in AWS (CloudShell, signed in through Identity Center to `080891698678`,
-  **us-east-1**), every GitHub environment variable, every upload, and every workflow dispatch, which
-  the `connections-production` environment then asks Matt to approve.
+  **us-east-1**), every GitHub environment variable, every upload, and every workflow dispatch.
+- **The `connections-production` environment today** (read 2026-10-07):
+  - **Branch policy:** deployments from `main` only.
+  - **Required reviewers: none.** Anyone with write access who dispatches from `main` runs in
+    production at once.
+  - **Recommended before the first real run:** add Matt as a required reviewer (Settings →
+    Environments → `connections-production` → Required reviewers). That also gates the migration and
+    other production workflows.
 - **Claude:** has no AWS access and cannot dispatch workflows; it reads run logs and the review
   summaries.
 
@@ -117,8 +123,12 @@ production web app uses**, because exact Contact Point matching compares keyed h
 
 ## Part 4 — Running it
 
-Actions → **CRM Outreach Import** → Run workflow, from `main`. Approve the `connections-production`
-gate when asked.
+Actions → **CRM Outreach Import** → Run workflow, from `main`. If required reviewers are set on
+`connections-production`, approve the gate when asked.
+
+**Naming a source:** letters, digits, `.`, `_` and `-`, ending `.csv`. Use **no run of 7 or more
+digits**: an ISO date is fine, `outreach-2026-10-07.csv`; `outreach-20261007.csv` is refused, because
+provenance never holds anything shaped like a phone number.
 
 | mode | inputs | writes |
 |---|---|---|
@@ -144,6 +154,16 @@ Every mode also needs:
 
   `crm-import-review-PROTECTED-*.csv` holds addresses, numbers, titles and notes. Open it only on a
   trusted machine, and delete local copies after review.
+
+## If the dry run refuses with `HASH_KEY_MISMATCH`
+
+The workflow's `COGNITIVE_HASH_SECRET` is not the key the organization's existing Contact Points were
+written under (the web app's). Exact matching cannot work, so nothing is planned.
+- **Usual cause:** the repository secret differs from the production web app's value.
+- **Fix:** set the repository secret to the web app's value, by typing it only into GitHub's secret
+  form, never anywhere else. Then dispatch again. The run prints `keyFingerprint`, a one-way digest;
+  compare it with the fingerprint the web app's writes record.
+- **Do not work around it:** never bypass it and never re-key the stored Contact Points.
 
 ## Part 5 — What is NOT here
 

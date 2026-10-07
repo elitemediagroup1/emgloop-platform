@@ -36,7 +36,7 @@ on:
           - record-config
           - dry-run
       source_key:
-        description: 'Private source object key, crm-import/source/<name>.csv (not needed for record-config)'
+        description: 'Private source object key, crm-import/source/<name>.csv. The name must not hold a run of 7+ digits (an ISO date is fine). Not needed for record-config.'
         required: false
         default: ''
       expected_source_sha256:
@@ -77,7 +77,9 @@ concurrency:
 jobs:
   import:
     name: CRM outreach import (${{ inputs.mode }})
-    # Production data only from main; the environment adds Matt's approval and its own main-only rule.
+    # Production data only from main. The environment's own branch policy admits only main (it, not this
+    # line, is what holds when someone dispatches another branch's copy of this file). Required reviewers
+    # on the environment, when set, add a person's approval before the job starts.
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -225,7 +227,9 @@ jobs:
           }
           if [ "${NEEDS_SOURCE}" = "true" ]; then
             fetch "${SOURCE_KEY}" "${WORK}/source.csv" "${EXPECTED_SOURCE_SHA256}" SOURCE
-            echo "SOURCE_REF=s3:${SOURCE_KEY}:v:$(jq -r '.v // "none"' "${WORK}/source.csv.meta.json")" >> "$GITHUB_ENV"
+            # The run's provenance names the object; its content is pinned by the SHA-256, and the version
+            # id is in this step's line above.
+            echo "SOURCE_REF=s3:${SOURCE_KEY}" >> "$GITHUB_ENV"
           fi
           if [ "${NEEDS_CONFIG}" = "true" ]; then
             fetch "${CONFIG_KEY}" "${WORK}/config.json" "${EXPECTED_CONFIG_SHA256}" CONFIG
@@ -235,11 +239,18 @@ jobs:
         shell: bash
         env:
           LOOP_CRM_IMPORT_TARGET: production
+          # No Prisma client logging: an error line can carry a query's arguments.
+          LOOP_PRISMA_LOG: none
           CRM_IMPORT_ORGANIZATION_SLUG: ${{ vars.CRM_IMPORT_ORGANIZATION_SLUG }}
           # The same keyed-hash authority the Contact Point authority matches with; only this step sees it.
           COGNITIVE_HASH_SECRET: ${{ secrets.COGNITIVE_HASH_SECRET }}
         run: |
           set -euo pipefail
+          # stdout is the importer's structured lines (codes, counts, ids, hashes). stderr -- anything a
+          # dependency might print -- goes to the working directory, which the cleanup step removes;
+          # only its size is reported.
+          exec 2> "${WORK}/stderr.log"
+          trap 'echo "stderr: $(wc -c < "${WORK}/stderr.log" | tr -d " ") bytes withheld from the log." >&1' EXIT
           cli=(npx tsx scripts/operations/crm-import.ts)
           case "${MODE}" in
             validate)
@@ -257,7 +268,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          [ -d "${WORK}/review" ] || exit 0
+          [ -n "${WORK:-}" ] && [ -d "${WORK}/review" ] || exit 0
           shopt -s nullglob
           for file in "${WORK}"/review/*; do
             name="$(basename "${file}")"

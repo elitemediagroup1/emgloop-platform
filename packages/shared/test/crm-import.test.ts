@@ -35,7 +35,11 @@ test('CSV records: quotes, doubled quotes, CRLF and LF, a BOM, embedded newlines
 
 test('the header is exact: an unknown, repeated or missing column refuses the whole file', () => {
   assert.deepEqual(parseCrmImportCsv(''), { ok: false, problem: 'EMPTY_FILE' });
-  assert.deepEqual(parseCrmImportCsv(`${HEADER},Email\n`), { ok: false, problem: 'UNKNOWN_COLUMN', column: 'Email' });
+  assert.deepEqual(parseCrmImportCsv(`${HEADER},Email\n`), { ok: false, problem: 'UNKNOWN_COLUMN', position: 10 });
+  // A headerless export: the first data row becomes the header, and none of its cells is ever echoed.
+  const headerless = parseCrmImportCsv('r1,Trevon,lund,Not due,Pat Rivera,TRUE,INDIVIDUAL,pat@lund.example.test,\n');
+  assert.deepEqual(headerless, { ok: false, problem: 'UNKNOWN_COLUMN', position: 1 });
+  assert.ok(!JSON.stringify(headerless).includes('@'));
   assert.deepEqual(parseCrmImportCsv(`${HEADER},email\n`), { ok: false, problem: 'DUPLICATE_COLUMN', column: 'email' });
   assert.deepEqual(parseCrmImportCsv('source_row_key,creator_alias,route_key\n'), { ok: false, problem: 'MISSING_COLUMN', column: 'source_status' });
 });

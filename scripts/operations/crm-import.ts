@@ -215,12 +215,12 @@ export interface SourceInventoryDetail {
 
 export type SourceInventory =
   | { ok: true; counts: SourceInventoryCounts; detail: SourceInventoryDetail }
-  | { ok: false; problem: string; column: string | null };
+  | { ok: false; problem: string; column: string | null; position: number | null };
 
 /** Counts of everything the import contract cares about, before any CRM lookup. Pure. */
 export function sourceInventory(text: string, now: Date): SourceInventory {
   const parsed = parseCrmImportCsv(text);
-  if (!parsed.ok) return { ok: false, problem: parsed.problem, column: parsed.column ?? null };
+  if (!parsed.ok) return { ok: false, problem: parsed.problem, column: parsed.column ?? null, position: parsed.position ?? null };
   const rows = parsed.rows;
   const tally = <T>(items: readonly T[], key: (x: T) => string) => {
     const m = new Map<string, { first: T; n: number }>();
@@ -460,7 +460,7 @@ async function main(): Promise<number> {
   if (command === 'validate') {
     const parsed = parseCrmImportCsv(source!.text);
     if (!parsed.ok) {
-      log(line({ event: 'SOURCE_INVALID', problem: parsed.problem, column: parsed.column ?? null, WROTE: false }));
+      log(line({ event: 'SOURCE_INVALID', problem: parsed.problem, column: parsed.column ?? null, position: parsed.position ?? null, WROTE: false }));
       return 1;
     }
     log(line({ event: 'VALIDATED', importerVersion: CRM_IMPORT_VERSION, sourceSha256: source!.sha256, bytes: source!.bytes, rows: parsed.rows.length, invalidRows: parsed.invalid.length, invalid: parsed.invalid.map((r) => ({ line: r.line, violations: r.violations })), WROTE: false }));
@@ -470,7 +470,7 @@ async function main(): Promise<number> {
   if (command === 'inventory') {
     const inv = sourceInventory(source!.text, new Date());
     if (!inv.ok) {
-      log(line({ event: 'SOURCE_INVALID', problem: inv.problem, column: inv.column, WROTE: false }));
+      log(line({ event: 'SOURCE_INVALID', problem: inv.problem, column: inv.column, position: inv.position, WROTE: false }));
       return 1;
     }
     const dir = resolve(f('review-dir'));
