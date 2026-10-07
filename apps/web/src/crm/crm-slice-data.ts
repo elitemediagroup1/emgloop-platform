@@ -54,6 +54,11 @@ export async function readOpportunities(options: { cursor: string | null; filter
   return absentUntilMigrated(opportunities.list({ organizationId: ctx.organizationId, userId: ctx.userId }, { cursor: options.cursor, filters: options.filters, limit: OPPORTUNITIES_PAGE_SIZE }));
 }
 
+export async function readOpportunitiesForRelationship(relationshipId: string) {
+  const ctx = await requireCrmContext();
+  return absentUntilMigrated(opportunities.forRelationship({ organizationId: ctx.organizationId, userId: ctx.userId }, relationshipId));
+}
+
 export async function readOpportunity(opportunityId: string) {
   const ctx = await requireCrmContext();
   return absentUntilMigrated(opportunities.getRecord({ organizationId: ctx.organizationId, userId: ctx.userId }, opportunityId));
