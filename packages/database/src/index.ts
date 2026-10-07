@@ -132,7 +132,7 @@ export type { CrmContactPointSummary, CrmContactPointAddInput, CrmContactPointWr
 export { CrmOpportunityService } from './services/crm-opportunity.service';
 export type { CrmOpportunityActor, CrmOpportunityServiceResult, CrmOpportunityServiceDeps } from './services/crm-opportunity.service';
 export { CrmOpportunityRepository } from './repositories/crm-opportunity.repository';
-export type { CrmOpportunityRef, CrmOpportunityWriteResult, CrmOpportunityParticipantAddInput } from './repositories/crm-opportunity.repository';
+export type { CrmOpportunityRef, CrmOpportunityWriteResult, CrmOpportunityParticipantAddInput, CrmOpportunityCreateInput } from './repositories/crm-opportunity.repository';
 // Staff reads of Opportunities across an organization (CRM slice 4): PD-F-11 VIEW, names behind
 // the Party gate, notes EMPLOYEE+, a fixed number of queries per page.
 // See ./services/crm-opportunity-read.service.ts.
@@ -969,3 +969,18 @@ export { storedWebsiteEventType, WEBSITE_RANKING_SCAN_LIMIT } from './repositori
 export { declaredExternalWebsiteSources, websiteCoveragePort } from './services/intelligence-fabric/website-coverage';
 export { WebsiteJourneyRepository, JOURNEY_SCAN_LIMIT, JOURNEY_SESSION_EVENT_LIMIT, JOURNEY_VISITOR_LOOKBACK_DAYS } from './repositories/website-journey.repository';
 export type { JourneySessionSummary, JourneySessionList, JourneySessionDetail, JourneyVisitorSession } from './repositories/website-journey.repository';
+
+// The governed CRM outreach importer (CRM slice 5): reviewed creator aliases and route
+// classifications (OWNER/ADMIN), dry runs that write no CRM row, approvals that bind source +
+// version + configuration + plan, and an APPLY that composes the governed Party, Contact Point and
+// Opportunity services into atomic units. Production APPLY is not commissioned (refused).
+// See ./crm-import/crm-import.service.ts.
+export { CrmImportService, rowFingerprint, configFingerprint, planDigest } from './crm-import/crm-import.service';
+export type { CrmImportExecutionTarget, CrmImportSource, CrmImportPrepared, CrmImportPrepareResult, CrmImportApplyResult, CrmImportInvalidRow, CrmImportServiceDeps } from './crm-import/crm-import.service';
+export { CrmImportConfigService } from './crm-import/crm-import-config.service';
+export type { CrmImportConfigResult, CrmImportMappingResult, CrmImportMappingOutcome } from './crm-import/crm-import-config.service';
+export { CrmImportRepository } from './crm-import/crm-import.repository';
+export { planCrmImport } from './crm-import/crm-import-plan';
+export type { CrmImportPlan, CrmImportPlannedRow, CrmImportPlannedCompany, CrmImportPlannedPerson, CrmImportPlannedPursuit, CrmImportPlannedContact, CrmImportPlanContext, CrmImportPlanRowInput } from './crm-import/crm-import-plan';
+export type { CrmImportActor } from './crm-import/crm-import-access';
+
