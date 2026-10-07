@@ -25,7 +25,7 @@ NOT by seeing it render or run. Those must be checked on the deploy.
 
 ---
 
-## CRM authority for the brand-outreach import — SLICES 1–4 COMMISSIONED · SLICE 4.1 IN REVIEW (2026-10-06)
+## CRM authority for the brand-outreach import — SLICES 1–4.1 COMMISSIONED · SLICE 5 NEXT (2026-10-06)
 
 **Where it stands.**
 - **Slices 1–4 are merged and commissioned.**
@@ -33,12 +33,12 @@ NOT by seeing it render or run. Those must be checked on the deploy.
   - #359: CRM Contact Point authority; migration applied in production.
   - #360: Opportunity owner, BRAND / PRIMARY_CONTACT Participants and PD-F-11; migration applied in production.
   - #361 (`0003afd`): organization-wide staff Opportunities list/detail, read-only; production Netlify deployed and staff list loaded successfully.
-- **Slice 4.1** (`feat/crm-relationship-linked-opportunities`) is the UX completion in review:
+- **Slice 4.1** (#362, `629e964`) is merged and deployed to production:
   - Relationship detail shows Opportunities whose stored `CrmOpportunity.relationshipId` explicitly points to that Relationship;
   - projection reuses the Slice 4 Opportunity read model, including Party-name and ownership rules;
   - Opportunity access is authorized separately, so Relationship access alone leaks no Opportunity count or existence;
   - no Contact Point values, Opportunity note text or write controls;
-  - no migration.
+  - no migration; Netlify production is READY on the merge commit.
 
 **Not built:**
 - governed create/update/reopen/void Opportunity services and staff write UI;
@@ -46,11 +46,10 @@ NOT by seeing it render or run. Those must be checked on the deploy.
 - import provenance and the importer (Slice 5).
 
 **Next, in order:**
-1. Review/merge Slice 4.1 and verify the Relationship page production deploy.
-2. Slice 5: import provenance + importer.
-3. Dry run on Matt's final structured source file.
-4. Human review of creator aliases, route classification and import mapping.
-5. Production import only on explicit approval.
+1. Slice 5: import provenance + importer.
+2. Dry run on Matt's final structured source file.
+3. Human review of creator aliases, route classification and import mapping.
+4. Production import only on explicit approval.
 
 **Open before the importer:**
 - Opportunity creation and source-status → stage mapping (directory outreach statuses are NOT stages);
