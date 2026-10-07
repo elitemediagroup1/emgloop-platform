@@ -15,16 +15,20 @@ const fixture = (name: string) => readFileSync(fileURLToPath(new URL(`./fixtures
 test('arguments: a known command and its required flags, or a precondition failure', () => {
   assert.deepEqual(parseArgs(['dry-run', '--source', 'a.csv', '--replace']), { command: 'dry-run', flags: { source: 'a.csv', replace: true } });
   assert.equal(parseArgs(['import-everything']).command, null);
-  assert.deepEqual(missingFlags(parseArgs(['dry-run', '--source', 'a.csv'])), ['config', 'organization', 'actor-email', 'review-dir']);
+  assert.deepEqual(missingFlags(parseArgs(['dry-run', '--source', 'a.csv'])), ['config', 'organization', 'actor-user-id|actor-email', 'review-dir']);
+  assert.deepEqual(missingFlags(parseArgs(['dry-run', '--source', 'a.csv', '--config', 'c', '--organization', 'o', '--actor-user-id', 'u1', '--review-dir', '/tmp/r'])), [], 'an actor by user id (the workflow never passes an email)');
   assert.deepEqual(missingFlags(parseArgs(['apply', '--source', 'a', '--config', 'c', '--approval-id', 'x', '--expected-sha256', 'h', '--organization', 'o', '--actor-email', 'e'])), ['confirm']);
+  assert.deepEqual(missingFlags(parseArgs(['inventory', '--source', 'a.csv'])), ['review-dir']);
   assert.deepEqual(missingFlags(parseArgs([])), ['command']);
 });
 
-test('target: local only; production is refused by name, a remote host and a production runtime too', () => {
+test('target: local for everything on this machine; production refuses import execution by name', () => {
   const local = 'postgresql://postgres:x@127.0.0.1:55432/loop';
   assert.deepEqual(checkTarget({ LOOP_CRM_IMPORT_TARGET: 'local', DATABASE_URL: local }), { ok: true });
-  assert.deepEqual(checkTarget({ LOOP_CRM_IMPORT_TARGET: 'production', DATABASE_URL: local }), { ok: false, reason: 'PRODUCTION_PATH_NOT_COMMISSIONED' });
-  assert.deepEqual(checkTarget({ DATABASE_URL: local }), { ok: false, reason: 'LOOP_CRM_IMPORT_TARGET_MUST_BE_LOCAL' });
+  assert.deepEqual(checkTarget({ LOOP_CRM_IMPORT_TARGET: 'production', DATABASE_URL: local }), { ok: false, reason: 'PRODUCTION_APPLY_NOT_COMMISSIONED' }, 'no command named: refused');
+  assert.deepEqual(checkTarget({ LOOP_CRM_IMPORT_TARGET: 'production', DATABASE_URL: local }, 'apply'), { ok: false, reason: 'PRODUCTION_APPLY_NOT_COMMISSIONED' });
+  assert.deepEqual(checkTarget({ LOOP_CRM_IMPORT_TARGET: 'production', DATABASE_URL: local }, 'dry-run'), { ok: false, reason: 'PRODUCTION_ONLY_FROM_GITHUB_ACTIONS' }, 'not from a laptop');
+  assert.deepEqual(checkTarget({ DATABASE_URL: local }), { ok: false, reason: 'LOOP_CRM_IMPORT_TARGET_MUST_BE_LOCAL_OR_PRODUCTION' });
   assert.deepEqual(checkTarget({ LOOP_CRM_IMPORT_TARGET: 'local', DATABASE_URL: 'postgresql://u:p@ep-x.neon.tech/loop' }), { ok: false, reason: 'DATABASE_HOST_NOT_LOCAL' });
   assert.deepEqual(checkTarget({ LOOP_CRM_IMPORT_TARGET: 'local', DATABASE_URL: local, NODE_ENV: 'production' }), { ok: false, reason: 'PRODUCTION_RUNTIME_REFUSED' });
   assert.deepEqual(checkTarget({ LOOP_CRM_IMPORT_TARGET: 'local', DATABASE_URL: 'not a url' }), { ok: false, reason: 'DATABASE_URL_INVALID' });

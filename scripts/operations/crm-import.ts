@@ -1,24 +1,31 @@
 // CRM outreach import -- the local operator command (CRM slice 5, PR A).
 //
-//   validate       --source <file.csv>
+//   validate       --source <file.csv> [--expected-sha256 <hex>]
 //                  Parse and shape-check the canonical CSV. No database.
-//   record-config  --config <file.json> --organization <slug> --actor-email <email> [--replace]
+//   inventory      --source <file.csv> --review-dir <dir> [--expected-sha256 <hex>]
+//                  Count what the source contains (Part 13). No database. Counts are printed; the
+//                  detail (aliases, routes, statuses as written) goes only to the review directory.
+//   record-config  --config <file.json> --organization <slug> --actor-user-id <id>|--actor-email <email> [--replace]
 //                  Record the reviewed creator aliases and route classifications (OWNER/ADMIN).
-//   dry-run        --source <file.csv> --config <file.json> --organization <slug> --actor-email <email> --review-dir <dir>
+//   dry-run        --source <file.csv> --config <file.json> --organization <slug> --actor-user-id|--actor-email
+//                  --review-dir <dir> [--expected-sha256 <hex>] [--source-ref <ref>] [--importer-version <v>]
 //                  Plan the import, record the run and its entries, write the review artifacts.
 //                  Writes NO CRM row.
-//   approve        --dry-run-id <id> --organization <slug> --actor-email <email>
-//                  Approve one successful dry run for APPLY (OWNER/ADMIN).
-//   apply          --source <file.csv> --config <file.json> --approval-id <id> --expected-sha256 <hex>
-//                  --organization <slug> --actor-email <email> --confirm "apply <first 12 of sha256>"
-//                  Execute an approved plan through the governed services. LOCAL / TEST DATABASES ONLY.
-//   abandon        --run-id <id> --organization <slug> --actor-email <email>
-//                  Release an APPLY whose process died (OWNER/ADMIN).
+//   approve        --dry-run-id <id> --organization <slug> --actor-...           (local only)
+//   apply          --source --config --approval-id --expected-sha256 --organization --actor-...
+//                  --confirm "apply <first 12 of sha256>"                         (local only)
+//   abandon        --run-id <id> --organization <slug> --actor-...               (local only)
 //
-// THE PRODUCTION PATH IS NOT COMMISSIONED. Before the database package is even loaded this refuses
-// unless LOOP_CRM_IMPORT_TARGET is exactly "local" AND the DATABASE_URL host is this machine. The
-// private-S3 + GitHub OIDC production path (and a production dry run) is PR B; until it exists,
-// "production" is refused by name, and the import service refuses a non-local APPLY on its own.
+// TARGETS (LOOP_CRM_IMPORT_TARGET), checked before the database package is even loaded:
+//   local       every command, against a database on this machine only.
+//   production  ONLY validate, inventory, record-config and dry-run, ONLY inside GitHub Actions on
+//               refs/heads/main (the "CRM Outreach Import" workflow, connections-production), ONLY
+//               for CRM_IMPORT_ORGANIZATION_SLUG, and the dry run only with the identifier key set.
+//               APPLY, approve and abandon are NOT commissioned in production: refused by name here,
+//               and the import service refuses a non-local APPLY on its own.
+//
+// THE SOURCE IS HASHED OVER ITS BYTES AND CHECKED AGAINST --expected-sha256 BEFORE IT IS PARSED.
+// Bytes that are not valid UTF-8 are refused, never replaced.
 //
 // NOTHING SOURCE-DERIVED IS PRINTED. Output is one structured line per event: codes, counts, ids
 // and SHA-256s. No email, phone, contact name, title, note, brand or route text reaches stdout --
@@ -32,9 +39,19 @@ import { promises as fs } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { isAbsolute, relative, resolve } from 'node:path';
 import type { CrmImportPrepared } from '@emgloop/database';
-import { CRM_IMPORT_VERSION, parseCrmImportCsv, validateCrmImportConfig, type CrmImportConfig, type CrmImportSourceRow } from '@emgloop/shared';
+import {
+  CRM_IMPORT_VERSION,
+  crmContactPointSourceRefValid,
+  crmImportKey,
+  crmImportPersonEligible,
+  normalizeCrmContactPointValue,
+  parseCrmImportCsv,
+  validateCrmImportConfig,
+  type CrmImportConfig,
+  type CrmImportSourceRow,
+} from '@emgloop/shared';
 
-export const COMMANDS = ['validate', 'record-config', 'dry-run', 'approve', 'apply', 'abandon'] as const;
+export const COMMANDS = ['validate', 'inventory', 'record-config', 'dry-run', 'approve', 'apply', 'abandon'] as const;
 export type Command = (typeof COMMANDS)[number];
 
 export interface Args {
@@ -60,26 +77,51 @@ export function parseArgs(argv: readonly string[]): Args {
 
 const REQUIRED: Readonly<Record<Command, readonly string[]>> = {
   validate: ['source'],
-  'record-config': ['config', 'organization', 'actor-email'],
-  'dry-run': ['source', 'config', 'organization', 'actor-email', 'review-dir'],
-  approve: ['dry-run-id', 'organization', 'actor-email'],
-  apply: ['source', 'config', 'approval-id', 'expected-sha256', 'organization', 'actor-email', 'confirm'],
-  abandon: ['run-id', 'organization', 'actor-email'],
+  inventory: ['source', 'review-dir'],
+  'record-config': ['config', 'organization', 'actor'],
+  'dry-run': ['source', 'config', 'organization', 'actor', 'review-dir'],
+  approve: ['dry-run-id', 'organization', 'actor'],
+  apply: ['source', 'config', 'approval-id', 'expected-sha256', 'organization', 'actor', 'confirm'],
+  abandon: ['run-id', 'organization', 'actor'],
 };
+
+/** Commands that touch the database. `validate` and `inventory` read only the file. */
+const DATABASE_COMMANDS: readonly Command[] = ['record-config', 'dry-run', 'approve', 'apply', 'abandon'];
+/** What the production target may run (PR B). APPLY, approval and abandon are not commissioned. */
+export const PRODUCTION_COMMANDS: readonly Command[] = ['validate', 'inventory', 'record-config', 'dry-run'];
+
+/** The actor is a member named by user id (the workflow's path: no email in a workflow input) or by email (local). */
+const hasActor = (args: Args) => ['actor-user-id', 'actor-email'].some((f) => typeof args.flags[f] === 'string' && (args.flags[f] as string).trim() !== '');
 
 export function missingFlags(args: Args): string[] {
   if (!args.command) return ['command'];
-  return REQUIRED[args.command].filter((f) => typeof args.flags[f] !== 'string' || !(args.flags[f] as string).trim());
+  return REQUIRED[args.command].filter((f) => (f === 'actor' ? !hasActor(args) : typeof args.flags[f] !== 'string' || !(args.flags[f] as string).trim())).map((f) => (f === 'actor' ? 'actor-user-id|actor-email' : f));
 }
 
 /**
- * The target guard, before any database code loads. Local only in PR A: the variable is the human
- * saying which database this is, and the host check catches a URL that says otherwise.
+ * The target guard, before any database code loads. The variable is the human (or the workflow)
+ * saying which database this is.
+ *   local       any command, against a database on this machine only (the host check catches a URL
+ *               that says otherwise).
+ *   production  ONLY validate, inventory, record-config and dry-run, ONLY inside GitHub Actions on
+ *               refs/heads/main, ONLY for the one organization the environment names, and (for the
+ *               dry run) only with the configured identifier key. APPLY, approve and abandon are NOT
+ *               commissioned in production: refused by name here, and the service refuses a non-local
+ *               APPLY on its own.
  */
-export function checkTarget(env: Readonly<Record<string, string | undefined>>): { ok: true } | { ok: false; reason: string } {
+export function checkTarget(env: Readonly<Record<string, string | undefined>>, command: Command | null = null, organization: string | null = null): { ok: true } | { ok: false; reason: string } {
   const target = env.LOOP_CRM_IMPORT_TARGET;
-  if (target === 'production') return { ok: false, reason: 'PRODUCTION_PATH_NOT_COMMISSIONED' };
-  if (target !== 'local') return { ok: false, reason: 'LOOP_CRM_IMPORT_TARGET_MUST_BE_LOCAL' };
+  if (target === 'production') {
+    if (!command || !PRODUCTION_COMMANDS.includes(command)) return { ok: false, reason: 'PRODUCTION_APPLY_NOT_COMMISSIONED' };
+    if (env.GITHUB_ACTIONS !== 'true') return { ok: false, reason: 'PRODUCTION_ONLY_FROM_GITHUB_ACTIONS' };
+    if (env.GITHUB_REF !== 'refs/heads/main') return { ok: false, reason: 'PRODUCTION_ONLY_FROM_MAIN' };
+    const pinned = (env.CRM_IMPORT_ORGANIZATION_SLUG ?? '').trim();
+    if (!pinned) return { ok: false, reason: 'PRODUCTION_ORGANIZATION_NOT_CONFIGURED' };
+    if (organization !== null && organization !== pinned) return { ok: false, reason: 'ORGANIZATION_NOT_THE_CONFIGURED_ONE' };
+    if (command === 'dry-run' && !(env.COGNITIVE_HASH_SECRET ?? '').length) return { ok: false, reason: 'HASH_KEY_NOT_CONFIGURED' };
+    return { ok: true };
+  }
+  if (target !== 'local') return { ok: false, reason: 'LOOP_CRM_IMPORT_TARGET_MUST_BE_LOCAL_OR_PRODUCTION' };
   if (env.NODE_ENV === 'production') return { ok: false, reason: 'PRODUCTION_RUNTIME_REFUSED' };
   try {
     const host = new URL(env.DATABASE_URL ?? '').hostname;
@@ -107,6 +149,139 @@ export function sha256Hex(text: string): string {
 
 export function line(fields: Record<string, unknown>): string {
   return JSON.stringify(fields);
+}
+
+// --- Reading a source exactly -------------------------------------------------------------------
+
+export type SourceRead =
+  | { ok: true; text: string; sha256: string; bytes: number }
+  | { ok: false; reason: 'SOURCE_SHA256_MISMATCH' | 'SOURCE_NOT_UTF8' | 'SOURCE_EMPTY' };
+
+/**
+ * The SHA-256 is taken over the file's BYTES and checked BEFORE anything parses it. Bytes that are
+ * not valid UTF-8 are refused, never replaced: a decoded string must re-encode to exactly the bytes
+ * that were hashed and reviewed.
+ */
+export function readSourceBytes(bytes: Uint8Array, expectedSha256: string | null): SourceRead {
+  if (bytes.byteLength === 0) return { ok: false, reason: 'SOURCE_EMPTY' };
+  const sha256 = createHash('sha256').update(bytes).digest('hex');
+  if (expectedSha256 !== null && sha256 !== expectedSha256.trim().toLowerCase()) return { ok: false, reason: 'SOURCE_SHA256_MISMATCH' };
+  let text: string;
+  try {
+    text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
+  } catch {
+    return { ok: false, reason: 'SOURCE_NOT_UTF8' };
+  }
+  return { ok: true, text, sha256, bytes: bytes.byteLength };
+}
+
+// --- Source inventory (Part 13) ------------------------------------------------------------------
+
+export interface SourceInventoryCounts {
+  readonly totalRows: number;
+  readonly validRows: number;
+  readonly invalidRows: number;
+  readonly invalidByViolation: Readonly<Record<string, number>>;
+  readonly distinctSourceRowKeys: number;
+  readonly duplicatedSourceRowKeys: number;
+  readonly rowsWithDuplicatedKeys: number;
+  readonly distinctCreatorAliases: number;
+  readonly distinctRouteKeys: number;
+  readonly distinctSourceStatuses: number;
+  readonly personEligibleRows: number;
+  readonly verifiedNamedRows: number;
+  readonly unverifiedOrBlankNameRows: number;
+  readonly contactKindIndividual: number;
+  readonly contactKindRoleInbox: number;
+  readonly contactKindMissing: number;
+  readonly emails: number;
+  readonly invalidEmails: number;
+  readonly phones: number;
+  readonly invalidPhones: number;
+  readonly rowsWithNoContactValue: number;
+  readonly futureLastContacted: number;
+  readonly titlesPresent: number;
+  readonly notesPresent: number;
+}
+
+/** What the source contains, by key, for the PRIVATE review prefix only. Never logged. */
+export interface SourceInventoryDetail {
+  readonly creatorAliases: readonly { readonly alias: string; readonly key: string; readonly rows: number }[];
+  readonly routes: readonly { readonly routeKey: string; readonly key: string; readonly routeNames: readonly string[]; readonly brandNames: readonly string[]; readonly rows: number }[];
+  readonly sourceStatuses: readonly { readonly status: string; readonly key: string; readonly rows: number }[];
+  readonly duplicatedSourceRowKeys: readonly string[];
+  readonly invalidRows: readonly { readonly line: number; readonly sourceRowKey: string | null; readonly violations: readonly string[] }[];
+}
+
+export type SourceInventory =
+  | { ok: true; counts: SourceInventoryCounts; detail: SourceInventoryDetail }
+  | { ok: false; problem: string; column: string | null };
+
+/** Counts of everything the import contract cares about, before any CRM lookup. Pure. */
+export function sourceInventory(text: string, now: Date): SourceInventory {
+  const parsed = parseCrmImportCsv(text);
+  if (!parsed.ok) return { ok: false, problem: parsed.problem, column: parsed.column ?? null };
+  const rows = parsed.rows;
+  const tally = <T>(items: readonly T[], key: (x: T) => string) => {
+    const m = new Map<string, { first: T; n: number }>();
+    for (const x of items) {
+      const k = key(x);
+      const e = m.get(k);
+      if (e) e.n += 1;
+      else m.set(k, { first: x, n: 1 });
+    }
+    return m;
+  };
+  const byRowKey = tally(rows, (r) => r.sourceRowKey);
+  const dupKeys = [...byRowKey].filter(([, e]) => e.n > 1);
+  const aliases = tally(rows, (r) => crmImportKey(r.creatorAlias));
+  const routes = tally(rows, (r) => crmImportKey(r.routeKey));
+  const statuses = tally(rows, (r) => crmImportKey(r.sourceStatus));
+  const invalidByViolation: Record<string, number> = {};
+  for (const i of parsed.invalid) for (const v of i.violations) invalidByViolation[v] = (invalidByViolation[v] ?? 0) + 1;
+  const count = (pred: (r: CrmImportSourceRow) => boolean) => rows.filter(pred).length;
+  const valid = (kind: 'EMAIL' | 'PHONE', v: string | null) => v !== null && normalizeCrmContactPointValue(kind, v).ok;
+  const counts: SourceInventoryCounts = {
+    totalRows: rows.length + parsed.invalid.length,
+    validRows: rows.length,
+    invalidRows: parsed.invalid.length,
+    invalidByViolation: Object.fromEntries(Object.entries(invalidByViolation).sort(([a], [b]) => a.localeCompare(b))),
+    distinctSourceRowKeys: byRowKey.size,
+    duplicatedSourceRowKeys: dupKeys.length,
+    rowsWithDuplicatedKeys: dupKeys.reduce((n, [, e]) => n + e.n, 0),
+    distinctCreatorAliases: aliases.size,
+    distinctRouteKeys: routes.size,
+    distinctSourceStatuses: statuses.size,
+    personEligibleRows: count((r) => crmImportPersonEligible(r)),
+    verifiedNamedRows: count((r) => r.contactNameVerified && Boolean(r.contactName)),
+    unverifiedOrBlankNameRows: count((r) => !r.contactNameVerified || !r.contactName),
+    contactKindIndividual: count((r) => r.contactKind === 'INDIVIDUAL'),
+    contactKindRoleInbox: count((r) => r.contactKind === 'ROLE_INBOX'),
+    contactKindMissing: count((r) => r.contactKind === null),
+    emails: count((r) => r.email !== null),
+    invalidEmails: count((r) => r.email !== null && !valid('EMAIL', r.email)),
+    phones: count((r) => r.phone !== null),
+    invalidPhones: count((r) => r.phone !== null && !valid('PHONE', r.phone)),
+    rowsWithNoContactValue: count((r) => r.email === null && r.phone === null),
+    futureLastContacted: count((r) => r.sourceLastContactedAt !== null && Date.parse(r.sourceLastContactedAt) > now.getTime()),
+    titlesPresent: count((r) => r.contactTitle !== null),
+    notesPresent: count((r) => r.sourceNotes !== null),
+  };
+  const sortByKey = <T extends { key: string }>(xs: T[]) => xs.sort((a, b) => a.key.localeCompare(b.key));
+  const distinct = (xs: (string | null)[]) => [...new Set(xs.filter((x): x is string => x !== null))].sort();
+  const detail: SourceInventoryDetail = {
+    creatorAliases: sortByKey([...aliases].map(([key, e]) => ({ alias: e.first.creatorAlias, key, rows: e.n }))),
+    routes: sortByKey(
+      [...routes].map(([key, e]) => {
+        const of = rows.filter((r) => crmImportKey(r.routeKey) === key);
+        return { routeKey: e.first.routeKey, key, routeNames: distinct(of.map((r) => r.routeName)), brandNames: distinct(of.map((r) => r.brandName)), rows: e.n };
+      }),
+    ),
+    sourceStatuses: sortByKey([...statuses].map(([key, e]) => ({ status: e.first.sourceStatus, key, rows: e.n }))),
+    duplicatedSourceRowKeys: dupKeys.map(([k]) => k).sort(),
+    invalidRows: parsed.invalid.map((i) => ({ line: i.line, sourceRowKey: i.sourceRowKey, violations: i.violations })),
+  };
+  return { ok: true, counts, detail };
 }
 
 // --- Review artifacts --------------------------------------------------------------------------
@@ -241,26 +416,70 @@ async function main(): Promise<number> {
     return 2;
   }
   const f = (name: string) => String(args.flags[name]);
+  const opt = (name: string) => (typeof args.flags[name] === 'string' && (args.flags[name] as string).trim() ? (args.flags[name] as string).trim() : null);
+  const command = args.command!;
 
-  if (args.command === 'validate') {
-    const text = await fs.readFile(f('source'), 'utf8');
-    const parsed = parseCrmImportCsv(text);
+  // The importer version is pinned by whoever runs it: a plan is never made under another version.
+  const pinnedVersion = opt('importer-version');
+  if (pinnedVersion !== null && pinnedVersion !== CRM_IMPORT_VERSION) {
+    log(line({ event: 'PRECONDITION_FAILED', reason: 'IMPORTER_VERSION_MISMATCH', running: CRM_IMPORT_VERSION, WROTE: false }));
+    return 2;
+  }
+  // Provenance of the source: `local`, or the private object and version the workflow read.
+  const sourceRef = opt('source-ref') ?? 'local';
+  if (!crmContactPointSourceRefValid(sourceRef)) {
+    log(line({ event: 'PRECONDITION_FAILED', reason: 'SOURCE_REF_INVALID', WROTE: false }));
+    return 2;
+  }
+
+  // The target guard runs before the database package loads (its client reads DATABASE_URL when
+  // constructed), and before anything parses the source.
+  const target = checkTarget(process.env, command, opt('organization'));
+  if (DATABASE_COMMANDS.includes(command) || process.env.LOOP_CRM_IMPORT_TARGET === 'production') {
+    if (!target.ok) {
+      log(line({ event: 'PRECONDITION_FAILED', reason: target.reason, WROTE: false }));
+      return 2;
+    }
+  }
+  if (opt('review-dir') !== null && !reviewDirAllowed(f('review-dir'), process.cwd())) {
+    log(line({ event: 'PRECONDITION_FAILED', reason: 'REVIEW_DIR_INSIDE_REPOSITORY', WROTE: false }));
+    return 2;
+  }
+
+  // The source: its SHA-256 over the bytes, checked BEFORE it is parsed.
+  let source: Extract<SourceRead, { ok: true }> | null = null;
+  if (opt('source') !== null) {
+    const read = readSourceBytes(new Uint8Array(await fs.readFile(f('source'))), command === 'apply' ? f('expected-sha256') : opt('expected-sha256'));
+    if (!read.ok) {
+      log(line({ event: 'PRECONDITION_FAILED', reason: read.reason, WROTE: false }));
+      return 2;
+    }
+    source = read;
+  }
+
+  if (command === 'validate') {
+    const parsed = parseCrmImportCsv(source!.text);
     if (!parsed.ok) {
       log(line({ event: 'SOURCE_INVALID', problem: parsed.problem, column: parsed.column ?? null, WROTE: false }));
       return 1;
     }
-    log(line({ event: 'VALIDATED', importerVersion: CRM_IMPORT_VERSION, sourceSha256: sha256Hex(text), rows: parsed.rows.length, invalidRows: parsed.invalid.length, invalid: parsed.invalid.map((r) => ({ line: r.line, violations: r.violations })), WROTE: false }));
+    log(line({ event: 'VALIDATED', importerVersion: CRM_IMPORT_VERSION, sourceSha256: source!.sha256, bytes: source!.bytes, rows: parsed.rows.length, invalidRows: parsed.invalid.length, invalid: parsed.invalid.map((r) => ({ line: r.line, violations: r.violations })), WROTE: false }));
     return parsed.invalid.length === 0 ? 0 : 1;
   }
 
-  const target = checkTarget(process.env);
-  if (!target.ok) {
-    log(line({ event: 'PRECONDITION_FAILED', reason: target.reason, WROTE: false }));
-    return 2;
-  }
-  if (args.command === 'dry-run' && !reviewDirAllowed(f('review-dir'), process.cwd())) {
-    log(line({ event: 'PRECONDITION_FAILED', reason: 'REVIEW_DIR_INSIDE_REPOSITORY', WROTE: false }));
-    return 2;
+  if (command === 'inventory') {
+    const inv = sourceInventory(source!.text, new Date());
+    if (!inv.ok) {
+      log(line({ event: 'SOURCE_INVALID', problem: inv.problem, column: inv.column, WROTE: false }));
+      return 1;
+    }
+    const dir = resolve(f('review-dir'));
+    await fs.mkdir(dir, { recursive: true, mode: 0o700 });
+    // The detail (aliases, routes, statuses, as the source writes them) goes to the private review
+    // file only. The log carries counts.
+    await fs.writeFile(resolve(dir, `crm-import-inventory-${source!.sha256.slice(0, 12)}.json`), JSON.stringify({ importerVersion: CRM_IMPORT_VERSION, sourceSha256: source!.sha256, sourceRef, counts: inv.counts, detail: inv.detail }, null, 2), { mode: 0o600 });
+    log(line({ event: 'INVENTORY', importerVersion: CRM_IMPORT_VERSION, sourceSha256: source!.sha256, bytes: source!.bytes, counts: inv.counts, reviewArtifacts: 1, WROTE: false }));
+    return 0;
   }
 
   const db = await import('@emgloop/database');
@@ -271,14 +490,16 @@ async function main(): Promise<number> {
       log(line({ event: 'PRECONDITION_FAILED', reason: 'ORGANIZATION_NOT_FOUND', WROTE: false }));
       return 2;
     }
-    const user = await repositories.auth.findUserByEmail(org.id, f('actor-email'));
+    // The actor: a member of THIS organization, named by user id (no email ever in a workflow input) or by email.
+    const userId = opt('actor-user-id');
+    const user = userId !== null ? await repositories.iam.getUser(org.id, userId) : await repositories.auth.findUserByEmail(org.id, f('actor-email'));
     if (!user) {
       log(line({ event: 'PRECONDITION_FAILED', reason: 'ACTOR_NOT_A_MEMBER', WROTE: false }));
       return 2;
     }
     const actor = { organizationId: org.id, userId: user.id };
 
-    if (args.command === 'record-config') {
+    if (command === 'record-config') {
       const cfg = await readConfig(f('config'));
       if (!cfg.ok) {
         log(line({ event: 'PRECONDITION_FAILED', reason: cfg.reason, WROTE: false }));
@@ -291,12 +512,12 @@ async function main(): Promise<number> {
 
     const service = new db.CrmImportService(prisma);
 
-    if (args.command === 'approve') {
+    if (command === 'approve') {
       const r = await service.approve(actor, f('dry-run-id'));
       log(line({ event: 'APPROVAL', ...r, WROTE: r.outcome === 'APPROVED' }));
       return r.outcome === 'APPROVED' ? 0 : 1;
     }
-    if (args.command === 'abandon') {
+    if (command === 'abandon') {
       const r = await service.abandon(actor, f('run-id'));
       log(line({ event: 'ABANDON', ...r, WROTE: r.outcome === 'ABANDONED' }));
       return r.outcome === 'ABANDONED' ? 0 : 1;
@@ -307,11 +528,10 @@ async function main(): Promise<number> {
       log(line({ event: 'PRECONDITION_FAILED', reason: cfg.reason, WROTE: false }));
       return 2;
     }
-    const csvText = await fs.readFile(f('source'), 'utf8');
-    const source = { csvText, sourceRef: 'local' };
+    const importSource = { csvText: source!.text, sourceRef };
 
-    if (args.command === 'dry-run') {
-      const r = await service.dryRun(actor, source, cfg.config.stageMapping);
+    if (command === 'dry-run') {
+      const r = await service.dryRun(actor, importSource, cfg.config.stageMapping);
       if (r.outcome !== 'OK') {
         log(line({ event: 'DRY_RUN_REFUSED', ...r, WROTE: false }));
         return 1;
@@ -321,21 +541,16 @@ async function main(): Promise<number> {
       const review = reviewRows(r.prepared);
       await fs.writeFile(resolve(dir, `crm-import-review-${r.runId}.csv`), toCsv(review.ordinary), { mode: 0o600 });
       await fs.writeFile(resolve(dir, `crm-import-review-PROTECTED-${r.runId}.csv`), toCsv(review.protectedRows), { mode: 0o600 });
-      log(line({ event: 'DRY_RUN', runId: r.runId, importerVersion: r.prepared.importerVersion, sourceSha256: r.prepared.sourceSha256, configFingerprint: r.prepared.configFingerprint, planDigest: r.prepared.planDigest, counts: r.prepared.counts, reviewArtifacts: 2, WROTE_CRM: false }));
+      log(line({ event: 'DRY_RUN', runId: r.runId, importerVersion: r.prepared.importerVersion, keyFingerprint: r.prepared.keyFingerprint, sourceSha256: r.prepared.sourceSha256, configFingerprint: r.prepared.configFingerprint, planDigest: r.prepared.planDigest, counts: r.prepared.counts, reviewArtifacts: 2, WROTE_CRM: false }));
       return 0;
     }
 
-    // apply
-    const sha = sha256Hex(csvText);
-    if (sha !== f('expected-sha256')) {
-      log(line({ event: 'PRECONDITION_FAILED', reason: 'SOURCE_SHA256_MISMATCH', WROTE: false }));
-      return 2;
-    }
-    if (f('confirm').trim() !== applyConfirmation(sha)) {
+    // apply (local only: the target guard refuses it in production, and so does the service)
+    if (f('confirm').trim() !== applyConfirmation(source!.sha256)) {
       log(line({ event: 'PRECONDITION_FAILED', reason: 'CONFIRMATION_MISMATCH', expected: 'apply <first 12 hex of the source SHA-256>', WROTE: false }));
       return 2;
     }
-    const r = await service.apply(actor, { source, stageMapping: cfg.config.stageMapping, approvalId: f('approval-id'), executionTarget: 'LOCAL_TEST' });
+    const r = await service.apply(actor, { source: importSource, stageMapping: cfg.config.stageMapping, approvalId: f('approval-id'), executionTarget: 'LOCAL_TEST' });
     log(line({ event: 'APPLY', ...r }));
     return r.outcome === 'APPLIED' ? 0 : 1;
   } finally {

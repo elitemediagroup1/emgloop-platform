@@ -1,0 +1,290 @@
+name: CRM Outreach Import
+
+# The governed CRM outreach importer against PRODUCTION (CRM slice 5, PR B). docs/runbooks/crm-outreach-import.md.
+#
+# MODES, and only these:
+#   validate       parse and shape-check the private source. No database.
+#   inventory      count what the source contains (counts here; the detail goes to the private review prefix). No database.
+#   record-config  record the reviewed creator aliases and route classifications (the actor must be OWNER/ADMIN).
+#   dry-run        plan the import and record the run and its entries. Writes NO canonical CRM record.
+# There is no mode that writes canonical CRM records: production import execution is not commissioned, the
+# command refuses it by name for the production target, and the import service refuses it on its own.
+#
+# NOTHING SENSITIVE IN AN INPUT. Inputs are object keys, SHA-256s, an organization slug, a member's user id,
+# the importer version and a confirmation phrase -- never an address, a number, a name, a title, a note or file
+# contents. They are read from the event payload file, validated, and only then written to the environment.
+#
+# THE SOURCE never reaches this log: it is downloaded with umask 077 into the runner's temp directory, its
+# SHA-256 over the bytes must equal the expected one BEFORE anything parses it, the importer prints codes,
+# counts, ids and hashes only, the review artifacts go to the private review prefix (never a GitHub artifact),
+# and the temp directory is removed whatever happens. There is no shell tracing.
+#
+# IDENTITIES: the existing production migrate role (unchanged) reads the database URL secret, as
+# record-ai-budget.yml does; the dedicated import role (infra/connections/access/crm-import-source-access.yaml)
+# reads sources and configs and writes review artifacts in the import bucket only.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'validate | inventory | record-config | dry-run'
+        required: true
+        type: choice
+        options:
+          - validate
+          - inventory
+          - record-config
+          - dry-run
+      source_key:
+        description: 'Private source object key, crm-import/source/<name>.csv (not needed for record-config)'
+        required: false
+        default: ''
+      expected_source_sha256:
+        description: 'SHA-256 of the source object, 64 lowercase hex (refused before parsing if it differs)'
+        required: false
+        default: ''
+      config_key:
+        description: 'Reviewed configuration object key, crm-import/config/<name>.json (record-config and dry-run)'
+        required: false
+        default: ''
+      expected_config_sha256:
+        description: 'SHA-256 of the configuration object (record-config and dry-run)'
+        required: false
+        default: ''
+      organization:
+        description: 'Organization slug; must equal the environment variable CRM_IMPORT_ORGANIZATION_SLUG'
+        required: true
+      actor_user_id:
+        description: 'The Loop user id of the member the run acts as (record-config and dry-run). An id, never an email.'
+        required: false
+        default: ''
+      importer_version:
+        description: 'Must be the running importer version'
+        required: true
+        default: 'crm-outreach-import.v1'
+      confirm:
+        description: 'Type: crm import <mode> <organization>'
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: crm-outreach-import
+  cancel-in-progress: false
+
+jobs:
+  import:
+    name: CRM outreach import (${{ inputs.mode }})
+    # Production data only from main; the environment adds Matt's approval and its own main-only rule.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: connections-production
+    env:
+      PRODUCTION_ACCOUNT: '080891698678'
+      PRODUCTION_ACCOUNT_ID_VAR: ${{ vars.CONNECTIONS_PRODUCTION_ACCOUNT_ID }}
+      MIGRATE_ROLE_VAR: ${{ vars.CONNECTIONS_PRODUCTION_MIGRATE_ROLE_ARN }}
+      IMPORT_ROLE_VAR: ${{ vars.CRM_IMPORT_ROLE_ARN }}
+      IMPORT_BUCKET_VAR: ${{ vars.CRM_IMPORT_BUCKET }}
+      ORGANIZATION_VAR: ${{ vars.CRM_IMPORT_ORGANIZATION_SLUG }}
+    steps:
+      - name: Guard and validate the inputs (before any credential)
+        id: guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          input() { jq -r --arg k "$1" '.inputs[$k] // ""' "${GITHUB_EVENT_PATH}"; }
+          trim() {
+            local v="$1"
+            v="${v//$'\xc2\xa0'/ }"; v="${v//$'\xe2\x80\x8b'/}"; v="${v//$'\xef\xbb\xbf'/}"; v="${v//$'\r'/}"
+            v="${v#"${v%%[![:space:]]*}"}"; v="${v%"${v##*[![:space:]]}"}"
+            printf '%s' "$v"
+          }
+          fail() { echo "::error::$1"; exit 1; }
+
+          [ "${GITHUB_REF}" = "refs/heads/main" ] || fail "Refusing: the production importer runs only from refs/heads/main."
+          [ "$(trim "${PRODUCTION_ACCOUNT_ID_VAR}")" = "${PRODUCTION_ACCOUNT}" ] || fail "Refusing: CONNECTIONS_PRODUCTION_ACCOUNT_ID is not ${PRODUCTION_ACCOUNT}."
+
+          mode="$(trim "$(input mode)")"
+          case "${mode}" in validate|inventory|record-config|dry-run) ;; *) fail "mode must be validate, inventory, record-config or dry-run." ;; esac
+          organization="$(trim "$(input organization)")"
+          [[ "${organization}" =~ ^[a-z0-9][a-z0-9-]{1,62}$ ]] || fail "organization must be a slug."
+          [ -n "$(trim "${ORGANIZATION_VAR}")" ] || fail "Refusing: the environment variable CRM_IMPORT_ORGANIZATION_SLUG is not set."
+          [ "${organization}" = "$(trim "${ORGANIZATION_VAR}")" ] || fail "Refusing: organization is not the one this environment imports into."
+          version="$(trim "$(input importer_version)")"
+          [ "${version}" = "crm-outreach-import.v1" ] || fail "importer_version must be crm-outreach-import.v1 (the running importer)."
+          confirm="$(trim "$(input confirm)" | tr -s '[:space:]' ' ')"
+          [ "${confirm,,}" = "crm import ${mode} ${organization}" ] || fail "Confirmation text required: crm import ${mode} ${organization}"
+
+          envs=(); outs=()
+          needs_source=false; needs_config=false; needs_db=false
+          case "${mode}" in
+            validate|inventory) needs_source=true ;;
+            record-config) needs_config=true; needs_db=true ;;
+            dry-run) needs_source=true; needs_config=true; needs_db=true ;;
+          esac
+          if ${needs_source}; then
+            key="$(trim "$(input source_key)")"; sha="$(trim "$(input expected_source_sha256)")"
+            [[ "${key}" =~ ^crm-import/source/[A-Za-z0-9._-]{1,80}\.csv$ ]] || fail "source_key must be crm-import/source/<name>.csv (letters, digits, . _ -)."
+            [[ "${sha}" =~ ^[0-9a-f]{64}$ ]] || fail "expected_source_sha256 must be 64 lowercase hex."
+            envs+=("SOURCE_KEY=${key}" "EXPECTED_SOURCE_SHA256=${sha}")
+          fi
+          if ${needs_config}; then
+            key="$(trim "$(input config_key)")"; sha="$(trim "$(input expected_config_sha256)")"
+            [[ "${key}" =~ ^crm-import/config/[A-Za-z0-9._-]{1,80}\.json$ ]] || fail "config_key must be crm-import/config/<name>.json."
+            [[ "${sha}" =~ ^[0-9a-f]{64}$ ]] || fail "expected_config_sha256 must be 64 lowercase hex."
+            envs+=("CONFIG_KEY=${key}" "EXPECTED_CONFIG_SHA256=${sha}")
+          fi
+          if ${needs_db}; then
+            actor="$(trim "$(input actor_user_id)")"
+            [[ "${actor}" =~ ^[A-Za-z0-9_-]{8,80}$ ]] || fail "actor_user_id must be a Loop user id (never an email)."
+            envs+=("ACTOR_USER_ID=${actor}")
+            migrate="$(trim "${MIGRATE_ROLE_VAR}")"
+            case "${migrate}" in "arn:aws:iam::${PRODUCTION_ACCOUNT}:role/"?*) ;; *) fail "Refusing: the production migrate role is not a role in ${PRODUCTION_ACCOUNT}." ;; esac
+            outs+=("migrate_role=${migrate}")
+          fi
+          role="$(trim "${IMPORT_ROLE_VAR}")"
+          [ "${role}" = "arn:aws:iam::${PRODUCTION_ACCOUNT}:role/loop-crm-import-github-production" ] || fail "Refusing: CRM_IMPORT_ROLE_ARN is not the import role in ${PRODUCTION_ACCOUNT}."
+          bucket="$(trim "${IMPORT_BUCKET_VAR}")"
+          [ "${bucket}" = "loop-crm-import-${PRODUCTION_ACCOUNT}" ] || fail "Refusing: CRM_IMPORT_BUCKET is not loop-crm-import-${PRODUCTION_ACCOUNT}."
+          # Every check passed: only now is anything handed to the later steps.
+          envs+=("MODE=${mode}" "ORGANIZATION=${organization}" "IMPORTER_VERSION=${version}" "IMPORT_BUCKET=${bucket}")
+          envs+=("NEEDS_SOURCE=${needs_source}" "NEEDS_CONFIG=${needs_config}" "NEEDS_DB=${needs_db}" "WORK=${RUNNER_TEMP}/crm-import")
+          outs+=("import_role=${role}" "needs_db=${needs_db}")
+          printf '%s\n' "${envs[@]}" >> "$GITHUB_ENV"
+          printf '%s\n' "${outs[@]}" >> "$GITHUB_OUTPUT"
+          echo "Guarded: ${mode} for ${organization} at ${GITHUB_SHA} (refs/heads/main, connections-production)."
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+
+      - name: Install dependencies
+        # A dummy URL is enough for `prisma generate` at install; it never connects.
+        env:
+          DATABASE_URL: 'postgresql://localhost:5432/ci?schema=public'
+        run: npm install --no-audit --no-fund
+
+      - name: The importer's own checks
+        run: node --import tsx --test scripts/operations/crm-import.test.ts
+
+      # Pinned to the v6.3.0 commit. allowed-account-ids refuses a credential for any other account.
+      - name: AWS credentials for the database URL (the existing production migrate role, unchanged)
+        if: steps.guard.outputs.needs_db == 'true'
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ steps.guard.outputs.migrate_role }}
+          aws-region: us-east-1
+          role-session-name: crm-import-db-${{ github.run_id }}
+          allowed-account-ids: ${{ env.PRODUCTION_ACCOUNT }}
+
+      - name: Read the production DATABASE_URL (masked, never printed)
+        if: steps.guard.outputs.needs_db == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ "$(aws sts get-caller-identity --query Account --output text)" = "${PRODUCTION_ACCOUNT}" ] || { echo "Refusing: credentials are not for ${PRODUCTION_ACCOUNT}"; exit 1; }
+          url="$(aws secretsmanager get-secret-value --region us-east-1 --secret-id loop/connections/production/database-url --query SecretString --output text)"
+          if [ -z "$url" ] || [ "$url" = "None" ]; then echo "The production DATABASE_URL is empty or unset"; exit 1; fi
+          echo "::add-mask::$url"
+          printf 'DATABASE_URL=%s\n' "$url" >> "$GITHUB_ENV"
+          echo "Loaded the production DATABASE_URL into the job environment (value hidden)."
+
+      - name: AWS credentials for the import bucket (the dedicated import role)
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ steps.guard.outputs.import_role }}
+          aws-region: us-east-1
+          role-session-name: crm-import-${{ github.run_id }}
+          allowed-account-ids: ${{ env.PRODUCTION_ACCOUNT }}
+
+      - name: Fetch the private objects and verify their SHA-256 (before anything parses them)
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          [ "$(aws sts get-caller-identity --query Account --output text)" = "${PRODUCTION_ACCOUNT}" ] || { echo "Refusing: credentials are not for ${PRODUCTION_ACCOUNT}"; exit 1; }
+          mkdir -p "${WORK}/review"
+          fetch() { # key, destination, expected sha, label
+            if ! aws s3api get-object --bucket "${IMPORT_BUCKET}" --key "$1" "$2" --query '{v: VersionId, n: ContentLength}' --output json > "$2.meta.json" 2> /dev/null; then
+              rm -f "$2"; echo "::error::$4_OBJECT_UNAVAILABLE (missing, or not readable by the import role)."; exit 1
+            fi
+            actual="$(sha256sum "$2" | cut -c1-64)"
+            if [ "${actual}" != "$3" ]; then
+              rm -f "$2"; echo "::error::$4_SHA256_MISMATCH: the object is not the reviewed file. Nothing was parsed."; exit 1
+            fi
+            version="$(jq -r '.v // "none"' "$2.meta.json")"
+            [[ "${version}" =~ ^[A-Za-z0-9._-]{1,80}$ ]] || { echo "::error::$4_VERSION_ID_UNEXPECTED"; exit 1; }
+            echo "$4: sha256 ${actual}, $(jq -r '.n' "$2.meta.json") bytes, version ${version}."
+          }
+          if [ "${NEEDS_SOURCE}" = "true" ]; then
+            fetch "${SOURCE_KEY}" "${WORK}/source.csv" "${EXPECTED_SOURCE_SHA256}" SOURCE
+            echo "SOURCE_REF=s3:${SOURCE_KEY}:v:$(jq -r '.v // "none"' "${WORK}/source.csv.meta.json")" >> "$GITHUB_ENV"
+          fi
+          if [ "${NEEDS_CONFIG}" = "true" ]; then
+            fetch "${CONFIG_KEY}" "${WORK}/config.json" "${EXPECTED_CONFIG_SHA256}" CONFIG
+          fi
+
+      - name: Run the importer (codes, counts, ids and hashes only)
+        shell: bash
+        env:
+          LOOP_CRM_IMPORT_TARGET: production
+          CRM_IMPORT_ORGANIZATION_SLUG: ${{ vars.CRM_IMPORT_ORGANIZATION_SLUG }}
+          # The same keyed-hash authority the Contact Point authority matches with; only this step sees it.
+          COGNITIVE_HASH_SECRET: ${{ secrets.COGNITIVE_HASH_SECRET }}
+        run: |
+          set -euo pipefail
+          cli=(npx tsx scripts/operations/crm-import.ts)
+          case "${MODE}" in
+            validate)
+              "${cli[@]}" validate --source "${WORK}/source.csv" --expected-sha256 "${EXPECTED_SOURCE_SHA256}" --importer-version "${IMPORTER_VERSION}" | tee "${WORK}/out.jsonl" ;;
+            inventory)
+              "${cli[@]}" inventory --source "${WORK}/source.csv" --expected-sha256 "${EXPECTED_SOURCE_SHA256}" --importer-version "${IMPORTER_VERSION}" --source-ref "${SOURCE_REF}" --review-dir "${WORK}/review" | tee "${WORK}/out.jsonl" ;;
+            record-config)
+              "${cli[@]}" record-config --config "${WORK}/config.json" --organization "${ORGANIZATION}" --actor-user-id "${ACTOR_USER_ID}" --importer-version "${IMPORTER_VERSION}" | tee "${WORK}/out.jsonl" ;;
+            dry-run)
+              "${cli[@]}" dry-run --source "${WORK}/source.csv" --expected-sha256 "${EXPECTED_SOURCE_SHA256}" --config "${WORK}/config.json" --organization "${ORGANIZATION}" --actor-user-id "${ACTOR_USER_ID}" --importer-version "${IMPORTER_VERSION}" --source-ref "${SOURCE_REF}" --review-dir "${WORK}/review" | tee "${WORK}/out.jsonl" ;;
+          esac
+
+      - name: Put the review artifacts in the private review prefix (never a GitHub artifact)
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -d "${WORK}/review" ] || exit 0
+          shopt -s nullglob
+          for file in "${WORK}"/review/*; do
+            name="$(basename "${file}")"
+            aws s3 cp "${file}" "s3://${IMPORT_BUCKET}/crm-import/review/run-${GITHUB_RUN_ID}/${name}" --sse AES256 --only-show-errors
+            echo "Stored crm-import/review/run-${GITHUB_RUN_ID}/${name}"
+          done
+
+      - name: Summary (codes, counts, ids and hashes only)
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### CRM outreach import -- ${MODE:-not started}"
+            echo ""
+            echo "- Commit: \`${GITHUB_SHA}\` (refs/heads/main), environment \`connections-production\`, organization \`${ORGANIZATION:-}\`"
+            echo "- Importer: \`${IMPORTER_VERSION:-}\`; source key: \`${SOURCE_KEY:-n/a}\`; expected SHA-256: \`${EXPECTED_SOURCE_SHA256:-n/a}\`"
+            echo "- Review artifacts (private): \`s3://${IMPORT_BUCKET:-}/crm-import/review/run-${GITHUB_RUN_ID}/\`"
+            echo ""
+            echo "The importer's output lines (structured; they never carry a source value):"
+            echo '```'
+            [ -f "${WORK:-/nonexistent}/out.jsonl" ] && cat "${WORK}/out.jsonl"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove the source, the configuration and the review files from the runner
+        if: always()
+        shell: bash
+        run: |
+          rm -rf "${RUNNER_TEMP}/crm-import"
+          echo "Removed the import working directory."
