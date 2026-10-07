@@ -450,6 +450,10 @@ export * from './crm-opportunity-authority';
 // its Participants, creator and owner. Unknown stays unknown; names follow the Party gate.
 // See ./crm-opportunity-read-model.ts.
 export * from './crm-opportunity-read-model';
+// The governed CRM outreach importer's contract (CRM slice 5): version, act table, route
+// classifications, canonical CSV, normalization, the Person rule, stage-mapping and config shapes.
+// See ./crm-import.ts.
+export * from './crm-import';
 
 // --- Decision card composition (presentation only) ---
 // Confidence, the operational consequence, the ways a decision can end, and the
