@@ -11,6 +11,19 @@
 -- ONE MIGRATION: the six tables are one authority with no ordering between them, and none is
 -- useful without the others.
 
+-- PROVENANCE IS NEVER ERASED BY A CASCADE FROM OTHER PROVENANCE. The references between import rows
+-- (an approval -> its dry run, an APPLY run -> the approval it claimed, an import key -> its run, an
+-- entry -> its run) are real foreign keys with NO ACTION: a referenced run, approval or key cannot be
+-- deleted on its own. Only the organization's deletion removes them, all in one statement (NO ACTION is
+-- checked at the end of the statement, so that cascade succeeds where RESTRICT could fail mid-way). The
+-- import key's CRM subject id is deliberately NOT a foreign key: it names a Party or an Opportunity, and
+-- provenance must never block a governed CRM lifecycle from running.
+--
+-- AN APPROVAL IS CONSUMED WHEN AN APPLY RUN CLAIMS IT. `crm_import_runs.approvalId` is UNIQUE, so one
+-- approval is owned by at most one APPLY run -- whatever that run's outcome (SUCCEEDED, FAILED,
+-- ABANDONED). Inserting the APPLY run IS the claim, so two concurrent claims cannot both succeed.
+-- Recovery after a partial APPLY is a fresh dry run and a fresh approval, never the old one.
+
 CREATE TABLE "crm_import_creator_aliases" (
     "id" TEXT NOT NULL,
     "organizationId" TEXT NOT NULL,
@@ -135,6 +148,8 @@ CREATE INDEX "crm_import_route_mappings_organizationId_routeKey_idx" ON "crm_imp
 
 CREATE UNIQUE INDEX "crm_import_route_mappings_organizationId_activeKey_key" ON "crm_import_route_mappings"("organizationId", "activeKey");
 
+CREATE UNIQUE INDEX "crm_import_runs_approvalId_key" ON "crm_import_runs"("approvalId");
+
 CREATE UNIQUE INDEX "crm_import_runs_applyLockKey_key" ON "crm_import_runs"("applyLockKey");
 
 CREATE INDEX "crm_import_runs_organizationId_startedAt_idx" ON "crm_import_runs"("organizationId", "startedAt");
@@ -157,13 +172,19 @@ ALTER TABLE "crm_import_route_mappings" ADD CONSTRAINT "crm_import_route_mapping
 
 ALTER TABLE "crm_import_runs" ADD CONSTRAINT "crm_import_runs_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
+ALTER TABLE "crm_import_runs" ADD CONSTRAINT "crm_import_runs_approvalId_fkey" FOREIGN KEY ("approvalId") REFERENCES "crm_import_approvals"("id") ON DELETE NO ACTION ON UPDATE NO ACTION;
+
 ALTER TABLE "crm_import_approvals" ADD CONSTRAINT "crm_import_approvals_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+ALTER TABLE "crm_import_approvals" ADD CONSTRAINT "crm_import_approvals_dryRunId_fkey" FOREIGN KEY ("dryRunId") REFERENCES "crm_import_runs"("id") ON DELETE NO ACTION ON UPDATE NO ACTION;
 
 ALTER TABLE "crm_import_entries" ADD CONSTRAINT "crm_import_entries_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
-ALTER TABLE "crm_import_entries" ADD CONSTRAINT "crm_import_entries_importRunId_fkey" FOREIGN KEY ("importRunId") REFERENCES "crm_import_runs"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "crm_import_entries" ADD CONSTRAINT "crm_import_entries_importRunId_fkey" FOREIGN KEY ("importRunId") REFERENCES "crm_import_runs"("id") ON DELETE NO ACTION ON UPDATE NO ACTION;
 
 ALTER TABLE "crm_import_keys" ADD CONSTRAINT "crm_import_keys_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+ALTER TABLE "crm_import_keys" ADD CONSTRAINT "crm_import_keys_importRunId_fkey" FOREIGN KEY ("importRunId") REFERENCES "crm_import_runs"("id") ON DELETE NO ACTION ON UPDATE NO ACTION;
 
 -- Closed vocabularies and the active-key invariants, enforced by the database as well as the code.
 ALTER TABLE "crm_import_creator_aliases" ADD CONSTRAINT "crm_import_creator_aliases_state_check"

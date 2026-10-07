@@ -15,6 +15,8 @@
 //   - the stage gate: with no stage mapping, nothing is written;
 //   - idempotency: a re-run creates nothing; a changed row is review;
 //   - atomicity: a unit that fails leaves no half-created Company; resumption completes it once;
+//   - approval consumption: an approval is consumed when an APPLY run CLAIMS it -- succeeded, failed or
+//     abandoned alike; the database itself refuses a second claim and a dangling reference;
 //   - concurrency: one APPLY at a time (database lock); a contested import key admits one subject;
 //   - the production path is refused.
 
@@ -240,8 +242,9 @@ test('the full path: dry run writes no CRM row; an approved APPLY writes exactly
     assert.deepEqual(appliedEntries.filter((e) => e.appliedAt).map((e) => e.sourceRowKey).sort(), ['r1', 'r2', 'r3', 'r4', 'r5', 'r8'].sort(), 'applied rows are marked; blocked rows are not');
     assert.ok(appliedEntries.find((e) => e.sourceRowKey === 'r1')?.opportunityId === lund.id);
 
-    // A second APPLY of the same approval is refused.
-    assert.equal((await service.apply(t.actor('OWNER'), { source, stageMapping: t.cfg.stageMapping, approvalId: approval.approvalId, executionTarget: 'LOCAL_TEST' })).outcome, 'APPROVAL_MISMATCH');
+    // A successful APPLY consumed its approval: a second attempt is refused as already executed.
+    assert.deepEqual(await service.apply(t.actor('OWNER'), { source, stageMapping: t.cfg.stageMapping, approvalId: approval.approvalId, executionTarget: 'LOCAL_TEST' }), { outcome: 'APPROVAL_ALREADY_EXECUTED' });
+    assert.equal(await prisma.crmImportRun.count({ where: { approvalId: approval.approvalId } }), 1, 'exactly one APPLY run owns the approval');
 
     // Re-run: identical source -> nothing new; rows already imported are skipped.
     const rerun = await service.dryRun(t.actor('OWNER'), source, t.cfg.stageMapping);
@@ -461,7 +464,15 @@ test('atomicity and resumption: a failed unit leaves no half-created Company; a 
     assert.equal(await prisma.crmOpportunity.count({ where: { organizationId: t.organizationId } }), 0, 'no Opportunity without its brand');
     assert.equal(await prisma.cognitiveIdentity.count({ where: { organizationId: t.organizationId, displayName: 'Pat Rivera' } }), 1, 'the independent Person unit committed');
 
-    // Resume: a fresh dry run and approval complete exactly the remaining work.
+    // A FAILED APPLY consumed its approval too: it is never retried blindly, by anyone.
+    const failedRun = await prisma.crmImportRun.findFirstOrThrow({ where: { approvalId: approval.approvalId } });
+    assert.equal(failedRun.state, 'FAILED');
+    for (const svc of [failing, local(prisma)]) {
+      assert.deepEqual(await svc.apply(t.actor('OWNER'), { source, stageMapping: t.cfg.stageMapping, approvalId: approval.approvalId, executionTarget: 'LOCAL_TEST' }), { outcome: 'APPROVAL_ALREADY_EXECUTED' });
+    }
+    assert.equal(await prisma.crmImportRun.count({ where: { approvalId: approval.approvalId } }), 1);
+
+    // Resume: a fresh dry run, human review and a NEW approval complete exactly the remaining work.
     const service = local(prisma);
     const resumeDry = await service.dryRun(t.actor('OWNER'), source, t.cfg.stageMapping);
     assert.ok(resumeDry.outcome === 'OK');
@@ -491,17 +502,52 @@ test('concurrency: one APPLY at a time per organization; a contested import key 
     const input = { source, stageMapping: t.cfg.stageMapping, approvalId: approval.approvalId, executionTarget: 'LOCAL_TEST' as const };
     const results = await Promise.all([service.apply(t.actor('OWNER'), input), local(prisma).apply(t.actor('ADMIN'), input), local(prisma).apply(t.actor('OWNER'), input)]);
     assert.equal(results.filter((r) => r.outcome === 'APPLIED').length, 1, JSON.stringify(results.map((r) => r.outcome)));
-    for (const r of results.filter((x) => x.outcome !== 'APPLIED')) assert.ok(['APPLY_IN_PROGRESS', 'APPROVAL_MISMATCH', 'APPROVAL_ALREADY_EXECUTED'].includes(r.outcome), r.outcome);
+    // Every loser is told precisely why: the approval was claimed -- never a generic "in progress".
+    assert.deepEqual(results.filter((x) => x.outcome !== 'APPLIED').map((r) => r.outcome), ['APPROVAL_ALREADY_EXECUTED', 'APPROVAL_ALREADY_EXECUTED']);
+    assert.equal(await prisma.crmImportRun.count({ where: { approvalId: approval.approvalId } }), 1, 'exactly one APPLY run owns the approval');
     assert.equal(await prisma.crmOpportunity.count({ where: { organizationId: t.organizationId } }), 2);
     assert.equal(await prisma.cognitiveIdentity.count({ where: { organizationId: t.organizationId, displayName: 'Lund Boats' } }), 1);
 
-    // The lock is the database's: a stuck RUNNING APPLY blocks the next until abandoned.
+    // A process claims approval B and dies: its run stays RUNNING and holds the organization's lock.
     const repo = new CrmImportRepository(prisma);
-    const stuck = await repo.createRun(t.organizationId, { mode: 'APPLY', importerVersion: 'crm-outreach-import.v1', sourceRef: 'local', sourceSha256: 'x', configFingerprint: 'y', startedByUserId: t.users.OWNER, approvalId: approval.approvalId, planDigest: null, rowCount: 0, counts: {} });
-    await assert.rejects(repo.createRun(t.organizationId, { mode: 'APPLY', importerVersion: 'crm-outreach-import.v1', sourceRef: 'local', sourceSha256: 'x', configFingerprint: 'y', startedByUserId: t.users.OWNER, approvalId: approval.approvalId, planDigest: null, rowCount: 0, counts: {} }), /Unique constraint/);
+    const fresh = async () => {
+      const d = await service.dryRun(t.actor('OWNER'), source, t.cfg.stageMapping);
+      assert.ok(d.outcome === 'OK');
+      const a = await service.approve(t.actor('OWNER'), d.runId);
+      assert.ok(a.outcome === 'APPROVED');
+      return a.approvalId;
+    };
+    const runFor = (approvalId: string) => ({ mode: 'APPLY' as const, importerVersion: 'crm-outreach-import.v1', sourceRef: 'local', sourceSha256: 'x', configFingerprint: 'y', startedByUserId: t.users.OWNER, approvalId, planDigest: null, rowCount: 0, counts: {} });
+    const approvalB = await fresh();
+    const stuck = await repo.createRun(t.organizationId, runFor(approvalB));
+
+    // A different, unclaimed approval meets the lock: in progress -- and it is NOT consumed.
+    const approvalC = await fresh();
+    assert.deepEqual(await service.apply(t.actor('OWNER'), { ...input, approvalId: approvalC }), { outcome: 'APPLY_IN_PROGRESS' });
+    assert.equal(await prisma.crmImportRun.count({ where: { approvalId: approvalC } }), 0, 'a refused attempt claims nothing');
+
+    // Abandoning releases the lock, never the approval.
     assert.deepEqual(await service.abandon(t.actor('EMPLOYEE'), stuck.id), { outcome: 'NOT_AUTHORIZED' });
     assert.deepEqual(await service.abandon(t.actor('OWNER'), stuck.id), { outcome: 'ABANDONED' });
     assert.deepEqual(await service.abandon(t.actor('OWNER'), stuck.id), { outcome: 'NOT_RUNNING' });
+    assert.deepEqual(await service.apply(t.actor('OWNER'), { ...input, approvalId: approvalB }), { outcome: 'APPROVAL_ALREADY_EXECUTED' }, 'an abandoned run keeps its approval consumed');
+    assert.equal((await prisma.crmImportRun.findUniqueOrThrow({ where: { id: stuck.id } })).approvalId, approvalB);
+    // Recovery is the new approval, which still matches the unchanged plan.
+    assert.equal((await service.apply(t.actor('OWNER'), { ...input, approvalId: approvalC })).outcome, 'APPLIED');
+    assert.equal(await prisma.crmOpportunity.count({ where: { organizationId: t.organizationId } }), 2, 'and it created nothing twice');
+
+    // THE DATABASE ITSELF: with the lock free, a second run still cannot claim a consumed approval;
+    // nothing can claim an approval, approve a dry run, or key a subject to a run that does not exist.
+    await assert.rejects(repo.createRun(t.organizationId, runFor(approvalB)), /Unique constraint failed on the fields: \(`approvalId`\)/);
+    await assert.rejects(repo.createRun(t.organizationId, runFor('no-such-approval')), /Foreign key constraint/);
+    await assert.rejects(repo.createApproval(t.organizationId, { dryRunId: 'no-such-run', sourceSha256: 'x', importerVersion: 'v', configFingerprint: 'y', planDigest: 'z', approvedByUserId: t.users.OWNER }), /Foreign key constraint/);
+    await assert.rejects(prisma.$transaction((tx) => repo.claimKey(t.organizationId, { keyKind: 'COMPANY', keyValue: 'route:ghost', subjectId: 'p', importRunId: 'no-such-run' }, tx)), /Foreign key constraint/);
+    // Provenance is never erased by a cascade from other provenance: a dry run an approval references,
+    // or a run its entries reference, cannot be deleted on its own.
+    const approvedDryRun = (await prisma.crmImportApproval.findUniqueOrThrow({ where: { id: approvalB } })).dryRunId;
+    await assert.rejects(prisma.crmImportRun.delete({ where: { id: approvedDryRun } }), /Foreign key constraint/);
+    const runWithEntries = await prisma.crmImportRun.findFirstOrThrow({ where: { organizationId: t.organizationId, mode: 'APPLY', state: 'SUCCEEDED' } });
+    await assert.rejects(prisma.crmImportRun.delete({ where: { id: runWithEntries.id } }), /Foreign key constraint/);
 
     // Two transactions racing to create the same Company under one import key: exactly one survives.
     const parties = new PartyService(prisma);
@@ -516,6 +562,31 @@ test('concurrency: one APPLY at a time per organization; a contested import key 
     );
     assert.deepEqual(race.map((r) => r.status).sort(), ['fulfilled', 'rejected']);
     assert.equal(await prisma.cognitiveIdentity.count({ where: { organizationId: t.organizationId, displayName: 'Raced Co' } }), 1, 'the loser rolled back its Party');
+  } finally {
+    await prisma.$disconnect();
+  }
+});
+
+test('deleting an organization still removes all its import provenance in one statement (NO ACTION, not RESTRICT)', { skip }, async () => {
+  const prisma = new PrismaClient({ datasources: { db: { url: URL } } });
+  try {
+    const t = await setup(prisma, 'orgdelete');
+    const service = local(prisma);
+    const source = { csvText: csv(ROWS.slice(0, 2)), sourceRef: 'local' };
+    const dry = await service.dryRun(t.actor('OWNER'), source, t.cfg.stageMapping);
+    assert.ok(dry.outcome === 'OK');
+    const approval = await service.approve(t.actor('OWNER'), dry.runId);
+    assert.ok(approval.outcome === 'APPROVED');
+    assert.equal((await service.apply(t.actor('OWNER'), { source, stageMapping: t.cfg.stageMapping, approvalId: approval.approvalId, executionTarget: 'LOCAL_TEST' })).outcome, 'APPLIED');
+    assert.ok((await prisma.crmImportKey.count({ where: { organizationId: t.organizationId } })) > 0);
+    await prisma.organization.delete({ where: { id: t.organizationId } });
+    const left = await Promise.all([
+      prisma.crmImportRun.count({ where: { organizationId: t.organizationId } }),
+      prisma.crmImportApproval.count({ where: { organizationId: t.organizationId } }),
+      prisma.crmImportEntry.count({ where: { organizationId: t.organizationId } }),
+      prisma.crmImportKey.count({ where: { organizationId: t.organizationId } }),
+    ]);
+    assert.deepEqual(left, [0, 0, 0, 0]);
   } finally {
     await prisma.$disconnect();
   }

@@ -176,9 +176,14 @@ export class CrmImportRepository {
     return this.prisma.crmImportRun.findMany({ where: { organizationId }, orderBy: [{ startedAt: 'desc' }, { id: 'desc' }], take: Math.min(100, Math.max(1, limit)) });
   }
 
-  /** Whether an APPLY of this approval already succeeded: an approval is executed once. */
-  async approvalExecuted(organizationId: string, approvalId: string): Promise<boolean> {
-    return (await this.prisma.crmImportRun.count({ where: { organizationId, approvalId, mode: 'APPLY', state: 'SUCCEEDED' } })) > 0;
+  /**
+   * Whether an APPLY run has claimed this approval -- in ANY state: RUNNING, SUCCEEDED, FAILED or
+   * ABANDONED. An approval is consumed when a run claims it, not when a run succeeds. The database
+   * enforces the same thing (`crm_import_runs.approvalId` is UNIQUE); this read only lets a caller
+   * say so before planning.
+   */
+  async approvalClaimed(organizationId: string, approvalId: string): Promise<boolean> {
+    return (await this.prisma.crmImportRun.count({ where: { organizationId, approvalId } })) > 0;
   }
 
   // --- Approvals -----------------------------------------------------------------------------

@@ -7841,8 +7841,10 @@ model CrmImportRun {
   /// Failure codes, never messages that could carry source text.
   failureCodes      String[] @default([])
 
-  /// The approval an APPLY executes. Null for a dry run.
-  approvalId   String?
+  /// The approval this APPLY run CLAIMED. Null for a dry run. UNIQUE: an approval is consumed the
+  /// moment one APPLY run claims it -- whatever that run's outcome (succeeded, failed, abandoned).
+  /// Recovery is a fresh dry run and a fresh approval, never a re-used one.
+  approvalId   String? @unique
   /// `organizationId` while an APPLY is RUNNING, NULL otherwise: one APPLY at a time per organization.
   applyLockKey String? @unique
 
@@ -7851,8 +7853,14 @@ model CrmImportRun {
   completedAt       DateTime?
   abandonedByUserId String?
 
-  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  entries      CrmImportEntry[]
+  organization     Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  entries          CrmImportEntry[]
+  importKeys       CrmImportKey[]
+  /// The approval this APPLY run claimed. NO ACTION on delete: one provenance row never erases
+  /// another by cascade (deleting the organization still removes all of it, in one statement).
+  approval         CrmImportApproval? @relation("CrmImportApprovalClaim", fields: [approvalId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  /// The approval of this dry run, when it was approved.
+  approvalOfDryRun CrmImportApproval? @relation("CrmImportApprovalDryRun")
 
   @@index([organizationId, startedAt])
   @@index([organizationId, sourceSha256, mode, state])
@@ -7874,7 +7882,11 @@ model CrmImportApproval {
   approvedByUserId  String
   approvedAt        DateTime @default(now())
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  /// The real dry run this approves.
+  dryRun       CrmImportRun  @relation("CrmImportApprovalDryRun", fields: [dryRunId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  /// The one APPLY run that claimed (consumed) this approval, if any.
+  claimedBy    CrmImportRun? @relation("CrmImportApprovalClaim")
 
   @@map("crm_import_approvals")
 }
@@ -7917,7 +7929,7 @@ model CrmImportEntry {
   createdAt DateTime @default(now())
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  run          CrmImportRun @relation(fields: [importRunId], references: [id], onDelete: Cascade)
+  run          CrmImportRun @relation(fields: [importRunId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([importRunId, line])
   @@index([organizationId, sourceRowKey])
@@ -7944,6 +7956,8 @@ model CrmImportKey {
   createdAt   DateTime @default(now())
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  /// The real run that created the subject.
+  run          CrmImportRun @relation(fields: [importRunId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([organizationId, keyKind, keyValue])
   @@index([organizationId, subjectId])

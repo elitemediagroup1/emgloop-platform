@@ -11,7 +11,9 @@
 //      keyed row fingerprint -- and NO CRM row. Identical source + configuration -> identical plan.
 //   2. APPROVE (OWNER/ADMIN): binds one successful dry run's source SHA-256, importer version,
 //      configuration fingerprint and plan digest.
-//   3. APPLY (OWNER/ADMIN): re-plans, and refuses unless all four still match the approval exactly;
+//   3. APPLY (OWNER/ADMIN): claims the approval -- CONSUMED THE MOMENT A RUN CLAIMS IT, whatever that
+//      run's outcome (a UNIQUE key in the database) -- re-plans, and refuses unless all four still
+//      match the approval exactly;
 //      takes the organization's APPLY lock (a unique key in the database, not a process); executes
 //      Company units, then Person units, then pursuit units, each in ONE transaction; a unit that
 //      cannot complete rolls back whole. PRODUCTION APPLY IS NOT COMMISSIONED: it is refused.
@@ -221,6 +223,9 @@ export class CrmImportService {
     const org = actor.organizationId;
     const approval = await this.imports.findApproval(org, input.approvalId);
     if (!approval) return { outcome: 'APPROVAL_NOT_FOUND' };
+    // CONSUMED WHEN CLAIMED. Any APPLY run that ever owned this approval -- succeeded, failed or
+    // abandoned -- has used it up. Recovery is a new dry run and a new approval, never this one.
+    if (await this.imports.approvalClaimed(org, approval.id)) return { outcome: 'APPROVAL_ALREADY_EXECUTED' };
     const dryRun = await this.imports.findRun(org, approval.dryRunId);
     if (!dryRun || dryRun.state !== 'SUCCEEDED') return { outcome: 'DRY_RUN_NOT_SUCCEEDED' };
 
@@ -233,8 +238,9 @@ export class CrmImportService {
     if (p.configFingerprint !== approval.configFingerprint) mismatched.push('CONFIGURATION');
     if (p.planDigest !== approval.planDigest) mismatched.push('PLAN');
     if (mismatched.length > 0) return { outcome: 'APPROVAL_MISMATCH', mismatched };
-    if (await this.imports.approvalExecuted(org, approval.id)) return { outcome: 'APPROVAL_ALREADY_EXECUTED' };
 
+    // Inserting the APPLY run IS the claim: `approvalId` is UNIQUE, so of two concurrent claims of one
+    // approval exactly one inserts. The organization's APPLY lock is a second unique key on the same row.
     let runId: string;
     try {
       const run = await this.imports.createRun(org, {
@@ -251,7 +257,12 @@ export class CrmImportService {
       });
       runId = run.id;
     } catch (err) {
-      if (isUniqueViolation(err)) return { outcome: 'APPLY_IN_PROGRESS' };
+      if (isUniqueViolation(err)) {
+        // Which unique key refused is not trusted from the error: whichever constraint Postgres checks
+        // first is not part of the contract. Ask the one question that decides the outcome.
+        if (await this.imports.approvalClaimed(org, approval.id)) return { outcome: 'APPROVAL_ALREADY_EXECUTED' };
+        return { outcome: 'APPLY_IN_PROGRESS' };
+      }
       throw err;
     }
 
@@ -263,7 +274,10 @@ export class CrmImportService {
     return { outcome: result.failureCodes.length === 0 ? 'APPLIED' : 'APPLIED_WITH_FAILURES', runId, counts, failureCodes: result.failureCodes };
   }
 
-  /** Release an APPLY whose process died. OWNER/ADMIN. The units it committed stand; the rest re-plan. */
+  /**
+   * Release an APPLY whose process died. OWNER/ADMIN. The units it committed stand. Its approval stays
+   * consumed: the remaining work needs a fresh dry run and a new approval.
+   */
   async abandon(actor: CrmImportActor, runId: string): Promise<{ outcome: 'ABANDONED' | 'NOT_AUTHORIZED' | 'NOT_RUNNING' }> {
     if (!(await crmImportPermits(this.prisma, this.iam, actor, 'APPLY'))) return { outcome: 'NOT_AUTHORIZED' };
     return { outcome: (await this.imports.abandonRun(actor.organizationId, runId, actor.userId)) ? 'ABANDONED' : 'NOT_RUNNING' };

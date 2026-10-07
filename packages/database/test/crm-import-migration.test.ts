@@ -42,3 +42,17 @@ test('the closed vocabularies and active-key invariants are enforced by the data
   assert.match(code, /CREATE UNIQUE INDEX "crm_import_keys_organizationId_keyKind_keyValue_key"/);
   assert.match(code, /CREATE UNIQUE INDEX "crm_import_runs_applyLockKey_key"/);
 });
+
+test('an approval is consumed when an APPLY run claims it; references are real, and never cascade between provenance rows', () => {
+  assert.match(code, /CREATE UNIQUE INDEX "crm_import_runs_approvalId_key" ON "crm_import_runs"\("approvalId"\)/, 'one APPLY run per approval');
+  for (const [table, column, target] of [
+    ['crm_import_runs', 'approvalId', 'crm_import_approvals'],
+    ['crm_import_approvals', 'dryRunId', 'crm_import_runs'],
+    ['crm_import_keys', 'importRunId', 'crm_import_runs'],
+    ['crm_import_entries', 'importRunId', 'crm_import_runs'],
+  ] as const) {
+    assert.match(code, new RegExp(`ALTER TABLE "${table}" ADD CONSTRAINT "${table}_${column}_fkey" FOREIGN KEY \\("${column}"\\) REFERENCES "${target}"\\("id"\\) ON DELETE NO ACTION ON UPDATE NO ACTION;`), `${table}.${column}`);
+  }
+  const cascades = [...code.matchAll(/ADD CONSTRAINT "([a-z_]+_fkey)"[^;]*ON DELETE CASCADE/g)].map((m) => m[1]!);
+  assert.ok(cascades.every((c) => c.endsWith('_organizationId_fkey')), `only the organization cascades: ${cascades.join(', ')}`);
+});

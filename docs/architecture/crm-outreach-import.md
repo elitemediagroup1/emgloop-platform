@@ -125,10 +125,12 @@ be a proposal.
 |---|---|
 | `crm_import_runs` | Mode, state, importer version, source SHA-256, configuration fingerprint, plan digest, counts, failure codes, operator, times, and the APPLY lock |
 | `crm_import_entries` | Per row: line, row key, **keyed** row fingerprint, mapping ids, outcome, review code, planned actions (kind/classification/action only), and the resulting subject ids |
-| `crm_import_approvals` | An OWNER/ADMIN's approval of one dry run, binding its source, version, configuration and plan |
+| `crm_import_approvals` | An OWNER/ADMIN's approval of one real dry run (a foreign key), binding its source, version, configuration and plan. Claimed by at most one APPLY run. |
 | `crm_import_keys` | **The idempotency authority.** Deterministic key → the subject a governed writer created, claimed in the same transaction |
 
 **Never stored here:** an email, a phone number, a contact name, a title or a note.
+
+**References are real foreign keys:** approval → its dry run, APPLY run → the approval it claimed (UNIQUE), import key → its run, entry → its run. All are NO ACTION: one provenance row never erases another by cascade, and only deleting the organization removes them, in one statement. An import key's CRM subject id is deliberately not a foreign key, so provenance never blocks a governed CRM lifecycle.
 
 ## 6. Flow
 
@@ -143,7 +145,9 @@ be a proposal.
 4. **apply** (OWNER/ADMIN), in order:
    - re-plans, and refuses unless source, importer version, configuration and plan all equal the
      approval;
-   - refuses an approval already executed;
+   - refuses an approval any APPLY run has already claimed. **An approval is consumed when an APPLY
+     run claims it**, whatever that run's outcome: succeeded, failed or abandoned. Inserting the run is
+     the claim, and `crm_import_runs.approvalId` is UNIQUE, so two concurrent claims cannot both win;
    - takes the organization's lock: a unique key in the database;
    - runs the units: Companies (each with its addresses), then People (each with theirs), then
      pursuits (Opportunity + BRAND + PRIMARY_CONTACTs). Each unit is one transaction.
@@ -165,8 +169,10 @@ Opportunity without its brand.
 - **Unchanged rows** fully applied are `ALREADY_IMPORTED_UNCHANGED`.
 - **Changed rows** are `SOURCE_ROW_CHANGED`: review, never a silent update.
 - **One APPLY at a time.** `crm_import_runs.applyLockKey` is unique per organization. A dead process's
-  lock is released by `abandon` (OWNER/ADMIN). After an interruption, a new dry run plus approval
-  completes exactly the remaining work.
+  lock is released by `abandon` (OWNER/ADMIN).
+- **One APPLY per approval.** An approval is consumed when an APPLY run claims it. A FAILED or
+  ABANDONED run keeps its approval consumed. After a partial or interrupted APPLY, recovery is always a
+  fresh dry run, human review and a NEW approval; that completes exactly the remaining work.
 - **Not the authority.** Workflow concurrency and process memory are not; the database is.
 
 ## 8. Who may act (decision T: RBAC resource `crmImports` + `CRM_IMPORT_ACT_ROLES`)
