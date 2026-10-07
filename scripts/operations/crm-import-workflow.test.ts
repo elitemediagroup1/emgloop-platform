@@ -60,7 +60,7 @@ const DRY = {
   expected_config_sha256: 'b'.repeat(64),
   organization: 'emg-talent',
   actor_user_id: 'cmabcdef0123456789',
-  importer_version: 'crm-outreach-import.v1',
+  importer_version: 'crm-outreach-import.v2',
   confirm: 'crm import dry-run emg-talent',
 };
 
@@ -80,7 +80,7 @@ test('the guard refuses everything else, before any credential is requested', ()
     ['an unknown mode', { ...DRY, mode: 'apply', confirm: 'crm import apply emg-talent' }],
     ['the wrong organization', { ...DRY, organization: 'someone-else', confirm: 'crm import dry-run someone-else' }],
     ['an unpinned environment organization', DRY, { ORGANIZATION_VAR: '' }],
-    ['another importer version', { ...DRY, importer_version: 'crm-outreach-import.v2' }],
+    ['another importer version', { ...DRY, importer_version: 'crm-outreach-import.v1' }],
     ['a missing confirmation', { ...DRY, confirm: 'yes' }],
     ['a source outside the source prefix', { ...DRY, source_key: 'crm-import/review/x.csv' }],
     ['a traversal', { ...DRY, source_key: 'crm-import/source/../review/x.csv' }],
@@ -101,7 +101,7 @@ test('the guard refuses everything else, before any credential is requested', ()
 });
 
 test('validate and inventory need no database and no actor', () => {
-  const r = runGuard({ mode: 'inventory', source_key: DRY.source_key, expected_source_sha256: SHA, organization: 'emg-talent', importer_version: 'crm-outreach-import.v1', confirm: 'crm import inventory emg-talent' });
+  const r = runGuard({ mode: 'inventory', source_key: DRY.source_key, expected_source_sha256: SHA, organization: 'emg-talent', importer_version: 'crm-outreach-import.v2', confirm: 'crm import inventory emg-talent' });
   assert.equal(r.code, 0, r.out);
   assert.match(r.outputs, /^needs_db=false$/m);
   assert.doesNotMatch(r.env, /ACTOR_USER_ID/);
@@ -187,6 +187,7 @@ test('the inventory counts everything the contract cares about; the detail is se
     duplicatedSourceRowKeys: 1,
     rowsWithDuplicatedKeys: 2,
     distinctCreatorAliases: 2,
+    rowsWithoutCreatorAlias: 0,
     distinctRouteKeys: 2,
     distinctSourceStatuses: 2,
     personEligibleRows: 1,

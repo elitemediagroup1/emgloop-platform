@@ -126,6 +126,11 @@ production web app uses**, because exact Contact Point matching compares keyed h
 Actions → **CRM Outreach Import** → Run workflow, from `main`. If required reviewers are set on
 `connections-production`, approve the gate when asked.
 
+**`creator_alias` is optional** (v2). Leave it blank for a business contact that belongs to no creator
+pursuit. Such a row imports its Company, Person and Contact Points when its status maps to
+`CONTACTS_ONLY`. It is held as `OPPORTUNITY_REQUIRES_CREATOR` if its status maps to `OPPORTUNITY`. It
+never creates an Opportunity.
+
 **Naming a source:** letters, digits, `.`, `_` and `-`, ending `.csv`. Use **no run of 7 or more
 digits**: an ISO date is fine, `outreach-2026-10-07.csv`; `outreach-20261007.csv` is refused, because
 provenance never holds anything shaped like a phone number.
@@ -139,7 +144,7 @@ provenance never holds anything shaped like a phone number.
 
 Every mode also needs:
 - `organization`, which must equal the pinned slug;
-- `importer_version`, which is `crm-outreach-import.v1`;
+- `importer_version`, which is `crm-outreach-import.v2`;
 - `confirm`: `crm import <mode> <organization>`.
 
 **Reading the results:**

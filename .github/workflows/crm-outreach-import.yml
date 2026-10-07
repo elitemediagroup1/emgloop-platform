@@ -61,7 +61,7 @@ on:
       importer_version:
         description: 'Must be the running importer version'
         required: true
-        default: 'crm-outreach-import.v1'
+        default: 'crm-outreach-import.v2'
       confirm:
         description: 'Type: crm import <mode> <organization>'
         required: true
@@ -116,7 +116,7 @@ jobs:
           [ -n "$(trim "${ORGANIZATION_VAR}")" ] || fail "Refusing: the environment variable CRM_IMPORT_ORGANIZATION_SLUG is not set."
           [ "${organization}" = "$(trim "${ORGANIZATION_VAR}")" ] || fail "Refusing: organization is not the one this environment imports into."
           version="$(trim "$(input importer_version)")"
-          [ "${version}" = "crm-outreach-import.v1" ] || fail "importer_version must be crm-outreach-import.v1 (the running importer)."
+          [ "${version}" = "crm-outreach-import.v2" ] || fail "importer_version must be crm-outreach-import.v2 (the running importer)."
           confirm="$(trim "$(input confirm)" | tr -s '[:space:]' ' ')"
           [ "${confirm,,}" = "crm import ${mode} ${organization}" ] || fail "Confirmation text required: crm import ${mode} ${organization}"
 

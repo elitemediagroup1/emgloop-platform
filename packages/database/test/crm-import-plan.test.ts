@@ -249,3 +249,57 @@ test('deterministic: the same input in any order yields the same plan', () => {
   const two = planCrmImport([...rows].reverse().map((r) => input(r)), c);
   assert.deepEqual(one, two);
 });
+
+// --- v2: creator_alias is optional ------------------------------------------------------------
+
+const CONTACTS: CrmImportStageMappingEntry = { sourceStatus: 'Contacts', action: 'CONTACTS_ONLY' };
+
+test('no creator + BRAND_COMPANY route + a named, verified individual: the Company, the Person and the address -- and no Opportunity', () => {
+  const rows = [pat({ creatorAlias: null, sourceStatus: 'Contacts' })];
+  const plan = planCrmImport(rows.map((r) => input(r)), ctx({ stage: [OPEN, CONTACTS], matches: noMatches(rows) }));
+  assert.deepEqual([plan.rows[0]!.outcome, plan.rows[0]!.creatorPartyId, plan.rows[0]!.pursuitKey, plan.rows[0]!.opportunityAction], ['CONTACTS_ONLY', null, null, 'NONE']);
+  assert.deepEqual(plan.companies.map((c) => [c.key, c.action, c.name]), [['route:lund', 'PROPOSED', 'Lund Boats']]);
+  assert.deepEqual(plan.persons.map((p) => [p.action, p.name, p.contacts.map((c) => c.classification)]), [['PROPOSED', 'Pat Rivera', ['INDIVIDUAL']]]);
+  assert.deepEqual(plan.pursuits, [], 'no creator, no Opportunity');
+});
+
+test('no creator + a role inbox: ROLE_INBOX on the Company, no Person, no Opportunity', () => {
+  const rows = [row({ creatorAlias: null, sourceStatus: 'Contacts', email: 'team@lund.example', contactKind: 'ROLE_INBOX' })];
+  const plan = planCrmImport(rows.map((r) => input(r)), ctx({ stage: [CONTACTS], matches: noMatches(rows) }));
+  assert.equal(plan.rows[0]!.outcome, 'CONTACTS_ONLY');
+  assert.deepEqual(plan.companies[0]!.contacts.map((c) => [c.classification, c.action]), [['ROLE_INBOX', 'ADD']]);
+  assert.deepEqual([plan.persons.length, plan.pursuits.length], [0, 0]);
+});
+
+test('no creator + a status that maps to OPPORTUNITY: held whole as OPPORTUNITY_REQUIRES_CREATOR; no creator is invented', () => {
+  const rows = [pat({ creatorAlias: null }), row({ creatorAlias: null, email: 'team@lund.example', contactKind: 'ROLE_INBOX' })];
+  const plan = planCrmImport(rows.map((r) => input(r)), ctx({ matches: noMatches(rows) }));
+  assert.deepEqual(plan.rows.map((r) => [r.outcome, r.subjectsApplicable, r.creatorPartyId]), [
+    ['OPPORTUNITY_REQUIRES_CREATOR', false, null],
+    ['OPPORTUNITY_REQUIRES_CREATOR', false, null],
+  ]);
+  assert.deepEqual([plan.companies.length, plan.persons.length, plan.pursuits.length], [0, 0, 0], 'nothing is written for a row held for review');
+  assert.equal(plan.counts['outcome.OPPORTUNITY_REQUIRES_CREATOR'], 2);
+});
+
+test('no creator + an unmapped or excluded status: the existing gates hold', () => {
+  const unmapped = planCrmImport([input(row({ creatorAlias: null, sourceStatus: 'Not due' }))], ctx());
+  assert.deepEqual([unmapped.rows[0]!.outcome, unmapped.companies.length], ['STAGE_MAPPING_REQUIRED', 0]);
+  const excluded = planCrmImport([input(row({ creatorAlias: null, sourceStatus: 'X' }))], ctx({ stage: [{ sourceStatus: 'X', action: 'EXCLUDE' }] }));
+  assert.equal(excluded.rows[0]!.outcome, 'EXCLUDED_BY_STATUS');
+  const unrouted = planCrmImport([input(row({ creatorAlias: null, routeKey: 'nobody-reviewed-this', sourceStatus: 'Contacts' }))], ctx({ stage: [CONTACTS] }));
+  assert.equal(unrouted.rows[0]!.outcome, 'ROUTE_UNMAPPED', 'a creator-less row still needs a reviewed route');
+});
+
+test('a creator-less row beside a creator pursuit on the same brand never joins it: the pursuit is exactly what it was', () => {
+  const creatorRows = [pat(), row({ email: 'team@lund.example', contactKind: 'ROLE_INBOX' })];
+  const generic = row({ creatorAlias: null, sourceStatus: 'Contacts', contactName: 'Sam Lee', contactNameVerified: true, contactKind: 'INDIVIDUAL', email: 'sam@lund.example' });
+  const all = [...creatorRows, generic];
+  const c = ctx({ stage: [OPEN, CONTACTS], matches: noMatches(all) });
+  const alone = planCrmImport(creatorRows.map((r) => input(r)), c);
+  const mixed = planCrmImport(all.map((r) => input(r)), c);
+  assert.deepEqual(mixed.pursuits, alone.pursuits, 'the same creator x brand pursuit, the same title, the same PRIMARY_CONTACTs');
+  assert.deepEqual(mixed.pursuits[0]!.primaryContactKeys, ['email:k:pat@lund.example'], 'Sam is a Person on the CRM, not a contact for a pursuit he was never part of');
+  assert.equal(mixed.rows.find((r) => r.sourceRowKey === generic.sourceRowKey)!.outcome, 'CONTACTS_ONLY');
+  assert.ok(mixed.persons.some((p) => p.name === 'Sam Lee'));
+});

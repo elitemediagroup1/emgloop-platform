@@ -154,7 +154,7 @@ test('the full path: dry run writes no CRM row; an approved APPLY writes exactly
 
     // Provenance: ids, codes and keyed fingerprints -- no value, name, title or note.
     const runRow = await prisma.crmImportRun.findUniqueOrThrow({ where: { id: dry.runId } });
-    assert.deepEqual([runRow.mode, runRow.state, runRow.importerVersion, runRow.startedByUserId], ['DRY_RUN', 'SUCCEEDED', 'crm-outreach-import.v1', t.users.EMPLOYEE]);
+    assert.deepEqual([runRow.mode, runRow.state, runRow.importerVersion, runRow.startedByUserId], ['DRY_RUN', 'SUCCEEDED', 'crm-outreach-import.v2', t.users.EMPLOYEE]);
     const entries = await prisma.crmImportEntry.findMany({ where: { importRunId: dry.runId } });
     assert.equal(entries.length, ROWS.length);
     for (const e of entries) {
@@ -209,7 +209,7 @@ test('the full path: dry run writes no CRM row; an approved APPLY writes exactly
       ],
     );
     const patPoint = points.find((p) => p.value === 'pat@lund.example.test')!;
-    assert.deepEqual([patPoint.sourceRef, patPoint.lastHumanContactAt?.toISOString().slice(0, 10)], ['crm-outreach-import.v1:r1', '2026-08-01']);
+    assert.deepEqual([patPoint.sourceRef, patPoint.lastHumanContactAt?.toISOString().slice(0, 10)], ['crm-outreach-import.v2:r1', '2026-08-01']);
 
     // Opportunities: creator x brand, the exact title, BRAND + every PRIMARY_CONTACT, no owner, no Relationship.
     const opps = await prisma.crmOpportunity.findMany({ where: { organizationId: t.organizationId }, include: { participants: true, transitions: true }, orderBy: { title: 'asc' } });
@@ -539,7 +539,7 @@ test('concurrency: one APPLY at a time per organization; a contested import key 
       assert.ok(a.outcome === 'APPROVED');
       return a.approvalId;
     };
-    const runFor = (approvalId: string) => ({ mode: 'APPLY' as const, importerVersion: 'crm-outreach-import.v1', sourceRef: 'local', sourceSha256: 'x', configFingerprint: 'y', startedByUserId: t.users.OWNER, approvalId, planDigest: null, rowCount: 0, counts: {} });
+    const runFor = (approvalId: string) => ({ mode: 'APPLY' as const, importerVersion: 'crm-outreach-import.v2', sourceRef: 'local', sourceSha256: 'x', configFingerprint: 'y', startedByUserId: t.users.OWNER, approvalId, planDigest: null, rowCount: 0, counts: {} });
     const approvalB = await fresh();
     const stuck = await repo.createRun(t.organizationId, runFor(approvalB));
 
@@ -609,6 +609,59 @@ test('deleting an organization still removes all its import provenance in one st
       prisma.crmImportKey.count({ where: { organizationId: t.organizationId } }),
     ]);
     assert.deepEqual(left, [0, 0, 0, 0]);
+  } finally {
+    await prisma.$disconnect();
+  }
+});
+
+test('v2: rows naming no creator import their governed Company, Person and Contact Points -- and never an Opportunity', { skip }, async () => {
+  const prisma = new PrismaClient({ datasources: { db: { url: URL } } });
+  try {
+    const t = await setup(prisma, 'nocreator');
+    const service = local(prisma);
+    const stageMapping: CrmImportConfig['stageMapping'] = [
+      { sourceStatus: 'Mapped', action: 'OPPORTUNITY', category: 'OPEN', stage: 'Imported' },
+      { sourceStatus: 'Contacts', action: 'CONTACTS_ONLY' },
+    ];
+    //            key   creator   route    status      route_name brand contact          ver     kind          title  email                         phone notes last
+    const rows: string[][] = [
+      ['g1', '', 'lund', 'Contacts', '', '', 'Robin Vale', 'TRUE', 'INDIVIDUAL', 'Buyer', 'robin@lund.example.test', '', '', ''],
+      ['g2', '', 'lund', 'Contacts', '', '', '', '', 'ROLE_INBOX', '', 'press@lund.example.test', '', '', ''],
+      ['g3', '', 'brother', 'Mapped', '', '', 'Ann Hale', 'TRUE', 'INDIVIDUAL', '', 'ann@brother.example.test', '', '', ''],
+    ];
+    const source = { csvText: csv(rows), sourceRef: 'local' };
+    const before = await crmCounts(prisma, t.organizationId);
+    const dry = await service.dryRun(t.actor('OWNER'), source, stageMapping);
+    assert.ok(dry.outcome === 'OK');
+    assert.deepEqual(Object.fromEntries(dry.prepared.plan.rows.map((r) => [r.sourceRowKey, r.outcome])), { g1: 'CONTACTS_ONLY', g2: 'CONTACTS_ONLY', g3: 'OPPORTUNITY_REQUIRES_CREATOR' });
+    assert.deepEqual(await crmCounts(prisma, t.organizationId), before, 'the dry run writes no CRM row');
+    const approval = await service.approve(t.actor('OWNER'), dry.runId);
+    assert.ok(approval.outcome === 'APPROVED');
+    assert.equal((await service.apply(t.actor('OWNER'), { source, stageMapping, approvalId: approval.approvalId, executionTarget: 'LOCAL_TEST' })).outcome, 'APPLIED');
+
+    const after = await crmCounts(prisma, t.organizationId);
+    assert.deepEqual(
+      { parties: after.parties - before.parties, contactPoints: after.contactPoints - before.contactPoints, opportunities: after.opportunities, participants: after.participants, relationships: after.relationships, evidence: after.evidence - before.evidence },
+      { parties: 2, contactPoints: 2, opportunities: 0, participants: 0, relationships: 0, evidence: 0 },
+      'Lund Boats and Robin; Robin\'s address and the press inbox; no Opportunity, Participant, Relationship (so no AFFILIATION) or IdentityEvidence; nothing at all for the held row',
+    );
+    const points = await prisma.crmContactPoint.findMany({ where: { organizationId: t.organizationId }, orderBy: { value: 'asc' } });
+    assert.deepEqual(points.map((p) => [p.value, p.classification, p.basis, p.sourceRef]), [
+      ['press@lund.example.test', 'ROLE_INBOX', 'IMPORTED', 'crm-outreach-import.v2:g2'],
+      ['robin@lund.example.test', 'INDIVIDUAL', 'IMPORTED', 'crm-outreach-import.v2:g1'],
+    ]);
+    assert.equal(await prisma.cognitiveIdentity.count({ where: { organizationId: t.organizationId, displayName: 'Ann Hale' } }), 0, 'the held row created nothing');
+    const trail = JSON.stringify([
+      await prisma.auditLog.findMany({ where: { organizationId: t.organizationId } }),
+      await prisma.stateChangeOutbox.findMany({ where: { organizationId: t.organizationId } }),
+      await prisma.crmImportEntry.findMany({ where: { organizationId: t.organizationId } }),
+    ]);
+    for (const s of ['robin@', 'press@', 'ann@', 'Buyer', 'Robin Vale']) assert.ok(!trail.includes(s), `no "${s}" in audit, outbox or provenance`);
+    assert.deepEqual(
+      await service.apply(t.actor('OWNER'), { source, stageMapping, approvalId: approval.approvalId, executionTarget: 'PRODUCTION' }),
+      { outcome: 'PRODUCTION_APPLY_NOT_COMMISSIONED' },
+      'production APPLY is still impossible',
+    );
   } finally {
     await prisma.$disconnect();
   }

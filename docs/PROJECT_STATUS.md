@@ -25,40 +25,41 @@ NOT by seeing it render or run. Those must be checked on the deploy.
 
 ---
 
-## CRM authority for the brand-outreach import — SLICE 5 PR A COMMISSIONED · PR B IN PROGRESS (2026-10-07)
+## CRM authority for the brand-outreach import — PR A + PR B MERGED · OPTIONAL-CREATOR FIX IN REVIEW (2026-10-07)
 
 **Where it stands.**
-- **PR A (#364) merged** (`d8177a3`). Its migration `20261012000000_crm_import_provenance` is applied
+- **PR A** (#364, `d8177a3`): merged. Its migration `20261012000000_crm_import_provenance` is applied
   in production.
-- **PR B** (`feat/crm-import-production-source`) is built: the private source bucket, a dedicated
-  read role, the `CRM Outreach Import` workflow (validate / inventory / record-config / dry-run), the
-  command's production target, and the hash-key check.
-- **PR B is not deployed.**
-  - The access stack and the three environment variables are Matt's (`docs/runbooks/crm-outreach-import.md`).
-  - This session has no AWS access and cannot dispatch workflows.
+- **PR B** (#365, `25dad3a`): merged. The private source bucket, the dedicated read role, the
+  `CRM Outreach Import` workflow (validate / inventory / record-config / dry-run), and the hash-key
+  check.
+  - **Its infrastructure is deployed by Matt** (runbook Parts 1–2). Read AWS and the environment, not
+    this line.
+- **The optional-creator fix** (`fix/crm-import-optional-creator`, in review):
+  - `creator_alias` is optional; the importer is now `crm-outreach-import.v2`;
+  - creator-less rows may import governed contacts, and never an Opportunity;
+  - **no migration.**
 
 **Blocked on:**
-- **`FINAL_SOURCE_REQUIRED`.** Only the 2026-10-06 PDF exists, and it is design evidence, not a
-  source.
-- **Deployment of PR B** (Matt).
+- Regenerating the final canonical source (about 1,076 rows) under v2.
+- Uploading it, then `inventory`.
 
 **Next, in order:**
-1. Deploy the access stack and set the environment variables.
-2. Export and upload the final CSV.
-3. `inventory`.
-4. Reviewed aliases and routes, then `record-config`.
-5. `dry-run`, then human review.
-6. Stage mapping approval.
-7. A separate change commissioning production APPLY.
-8. Explicit approval of the controlled first import.
+1. Upload the regenerated source, then `inventory`.
+2. Reviewed aliases and routes, then `record-config`.
+3. `dry-run`, then human review.
+4. Stage mapping approval.
+5. A separate change commissioning production APPLY.
+6. Explicit approval of the controlled first import.
+
+**Finding:** `connections-production` has a main-only branch policy and **no required reviewers**.
 
 **Known debt, not fixed here:**
 - `CrmRelationshipService` owner validation does not enforce same-org active membership.
 - `CrmRelationshipService` resolves `actorName` inside its transaction.
 - The legacy `/crm` Command Center still lists Relationships and Opportunities under "Upcoming".
 - `intelligence_digests.entityRefs` default drifts from the schema (pre-existing).
-- The #362 web test `crm-relationship-linked-opportunities` fails on `main` (its regex matches the
-  Relationship page's `capabilities.addParticipant`).
+- The #362 web test `crm-relationship-linked-opportunities` fails on `main`.
 
 ---
 

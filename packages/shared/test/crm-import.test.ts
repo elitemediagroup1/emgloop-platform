@@ -22,8 +22,20 @@ import {
 
 const HEADER = 'source_row_key,creator_alias,route_key,source_status,contact_name,contact_name_verified,contact_kind,email,phone';
 
-test('the importer version is explicit and stable', () => {
-  assert.equal(CRM_IMPORT_VERSION, 'crm-outreach-import.v1');
+test('the importer version is explicit and stable (v2: creator_alias is optional)', () => {
+  assert.equal(CRM_IMPORT_VERSION, 'crm-outreach-import.v2');
+});
+
+test('creator_alias is optional: a blank alias is "no creator", never a violation; the column itself may be absent', () => {
+  const parsed = parseCrmImportCsv(`${HEADER}\nr-1,,lund,Contacts,Pat Rivera,TRUE,INDIVIDUAL,pat@lund.example.test,\nr-2,  ,lund,Contacts,,,,team@lund.example.test,\n`);
+  assert.ok(parsed.ok);
+  assert.deepEqual(parsed.invalid, []);
+  assert.deepEqual(parsed.rows.map((r) => [r.sourceRowKey, r.creatorAlias]), [['r-1', null], ['r-2', null]]);
+  const without = parseCrmImportCsv('source_row_key,route_key,source_status,email\nr-1,lund,Contacts,pat@lund.example.test\n');
+  assert.ok(without.ok);
+  assert.deepEqual([without.rows[0]?.creatorAlias, without.invalid], [null, []]);
+  // Still required: the row's identity, its route and its status.
+  assert.deepEqual(parseCrmImportCsv('source_row_key,creator_alias,route_key\n'), { ok: false, problem: 'MISSING_COLUMN', column: 'source_status' });
 });
 
 test('CSV records: quotes, doubled quotes, CRLF and LF, a BOM, embedded newlines, blank lines', () => {
@@ -57,8 +69,9 @@ test('rows are shape-checked; a bad row is refused by line, its contents never e
   ].join('\n');
   const parsed = parseCrmImportCsv(csv);
   assert.ok(parsed.ok);
-  assert.equal(parsed.rows.length, 1);
-  assert.deepEqual(parsed.rows[0], {
+  assert.equal(parsed.rows.length, 2, 'r-1, and r-3 whose blank creator alias is no longer a violation');
+  assert.equal(parsed.rows[1]?.creatorAlias, null);
+  assert.deepEqual(parsed.rows[0]!, {
     line: 2,
     sourceRowKey: 'r-1',
     creatorAlias: 'Trevon Hill',
@@ -79,7 +92,6 @@ test('rows are shape-checked; a bad row is refused by line, its contents never e
     parsed.invalid.map((r) => [r.line, r.sourceRowKey, r.violations]),
     [
       [3, null, ['SOURCE_ROW_KEY_INVALID']],
-      [4, 'r-3', ['CREATOR_ALIAS_REQUIRED']],
       [5, 'r-4', ['CONTACT_NAME_VERIFIED_INVALID']],
       [6, 'r-5', ['CONTACT_KIND_INVALID']],
       [7, 'r-6', ['KEY_CARRIES_CONTACT_VALUE']],

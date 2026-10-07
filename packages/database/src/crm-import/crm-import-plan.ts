@@ -14,6 +14,10 @@
 //   - Every value attaches through the Contact Point authority: INDIVIDUAL to the Person,
 //     ROLE_INBOX or UNATTRIBUTED to the Company. A value two rows send to different places, or that
 //     the exact match cannot settle, is a review item -- never a guess, never a duplicate.
+//   - A row without a creator (v2: `creator_alias` is optional) may import its governed Company, Person
+//     and Contact Points when its status allows it (CONTACTS_ONLY), but NEVER an Opportunity. If its
+//     status maps to OPPORTUNITY it is OPPORTUNITY_REQUIRES_CREATOR: held whole, for review. No creator
+//     is ever inferred.
 //   - One Opportunity per creator x governed brand Company. Several rows of one pursuit are one
 //     Opportunity; their verified People are its PRIMARY_CONTACTs (all of them). Title:
 //     `<Creator> × <Brand>`. No Relationship, no owner, nothing creator-visible.
@@ -196,6 +200,7 @@ const ROW_PRECEDENCE: readonly CrmImportOutcome[] = [
   'PERSON_NAME_CONFLICT',
   'PERSON_MATCH_REVIEW',
   'CONTACT_POINT_REVIEW',
+  'OPPORTUNITY_REQUIRES_CREATOR',
   'STAGE_MAPPING_REQUIRED',
   'CREATOR_ALIAS_UNMAPPED',
   'CREATOR_NOT_REFERENCEABLE',
@@ -507,6 +512,11 @@ function resolveRow(input: CrmImportPlanRowInput, ctx: CrmImportPlanContext): Wo
   }
 
   if (!w.status) w.codes.add('STAGE_MAPPING_REQUIRED');
+  if (row.creatorAlias === null) {
+    // No creator: never inferred. Contacts may proceed; an Opportunity cannot.
+    if (w.status?.action === 'OPPORTUNITY') w.codes.add('OPPORTUNITY_REQUIRES_CREATOR');
+    return w;
+  }
   const alias = ctx.aliases.get(crmImportKey(row.creatorAlias)) ?? null;
   if (!alias) w.codes.add('CREATOR_ALIAS_UNMAPPED');
   else {
