@@ -158,6 +158,33 @@ export class CrmOpportunityReadModelRepository {
     };
   }
 
+  /**
+   * Every Opportunity explicitly linked to one Relationship in this organization.
+   * This is the same presentation-safe list projection as the organization-wide list: one
+   * Opportunity query, one ACTIVE-participant query, then batched Party/User/Profile lookups.
+   * Relationship linkage is ONLY the stored `relationshipId`; nothing is inferred.
+   */
+  async forRelationship(scope: CrmOpportunityReadScope, relationshipId: string): Promise<readonly CrmOpportunityListItemV1[]> {
+    const { organizationId } = scope;
+    if (!organizationId?.trim() || !relationshipId?.trim()) return [];
+    const rows = await this.prisma.crmOpportunity.findMany({
+      where: { organizationId, relationshipId },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    });
+    if (rows.length === 0) return [];
+    const participants = await this.prisma.crmParticipant.findMany({
+      where: { organizationId, opportunityId: { in: rows.map((r) => r.id) }, state: 'ACTIVE' },
+      orderBy: [{ addedAt: 'asc' }, { id: 'asc' }],
+    });
+    const lookups = await this.lookups(scope, {
+      partyIds: [...rows.map((r) => r.creatorPartyId), ...participants.map((p) => p.partyId)],
+      userIds: rows.map((r) => r.ownerUserId),
+      creatorPartyIds: rows.map((r) => r.creatorPartyId),
+    });
+    const byOpportunity = groupBy(participants, (p) => p.opportunityId ?? '');
+    return rows.map((row) => this.listItem(row, byOpportunity.get(row.id) ?? [], lookups));
+  }
+
   /** One Opportunity in this organization, or null -- another tenant's id is simply not found. */
   async getRecord(scope: CrmOpportunityReadScope, opportunityId: string): Promise<CrmOpportunityRecordV1 | null> {
     const { organizationId } = scope;
