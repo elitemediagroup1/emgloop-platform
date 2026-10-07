@@ -35,13 +35,25 @@ access: the Opportunity read authority is checked separately before any linked r
 denied viewer learns no count, ids, titles or existence. The section reuses the Slice 4 projection
 and batching, shows no Contact Point values or Opportunity note text, and has no write controls.
 
+**Since CRM slice 5 (2026-10-07):** a governed create, `CrmOpportunityService.create`:
+- the PD-F-11 CREATE grant (EMPLOYEE+);
+- the creator must be an established, current PERSON;
+- an optional valid Relationship, never created;
+- no owner;
+- the first transition has no note;
+- the row, its transition and its audit row are one transaction;
+- it also runs inside a caller's transaction, for the outreach importer (`crm-outreach-import.md`).
+
+The legacy `CrmCommercialRepository.createOpportunity` stays for the staging Creator Hub demo seed only.
+It writes the creator-visible "Opened" note that the creator timeline shows.
+
 **Not yet built:**
 - versioned stage sets;
 - the outbox subject;
 - `activity.v1` composition;
 - the Intake → Opportunity act;
-- governed create/update/reopen/void services (the PD-F-11 grants for them exist; only the creator-hub
-  designation is wired to them today);
+- governed update/reopen/void services (the PD-F-11 grants exist; create and the creator-hub
+  designation are wired);
 - staff acts on the surface (owner, participants, stage); they are governed services with no UI yet;
 - a governed notes authority. The writer is `CrmCommercialRepository` (`packages/database/src/creator/`). Everything below
 that describes the full contract still stands as the target.
