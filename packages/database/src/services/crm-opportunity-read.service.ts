@@ -24,6 +24,7 @@ import type { PrismaClient } from '@prisma/client';
 import {
   crmOpportunityActPermitted,
   type CrmOpportunityCapabilitiesV1,
+  type CrmOpportunityListItemV1,
   type CrmOpportunityListPageV1,
   type CrmOpportunityRecordV1,
 } from '@emgloop/shared';
@@ -74,6 +75,19 @@ export class CrmOpportunityReadService {
       if (err instanceof CrmOpportunityCursorError) return { outcome: 'INVALID_CURSOR' };
       throw err;
     }
+  }
+
+  /**
+   * Opportunities explicitly linked to a Relationship. Authorization happens before the
+   * relationship id is used, so a denied viewer learns neither count nor existence.
+   */
+  async forRelationship(
+    viewer: CrmOpportunityViewer,
+    relationshipId: string,
+  ): Promise<CrmOpportunityReadResult<readonly CrmOpportunityListItemV1[]>> {
+    const access = await this.access(viewer);
+    if (!access) return { outcome: 'NOT_AUTHORIZED' };
+    return { outcome: 'OK', value: await this.readModel.forRelationship(access.scope, relationshipId), capabilities: access.capabilities };
   }
 
   async getRecord(viewer: CrmOpportunityViewer, opportunityId: string): Promise<CrmOpportunityReadResult<CrmOpportunityRecordV1>> {

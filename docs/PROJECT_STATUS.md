@@ -25,48 +25,42 @@ NOT by seeing it render or run. Those must be checked on the deploy.
 
 ---
 
-## CRM authority for the brand-outreach import — SLICES 1–3 COMMISSIONED · SLICE 4 IN REVIEW (2026-10-06)
+## CRM authority for the brand-outreach import — SLICES 1–4 COMMISSIONED · SLICE 4.1 IN REVIEW (2026-10-06)
 
 **Where it stands.**
-- **Slices 1–3 are merged and commissioned.**
-  - #358: the PD-F-05, -11 and -12 decisions.
-  - #359 (`cb211ca`): the CRM Contact Point authority. Migration `20261010000000_crm_contact_points`
-    is applied in production.
-  - #360 (`9adba1d`): Opportunity owner, BRAND and PRIMARY_CONTACT Participants, and the PD-F-11
-    grants. Migration `20261011000000_crm_opportunity_owner_participants` is applied in production,
-    and Netlify is deployed.
-- **Slice 4** (`feat/crm-opportunities-staff-surface`, draft PR) is built:
-  - the organization-wide staff surface `/app/crm/opportunities` (list and record), read-only;
-  - `CrmOpportunityReadService`, with names behind the Party gate, and a fixed number of queries per
-    page;
-  - no note text for anyone (only "Internal note recorded" / "Transition note recorded"); a governed
-    Opportunity-note authority is a separate decision;
-  - the CRM nav entry `opportunities:view`.
-
-  **No migration.**
+- **Slices 1–4 are merged and commissioned.**
+  - #358: PD-F-05, PD-F-11 and PD-F-12 decisions.
+  - #359: CRM Contact Point authority; migration applied in production.
+  - #360: Opportunity owner, BRAND / PRIMARY_CONTACT Participants and PD-F-11; migration applied in production.
+  - #361 (`0003afd`): organization-wide staff Opportunities list/detail, read-only; production Netlify deployed and staff list loaded successfully.
+- **Slice 4.1** (`feat/crm-relationship-linked-opportunities`) is the UX completion in review:
+  - Relationship detail shows Opportunities whose stored `CrmOpportunity.relationshipId` explicitly points to that Relationship;
+  - projection reuses the Slice 4 Opportunity read model, including Party-name and ownership rules;
+  - Opportunity access is authorized separately, so Relationship access alone leaks no Opportunity count or existence;
+  - no Contact Point values, Opportunity note text or write controls;
+  - no migration.
 
 **Not built:**
-- governed create/update/reopen/void Opportunity services, and staff acts on the surface;
-- a governed notes authority (`internalNotes` is a single legacy free-text field);
-- import provenance and the importer (slice 5).
+- governed create/update/reopen/void Opportunity services and staff write UI;
+- a governed Opportunity notes authority;
+- import provenance and the importer (Slice 5).
 
 **Next, in order:**
-1. Review and merge slice 4, deploy the web app, then verify access in production per role. After
-   that, a controlled staff test.
-2. Slice 5: import provenance and the importer.
-3. A dry run on Matt's final structured file.
-4. Human review.
-5. The import, only on explicit approval.
+1. Review/merge Slice 4.1 and verify the Relationship page production deploy.
+2. Slice 5: import provenance + importer.
+3. Dry run on Matt's final structured source file.
+4. Human review of creator aliases, route classification and import mapping.
+5. Production import only on explicit approval.
 
 **Open before the importer:**
-- the Opportunity creation and stage mapping (directory statuses are NOT stages);
-- a governed home for titles;
-- the creator alias table;
+- Opportunity creation and source-status → stage mapping (directory outreach statuses are NOT stages);
+- governed home for titles;
+- creator alias mapping;
 - route classification.
 
 **Known debt, not fixed here:**
-- `CrmRelationshipService` stores `ownerUserId` with no organization or membership check.
-- `CrmRelationshipService` resolves `actorName` inside its transaction (pool starvation under concurrency).
+- `CrmRelationshipService` owner validation does not enforce same-org active membership.
+- `CrmRelationshipService` resolves `actorName` inside its transaction.
 - The legacy `/crm` Command Center still lists Relationships and Opportunities under "Upcoming".
 
 ---
