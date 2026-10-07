@@ -1,13 +1,15 @@
+import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import type { BrainWorkDisplayState } from '@emgloop/shared';
 import { hasValue } from '@emgloop/shared';
 import { requirePermission } from '../../../../../auth/guard';
 import { readAiControlFloor } from '../../../../../ai/ai-environment';
 import { brainWork } from '../../../../../brain/brain-runtime';
-import { crmSubjectReads, personHref, relationshipHref, RELATIONSHIPS_HREF } from '../../../../../crm/crm-slice-data';
+import { crmSubjectReads, personHref, readOpportunitiesForRelationship, relationshipHref, RELATIONSHIPS_HREF } from '../../../../../crm/crm-slice-data';
 import { readRelationshipView } from '../../../../../crm/crm-subject-reads';
 import { relationshipHistoryEntries } from '../../../../../crm/relationship-history';
 import { businessDate, crmPartyId, governedTerm, relationshipStateDisplay, sideName, subjectTypeLabel, type SubjectDisplay } from '../../../../../crm/subject-display';
+import { categoryText, opportunityHref, ownerText, partyRefDisplay, partyRefsText } from '../../../../../crm/opportunity-display';
 import { requireCrmContext } from '../../../../../crm/crm-data';
 import { viewerTime } from '../../../../../time/viewer-time';
 import { ActivityList } from '../../../_loop-os/activity-item';
@@ -35,8 +37,9 @@ export const dynamic = 'force-dynamic';
 // From the Relationships authority: kind (its own label), state, sides, participants
 // and the recorded history. Participant roles and states have no approved display
 // labels, so their governed values are shown as themselves. Accountability is a
-// workspace user, not a participant, and is shown as such. Opportunities are not listed
-// per Relationship yet, and Work and Universal Activity have no authority for one; each says so.
+// workspace user, not a participant, and is shown as such. Linked Opportunities are projected
+// from the canonical Opportunity authority using only the stored CrmOpportunity.relationshipId.
+// Work and Universal Activity still have no Relationship authority; each says so.
 //
 // Governed acts (end, reactivate, void, participants) still live on the temporary
 // verification screen; this page links there only when the viewer may act.
@@ -79,6 +82,10 @@ export default async function RelationshipPage({ params }: { params: { relations
   }
 
   const { record, subject, names, capabilities } = view;
+  // Separate authority: Relationship access does not imply Opportunity access. A denied viewer
+  // receives no count, ids, titles or existence signal from the Opportunity authority.
+  const linkedOpportunities = await readOpportunitiesForRelationship(record.relationshipId);
+  const linkedItems = linkedOpportunities?.outcome === 'OK' ? linkedOpportunities.value : null;
   const time = viewerTime();
   const brainState = await brainStateFor(record.relationshipId);
   const activeParticipants = record.participants.filter((p) => p.state === 'ACTIVE');
@@ -133,7 +140,9 @@ export default async function RelationshipPage({ params }: { params: { relations
         items={[
           { label: 'Since', value: since, unknownText: 'Not recorded' },
           { label: 'Participants', value: `${activeParticipants.length} active` },
-          { label: 'Opportunities', value: null, unknownText: 'Not summarised here' },
+          linkedItems === null
+            ? { label: 'Opportunities', value: null, unknownText: 'Not available' }
+            : { label: 'Opportunities', value: `${linkedItems.length} linked` },
           { label: 'Open work', value: null, unknownText: 'Not linked yet' },
         ]}
       />
@@ -145,7 +154,7 @@ export default async function RelationshipPage({ params }: { params: { relations
           { label: 'Participants', href: '#participants' },
           { label: 'History', href: '#history' },
           { label: 'Activity', href: null, reason: 'Universal Activity does not cover relationships yet.' },
-          { label: 'Opportunities', href: null, reason: 'Opportunities are not listed per relationship yet. They are listed under CRM, Opportunities.' },
+          ...(linkedItems === null ? [] : [{ label: 'Opportunities', href: '#opportunities' }]),
           { label: 'Work', href: null, reason: 'Work is not linked to relationships yet.' },
         ]}
       />
@@ -162,6 +171,65 @@ export default async function RelationshipPage({ params }: { params: { relations
             >
               {record.description ? <p className="loop-note">{record.description}</p> : null}
             </Panel>
+
+            {linkedItems !== null ? (
+              <section id="opportunities" aria-label="Linked opportunities">
+                <Panel
+                  title="Opportunities"
+                  lead="Commercial pursuits explicitly linked to this relationship. Loop does not infer this connection from shared people, brands or contact details."
+                >
+                  {linkedItems.length === 0 ? (
+                    <StateBlock kind="empty" compact title="No opportunities are linked to this relationship." body="Only an Opportunity whose recorded relationshipId points here appears in this section." />
+                  ) : (
+                    <div style={{ overflowX: 'auto' }}>
+                      <table className="loop-table">
+                        <caption className="loop-sr-only">Opportunities linked to this relationship</caption>
+                        <thead>
+                          <tr>
+                            <th scope="col">Opportunity</th>
+                            <th scope="col">Creator</th>
+                            <th scope="col">Brand</th>
+                            <th scope="col">Owner</th>
+                            <th scope="col">Stage</th>
+                            <th scope="col">Updated</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {linkedItems.map((item) => {
+                            const creator = partyRefDisplay(item.creator);
+                            return (
+                              <tr key={item.opportunityId}>
+                                <td>
+                                  <Link className="loop-table__strong" href={opportunityHref(item.opportunityId)}>
+                                    {item.title}
+                                  </Link>
+                                </td>
+                                <td data-label="Creator">{creator.text}</td>
+                                <td data-label="Brand">
+                                  {item.brands.length ? partyRefsText(item.brands, '') : <span className="loop-table__muted">No brand recorded</span>}
+                                </td>
+                                <td data-label="Owner">
+                                  {item.owner ? ownerText(item.owner) : <span className="loop-table__muted">Unassigned</span>}
+                                </td>
+                                <td data-label="Stage">
+                                  {item.stage}
+                                  <span className="loop-table__muted" style={{ display: 'block' }}>
+                                    {categoryText(item.category)}
+                                  </span>
+                                </td>
+                                <td data-label="Updated">
+                                  <time dateTime={item.updatedAt}>{time.date(item.updatedAt)}</time>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </Panel>
+              </section>
+            ) : null}
 
             <section id="history" aria-label="History">
               <Panel title="Relationship history">
