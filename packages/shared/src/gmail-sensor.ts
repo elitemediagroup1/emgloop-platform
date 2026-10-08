@@ -37,6 +37,12 @@ export interface GmailAddress {
 export const GMAIL_SYSTEM_LABELS = ['INBOX', 'UNREAD', 'STARRED', 'IMPORTANT', 'SENT', 'DRAFT', 'TRASH', 'SPAM'] as const;
 
 /**
+ * Privacy-safe normalized automation evidence from Gmail metadata headers. Raw values are never
+ * persisted: the sensor reduces them to one of these fixed facts before the database sees them.
+ */
+export type GmailAutomationClass = 'AUTO_SUBMITTED' | 'MAILING_LIST' | 'BULK';
+
+/**
  * One message's metadata, normalized. This is what the sync persists.
  *
  * `references` is the RFC 5322 chain, kept because a correct reply must repeat it and because a
@@ -58,6 +64,11 @@ export interface GmailMessageFact {
   readonly headerMessageId: string | null;
   readonly inReplyTo: string | null;
   readonly references: readonly string[];
+  /**
+   * Normalized machine/list evidence from Auto-Submitted, List-Id/List-Unsubscribe and Precedence.
+   * Null/absent means those headers did not establish automation; raw header values are never stored.
+   */
+  readonly automationClass?: GmailAutomationClass | null;
   /** True when the connected account sent it. Decided from the From address, never guessed. */
   readonly fromSelf: boolean;
 }

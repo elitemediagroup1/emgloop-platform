@@ -28,6 +28,7 @@ import {
   parseGmailAddressList,
   parseGmailReferences,
   type GmailAddress,
+  type GmailAutomationClass,
   type GmailMessageBody,
   type GmailMessageFact,
   type GmailReadFailure,
@@ -63,7 +64,10 @@ export const GOOGLE_GMAIL_MAX_MESSAGES_PER_PASS = 250;
 export const GOOGLE_GMAIL_INITIAL_DAYS = 14;
 
 /** The headers the sync read asks for. Nothing else is requested, so nothing else arrives. */
-export const GOOGLE_GMAIL_METADATA_HEADERS = ['From', 'To', 'Cc', 'Subject', 'Date', 'Message-ID', 'In-Reply-To', 'References'] as const;
+export const GOOGLE_GMAIL_METADATA_HEADERS = [
+  'From', 'To', 'Cc', 'Subject', 'Date', 'Message-ID', 'In-Reply-To', 'References',
+  'Auto-Submitted', 'List-Id', 'List-Unsubscribe', 'Precedence',
+] as const;
 
 /** How deep the MIME walk goes, and how much text one message may yield. */
 export const GOOGLE_GMAIL_MAX_MIME_DEPTH = 12;
@@ -160,6 +164,16 @@ function headerMap(payload: Record<string, unknown>): Map<string, string> {
 
 const ONE = (list: GmailAddress[]): GmailAddress | null => list[0] ?? null;
 
+/** Reduce automation/list headers to a fixed fact; raw values never leave the sensor. */
+function automationClass(headers: ReadonlyMap<string, string>): GmailAutomationClass | null {
+  const auto = headers.get('auto-submitted')?.trim().toLowerCase();
+  if (auto && auto !== 'no') return 'AUTO_SUBMITTED';
+  if (headers.has('list-id') || headers.has('list-unsubscribe')) return 'MAILING_LIST';
+  const precedence = headers.get('precedence')?.trim().toLowerCase();
+  if (precedence && /^(?:bulk|list|junk)(?:\s|$)/.test(precedence)) return 'BULK';
+  return null;
+}
+
 /** One message's metadata, from what Gmail returned. Null when it is not a message Loop can state. */
 export function gmailMessageFact(raw: Record<string, unknown>, selfAddress: string | null): GmailMessageFact | null {
   const messageId = typeof raw.id === 'string' && raw.id !== '' ? raw.id : null;
@@ -189,6 +203,7 @@ export function gmailMessageFact(raw: Record<string, unknown>, selfAddress: stri
     headerMessageId: headers.get('message-id') ?? null,
     inReplyTo: headers.get('in-reply-to') ?? null,
     references: parseGmailReferences(headers.get('references')),
+    automationClass: automationClass(headers),
     // SENT is Gmail's own answer to "did this account send it", and the From address is the
     // other. Either is enough; neither is inferred from the absence of the other.
     fromSelf: labels.includes('SENT') || (self !== null && from?.address === self),

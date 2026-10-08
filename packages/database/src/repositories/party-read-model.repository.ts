@@ -152,6 +152,46 @@ export class PartyReadModelRepository {
     };
   }
 
+  /**
+   * Every established, current Party of one type: id, name and establishment time only, in one
+   * query (the People command center filters, counts and pages over the whole directory). Reads at
+   * most `limit + 1` rows so a caller can refuse an oversized directory rather than show a partial one.
+   */
+  async directory(organizationId: string, partyType: PartyType, limit: number): Promise<{ rows: { id: string; displayName: string | null; establishedAt: Date | null }[]; truncated: boolean }> {
+    if (!nonEmpty(organizationId) || !isPartyType(partyType)) return { rows: [], truncated: false };
+    const rows = await this.prisma.cognitiveIdentity.findMany({
+      where: { organizationId, entityType: partyType, ...ESTABLISHED, ...CURRENT },
+      select: { id: true, displayName: true, establishedAt: true },
+      orderBy: [{ establishedAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+    });
+    return { rows: rows.slice(0, limit), truncated: rows.length > limit };
+  }
+
+  /** One established, current Party of one type: id, name and establishment time, or null. */
+  async establishedOne(organizationId: string, partyType: PartyType, id: string): Promise<{ id: string; displayName: string | null; establishedAt: Date | null } | null> {
+    if (!nonEmpty(organizationId) || !nonEmpty(id) || !isPartyType(partyType)) return null;
+    return this.prisma.cognitiveIdentity.findFirst({
+      where: { organizationId, id, entityType: partyType, ...ESTABLISHED, ...CURRENT },
+      select: { id: true, displayName: true, establishedAt: true },
+    });
+  }
+
+  /** Display names of current Parties in this organization, by id. Unknown or other-tenant ids are absent. */
+  async names(organizationId: string, ids: readonly string[]): Promise<Map<string, string>> {
+    const unique = [...new Set(ids.filter(nonEmpty))];
+    if (!nonEmpty(organizationId) || unique.length === 0) return new Map();
+    const out = new Map<string, string>();
+    for (let i = 0; i < unique.length; i += 1000) {
+      const rows = await this.prisma.cognitiveIdentity.findMany({
+        where: { organizationId, id: { in: unique.slice(i, i + 1000) } },
+        select: { id: true, displayName: true },
+      });
+      for (const r of rows) if (r.displayName?.trim()) out.set(r.id, r.displayName.trim());
+    }
+    return out;
+  }
+
   /** Governed Party records that are not established, for establishment review. Newest first. */
   async listUnestablished(
     organizationId: string,

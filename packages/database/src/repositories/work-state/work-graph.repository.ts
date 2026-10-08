@@ -69,6 +69,8 @@ export interface MessageFacts {
   /** The RFC 5322 `References` chain, in order, so a reply can be threaded without Gmail. */
   readonly references?: readonly string[];
   readonly labels?: readonly string[];
+  /** Fixed privacy-safe classification, never a raw provider header. */
+  readonly automationClass?: 'AUTO_SUBMITTED' | 'MAILING_LIST' | 'BULK' | null;
   readonly observedAt: Date;
 }
 
@@ -250,6 +252,7 @@ export class WorkGraphRepository {
       inReplyTo: facts.inReplyTo ?? null,
       references: [...(facts.references ?? [])],
       labels: [...(facts.labels ?? [])],
+      automationClass: facts.automationClass ?? null,
       observedAt: facts.observedAt,
     };
     const existing = await this.prisma.workMessage.findFirst({ where });

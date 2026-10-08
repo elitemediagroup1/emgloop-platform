@@ -16,7 +16,7 @@ import { absentUntilMigrated } from '../../creator/until-migrated';
 
 const ABSENT_RECHECK_MS = 60_000;
 
-type Probe = 'digestEntityRefs' | 'entityLinks' | 'refreshQueue' | 'privateSituations';
+type Probe = 'digestEntityRefs' | 'entityLinks' | 'refreshQueue' | 'privateSituations' | 'crmDiscoveryDismissals';
 // Per client: two clients may point at two databases (a test does exactly that), and one database's
 // answer must never be read as the other's.
 let known = new WeakMap<object, Map<Probe, { present: boolean; at: number }>>();
@@ -58,14 +58,25 @@ export function privateSituationsPresent(prisma: PrismaClient): Promise<boolean>
   return probe(prisma, 'privateSituations', prisma.casePrivateScope, () => prisma.casePrivateScope.findFirst({ select: { id: true } }));
 }
 
+/** 20261013000000_crm_people_command_center (CRM slice 6): a person's Possible New People dismissals. */
+export function crmDiscoveryDismissalsPresent(prisma: PrismaClient): Promise<boolean> {
+  return probe(prisma, 'crmDiscoveryDismissals', prisma.crmDiscoveryDismissal, () => prisma.crmDiscoveryDismissal.findFirst({ select: { id: true } }));
+}
+
 /** What offboarding erasure needs to know, per table, before its transaction starts. */
 export interface IntelligenceFabricPresence {
   readonly entityLinks: boolean;
   readonly refreshQueue: boolean;
   readonly privateSituations: boolean;
+  readonly crmDiscoveryDismissals: boolean;
 }
 
 export async function intelligenceFabricPresent(prisma: PrismaClient): Promise<IntelligenceFabricPresence> {
-  const [links, queue, situations] = await Promise.all([entityLinksPresent(prisma), refreshQueuePresent(prisma), privateSituationsPresent(prisma)]);
-  return { entityLinks: links, refreshQueue: queue, privateSituations: situations };
+  const [links, queue, situations, dismissals] = await Promise.all([
+    entityLinksPresent(prisma),
+    refreshQueuePresent(prisma),
+    privateSituationsPresent(prisma),
+    crmDiscoveryDismissalsPresent(prisma),
+  ]);
+  return { entityLinks: links, refreshQueue: queue, privateSituations: situations, crmDiscoveryDismissals: dismissals };
 }

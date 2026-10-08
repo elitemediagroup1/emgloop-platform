@@ -986,3 +986,27 @@ export { planCrmImport } from './crm-import/crm-import-plan';
 export type { CrmImportPlan, CrmImportPlannedRow, CrmImportPlannedCompany, CrmImportPlannedPerson, CrmImportPlannedPursuit, CrmImportPlannedContact, CrmImportPlanContext, CrmImportPlanRowInput } from './crm-import/crm-import-plan';
 export type { CrmImportActor } from './crm-import/crm-import-access';
 
+
+// --- CRM slice 6: the People command center ---
+// Human interpretation and recorded context (governed), the viewer-scoped directory and person
+// read, and Possible New People.
+// See docs/architecture/crm-people-command-center.md.
+export { CrmOutreachService } from './crm-outreach/crm-outreach.service';
+export type { CrmOutreachActResult, CrmOutreachServiceDeps } from './crm-outreach/crm-outreach.service';
+export { CrmOutreachRepository } from './crm-outreach/crm-outreach.repository';
+export type { CrmContextFactRecord, CrmContextFactInput, CrmOutreachStateRecord, CrmOutreachEventRecord } from './crm-outreach/crm-outreach.repository';
+export type { CrmOutreachActor } from './crm-outreach/crm-outreach-access';
+export { CrmPeopleCommandService } from './crm-outreach/crm-people-command.service';
+export type {
+  CrmViewerSources,
+  CrmViewerMailStatus,
+  CrmPeopleCapabilities,
+  CrmDiscoveryCandidate,
+  CrmPeopleCommandResult,
+  CrmPersonOutreachResult,
+  CrmTimelineEntry,
+  CrmTimelineSource,
+} from './crm-outreach/crm-people-command.service';
+export { CrmPeopleDiscoveryService } from './crm-outreach/crm-people-discovery.service';
+export type { CrmDiscoveryAddResult } from './crm-outreach/crm-people-discovery.service';
+export { linkCorrespondents, qualifyPartyMail } from './crm-outreach/crm-outreach-mail-link';

@@ -47,6 +47,8 @@ export const ERASED_WORK_TABLES = Object.freeze([
   // takes the scope row, the Case's log and its evidence with it (cascade).
   'case_private_scopes',
   'situation_candidates',
+  // CRM slice 6: the person's own Possible New People dismissals.
+  'crm_discovery_dismissals',
 ] as const);
 export type ErasedWorkTable = (typeof ERASED_WORK_TABLES)[number];
 
@@ -66,7 +68,11 @@ export class WorkErasureRepository {
     // False ONLY when `intelligenceDigestsPresent` said the table is not migrated yet (there is then
     // nothing to delete). Defaults to deleting, so a caller that forgets fails loudly, never leaks.
     // Each false ONLY when the matching probe said the table is not migrated yet (nothing to delete).
-    options: { readonly intelligenceDigests?: boolean; readonly intelligenceFabric?: { readonly entityLinks: boolean; readonly refreshQueue: boolean; readonly privateSituations?: boolean } } = {},
+    options: {
+      readonly intelligenceDigests?: boolean;
+      readonly intelligenceFabric?: { readonly entityLinks: boolean; readonly refreshQueue: boolean; readonly privateSituations?: boolean };
+      readonly crmDiscoveryDismissals?: boolean;
+    } = {},
   ): Promise<WorkErasure> {
     const where = workScope(principal);
     const db = this.db;
@@ -92,6 +98,7 @@ export class WorkErasureRepository {
     counts.case_private_scopes = fabric.privateSituations === false ? 0 : (await db.operationalPriority.deleteMany({ where: { organizationId: principal.organizationId, sourceSystem: PRIVATE_SITUATION_SOURCE, privateScope: { is: { userId: principal.userId } } } })).count;
     // `where` names the user, so only the person's own candidates match: the organization's have no userId.
     counts.situation_candidates = fabric.privateSituations === false ? 0 : (await db.situationCandidate.deleteMany({ where })).count;
+    counts.crm_discovery_dismissals = options.crmDiscoveryDismissals === false ? 0 : (await db.crmDiscoveryDismissal.deleteMany({ where })).count;
     return Object.freeze(counts);
   }
 }

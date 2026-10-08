@@ -595,3 +595,11 @@ export * from './mail-intelligence';
 export * from './source-connection';
 export * from './conversation-event';
 export * from './connection-worker-auth';
+
+// --- CRM slice 6: the People command center ---
+// Outreach states, the cadence, message qualification and the derivation (./crm-outreach.ts); the
+// directory read model (./crm-people-command-center.ts); Possible New People (./crm-people-discovery.ts).
+// See docs/architecture/crm-people-command-center.md.
+export * from './crm-outreach';
+export * from './crm-people-command-center';
+export * from './crm-people-discovery';
