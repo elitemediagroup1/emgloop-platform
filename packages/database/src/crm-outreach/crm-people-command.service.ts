@@ -34,6 +34,8 @@ import {
 } from '@emgloop/shared';
 
 import { IamRepository } from '../repositories/iam.repository';
+import { IntelligenceDigestRepository } from '../repositories/intelligence/intelligence-digest.repository';
+import { absentUntilMigrated } from '../creator/until-migrated';
 import { CrmContactPointRepository } from '../repositories/crm-contact-point.repository';
 import { PartyReadModelRepository } from '../repositories/party-read-model.repository';
 import { PartyReferenceRepository } from '../repositories/party-reference.repository';
@@ -69,6 +71,20 @@ export interface CrmPeopleCapabilities {
   readonly retractFact: boolean;
 }
 
+/**
+ * A viewer-private AI reading of the Gmail threads linked exactly to one Person.
+ * It is interpretation, never a CRM fact: the UI may summarize or suggest an action from it, but
+ * it never writes a state, Relationship, Opportunity, cadence event, or Contact Point.
+ */
+export interface CrmConversationIntelligence {
+  readonly summary: string;
+  readonly generatedAt: Date;
+  readonly lastEvidenceAt: Date | null;
+  readonly confidence: string | null;
+  readonly suggestion: 'REPLY' | 'WAIT' | 'CIRCLE_BACK' | 'REVIEW' | 'NONE';
+  readonly suggestionText: string | null;
+}
+
 export interface CrmDiscoveryCandidate {
   readonly correspondentHash: string;
   readonly address: string;
@@ -96,6 +112,8 @@ export type CrmPeopleCommandResult =
       readonly creators: readonly { readonly key: string; readonly label: string }[];
       readonly companies: readonly { readonly partyId: string; readonly name: string }[];
       readonly owners: readonly { readonly userId: string; readonly name: string }[];
+      /** Viewer-private, body-aware Mail intelligence when commissioned and authorized. */
+      readonly intelligenceByParty: ReadonlyMap<string, CrmConversationIntelligence>;
     };
 
 export type CrmTimelineSource = 'IMPORT' | 'OPERATOR' | 'CRM' | 'GMAIL' | 'CALENDAR';
@@ -130,6 +148,7 @@ export type CrmPersonOutreachResult =
       readonly lastInboundAt: Date | null;
       readonly nextMeeting: { readonly at: Date; readonly title: string | null } | null;
       readonly names: ReadonlyMap<string, string>;
+      readonly conversationIntelligence: CrmConversationIntelligence | null;
     };
 
 export interface CrmPeopleCommandServiceDeps {
@@ -199,6 +218,7 @@ export class CrmPeopleCommandService {
     const creatorIds = facts.filter((f) => f.kind === 'CREATOR_CONTEXT' && f.relatedPartyId).map((f) => f.relatedPartyId!);
     const names = await this.parties.names(org, [...companyIds, ...creatorIds]);
 
+    const intelligenceByParty = await this.conversationIntelligenceByParty(actor, mail);
     const rows: CrmPeopleRow[] = directory.rows.map((p) =>
       buildRow({
         partyId: p.id,
@@ -235,6 +255,7 @@ export class CrmPeopleCommandService {
       creators: [...creators].map(([key, label]) => ({ key, label })).sort((a, b) => a.label.localeCompare(b.label)),
       companies: [...companies].map(([partyId, name]) => ({ partyId, name })).sort((a, b) => a.name.localeCompare(b.name)),
       owners: [...owners].map((userId) => ({ userId, name: ownerNames.get(userId) ?? 'A team member' })).sort((a, b) => a.name.localeCompare(b.name)),
+      intelligenceByParty,
     };
   }
 
@@ -273,6 +294,7 @@ export class CrmPeopleCommandService {
     });
 
     const evidence = mail.evidence.get(partyId);
+    const conversationIntelligence = (await this.conversationIntelligenceByParty(actor, mail)).get(partyId) ?? null;
     const meetings = mail.meetings.get(partyId) ?? [];
     const actorIds = [...events.map((e) => e.actorUserId), ...facts.map((f) => f.recordedByUserId ?? '')];
     const memberNames = await this.outreach.memberNames(org, actorIds);
@@ -294,6 +316,7 @@ export class CrmPeopleCommandService {
       lastInboundAt: lastInbound,
       nextMeeting: upcoming,
       names: new Map([...names, ...memberNames]),
+      conversationIntelligence,
     };
   }
 
@@ -367,6 +390,57 @@ export class CrmPeopleCommandService {
       meetings,
       addressOf,
     };
+  }
+
+  /**
+   * Read only the current MAIL thread digests for threads that already link to a Person through exact
+   * Contact Point matching. No body is read here: the body-aware producer owns that act and stores only
+   * the minimized, viewer-private digest after the existing governance and consent gates pass.
+   */
+  private async conversationIntelligenceByParty(actor: CrmOutreachActor, mail: ViewerMail): Promise<Map<string, CrmConversationIntelligence>> {
+    if (!mail.status.permitted || mail.status.gmail.state === 'UNAVAILABLE' || mail.evidence.size === 0) return new Map();
+    const principal = { organizationId: actor.organizationId, userId: actor.userId };
+    const providerThreadIds = [...new Set([...mail.evidence.values()].flatMap((e) => e.messages.map((m) => m.message.threadId)))];
+    if (providerThreadIds.length === 0) return new Map();
+    const threads = await this.prisma.workThread.findMany({
+      where: { ...principal, threadId: { in: providerThreadIds } },
+      select: { id: true, threadId: true },
+      take: 10_000,
+    });
+    const workIdByProviderThread = new Map(threads.map((t) => [t.threadId, t.id]));
+    const digests = await absentUntilMigrated(new IntelligenceDigestRepository(this.prisma).forDomain(principal, 'MAIL', { now: new Date(), limit: 200 })).catch(() => []);
+    const digestByRef = new Map(
+      digests
+        .filter((d) => d.subjectKind === 'THREAD' && d.status === 'CURRENT')
+        .map((d) => [d.subjectRef, d] as const),
+    );
+    const out = new Map<string, CrmConversationIntelligence>();
+    for (const [partyId, evidence] of mail.evidence) {
+      const candidates = [...new Set(evidence.messages.map((m) => workIdByProviderThread.get(m.message.threadId)).filter((id): id is string => !!id))]
+        .map((id) => digestByRef.get(`work_thread:${id}`))
+        .filter((d): d is NonNullable<typeof d> => !!d)
+        .sort((a, b) => (b.lastEvidenceAt?.getTime() ?? 0) - (a.lastEvidenceAt?.getTime() ?? 0));
+      const d = candidates[0];
+      if (!d) continue;
+      const summary = d.content.synthesis ?? d.content.reading?.statement ?? null;
+      if (!summary) continue;
+      const signals = d.content.signals ?? [];
+      const viewer = signals.find((s) => s.kind === 'OBLIGATION' && s.owedBy === 'VIEWER');
+      const other = signals.find((s) => s.kind === 'OBLIGATION' && s.owedBy === 'COUNTERPARTY');
+      const future = signals.find((s) => s.kind === 'UPCOMING' || s.kind === 'OPPORTUNITY');
+      const review = signals.find((s) => s.kind === 'DECISION_PENDING' || s.kind === 'UNRESOLVED' || s.kind === 'RISK');
+      const suggestion: CrmConversationIntelligence['suggestion'] = viewer ? 'REPLY' : other ? 'WAIT' : future ? 'CIRCLE_BACK' : review ? 'REVIEW' : 'NONE';
+      const suggestionText = viewer?.statement ?? other?.statement ?? future?.statement ?? review?.statement ?? null;
+      out.set(partyId, {
+        summary,
+        generatedAt: d.generatedAt,
+        lastEvidenceAt: d.lastEvidenceAt,
+        confidence: d.content.confidence ?? d.content.reading?.confidence ?? null,
+        suggestion,
+        suggestionText,
+      });
+    }
+    return out;
   }
 
   private async discoveryFrom(actor: CrmOutreachActor, mail: ViewerMail): Promise<CrmDiscoveryCandidate[]> {
