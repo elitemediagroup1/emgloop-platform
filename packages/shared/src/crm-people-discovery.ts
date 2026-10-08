@@ -63,7 +63,7 @@ export type CrmDiscoveryExclusion =
   | 'NO_DIRECT_EXCHANGE'
   | 'ONLY_AUTOMATED_MAIL';
 
-export type CrmDiscoveryReason = 'YOU_EMAILED_THEM' | 'THEY_REPLIED';
+export type CrmDiscoveryReason = 'YOU_EMAILED_THEM' | 'THEY_REPLIED' | 'THEY_CONTACTED_YOU';
 
 export type CrmDiscoveryDecision =
   | { readonly surfaced: true; readonly reasons: readonly CrmDiscoveryReason[] }
@@ -78,11 +78,11 @@ export type CrmDiscoveryDecision =
  *   SUPPRESSED         the viewer told Mail never to flag this sender;
  *   AUTOMATED_SENDER   a machine's local part (no-reply, notifications, ...);
  *   ROLE_OR_LIST_MAILBOX a shared, list or bulk mailbox's local part (info@, support@, ...-request@);
- *   NO_DIRECT_EXCHANGE the viewer never wrote to the address directly (To): inbound alone -- a pitch,
- *                      a newsletter, a cold email -- is not evidence of someone the viewer works with;
- *   ONLY_AUTOMATED_MAIL everything from them was automated (and they never replied as a person).
- * Surfaced with its reasons: YOU_EMAILED_THEM (always, by the rule above) and THEY_REPLIED when a
- * human reply was observed.
+ *   NO_DIRECT_EXCHANGE neither a direct qualifying send nor a human inbound exists;
+ *   ONLY_AUTOMATED_MAIL everything from them was automated/uncertain.
+ * A legitimate direct human inbound may surface before the viewer replies: that is the review queue's
+ * inbound-first discovery case, never an automatic Person creation.
+ * Surfaced reasons distinguish an outbound-established exchange from an inbound-first candidate.
  */
 export function decideCrmDiscovery(
   c: CrmDiscoveryCorrespondentFacts,
@@ -97,8 +97,10 @@ export function decideCrmDiscovery(
   if (c.suppressed) return { surfaced: false, exclusion: 'SUPPRESSED' };
   if (crmAutomatedAddress(address)) return { surfaced: false, exclusion: 'AUTOMATED_SENDER' };
   if (LIST_OR_ROLE_LOCAL.test(address.split('@')[0] ?? '')) return { surfaced: false, exclusion: 'ROLE_OR_LIST_MAILBOX' };
-  if (c.directSends < 1) return { surfaced: false, exclusion: 'NO_DIRECT_EXCHANGE' };
-  if (c.humanInbound === 0 && c.nonHumanInbound > 0) return { surfaced: false, exclusion: 'ONLY_AUTOMATED_MAIL' };
+  if (c.directSends < 1 && c.humanInbound < 1) {
+    return { surfaced: false, exclusion: c.nonHumanInbound > 0 ? 'ONLY_AUTOMATED_MAIL' : 'NO_DIRECT_EXCHANGE' };
+  }
+  if (c.directSends < 1) return { surfaced: true, reasons: ['THEY_CONTACTED_YOU'] };
   return { surfaced: true, reasons: c.humanInbound > 0 ? ['YOU_EMAILED_THEM', 'THEY_REPLIED'] : ['YOU_EMAILED_THEM'] };
 }
 
@@ -115,6 +117,7 @@ export function crmInternalDomains(memberAddresses: Iterable<string>): Set<strin
 export const CRM_DISCOVERY_REASON_LABELS: Readonly<Record<CrmDiscoveryReason, string>> = Object.freeze({
   YOU_EMAILED_THEM: 'You emailed them directly',
   THEY_REPLIED: 'They replied as a person',
+  THEY_CONTACTED_YOU: 'They contacted you directly',
 });
 
 /**
