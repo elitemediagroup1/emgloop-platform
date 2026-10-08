@@ -399,6 +399,8 @@ export class CrmPeopleCommandService {
    */
   private async conversationIntelligenceByParty(actor: CrmOutreachActor, mail: ViewerMail): Promise<Map<string, CrmConversationIntelligence>> {
     if (!mail.status.permitted || mail.status.gmail.state === 'UNAVAILABLE' || mail.evidence.size === 0) return new Map();
+    // Test doubles and a deploy that somehow precedes either dependency must fail empty, never fail the People page.
+    if (!(this.prisma as unknown as { workThread?: unknown }).workThread || !(this.prisma as unknown as { intelligenceDigest?: unknown }).intelligenceDigest) return new Map();
     const principal = { organizationId: actor.organizationId, userId: actor.userId };
     const providerThreadIds = [...new Set([...mail.evidence.values()].flatMap((e) => e.messages.map((m) => m.message.threadId)))];
     if (providerThreadIds.length === 0) return new Map();
@@ -416,10 +418,12 @@ export class CrmPeopleCommandService {
     );
     const out = new Map<string, CrmConversationIntelligence>();
     for (const [partyId, evidence] of mail.evidence) {
-      const candidates = [...new Set(evidence.messages.map((m) => workIdByProviderThread.get(m.message.threadId)).filter((id): id is string => !!id))]
-        .map((id) => digestByRef.get(`work_thread:${id}`))
-        .filter((d): d is Exclude<typeof d, undefined> => d !== undefined)
-        .sort((a, b) => (b.lastEvidenceAt?.getTime() ?? 0) - (a.lastEvidenceAt?.getTime() ?? 0));
+      const candidates = [];
+      for (const id of [...new Set(evidence.messages.map((m) => workIdByProviderThread.get(m.message.threadId)).filter((id): id is string => !!id))]) {
+        const digest = digestByRef.get(`work_thread:${id}`);
+        if (digest) candidates.push(digest);
+      }
+      candidates.sort((a, b) => (b.lastEvidenceAt?.getTime() ?? 0) - (a.lastEvidenceAt?.getTime() ?? 0));
       const d = candidates[0];
       if (!d) continue;
       const summary = d.content.synthesis ?? d.content.reading?.statement ?? null;
