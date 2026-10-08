@@ -227,7 +227,7 @@ test('a malformed header never echoes a cell: an unknown column is reported by p
 
 test('the command\'s production target: reviewed approval and APPLY from main in Actions, for the pinned organization', () => {
   const env = { LOOP_CRM_IMPORT_TARGET: 'production', GITHUB_ACTIONS: 'true', GITHUB_REF: 'refs/heads/main', CRM_IMPORT_ORGANIZATION_SLUG: 'emg-talent', COGNITIVE_HASH_SECRET: 'x' };
-  assert.deepEqual(PRODUCTION_COMMANDS, ['validate', 'inventory', 'record-config', 'dry-run', 'approve', 'apply']);
+  assert.deepEqual(PRODUCTION_COMMANDS, ['validate', 'inventory', 'record-config', 'dry-run', 'approve', 'apply', 'backfill-context-dry-run', 'backfill-context-apply']);
   assert.deepEqual(checkTarget(env, 'dry-run', 'emg-talent'), { ok: true });
   assert.deepEqual(checkTarget(env, 'approve', 'emg-talent'), { ok: true });
   assert.deepEqual(checkTarget(env, 'apply', 'emg-talent'), { ok: true });
@@ -299,4 +299,63 @@ test('the inventory counts everything the contract cares about; the detail is se
   assert.deepEqual(inv.detail.creatorAliases.map((a) => [a.key, a.rows]), [['katrina', 2], ['trevon hill', 2]]);
   assert.deepEqual(inv.detail.duplicatedSourceRowKeys, ['r2']);
   assert.ok(!JSON.stringify(inv.detail).includes('@'), 'even the private detail carries no contact value');
+});
+
+// --- CRM slice 6: the historical-context backfill -----------------------------------------------
+
+const BACKFILL = {
+  mode: 'backfill-context-dry-run',
+  source_key: 'crm-import/source/outreach-2026-10-06-v4.csv',
+  expected_source_sha256: SHA,
+  organization: 'emg-talent',
+  actor_user_id: 'cmabcdef0123456789',
+  import_run_id: 'cmuywspvb0001tjlie5tcxut6',
+  importer_version: 'crm-outreach-import.v2',
+  confirm: 'crm import backfill-context-dry-run emg-talent',
+};
+
+test('backfill dry run: needs the source (pinned), the APPLY run id and an actor; no config; never the commissioning flag', () => {
+  const r = runGuard(BACKFILL);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.env, /^MODE=backfill-context-dry-run$/m);
+  assert.match(r.env, /^IMPORT_RUN_ID=cmuywspvb0001tjlie5tcxut6$/m);
+  assert.match(r.env, /^NEEDS_CONFIG=false$/m);
+  assert.match(r.outputs, /^needs_db=true$/m);
+  assert.doesNotMatch(r.env, /CRM_CONTEXT_BACKFILL_PRODUCTION/, 'a dry run is never commissioned to write');
+  for (const [label, inputs] of [
+    ['no run id', { ...BACKFILL, import_run_id: '' }],
+    ['a malformed run id', { ...BACKFILL, import_run_id: 'run id; rm -rf /' }],
+    ['no source hash', { ...BACKFILL, expected_source_sha256: '' }],
+    ['the wrong confirmation', { ...BACKFILL, confirm: 'crm import dry-run emg-talent' }],
+  ] as const) {
+    const bad = runGuard(inputs);
+    assert.notEqual(bad.code, 0, label);
+    assert.equal(bad.env, '', `${label}: nothing handed on`);
+  }
+});
+
+test('backfill apply: bound to the reviewed plan digest by a typed confirmation, and only then commissioned', () => {
+  const digest = 'c'.repeat(64);
+  const input = { ...BACKFILL, mode: 'backfill-context-apply', plan_digest: digest, confirm: `backfill ${digest.slice(0, 12)}` };
+  const r = runGuard(input);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.env, /^PLAN_DIGEST=c{64}$/m);
+  assert.match(r.env, /^CRM_CONTEXT_BACKFILL_PRODUCTION=commissioned-v1$/m);
+  assert.doesNotMatch(r.env, /CRM_IMPORT_PRODUCTION_APPLY/, 'the backfill never commissions an import APPLY');
+  assert.notEqual(runGuard({ ...input, confirm: 'backfill deadbeefdead' }).code, 0);
+  assert.notEqual(runGuard({ ...input, plan_digest: 'not-a-digest', confirm: 'backfill not-a-diges' }).code, 0);
+  assert.notEqual(runGuard({ ...input, plan_digest: '' }).code, 0);
+
+  const run = step('Run the importer (codes, counts, ids and hashes only)');
+  assert.match(run, /backfill-context-dry-run --source "\$\{WORK\}\/source\.csv" --expected-sha256 "\$\{EXPECTED_SOURCE_SHA256\}" --import-run-id "\$\{IMPORT_RUN_ID\}"/);
+  assert.match(run, /backfill-context-apply .*--plan-digest "\$\{PLAN_DIGEST\}" .*--confirm "backfill \$\{PLAN_DIGEST:0:12\}"/);
+});
+
+test('the command admits the backfill on the production target only from main in Actions, with the identifier key', () => {
+  assert.ok(PRODUCTION_COMMANDS.includes('backfill-context-dry-run'));
+  assert.ok(PRODUCTION_COMMANDS.includes('backfill-context-apply'));
+  const env = { LOOP_CRM_IMPORT_TARGET: 'production', GITHUB_ACTIONS: 'true', GITHUB_REF: 'refs/heads/main', CRM_IMPORT_ORGANIZATION_SLUG: 'o' };
+  assert.deepEqual(checkTarget(env, 'backfill-context-apply', 'o'), { ok: false, reason: 'HASH_KEY_NOT_CONFIGURED' });
+  assert.deepEqual(checkTarget({ ...env, COGNITIVE_HASH_SECRET: 'x' }, 'backfill-context-apply', 'o'), { ok: true });
+  assert.deepEqual(checkTarget({ ...env, COGNITIVE_HASH_SECRET: 'x', GITHUB_REF: 'refs/heads/feat/x' }, 'backfill-context-dry-run', 'o'), { ok: false, reason: 'PRODUCTION_ONLY_FROM_MAIN' });
 });
