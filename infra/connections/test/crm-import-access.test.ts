@@ -118,7 +118,10 @@ test('the deploy and migrate identities are untouched and hold no S3 authority',
   }
 });
 
-test('the workflow: main only, connections-production only, the production account pinned, never APPLY', () => {
+// The mode list grew with #370 (approve) and #371 (guarded APPLY); this test still said "never APPLY" and
+// failed on main from then. It now pins what is true: the modes, APPLY only bound to an approval and the
+// source hash, the context backfill only bound to its reviewed plan digest, and never an abandon.
+test('the workflow: main only, connections-production only, the production account pinned; APPLY and the backfill only through their bound confirmations; never abandon', () => {
   const wf = readFileSync(WORKFLOW, 'utf8');
   assert.match(wf, /^on:\n  workflow_dispatch:/m, 'dispatched by a person only');
   assert.doesNotMatch(wf, /^\s+(push|pull_request|schedule|workflow_run):/m);
@@ -127,7 +130,9 @@ test('the workflow: main only, connections-production only, the production accou
   assert.match(wf, /PRODUCTION_ACCOUNT: '080891698678'/);
   assert.match(wf, /allowed-account-ids: \$\{\{ env\.PRODUCTION_ACCOUNT \}\}/);
   const modes = wf.slice(wf.indexOf('mode:'), wf.indexOf('source_key:'));
-  assert.deepEqual([...modes.matchAll(/^\s+- ([a-z-]+)$/gm)].map((m) => m[1]), ['validate', 'inventory', 'record-config', 'dry-run']);
-  assert.doesNotMatch(wf, /\b(apply|approve|abandon)\s+--/, 'no import execution, approval or abandon is ever invoked');
+  assert.deepEqual([...modes.matchAll(/^\s+- ([a-z-]+)$/gm)].map((m) => m[1]), ['validate', 'inventory', 'record-config', 'dry-run', 'approve', 'apply', 'backfill-context-dry-run', 'backfill-context-apply']);
+  assert.doesNotMatch(wf, /\babandon\s+--/, 'abandon is never invoked');
+  assert.match(wf, /\bapply --source .*--approval-id "\$\{APPROVAL_ID\}".*--confirm "apply \$\{EXPECTED_SOURCE_SHA256:0:12\}"/, 'APPLY is bound to an approval and the source hash');
+  assert.match(wf, /backfill-context-apply .*--plan-digest "\$\{PLAN_DIGEST\}".*--confirm "backfill \$\{PLAN_DIGEST:0:12\}"/, 'the backfill is bound to its reviewed plan digest');
   assert.doesNotMatch(wf, /executionTarget|LOCAL_TEST/);
 });
