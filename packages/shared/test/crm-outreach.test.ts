@@ -163,6 +163,15 @@ test('a genuine reply stops the cadence and asks for a response; an automated on
   assert.equal(ooo.cadence.status, 'ACTIVE');
 });
 
+test('the latest human reply is a Gmail last touch even when we have not answered it yet', () => {
+  const sent = D('2026-09-16T21:07:19Z');
+  const reply = D('2026-09-23T15:46:09Z');
+  const d = deriveCrmOutreach(input({ sends: [sent], humanReplies: [reply] }));
+  assert.deepEqual(d.lastTouch, { at: reply, source: 'GMAIL', precision: 'INSTANT' });
+  assert.equal(d.lastInboundAt?.getTime(), reply.getTime());
+  assert.equal(d.state, 'REPLIED_NEEDS_RESPONSE');
+});
+
 test('answered replies are an ACTIVE_CONVERSATION with no invented next action', () => {
   const d = deriveCrmOutreach(input({ sends: [D('2026-10-01T09:00:00Z'), D('2026-10-03T09:00:00Z')], humanReplies: [D('2026-10-02T09:00:00Z')] }));
   assert.equal(d.state, 'ACTIVE_CONVERSATION');
