@@ -15,6 +15,14 @@
 //   apply          --source --config --approval-id --expected-sha256 --organization --actor-...
 //                  --confirm "apply <first 12 of sha256>"                         (production only via commissioned workflow, or local test)
 //   abandon        --run-id <id> --organization <slug> --actor-...               (local only)
+//   backfill-context-dry-run  --source <file.csv> --expected-sha256 <hex> --import-run-id <APPLY run id>
+//                  --organization <slug> --actor-...
+//                  CRM slice 6: plan the historical-context backfill (titles, notes, status, last contacted,
+//                  creator and company context) from the APPLY run's own source onto the subjects it
+//                  created. Writes NOTHING; prints counts and the plan digest.
+//   backfill-context-apply    the same, plus --plan-digest <hex> --confirm "backfill <first 12 of the plan digest>"
+//                  Writes context facts only (no Party, Contact Point, Opportunity, Relationship), and only
+//                  when the plan still equals the reviewed digest. Production: the commissioned workflow only.
 //
 // TARGETS (LOOP_CRM_IMPORT_TARGET), checked before the database package is even loaded:
 //   local       every command, against a database on this machine only.
@@ -51,7 +59,7 @@ import {
   type CrmImportSourceRow,
 } from '@emgloop/shared';
 
-export const COMMANDS = ['validate', 'inventory', 'record-config', 'dry-run', 'approve', 'apply', 'abandon'] as const;
+export const COMMANDS = ['validate', 'inventory', 'record-config', 'dry-run', 'approve', 'apply', 'abandon', 'backfill-context-dry-run', 'backfill-context-apply'] as const;
 export type Command = (typeof COMMANDS)[number];
 
 export interface Args {
@@ -83,12 +91,14 @@ const REQUIRED: Readonly<Record<Command, readonly string[]>> = {
   approve: ['dry-run-id', 'organization', 'actor'],
   apply: ['source', 'config', 'approval-id', 'expected-sha256', 'organization', 'actor', 'confirm'],
   abandon: ['run-id', 'organization', 'actor'],
+  'backfill-context-dry-run': ['source', 'expected-sha256', 'import-run-id', 'organization', 'actor'],
+  'backfill-context-apply': ['source', 'expected-sha256', 'import-run-id', 'plan-digest', 'organization', 'actor', 'confirm'],
 };
 
 /** Commands that touch the database. `validate` and `inventory` read only the file. */
-const DATABASE_COMMANDS: readonly Command[] = ['record-config', 'dry-run', 'approve', 'apply', 'abandon'];
+const DATABASE_COMMANDS: readonly Command[] = ['record-config', 'dry-run', 'approve', 'apply', 'abandon', 'backfill-context-dry-run', 'backfill-context-apply'];
 /** What the production target may run. APPLY is commissioned only behind the workflow/service guards; abandon remains refused. */
-export const PRODUCTION_COMMANDS: readonly Command[] = ['validate', 'inventory', 'record-config', 'dry-run', 'approve', 'apply'];
+export const PRODUCTION_COMMANDS: readonly Command[] = ['validate', 'inventory', 'record-config', 'dry-run', 'approve', 'apply', 'backfill-context-dry-run', 'backfill-context-apply'];
 
 /** The actor is a member named by user id (the workflow's path: no email in a workflow input) or by email (local). */
 const hasActor = (args: Args) => ['actor-user-id', 'actor-email'].some((f) => typeof args.flags[f] === 'string' && (args.flags[f] as string).trim() !== '');
@@ -117,7 +127,10 @@ export function checkTarget(env: Readonly<Record<string, string | undefined>>, c
     const pinned = (env.CRM_IMPORT_ORGANIZATION_SLUG ?? '').trim();
     if (!pinned) return { ok: false, reason: 'PRODUCTION_ORGANIZATION_NOT_CONFIGURED' };
     if (organization !== null && organization !== pinned) return { ok: false, reason: 'ORGANIZATION_NOT_THE_CONFIGURED_ONE' };
-    if ((command === 'dry-run' || command === 'apply') && !(env.COGNITIVE_HASH_SECRET ?? '').length) return { ok: false, reason: 'HASH_KEY_NOT_CONFIGURED' };
+    // Matching (dry-run, apply) and the backfill's row-fingerprint check both need the import's key.
+    if ((command === 'dry-run' || command === 'apply' || command === 'backfill-context-dry-run' || command === 'backfill-context-apply') && !(env.COGNITIVE_HASH_SECRET ?? '').length) {
+      return { ok: false, reason: 'HASH_KEY_NOT_CONFIGURED' };
+    }
     return { ok: true };
   }
   if (target !== 'local') return { ok: false, reason: 'LOOP_CRM_IMPORT_TARGET_MUST_BE_LOCAL_OR_PRODUCTION' };
@@ -134,6 +147,11 @@ export function checkTarget(env: Readonly<Record<string, string | undefined>>, c
 /** The phrase an APPLY needs: it names the exact file it applies. */
 export function applyConfirmation(sourceSha256: string): string {
   return `apply ${sourceSha256.slice(0, 12)}`;
+}
+
+/** The phrase a backfill APPLY needs: it names the exact reviewed plan it writes. */
+export function backfillConfirmation(planDigest: string): string {
+  return `backfill ${planDigest.slice(0, 12)}`;
 }
 
 /** Review artifacts never land inside the repository. */
@@ -452,7 +470,8 @@ async function main(): Promise<number> {
   // The source: its SHA-256 over the bytes, checked BEFORE it is parsed.
   let source: Extract<SourceRead, { ok: true }> | null = null;
   if (opt('source') !== null) {
-    const read = readSourceBytes(new Uint8Array(await fs.readFile(f('source'))), command === 'apply' ? f('expected-sha256') : opt('expected-sha256'));
+    const pinned = command === 'apply' || command === 'backfill-context-dry-run' || command === 'backfill-context-apply';
+    const read = readSourceBytes(new Uint8Array(await fs.readFile(f('source'))), pinned ? f('expected-sha256') : opt('expected-sha256'));
     if (!read.ok) {
       log(line({ event: 'PRECONDITION_FAILED', reason: read.reason, WROTE: false }));
       return 2;
@@ -511,6 +530,23 @@ async function main(): Promise<number> {
       const r = await new db.CrmImportConfigService(prisma).record(actor, cfg.config, { replace: args.flags.replace === true });
       log(line({ event: 'CONFIG', outcome: r.outcome, items: 'items' in r ? r.items.map((i) => ({ kind: i.kind, outcome: i.outcome, reason: i.reason, mappingId: i.mappingId })) : undefined, violations: 'violations' in r ? r.violations : undefined, WROTE: r.outcome === 'RECORDED' }));
       return r.outcome === 'RECORDED' ? 0 : 1;
+    }
+
+    if (command === 'backfill-context-dry-run' || command === 'backfill-context-apply') {
+      const backfill = new db.CrmContextBackfillService(prisma);
+      if (command === 'backfill-context-dry-run') {
+        const r = await backfill.dryRun(actor, f('import-run-id'), source!.text);
+        // The plan is counts, codes, ids and digests only: printable.
+        log(line({ event: 'BACKFILL_DRY_RUN', ...r, WROTE: false }));
+        return r.outcome === 'DRY_RUN' ? 0 : 1;
+      }
+      if (f('confirm').trim() !== backfillConfirmation(f('plan-digest'))) {
+        log(line({ event: 'PRECONDITION_FAILED', reason: 'CONFIRMATION_MISMATCH', expected: 'backfill <first 12 hex of the plan digest>', WROTE: false }));
+        return 2;
+      }
+      const r = await backfill.apply(actor, f('import-run-id'), source!.text, f('plan-digest'), process.env.LOOP_CRM_IMPORT_TARGET === 'production' ? 'PRODUCTION' : 'LOCAL_TEST');
+      log(line({ event: 'BACKFILL_APPLY', ...r, WROTE: r.outcome === 'APPLIED' && r.recorded > 0 }));
+      return r.outcome === 'APPLIED' ? 0 : 1;
     }
 
     const service = new db.CrmImportService(prisma);
