@@ -104,9 +104,10 @@ export default async function PersonPage({ params, searchParams }: { params: { p
         trail={[...trailBase, { label: subject.name }]}
         actions={
           <div className="loop-btnrow">
-            <ActionButton action={channel('Email')} />
-            <ActionButton action={channel('Call')} />
-            <ActionButton action={channel('Message')} />
+            <ActionButton action={{ label: '← Back to People', href: PEOPLE_HREF }} />
+            {state === 'ESTABLISHED' ? (
+              <ActionButton action={{ label: '+ Record relationship', href: `/crm/relationships/new?party=${encodeURIComponent(record.partyId)}&returnParty=${encodeURIComponent(record.partyId)}`, primary: true }} />
+            ) : null}
           </div>
         }
       />
@@ -136,19 +137,36 @@ export default async function PersonPage({ params, searchParams }: { params: { p
         />
       ) : null}
 
-      <SummaryStrip
-        label="Summary"
-        items={[
-          {
-            label: 'Relationships',
-            value: context.activeCount === null ? null : `${context.activeCount} active`,
-            unknownText: 'Not available to you',
-          },
-          { label: 'Opportunities', value: null, unknownText: 'Not summarised here' },
-          { label: 'Campaigns', value: null, unknownText: 'Not tracked yet' },
-          { label: 'Open work', value: null, unknownText: 'Not linked yet' },
-        ]}
-      />
+      <Panel title="Conversation summary">
+        {outreach && outreach.outcome === 'OK' && outreach.conversationIntelligence ? (
+          <>
+            <p className="loop-panel__lead">{outreach.conversationIntelligence.summary}</p>
+            <div className="loop-btnrow" style={{ marginTop: 10 }}>
+              <span className="loop-pill loop-pill--info">
+                AI suggests: {outreach.conversationIntelligence.suggestion === 'REPLY' ? 'Reply' : outreach.conversationIntelligence.suggestion === 'WAIT' ? 'Waiting on them' : outreach.conversationIntelligence.suggestion === 'CIRCLE_BACK' ? 'Circle back' : outreach.conversationIntelligence.suggestion === 'REVIEW' ? 'Review' : 'No immediate action'}
+              </span>
+              {outreach.conversationIntelligence.confidence ? <span className="loop-note">Confidence: {outreach.conversationIntelligence.confidence.toLowerCase()}</span> : null}
+            </div>
+            {outreach.conversationIntelligence.suggestionText ? <p className="loop-note" style={{ marginTop: 8 }}>{outreach.conversationIntelligence.suggestionText}</p> : null}
+            {outreach.nextMeeting ? <p className="loop-note" style={{ marginTop: 8 }}>Calendar: next meeting {time.dateTime(outreach.nextMeeting.at)}{outreach.nextMeeting.title ? ` — ${outreach.nextMeeting.title}` : ''}.</p> : null}
+            <p className="loop-note" style={{ marginTop: 8 }}>
+              This is a private AI interpretation of your linked Gmail plus your calendar context. It can suggest a next move, but it does not silently change the CRM record.
+            </p>
+          </>
+        ) : outreach && outreach.outcome === 'OK' ? (
+          <>
+            <p className="loop-panel__lead">
+              {outreach.row.outreach.lastTouch ? `Last conversation touch: ${time.relative(outreach.row.outreach.lastTouch.at)}.` : 'No conversation touch is recorded.'}
+              {outreach.nextMeeting ? ` Next meeting: ${time.dateTime(outreach.nextMeeting.at)}.` : ''}
+            </p>
+            <p className="loop-note">
+              A body-aware AI summary will appear here when Mail content intelligence has been commissioned and authorized for this mailbox. Until then Loop uses Gmail and Calendar metadata only.
+            </p>
+          </>
+        ) : (
+          <p className="loop-note">Conversation intelligence is not available for this person.</p>
+        )}
+      </Panel>
 
       <ContextTabs label="Person sections" tabs={tabs} />
 
@@ -185,7 +203,13 @@ export default async function PersonPage({ params, searchParams }: { params: { p
               <Panel title="Relationships">
                 {relationships.state === 'OK' ? (
                   relationships.value.length === 0 ? (
-                    <StateBlock kind="empty" compact title="No relationship recorded." body="Relationships appear here once one is recorded for this person." />
+                    <StateBlock
+                      kind="empty"
+                      compact
+                      title="No relationship recorded."
+                      body="This person is established, but no commercial relationship has been asserted yet."
+                      action={state === 'ESTABLISHED' ? { label: 'Record relationship', href: `/crm/relationships/new?party=${encodeURIComponent(record.partyId)}&returnParty=${encodeURIComponent(record.partyId)}` } : undefined}
+                    />
                   ) : (
                     <div className="loop-cards">
                       {relationships.value.map((r) => (
