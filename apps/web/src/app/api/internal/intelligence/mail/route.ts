@@ -2,12 +2,12 @@
 // producers (mail.thread@1, mail.domain@1), because they need what only this server holds -- each
 // person's governed Gmail read-through and the web's governed AI gateway.
 //
-// FOUR GATES, EVERY ONE CLOSED TODAY:
+// FOUR GATES, ALL REQUIRED:
 //   1. INTELLIGENCE_MAIL_SECRET authenticates the scheduler (a class of caller, never a tenant);
 //      missing is unauthorized, not open.
 //   2. LOOP_INTELLIGENCE_MAIL_PRODUCERS must name the producer; unset, the pass is a no-op.
-//   3. The counterparty-consent governance decision (LOOP_MAIL_CONTENT_GOVERNANCE_DECISION) must be
-//      recorded; it is UNRESOLVED, so discovery finds nobody and every gather refuses.
+//   3. LOOP_MAIL_CONTENT_GOVERNANCE_DECISION must equal the exact decision recorded in the repository;
+//      any other value makes discovery empty and every gather refuse.
 //   4. Each person's own MAIL content authorization, re-checked at gather AND at the digest write; and
 //      the mail tasks must be activated in the AI runtime with a provider policy for COMMUNICATION_CONTENT.
 //
