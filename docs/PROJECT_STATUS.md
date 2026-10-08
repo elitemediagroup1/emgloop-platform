@@ -5,7 +5,7 @@ losing the thread. **One current-state block per workstream — overwrite it, do
 Read this at the start of a session; update it at the end of a work batch. History lives
 in git, not here.
 
-_Last updated: 2026-10-05 (website intelligence: foundation live with 7 LIVE sites and zero events — CORS + install proven as the cause, fixes and visitor journeys in a draft PR — see its block; earlier 2026-09-30: website evidence foundation built; earlier 2026-09-26: Loop Intelligence Phases A–G built in one draft PR, nothing commissioned; #340 AI runtime corrected to MERGED/MIGRATED/DEPLOYED/VERIFIED with the operating budget recorded, Anthropic production-active, OpenAI not commissioned — see the two Loop Intelligence blocks; earlier 2026-09-24: Loop Home briefing built, draft PR in review; Creator Hub commissioned on staging — #323/#324/#325 merged, infra + migration + seed done, staging fast-forwarded and verified; production schema untouched — see the Creator Hub block; earlier: Intelligence & Memory Foundation commissioned — #305/#306 on main, migration 42 applied, completion PR in review; Google onboarding: #302/#303 merged, Gmail cycle not yet on, one-derivation PR in review; production at migration 41; Gmail GM-1..GM-3 in review as #295/#296/#297; AI runtime #266–#271 merged, switched off; B0–B6 merged incl. #284, B7 pre-deployment #285 merged; AWS staging not bootstrapped, nothing deployed; Google Workspace connection (Private V1) merged as #286 and migration 37 applied in production; Daily Loop / Employee Intelligence architecture merged as #287, DL-0..DL-3 merged with migrations 38 and 39 applied and production verified, DL-4 (Your Day) merged as #293, DL-5 (the automated Calendar cycle) in review; see the Foundation handoff and Google Workspace blocks)._
+_Last updated: 2026-10-08 (CRM People command center built, PRs open, nothing commissioned; brand-outreach import APPLY done per Matt — see the two CRM blocks; earlier 2026-10-05: website intelligence: foundation live with 7 LIVE sites and zero events — CORS + install proven as the cause, fixes and visitor journeys in a draft PR — see its block; earlier 2026-09-30: website evidence foundation built; earlier 2026-09-26: Loop Intelligence Phases A–G built in one draft PR, nothing commissioned; #340 AI runtime corrected to MERGED/MIGRATED/DEPLOYED/VERIFIED with the operating budget recorded, Anthropic production-active, OpenAI not commissioned — see the two Loop Intelligence blocks; earlier 2026-09-24: Loop Home briefing built, draft PR in review; Creator Hub commissioned on staging — #323/#324/#325 merged, infra + migration + seed done, staging fast-forwarded and verified; production schema untouched — see the Creator Hub block; earlier: Intelligence & Memory Foundation commissioned — #305/#306 on main, migration 42 applied, completion PR in review; Google onboarding: #302/#303 merged, Gmail cycle not yet on, one-derivation PR in review; production at migration 41; Gmail GM-1..GM-3 in review as #295/#296/#297; AI runtime #266–#271 merged, switched off; B0–B6 merged incl. #284, B7 pre-deployment #285 merged; AWS staging not bootstrapped, nothing deployed; Google Workspace connection (Private V1) merged as #286 and migration 37 applied in production; Daily Loop / Employee Intelligence architecture merged as #287, DL-0..DL-3 merged with migrations 38 and 39 applied and production verified, DL-4 (Your Day) merged as #293, DL-5 (the automated Calendar cycle) in review; see the Foundation handoff and Google Workspace blocks)._
 
 ---
 
@@ -25,32 +25,60 @@ NOT by seeing it render or run. Those must be checked on the deploy.
 
 ---
 
-## CRM authority for the brand-outreach import — PR A + PR B MERGED · OPTIONAL-CREATOR FIX IN REVIEW (2026-10-07)
+## CRM People command center (slice 6) — BUILT, PRs OPEN (2026-10-08) · nothing commissioned
 
-**Where it stands.**
-- **PR A** (#364, `d8177a3`): merged. Its migration `20261012000000_crm_import_provenance` is applied
-  in production.
-- **PR B** (#365, `25dad3a`): merged. The private source bucket, the dedicated read role, the
-  `CRM Outreach Import` workflow (validate / inventory / record-config / dry-run), and the hash-key
-  check.
-  - **Its infrastructure is deployed by Matt** (runbook Parts 1–2). Read AWS and the environment, not
-    this line.
-- **The optional-creator fix** (`fix/crm-import-optional-creator`, in review):
-  - `creator_alias` is optional; the importer is now `crm-outreach-import.v2`;
-  - creator-less rows may import governed contacts, and never an Opportunity;
-  - **no migration.**
+**What it is:**
+- People as an outreach command center: summary, presets, server-side filters and paging.
+- Person outreach and timeline.
+- A private Possible New People queue with governed Add to People.
+- A digest-bound historical-context backfill from the import's own source.
+- Record: `docs/architecture/crm-people-command-center.md`. Product: `docs/product/people-command-center.md`.
+  Runbook: `docs/runbooks/crm-outreach-import.md` Part 6.
 
-**Blocked on:**
-- Regenerating the final canonical source (about 1,076 rows) under v2.
-- Uploading it, then `inventory`.
+**Design decisions to know:**
+- Mail and calendar facts are **the viewer's own** (§20.1); there is no organization-wide reply view.
+- Linking is exact keyed-hash only. A role inbox links to its Company, never a Person.
+- The cadence anchors on actual sends. Imported-only contacts are REVIEW_REQUIRED, with the cadence
+  position unknown.
+
+**Gates:**
+- IMPLEMENTED and TESTED locally.
+- PR REVIEWED / MERGED: no.
+- MIGRATION DEPLOYED (`20261013000000_crm_people_command_center`): no.
+- BACKFILL dry run / approved / applied: no / no / no.
+- GMAIL INGESTION: the cycle runs for `servicesinmycity-demo` (00:59Z 2026-10-08, 3 of 3 synced); linkage
+  is unverified in production.
+- CALENDAR: the cycle runs; linkage is unverified.
+- UI deployed / verified: no. SLICE PROVEN: no.
 
 **Next, in order:**
-1. Upload the regenerated source, then `inventory`.
-2. Reviewed aliases and routes, then `record-config`.
-3. `dry-run`, then human review.
-4. Stage mapping approval.
-5. A separate change commissioning production APPLY.
-6. Explicit approval of the controlled first import.
+1. Matt reviews and merges the PR(s).
+2. `Deploy Prisma Migrations`.
+3. `backfill-context-dry-run` against run `cmuywspvb0001tjlie5tcxut6`; review the counts.
+4. `backfill-context-apply` with that digest.
+5. Load People as Matt and as Charlie, and verify the rows against Gmail.
+
+**Not built:**
+- Optional AI summaries.
+- Fetching Auto-Submitted / List headers in Gmail sync (auto-replies with ordinary subjects read as human).
+- Meeting linkage for attendees never emailed.
+- A reattribution flow for role-inbox addresses (it is refused with guidance instead).
+
+---
+
+## CRM authority for the brand-outreach import — PRODUCTION APPLY DONE (2026-10-08) · context backfill built, not run
+
+**Where it stands.**
+- **Merged:** #364 (PR A), #365 (PR B), #366 (optional creator, v2), #367 (record-config window) and
+  #368–#371 (config replacement, approval gate, guarded production APPLY).
+- **Production APPLY completed**, as Matt reported on 2026-10-08:
+  - run `cmuywspvb0001tjlie5tcxut6`;
+  - source `crm-import/source/outreach-2026-10-06-v4.csv` (`8a3fe5cc…2082402`), config v3, approval
+    `cmuywgqrg0001tovzaiud6q4b`;
+  - CONTACTS_ONLY: about 230 Companies, 118 People and 251 Contact Points; 0 Opportunities, 0
+    Relationships.
+- **Titles, notes, source status, creator and company context** are not in the CRM yet (import provenance
+  holds none by design). The slice 6 backfill attaches them; see the next block.
 
 **Finding:** `connections-production` has a main-only branch policy and **no required reviewers**.
 
