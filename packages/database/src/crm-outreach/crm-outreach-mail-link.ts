@@ -141,7 +141,7 @@ export function qualifyPartyMail(
     } else if (m.direction === 'INBOUND' && m.fromHash) {
       const partyId = partyOfHash.get(m.fromHash);
       if (!partyId) continue;
-      const q = qualifyCrmMessage({ direction: 'INBOUND', labels: m.labels, subject: m.subject, senderAddress: addressOf.get(m.fromHash) ?? null });
+      const q = qualifyCrmMessage({ direction: 'INBOUND', labels: m.labels, subject: m.subject, automationClass: m.automationClass as 'AUTO_SUBMITTED' | 'MAILING_LIST' | 'BULK' | null, senderAddress: addressOf.get(m.fromHash) ?? null });
       const e = evidence(partyId);
       e.messages.push({ message: m, qualification: q });
       if (q === 'HUMAN_REPLY') e.humanReplies.push(m.internalDate);
