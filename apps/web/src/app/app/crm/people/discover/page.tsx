@@ -11,8 +11,9 @@ export const dynamic = 'force-dynamic';
 
 // Possible New People (CRM slice 6). docs/architecture/crm-people-command-center.md §Discovery.
 //
-// YOUR queue, from YOUR mail: addresses you have written to directly that no CRM Contact Point holds,
-// with the own, internal, automated, list/role and inbound-only addresses removed by fixed rules, and
+// YOUR queue, from YOUR mail: addresses from a qualifying direct exchange that no CRM Contact Point holds.
+// A legitimate human inbound can surface before you reply; own, internal, automated and list/role addresses
+// are removed by fixed rules, and
 // the reason each one surfaced. Nobody else sees it, and nothing here happens on its own:
 //   - ADD TO PEOPLE shows exactly what will be created, re-checks the address at the moment you click,
 //     and creates one established PERSON with that email as a Contact Point -- through the Party and
@@ -51,7 +52,7 @@ export default async function DiscoverPage({ searchParams }: { searchParams?: { 
 
   return (
     <LoopPage label="Possible new people">
-      <PageHead trail={trail} title="Possible new people" subtitle="People you have emailed who are not in People yet. Your queue, from your own mail." />
+      <PageHead trail={trail} title="Possible new people" subtitle="People you have emailed — or who contacted you directly — who are not in People yet. Your queue, from your own mail." />
       {notice ? <StateBlock kind={notice.kind} compact title={notice.title} body={notice.body} /> : null}
 
       {result === null ? (
@@ -62,7 +63,7 @@ export default async function DiscoverPage({ searchParams }: { searchParams?: { 
         <StateBlock kind="unavailable" title="Your Gmail is not available." body="This queue is read from your own mail. Connect Gmail (or wait for its first read) and it will appear." action={{ label: 'Open connections', href: '/app/connections' }} />
       ) : (
         <>
-          <StateBlock kind={result.mail.gmail.state === 'FRESH' ? 'empty' : 'attention'} compact title={mailFreshnessText(result.mail.gmail, time)} body="Only addresses you wrote to directly are considered. Your own, internal, automated, shared-inbox and list addresses, and anyone already in the CRM, are left out." />
+          <StateBlock kind={result.mail.gmail.state === 'FRESH' ? 'empty' : 'attention'} compact title={mailFreshnessText(result.mail.gmail, time)} body="Direct human exchanges are considered, including legitimate inbound-first contacts. Your own, internal, automated, shared-inbox and list addresses, and anyone already in the CRM, are left out." />
           <nav className="loop-filters" aria-label="Queue">
             <Link className="loop-filter" href={DISCOVER_HREF} aria-current={!showDismissed ? 'true' : undefined}>To review · {result.candidates.length}</Link>
             <Link className="loop-filter" href={`${DISCOVER_HREF}?show=dismissed`} aria-current={showDismissed ? 'true' : undefined}>Dismissed · {result.dismissed.length}</Link>
@@ -70,7 +71,7 @@ export default async function DiscoverPage({ searchParams }: { searchParams?: { 
 
           {!showDismissed ? (
             result.candidates.length === 0 ? (
-              <StateBlock kind="empty" title="Nobody new to review." body="Everyone you have emailed directly is either in People already or was left out by the rules above." />
+              <StateBlock kind="empty" title="Nobody new to review." body="Everyone in a qualifying direct exchange is either in People already or was left out by the rules above." />
             ) : (
               <div className="loop-stack">
                 {result.candidates.map((c) => (
@@ -80,8 +81,8 @@ export default async function DiscoverPage({ searchParams }: { searchParams?: { 
                       <li>Company: no governed company match (a company is never inferred from the domain)</li>
                       <li>Creator context: none recorded</li>
                       <li>
-                        First seen {time.date(c.firstObservedAt)}, last seen {time.relative(c.lastObservedAt)} · you wrote to them {c.directSends} {c.directSends === 1 ? 'time' : 'times'}
-                        {c.humanReplies > 0 ? `, they replied ${c.humanReplies} ${c.humanReplies === 1 ? 'time' : 'times'}` : ', no reply observed'}
+                        First seen {time.date(c.firstObservedAt)}, last seen {time.relative(c.lastObservedAt)} · {c.directSends > 0 ? `you wrote to them ${c.directSends} ${c.directSends === 1 ? 'time' : 'times'}` : 'they contacted you before you replied'}
+                        {c.humanReplies > 0 ? `, human inbound observed ${c.humanReplies} ${c.humanReplies === 1 ? 'time' : 'times'}` : ', no human inbound observed'}
                       </li>
                       {c.recentThread ? (
                         <li>
