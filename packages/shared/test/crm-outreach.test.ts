@@ -296,9 +296,9 @@ test('summary counts trace to rows', () => {
   const s = summarizeCrmPeople(ROWS, NOW);
   assert.equal(s.totalPeople, 9);
   assert.equal(s.awaitingReply, 3); // a, b, i
-  assert.equal(s.overdue, 3); // a, i, and c's reply waiting since yesterday
+  assert.equal(s.overdue, 2); // a and i; c's reply has no invented due date
   assert.equal(s.dueToday, 1); // b
-  assert.equal(s.repliesNeedingResponse, 1);
+  assert.equal(s.repliesNeedingResponse, 0); // reply obligation requires semantic interpretation
   assert.equal(s.activeOrInterested, 1);
   assert.equal(s.meetingsUpcoming, 1);
   assert.equal(s.onHold, 1);
@@ -313,9 +313,9 @@ test('presets and filters combine (AND), are server-side and stable', () => {
     assert.equal(p.ok, true);
     return pageCrmPeople(ROWS, p.ok ? p.filters : EMPTY_CRM_PEOPLE_FILTERS, 1, NOW).rows.map((r) => r.partyId);
   };
-  assert.deepEqual(ids({ preset: 'overdue' }), ['i', 'a', 'c'], 'a reply unanswered since yesterday is overdue too');
+  assert.deepEqual(ids({ preset: 'overdue' }), ['i', 'a'], 'a reply is not overdue merely because it is the latest message');
   assert.deepEqual(ids({ preset: 'needs-follow-up-today' }), ['b']);
-  assert.deepEqual(ids({ preset: 'replied-needs-response' }), ['c']);
+  assert.deepEqual(ids({ preset: 'replied-needs-response' }), [], 'the shared metadata-only model never infers that a reply needs an answer');
   assert.deepEqual(ids({ preset: 'interested' }), ['d']);
   assert.deepEqual(ids({ preset: 'passed' }), ['e']);
   assert.deepEqual(ids({ preset: 'on-hold' }), ['f']);
