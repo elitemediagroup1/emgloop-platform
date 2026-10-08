@@ -83,7 +83,7 @@ test('the first read is bounded by age, by pages and by messages, and asks for m
 
   const get = w.urls().find((u) => /\/messages\/a\?/.test(u))!;
   assert.match(get, /format=metadata/, 'the sync read never asks for a body');
-  for (const header of ['From', 'To', 'Cc', 'Subject', 'Message-ID', 'In-Reply-To', 'References']) {
+  for (const header of ['From', 'To', 'Cc', 'Subject', 'Message-ID', 'In-Reply-To', 'References', 'Auto-Submitted', 'List-Id', 'List-Unsubscribe', 'Precedence']) {
     assert.match(get, new RegExp(`metadataHeaders=${encodeURIComponent(header)}`), header);
   }
   assert.equal(/format=full/.test(get), false);
