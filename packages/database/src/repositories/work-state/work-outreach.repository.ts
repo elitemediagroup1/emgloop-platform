@@ -39,6 +39,7 @@ export interface OutreachMessage {
   readonly ccHashes: readonly string[];
   readonly labels: readonly string[];
   readonly subject: string | null;
+  readonly automationClass: string | null;
 }
 
 export interface OutreachEvent {
@@ -93,7 +94,7 @@ export class WorkOutreachRepository {
     if (hashes.length === 0) return { rows: [], truncated: false };
     const rows = await this.prisma.workMessage.findMany({
       where: { ...workScope(principal), OR: [{ fromHash: { in: hashes } }, { toHashes: { hasSome: hashes } }, { ccHashes: { hasSome: hashes } }] },
-      select: { provider: true, messageId: true, threadId: true, internalDate: true, direction: true, fromHash: true, toHashes: true, ccHashes: true, labels: true, subject: true },
+      select: { provider: true, messageId: true, threadId: true, internalDate: true, direction: true, fromHash: true, toHashes: true, ccHashes: true, labels: true, subject: true, automationClass: true },
       orderBy: [{ internalDate: 'asc' }, { messageId: 'asc' }],
       take: OUTREACH_MESSAGE_LIMIT + 1,
     });
