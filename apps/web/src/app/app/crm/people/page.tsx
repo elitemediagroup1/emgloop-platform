@@ -132,7 +132,7 @@ export default async function PeoplePage({ searchParams }: { searchParams?: CrmP
         }
       />
 
-      <Panel title="Outreach intelligence">
+      <Panel title="AI outreach brief">
         {aiRows.length > 0 ? (
           <>
             <p className="loop-panel__lead">
@@ -156,13 +156,9 @@ export default async function PeoplePage({ searchParams }: { searchParams?: CrmP
           </>
         ) : (
           <>
-            <p className="loop-panel__lead">
-              {mailKnown
-                ? `${n(summary.awaitingReply)} awaiting reply · ${n(summary.reviewRequired)} conversations need review · ${n(summary.overdue)} overdue by deterministic rules.`
-                : 'Connect and refresh Gmail to build the outreach picture.'}
-            </p>
+            <p className="loop-panel__lead">AI conversation summaries are not enabled for this mailbox yet.</p>
             <p className="loop-note">
-              Body-aware AI conversation summaries will appear here only when the existing Mail-content intelligence gate is commissioned and authorized. Until then, Loop uses Gmail metadata and never pretends it understood the message body.
+              The KPI strip below still shows deterministic Gmail and Calendar facts. This panel is reserved for AI interpretation of conversation content and will not substitute source notes or metadata for an AI summary.
             </p>
           </>
         )}
@@ -350,7 +346,7 @@ export default async function PeoplePage({ searchParams }: { searchParams?: CrmP
                 <th scope="col">Last touch</th>
                 <th scope="col">Next action</th>
                 <th scope="col">Reply</th>
-                <th scope="col">Summary</th>
+                <th scope="col">AI summary</th>
               </tr>
             </thead>
             <tbody>
@@ -424,19 +420,15 @@ export default async function PeoplePage({ searchParams }: { searchParams?: CrmP
                       })()}
                     </td>
                     <td data-label="Reply">{replyText(o, mail.gmail, time)}</td>
-                    <td data-label="Summary">
+                    <td data-label="AI summary">
                       {result.intelligenceByParty.get(row.partyId) ? (
                         <span title="AI summary of your own linked Gmail conversation">
                           {result.intelligenceByParty.get(row.partyId)!.summary.length > 180
                             ? `${result.intelligenceByParty.get(row.partyId)!.summary.slice(0, 179)}…`
                             : result.intelligenceByParty.get(row.partyId)!.summary}
                         </span>
-                      ) : row.latestNote ? (
-                        <span title={row.latestNote.basis === 'IMPORTED' ? 'Imported note' : 'Recorded note'}>{row.latestNote.text.length > 140 ? `${row.latestNote.text.slice(0, 139)}…` : row.latestNote.text}</span>
-                      ) : row.sourceStatus ? (
-                        <span className="loop-table__muted">Source status: {row.sourceStatus}</span>
                       ) : (
-                        <span className="loop-table__muted">No conversation summary yet</span>
+                        <span className="loop-table__muted">AI summary unavailable</span>
                       )}
                     </td>
                   </tr>

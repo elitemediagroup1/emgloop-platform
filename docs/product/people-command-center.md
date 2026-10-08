@@ -16,10 +16,9 @@ For the team using Loop day to day. How it works underneath is in
 | Last touch | Your most recent email to them, or the import's last-contacted date. |
 | Next action | What is due and when. **Overdue is red.** |
 | Reply | "Replied …", "No reply observed through …", or "Gmail data unavailable". Metadata never claims an answer is owed. |
-| Summary | The viewer-private AI Mail summary when available; otherwise the latest recorded note or source status. |
+| AI summary | The viewer-private AI Mail summary when available. If Mail-content intelligence is not enabled, the cell says **AI summary unavailable**; source notes are never presented as if they were AI. |
 
-The summary above the list counts the same rows: awaiting reply, due today, overdue, AI-interpreted replies
-that need your response, meetings, on hold, and more. The chips under it are one-click views ("Overdue", "Replied — needs
+The **AI outreach brief** above the list contains only AI interpretation. It never falls back to imported notes or deterministic counts. The KPI strip below it counts the same rows: awaiting reply, due today, overdue, AI-interpreted replies that need your response, meetings, on hold, and more. The chips under it are one-click views ("Overdue", "Replied — needs
 response", "3-day", "Meetings this week", …). Filters combine, and search finds names, titles and
 companies (never an email address or phone number).
 
