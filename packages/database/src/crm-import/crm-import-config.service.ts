@@ -46,6 +46,24 @@ export type CrmImportConfigResult =
   | { readonly outcome: 'NOT_AUTHORIZED' }
   | { readonly outcome: 'RETRY' };
 
+/**
+ * THE RECORDING TRANSACTION'S BOUNDED WINDOW. A reviewed configuration is recorded atomically -- every
+ * mapping and its audit row, or nothing -- so it is ONE interactive transaction, and its statements run
+ * one after another on that transaction's single connection (never in parallel: a transaction client
+ * runs one statement at a time). Each new mapping is two statements (the row, its audit row); a
+ * replacement is two more (retire, link). A real directory has hundreds of routes: 719 in the first
+ * production config, about 1,440 sequential round trips (2,900 if every one replaced). Prisma 5.22's
+ * default interactive-transaction window is 5 s (maxWait 2 s); from a GitHub runner to the production
+ * database that expired part-way, and the whole recording rolled back (as it must).
+ *   - TIMEOUT: 120 s still allows about 40 ms per statement for the worst case above, and stays
+ *     BOUNDED, so a stuck recording cannot hold its rows open indefinitely.
+ *   - MAX WAIT: 10 s to start the transaction (obtain a connection), covering a cold database compute
+ *     waking up; it does not lengthen the transaction itself.
+ * Only this recording gets the larger window; every other transaction keeps Prisma's defaults.
+ */
+export const CRM_IMPORT_CONFIG_TRANSACTION_TIMEOUT_MS = 120_000;
+export const CRM_IMPORT_CONFIG_TRANSACTION_MAX_WAIT_MS = 10_000;
+
 export interface CrmImportConfigServiceDeps {
   imports?: CrmImportRepository;
   references?: Pick<PartyReferenceRepository, 'resolveMany'>;
@@ -173,7 +191,7 @@ export class CrmImportConfigService {
           out.push({ kind: 'ROUTE', key: w.fields.routeKey, outcome: w.replacing ? 'REPLACED' : 'RECORDED', reason: null, mappingId: row.id });
         }
         return out;
-      });
+      }, { timeout: CRM_IMPORT_CONFIG_TRANSACTION_TIMEOUT_MS, maxWait: CRM_IMPORT_CONFIG_TRANSACTION_MAX_WAIT_MS });
       return { outcome: 'RECORDED', items: [...items, ...written] };
     } catch (err) {
       // Another operator recorded or replaced a mapping between the read and the write.

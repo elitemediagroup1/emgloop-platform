@@ -97,3 +97,11 @@ test('the synthetic sample fixtures are valid against the locked contract, and h
   }
   assert.ok(validateCrmImportConfig(JSON.parse(fixture('crm-import-sample-config.json'))).ok);
 });
+
+test('a failed run names a Prisma error code (e.g. P2028) and nothing else from the error', async () => {
+  const { prismaErrorCode } = await import('./crm-import');
+  assert.equal(prismaErrorCode(Object.assign(new Error('Transaction already closed ... pat@x.example'), { code: 'P2028' })), 'P2028');
+  assert.equal(prismaErrorCode(Object.assign(new Error('x'), { code: 'pat@x.example' })), null, 'only a P-code shape, never arbitrary text');
+  assert.equal(prismaErrorCode(new Error('no code')), null);
+  assert.equal(prismaErrorCode('a string'), null);
+});
