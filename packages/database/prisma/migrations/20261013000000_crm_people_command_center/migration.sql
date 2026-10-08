@@ -1,6 +1,5 @@
--- CRM slice 6 (2026-10-08): the People command center. ADDITIVE ONLY: four new tables plus one
--- nullable normalized Gmail metadata column on work_messages; no existing row is rewritten.
--- docs/architecture/crm-people-command-center.md.
+-- CRM slice 6 (2026-10-08): the People command center. ADDITIVE ONLY: four new tables, no existing
+-- table or row is touched. docs/architecture/crm-people-command-center.md.
 --
 --   crm_subject_context_facts  FACTS about a Party beyond its identity -- title, notes, the source's
 --                              own status and last-contacted time, creator and company context, origin
