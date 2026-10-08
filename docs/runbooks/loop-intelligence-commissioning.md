@@ -355,18 +355,14 @@ OpenAI adds two things: availability fallback on every route, and the independen
 
 ---
 
-## D. Mail governance (gate: the counterparty-consent decision, UNRESOLVED)
+## D. Mail governance (decision recorded 2026-10-08; deployment still gated)
 
-Mail content intelligence is built completely and **held closed** by one recorded decision: may Loop read
-the words of people who emailed an employee, who never consented to Loop? Until that decision exists,
-nobody is discovered and every gather refuses.
+Mail content intelligence now has an owner-approved product/governance decision recorded in `docs/governance/mail-content-ai-2026-10-08.md`. Processing remains off until every independent deployment and per-user gate below is satisfied.
 
-1. **Decide and record it** (Matt, with counsel). Set the Netlify variable
-   `LOOP_MAIL_CONTENT_GOVERNANCE_DECISION=counterparty-consent:YYYY-MM-DD:<reference>`.
+1. **Set the exact recorded decision on the web tier:**
+   `LOOP_MAIL_CONTENT_GOVERNANCE_DECISION=counterparty-consent:2026-10-08:docs/governance/mail-content-ai-2026-10-08`.
 
-   Anything else, including unset, is UNDECIDED. The code's status constant stays
-   `MAIL_CONTENT_GOVERNANCE_STATUS = 'UNRESOLVED'` until a PR records the decision in
-   `mail-content-governance.ts`.
+   Any other value, including unset, is UNDECIDED and fails closed.
 
 2. **Set the web tier's Netlify variables:**
    - `LOOP_INTELLIGENCE_MAIL_PRODUCERS=mail.thread@1,mail.domain@1`
