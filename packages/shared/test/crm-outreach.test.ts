@@ -118,7 +118,7 @@ test('a qualifying send: sent by the viewer, the person in To, not a draft, spam
   assert.equal(qualifyCrmMessage({ direction: 'OUTBOUND', labels: ['TRASH'], subject: 'Hello', personInTo: true }), 'NOT_OUTREACH');
 });
 
-test('bounces, out-of-office, delivery and read receipts and automated senders are never a reply; a bulk tab is UNCERTAIN', () => {
+test('bounces, out-of-office, delivery/read receipts and normalized automation headers are never a reply; a bulk tab is UNCERTAIN', () => {
   const inbound = (subject: string | null, labels: string[] = ['INBOX'], senderAddress = 'jane@brand.example') => qualifyCrmMessage({ direction: 'INBOUND', labels, subject, senderAddress });
   for (const s of ['Automatic reply: Partnership', 'Out of Office: back Monday', 'OOO until 10/12', 'Undeliverable: Hello', 'Delivery Status Notification (Failure)', 'Read: Proposal', 'Auto: away', 'Mail delivery failed: returning message']) {
     assert.equal(inbound(s), 'AUTOMATED', s);
@@ -126,6 +126,9 @@ test('bounces, out-of-office, delivery and read receipts and automated senders a
   assert.equal(inbound('Hello', ['INBOX'], 'mailer-daemon@brand.example'), 'AUTOMATED');
   assert.equal(inbound('Hello', ['INBOX'], 'no-reply@brand.example'), 'AUTOMATED');
   assert.equal(inbound('Hello', ['SPAM']), 'AUTOMATED');
+  assert.equal(qualifyCrmMessage({ direction: 'INBOUND', labels: ['INBOX'], subject: 'Re: Partnership', senderAddress: 'jane@brand.example', automationClass: 'AUTO_SUBMITTED' }), 'AUTOMATED', 'ordinary-subject OOO from Auto-Submitted does not stop cadence');
+  assert.equal(qualifyCrmMessage({ direction: 'INBOUND', labels: ['INBOX'], subject: 'Partnership news', senderAddress: 'jane@brand.example', automationClass: 'MAILING_LIST' }), 'AUTOMATED');
+  assert.equal(qualifyCrmMessage({ direction: 'INBOUND', labels: ['INBOX'], subject: 'Partnership update', senderAddress: 'jane@brand.example', automationClass: 'BULK' }), 'AUTOMATED');
   assert.equal(inbound('Re: Partnership', ['CATEGORY_UPDATES']), 'UNCERTAIN');
   // A human writing about an out-of-office is still a human.
   assert.equal(inbound('Re: out of office plans for the shoot'), 'HUMAN_REPLY');
@@ -348,7 +351,7 @@ test('discovery surfaces a real two-way contact with its reasons', () => {
   assert.deepEqual(decideCrmDiscovery({ ...FACTS, humanInbound: 0 }, CTX), { surfaced: true, reasons: ['YOU_EMAILED_THEM'] });
 });
 
-test('discovery excludes own, internal, existing, dismissed, suppressed, automated, list/role and inbound-only addresses', () => {
+test('discovery excludes own, internal, existing, dismissed, suppressed, automated and list/role addresses while allowing a human inbound-first contact', () => {
   const ex = (f: Partial<typeof FACTS>, c: Partial<typeof CTX> = {}) => {
     const d = decideCrmDiscovery({ ...FACTS, ...f }, { ...CTX, ...c });
     return d.surfaced ? 'SURFACED' : d.exclusion;
@@ -363,8 +366,10 @@ test('discovery excludes own, internal, existing, dismissed, suppressed, automat
   assert.equal(ex({ address: 'no-reply@brand.example' }), 'AUTOMATED_SENDER');
   assert.equal(ex({ address: 'info@brand.example' }), 'ROLE_OR_LIST_MAILBOX');
   assert.equal(ex({ address: 'team-request@brand.example' }), 'ROLE_OR_LIST_MAILBOX');
-  assert.equal(ex({ directSends: 0 }), 'NO_DIRECT_EXCHANGE');
-  assert.equal(ex({ humanInbound: 0, nonHumanInbound: 3 }), 'ONLY_AUTOMATED_MAIL');
+  assert.equal(ex({ directSends: 0, humanInbound: 1 }), 'SURFACED', 'a legitimate human inbound is reviewable before we reply');
+  assert.deepEqual(decideCrmDiscovery({ ...FACTS, directSends: 0, humanInbound: 1 }, CTX), { surfaced: true, reasons: ['THEY_CONTACTED_YOU'] });
+  assert.equal(ex({ directSends: 0, humanInbound: 0, nonHumanInbound: 0 }), 'NO_DIRECT_EXCHANGE');
+  assert.equal(ex({ directSends: 0, humanInbound: 0, nonHumanInbound: 3 }), 'ONLY_AUTOMATED_MAIL');
 });
 
 test('a proposed name comes from the display name the mail carried -- never from the address', () => {
