@@ -78,6 +78,7 @@ test('the guard refuses everything else, before any credential is requested', ()
   const refusals: [string, Record<string, string>, Record<string, string>?][] = [
     ['a feature branch', DRY, { GITHUB_REF: 'refs/heads/feat/x' }],
     ['an unknown mode', { ...DRY, mode: 'apply', confirm: 'crm import apply emg-talent' }],
+    ['approve without a dry run id', { ...DRY, mode: 'approve', source_key: '', expected_source_sha256: '', config_key: '', expected_config_sha256: '', confirm: 'crm import approve emg-talent' }],
     ['the wrong organization', { ...DRY, organization: 'someone-else', confirm: 'crm import dry-run someone-else' }],
     ['an unpinned environment organization', DRY, { ORGANIZATION_VAR: '' }],
     ['another importer version', { ...DRY, importer_version: 'crm-outreach-import.v1' }],
@@ -127,6 +128,30 @@ test('record-config replacement is explicit, record-config-only, and reaches onl
   assert.match(run, /REPLACE_EXISTING_CONFIG/);
 });
 
+test('approve is production-commissioned only for a specific reviewed dry-run id', () => {
+  const input = {
+    mode: 'approve',
+    source_key: '',
+    expected_source_sha256: '',
+    config_key: '',
+    expected_config_sha256: '',
+    organization: 'emg-talent',
+    actor_user_id: DRY.actor_user_id,
+    dry_run_id: 'cmuyw5rv90002szaez29oo7yc',
+    replace_existing_config: 'false',
+    importer_version: 'crm-outreach-import.v2',
+    confirm: 'crm import approve emg-talent',
+  };
+  const r = runGuard(input);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.env, /^MODE=approve$/m);
+  assert.match(r.env, /^DRY_RUN_ID=cmuyw5rv90002szaez29oo7yc$/m);
+  assert.match(r.outputs, /^needs_db=true$/m);
+
+  const run = step('Run the importer (codes, counts, ids and hashes only)');
+  assert.match(run, /approve --dry-run-id "\$\{DRY_RUN_ID\}"/);
+});
+
 test('validate and inventory need no database and no actor', () => {
   const r = runGuard({ mode: 'inventory', source_key: DRY.source_key, expected_source_sha256: SHA, organization: 'emg-talent', importer_version: 'crm-outreach-import.v2', confirm: 'crm import inventory emg-talent' });
   assert.equal(r.code, 0, r.out);
@@ -141,11 +166,12 @@ test('record-config passes --replace only when the reviewed replacement input is
   assert.match(run, /"\$\{cli\[@\]\}" "\$\{record_args\[@\]\}"/);
 });
 
-test('the workflow never offers import execution, never traces, never prints the source, never publishes an artifact', () => {
+test('the workflow never offers APPLY or abandon, never traces, never prints the source, never publishes an artifact', () => {
   assert.doesNotMatch(WORKFLOW, /set -x|set -o xtrace|bash -x/);
   assert.doesNotMatch(WORKFLOW, /cat\s+"?\$\{?WORK\}?\/(source|config)/, 'the source and config are never printed');
   assert.doesNotMatch(WORKFLOW, /upload-artifact/, 'review files never become GitHub artifacts');
-  assert.doesNotMatch(WORKFLOW, /\b(apply|approve|abandon)\s+--/);
+  assert.doesNotMatch(WORKFLOW, /\b(apply|abandon)\s+--/);
+  assert.match(WORKFLOW, /\bapprove\s+--dry-run-id/);
   assert.match(WORKFLOW, /umask 077/);
   assert.match(step('Remove the source, the configuration and the review files from the runner'), /rm -rf "\$\{RUNNER_TEMP\}\/crm-import"/);
   assert.match(WORKFLOW, /- name: Remove the source, the configuration and the review files from the runner\n {8}if: always\(\)/);
@@ -172,11 +198,12 @@ test('a malformed header never echoes a cell: an unknown column is reported by p
   assert.deepEqual(inv, { ok: false, problem: 'UNKNOWN_COLUMN', column: null, position: 1 });
 });
 
-test('the command\'s production target: read and dry-run only, from main in Actions, for the pinned organization', () => {
+test('the command\'s production target: reviewed approval but no APPLY, from main in Actions, for the pinned organization', () => {
   const env = { LOOP_CRM_IMPORT_TARGET: 'production', GITHUB_ACTIONS: 'true', GITHUB_REF: 'refs/heads/main', CRM_IMPORT_ORGANIZATION_SLUG: 'emg-talent', COGNITIVE_HASH_SECRET: 'x' };
-  assert.deepEqual(PRODUCTION_COMMANDS, ['validate', 'inventory', 'record-config', 'dry-run']);
+  assert.deepEqual(PRODUCTION_COMMANDS, ['validate', 'inventory', 'record-config', 'dry-run', 'approve']);
   assert.deepEqual(checkTarget(env, 'dry-run', 'emg-talent'), { ok: true });
-  for (const command of ['apply', 'approve', 'abandon'] as const) {
+  assert.deepEqual(checkTarget(env, 'approve', 'emg-talent'), { ok: true });
+  for (const command of ['apply', 'abandon'] as const) {
     assert.deepEqual(checkTarget(env, command, 'emg-talent'), { ok: false, reason: 'PRODUCTION_APPLY_NOT_COMMISSIONED' }, command);
   }
   assert.deepEqual(checkTarget({ ...env, GITHUB_ACTIONS: '' }, 'dry-run', 'emg-talent'), { ok: false, reason: 'PRODUCTION_ONLY_FROM_GITHUB_ACTIONS' });

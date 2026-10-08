@@ -11,18 +11,18 @@
 //                  --review-dir <dir> [--expected-sha256 <hex>] [--source-ref <ref>] [--importer-version <v>]
 //                  Plan the import, record the run and its entries, write the review artifacts.
 //                  Writes NO CRM row.
-//   approve        --dry-run-id <id> --organization <slug> --actor-...           (local only)
+//   approve        --dry-run-id <id> --organization <slug> --actor-...           (production: reviewed dry-run approval only)
 //   apply          --source --config --approval-id --expected-sha256 --organization --actor-...
 //                  --confirm "apply <first 12 of sha256>"                         (local only)
 //   abandon        --run-id <id> --organization <slug> --actor-...               (local only)
 //
 // TARGETS (LOOP_CRM_IMPORT_TARGET), checked before the database package is even loaded:
 //   local       every command, against a database on this machine only.
-//   production  ONLY validate, inventory, record-config and dry-run, ONLY inside GitHub Actions on
+//   production  ONLY validate, inventory, record-config, dry-run and approve, ONLY inside GitHub Actions on
 //               refs/heads/main (the "CRM Outreach Import" workflow, connections-production), ONLY
 //               for CRM_IMPORT_ORGANIZATION_SLUG, and the dry run only with the identifier key set.
-//               APPLY, approve and abandon are NOT commissioned in production: refused by name here,
-//               and the import service refuses a non-local APPLY on its own.
+//               APPLY and abandon are NOT commissioned in production: refused by name here, and the
+//               import service refuses a non-local APPLY on its own.
 //
 // THE SOURCE IS HASHED OVER ITS BYTES AND CHECKED AGAINST --expected-sha256 BEFORE IT IS PARSED.
 // Bytes that are not valid UTF-8 are refused, never replaced.
@@ -87,8 +87,8 @@ const REQUIRED: Readonly<Record<Command, readonly string[]>> = {
 
 /** Commands that touch the database. `validate` and `inventory` read only the file. */
 const DATABASE_COMMANDS: readonly Command[] = ['record-config', 'dry-run', 'approve', 'apply', 'abandon'];
-/** What the production target may run (PR B). APPLY, approval and abandon are not commissioned. */
-export const PRODUCTION_COMMANDS: readonly Command[] = ['validate', 'inventory', 'record-config', 'dry-run'];
+/** What the production target may run. Approval is commissioned; APPLY and abandon remain refused. */
+export const PRODUCTION_COMMANDS: readonly Command[] = ['validate', 'inventory', 'record-config', 'dry-run', 'approve'];
 
 /** The actor is a member named by user id (the workflow's path: no email in a workflow input) or by email (local). */
 const hasActor = (args: Args) => ['actor-user-id', 'actor-email'].some((f) => typeof args.flags[f] === 'string' && (args.flags[f] as string).trim() !== '');
@@ -103,11 +103,10 @@ export function missingFlags(args: Args): string[] {
  * saying which database this is.
  *   local       any command, against a database on this machine only (the host check catches a URL
  *               that says otherwise).
- *   production  ONLY validate, inventory, record-config and dry-run, ONLY inside GitHub Actions on
+ *   production  ONLY validate, inventory, record-config, dry-run and approve, ONLY inside GitHub Actions on
  *               refs/heads/main, ONLY for the one organization the environment names, and (for the
- *               dry run) only with the configured identifier key. APPLY, approve and abandon are NOT
- *               commissioned in production: refused by name here, and the service refuses a non-local
- *               APPLY on its own.
+ *               dry run) only with the configured identifier key. APPLY and abandon are NOT commissioned
+ *               in production: refused by name here, and the service refuses a non-local APPLY on its own.
  */
 export function checkTarget(env: Readonly<Record<string, string | undefined>>, command: Command | null = null, organization: string | null = null): { ok: true } | { ok: false; reason: string } {
   const target = env.LOOP_CRM_IMPORT_TARGET;

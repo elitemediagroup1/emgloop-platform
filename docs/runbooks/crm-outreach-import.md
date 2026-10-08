@@ -1,9 +1,9 @@
 # CRM outreach import — production commissioning runbook (Slice 5, PR B)
 
-**Status:** see the "Commissioning state" block at the end. **Production import execution is NOT
-commissioned:** the workflow offers only `validate`, `inventory`, `record-config` and `dry-run`. The
-command refuses anything else for the production target, and the import service refuses a non-local
-APPLY on its own.
+**Status:** see the "Commissioning state" block at the end. **Production APPLY is NOT commissioned.**
+The workflow offers `validate`, `inventory`, `record-config`, `dry-run` and approval of one reviewed
+successful dry run. Approval writes provenance only; the command still refuses production APPLY, and
+the import service refuses a non-local APPLY on its own.
 
 **Who does what:**
 - **Matt:** every step in AWS (CloudShell, signed in through Identity Center to `080891698678`,
@@ -141,6 +141,7 @@ provenance never holds anything shaped like a phone number.
 | `inventory` | `source_key`, `expected_source_sha256` | the inventory detail to the review prefix |
 | `record-config` | `config_key`, `expected_config_sha256`, `actor_user_id` (an OWNER/ADMIN's Loop user id) | the reviewed aliases and routes (governed, audited, append-only) |
 | `dry-run` | all of the above | an import run and its entries; the review artifacts to the review prefix; **no canonical CRM record** |
+| `approve` | `dry_run_id`, `actor_user_id` | one approval record bound to the reviewed dry run; **no canonical CRM record** |
 
 Every mode also needs:
 - `organization`, which must equal the pinned slug;
@@ -173,10 +174,10 @@ written under (the web app's). Exact matching cannot work, so nothing is planned
 ## Part 5 — What is NOT here
 
 Production import execution:
-- APPLY and approval run **local/test only** today.
-- Commissioning them needs a separate, reviewed change after the real dry run has been reviewed and
-  the stage mapping approved. **The first controlled import needs Matt's explicit approval of the
-  real dry-run results.**
+- Approval of one reviewed successful dry run is commissioned through the production workflow.
+- APPLY remains **not commissioned**. Commissioning APPLY needs a separate reviewed change after the
+  approval record exists. **The first controlled import still needs a separate explicit authorization
+  to execute production APPLY.**
 
 ---
 
@@ -186,6 +187,7 @@ Production import execution:
   the hash-key check.
 - **Deployed:** **no.** Parts 1 and 2 are Matt's.
 - **Source uploaded:** **no.** The final structured source has not been provided (`FINAL_SOURCE_REQUIRED`).
-- **Dry run in production:** **not run.**
-- **APPLY:** **not commissioned; not approved.**
+- **Dry run in production:** **run and reviewed for the pinned v4 source / v3 config plan.**
+- **Human approval:** **explicitly granted for the reviewed CONTACTS_ONLY plan; record it with `approve`.**
+- **APPLY:** **not commissioned; execution not authorized.**
 - **Import proven:** **no.**
