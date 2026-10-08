@@ -78,8 +78,9 @@ export async function POST(request: Request): Promise<Response> {
       leaseOwner: 'web:mail-intelligence',
       now,
     },
-    // Bounded under the platform's request limit; what does not fit waits for the next pass.
-    { limit: 10, leaseMs: 2 * 60 * 1000, maxAttempts: 4, discoverLimit: 200 },
+    // Keep the model-backed Mail pass comfortably inside the production request window.
+    // What does not fit remains queued for the next scheduled pass.
+    { limit: 2, leaseMs: 2 * 60 * 1000, maxAttempts: 4, discoverLimit: 200 },
   );
   return NextResponse.json({ ok: true, active: report.activeProducers, discovered: report.discovered, enqueued: report.enqueued, refused: report.refused, cycle: report.cycle });
 }
