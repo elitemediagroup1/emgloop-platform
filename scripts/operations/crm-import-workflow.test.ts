@@ -134,6 +134,13 @@ test('validate and inventory need no database and no actor', () => {
   assert.doesNotMatch(r.env, /ACTOR_USER_ID/);
 });
 
+test('record-config passes --replace only when the reviewed replacement input is true', () => {
+  const run = step('Run the importer (codes, counts, ids and hashes only)');
+  assert.match(run, /REPLACE_EXISTING_CONFIG:-false/);
+  assert.match(run, /record_args\+\=\(--replace\)/);
+  assert.match(run, /"\$\{cli\[@\]\}" "\$\{record_args\[@\]\}"/);
+});
+
 test('the workflow never offers import execution, never traces, never prints the source, never publishes an artifact', () => {
   assert.doesNotMatch(WORKFLOW, /set -x|set -o xtrace|bash -x/);
   assert.doesNotMatch(WORKFLOW, /cat\s+"?\$\{?WORK\}?\/(source|config)/, 'the source and config are never printed');
