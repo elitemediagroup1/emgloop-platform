@@ -24,8 +24,6 @@ import {
   ReadFailed,
   RecordLayout,
   StateBlock,
-  SummaryStrip,
-  type ActionSpec,
 } from '../../../_loop-os/record';
 import { SubjectCard } from '../../../_loop-os/subject-card';
 
@@ -47,8 +45,6 @@ export const dynamic = 'force-dynamic';
 // States: Established; Identity review required; Superseded (points to the current
 // person, history kept); Archived (history kept, new commercial action restricted).
 // A missing, foreign or non-person id is not found.
-
-const NO_CHANNEL = 'Loop has no governed communication channel for a person yet.';
 
 const LIMITATION_TEXT: Record<string, string> = {
   EVIDENCE_NOT_COLLECTED: 'No identity evidence is collected yet: establishment is a decision a person made, not a verification.',
@@ -78,7 +74,6 @@ export default async function PersonPage({ params, searchParams }: { params: { p
   const contactPoints = await readContactPoints(record.partyId);
   const outreach = state === 'ESTABLISHED' ? (await readPersonOutreach(record.partyId)).result : null;
 
-  const channel = (label: string): ActionSpec => ({ label, href: null, reason: NO_CHANNEL });
   // A creator profile for this person, within the session's organization. Its operating view
   // is in the ADMIN tree, so the link exists only for a seat that can open it.
   // Absent, not broken, while the Creator Hub migration has not reached this database.
