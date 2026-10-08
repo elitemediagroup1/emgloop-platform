@@ -20,6 +20,13 @@
 -- Outbox events for this authority are filterable on their own. Added, never used in this migration.
 ALTER TYPE "OutboxSubjectType" ADD VALUE 'CRM_OUTREACH';
 
+-- Existing private Gmail metadata gains one privacy-safe normalized classification used by the
+-- cadence/reply rules. It is NULL for older rows until a Gmail re-read refreshes them; raw
+-- Auto-Submitted/List/Precedence header values are never persisted.
+ALTER TABLE "work_messages" ADD COLUMN "automationClass" TEXT;
+ALTER TABLE "work_messages" ADD CONSTRAINT "work_messages_automationClass_check"
+  CHECK ("automationClass" IS NULL OR "automationClass" IN ('AUTO_SUBMITTED','MAILING_LIST','BULK'));
+
 -- CreateTable
 CREATE TABLE "crm_subject_context_facts" (
     "id" TEXT NOT NULL,
