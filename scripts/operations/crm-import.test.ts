@@ -1,5 +1,5 @@
 // The CRM outreach import operator command (CRM slice 5, PR A): argument parsing, the target guard
-// (production refused by name, local only), the APPLY confirmation, where review artifacts may be
+// (production is Actions/main only), the APPLY confirmation, where review artifacts may be
 // written, and what each artifact may contain. The synthetic sample fixtures parse and validate.
 
 import { test } from 'node:test';
@@ -22,11 +22,12 @@ test('arguments: a known command and its required flags, or a precondition failu
   assert.deepEqual(missingFlags(parseArgs([])), ['command']);
 });
 
-test('target: local for everything on this machine; production refuses import execution by name', () => {
+test('target: local for everything on this machine; production APPLY is Actions/main/hash-key gated', () => {
   const local = 'postgresql://postgres:x@127.0.0.1:55432/loop';
   assert.deepEqual(checkTarget({ LOOP_CRM_IMPORT_TARGET: 'local', DATABASE_URL: local }), { ok: true });
   assert.deepEqual(checkTarget({ LOOP_CRM_IMPORT_TARGET: 'production', DATABASE_URL: local }), { ok: false, reason: 'PRODUCTION_APPLY_NOT_COMMISSIONED' }, 'no command named: refused');
-  assert.deepEqual(checkTarget({ LOOP_CRM_IMPORT_TARGET: 'production', DATABASE_URL: local }, 'apply'), { ok: false, reason: 'PRODUCTION_APPLY_NOT_COMMISSIONED' });
+  assert.deepEqual(checkTarget({ LOOP_CRM_IMPORT_TARGET: 'production', DATABASE_URL: local }, 'apply'), { ok: false, reason: 'PRODUCTION_ONLY_FROM_GITHUB_ACTIONS' });
+  assert.deepEqual(checkTarget({ LOOP_CRM_IMPORT_TARGET: 'production', GITHUB_ACTIONS: 'true', GITHUB_REF: 'refs/heads/main', CRM_IMPORT_ORGANIZATION_SLUG: 'o', COGNITIVE_HASH_SECRET: 'x' }, 'apply', 'o'), { ok: true });
   assert.deepEqual(checkTarget({ LOOP_CRM_IMPORT_TARGET: 'production', DATABASE_URL: local }, 'dry-run'), { ok: false, reason: 'PRODUCTION_ONLY_FROM_GITHUB_ACTIONS' }, 'not from a laptop');
   assert.deepEqual(checkTarget({ DATABASE_URL: local }), { ok: false, reason: 'LOOP_CRM_IMPORT_TARGET_MUST_BE_LOCAL_OR_PRODUCTION' });
   assert.deepEqual(checkTarget({ LOOP_CRM_IMPORT_TARGET: 'local', DATABASE_URL: 'postgresql://u:p@ep-x.neon.tech/loop' }), { ok: false, reason: 'DATABASE_HOST_NOT_LOCAL' });
