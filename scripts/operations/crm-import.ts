@@ -562,6 +562,12 @@ async function main(): Promise<number> {
   }
 }
 
+/** A Prisma error code (`P` + four digits) and nothing else, or null. */
+export function prismaErrorCode(error: unknown): string | null {
+  const code = typeof error === 'object' && error !== null ? (error as { code?: unknown }).code : undefined;
+  return typeof code === 'string' && /^P\d{4}$/.test(code) ? code : null;
+}
+
 const ENTRY_POINT = /[\\/]crm-import\.ts$/;
 if (process.argv[1] && ENTRY_POINT.test(process.argv[1])) {
   main().then(
@@ -569,8 +575,9 @@ if (process.argv[1] && ENTRY_POINT.test(process.argv[1])) {
       process.exitCode = code;
     },
     (error: unknown) => {
-      // The error's class only: a message could carry source text.
-      process.stdout.write(line({ event: 'RUN_FAILED', reason: error instanceof Error ? error.name : 'unknown' }) + '\n');
+      // The error's class, and a Prisma error code (e.g. P2028, an expired transaction) when there is
+      // one -- never its message or meta, which could carry source text.
+      process.stdout.write(line({ event: 'RUN_FAILED', reason: error instanceof Error ? error.name : 'unknown', code: prismaErrorCode(error) }) + '\n');
       process.exitCode = 1;
     },
   );
