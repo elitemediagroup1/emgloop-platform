@@ -267,7 +267,9 @@ jobs:
             inventory)
               "${cli[@]}" inventory --source "${WORK}/source.csv" --expected-sha256 "${EXPECTED_SOURCE_SHA256}" --importer-version "${IMPORTER_VERSION}" --source-ref "${SOURCE_REF}" --review-dir "${WORK}/review" | tee "${WORK}/out.jsonl" ;;
             record-config)
-              "${cli[@]}" record-config --config "${WORK}/config.json" --organization "${ORGANIZATION}" --actor-user-id "${ACTOR_USER_ID}" --importer-version "${IMPORTER_VERSION}" | tee "${WORK}/out.jsonl" ;;
+              record_args=(record-config --config "${WORK}/config.json" --organization "${ORGANIZATION}" --actor-user-id "${ACTOR_USER_ID}" --importer-version "${IMPORTER_VERSION}")
+              if [ "${REPLACE_EXISTING_CONFIG:-false}" = "true" ]; then record_args+=(--replace); fi
+              "${cli[@]}" "${record_args[@]}" | tee "${WORK}/out.jsonl" ;;
             dry-run)
               "${cli[@]}" dry-run --source "${WORK}/source.csv" --expected-sha256 "${EXPECTED_SOURCE_SHA256}" --config "${WORK}/config.json" --organization "${ORGANIZATION}" --actor-user-id "${ACTOR_USER_ID}" --importer-version "${IMPORTER_VERSION}" --source-ref "${SOURCE_REF}" --review-dir "${WORK}/review" | tee "${WORK}/out.jsonl" ;;
           esac
