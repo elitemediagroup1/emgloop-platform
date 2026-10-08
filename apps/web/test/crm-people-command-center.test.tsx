@@ -49,6 +49,14 @@ test('actions are thin: the session is the only source of organization and actor
   assert.match(discover, /No company, opportunity, relationship or affiliation is created/);
 });
 
+
+test('Possible New People copy includes inbound-first discovery and does not claim outbound-only eligibility', () => {
+  const discover = code(read(PAGES.discover));
+  assert.match(discover, /contacted you directly/);
+  assert.match(discover, /legitimate inbound-first contacts/);
+  assert.equal(discover.includes('Only addresses you wrote to directly are considered'), false);
+});
+
 test('the People list keeps the identity-review boundary, stacks on a phone, and never shows an Opportunity stage', () => {
   const people = code(read(PAGES.people));
   assert.match(people, /className="loop-table"/);
