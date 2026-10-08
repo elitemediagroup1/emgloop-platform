@@ -53,8 +53,12 @@ export interface MailProducerPorts {
   readonly now: () => Date;
 }
 
-const RECENT_DAYS = 14;
-const THREADS_PER_PERSON = 25;
+// CRM outreach threads routinely have a several-week follow-up horizon (for example a counterparty may
+// explicitly say "circle back next month"). Fourteen days / 25 threads dropped still-live conversations
+// before People could consume their private digest. Keep discovery bounded, but wide enough for the CRM
+// operating horizon; unchanged fingerprints still prevent repeat Gmail/model work and runtime budgets cap spend.
+const RECENT_DAYS = 45;
+const THREADS_PER_PERSON = 100;
 const DAY = 24 * 60 * 60 * 1000;
 
 interface ThreadContext {
