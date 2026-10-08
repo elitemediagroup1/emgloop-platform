@@ -273,6 +273,7 @@ export class GmailSyncService {
           inReplyTo: fact.inReplyTo,
           references: fact.references,
           labels: fact.labels,
+          automationClass: fact.automationClass ?? null,
           observedAt,
         });
         written += 1;
