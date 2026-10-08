@@ -16,7 +16,9 @@
 //      match the approval exactly;
 //      takes the organization's APPLY lock (a unique key in the database, not a process); executes
 //      Company units, then Person units, then pursuit units, each in ONE transaction; a unit that
-//      cannot complete rolls back whole. PRODUCTION APPLY IS NOT COMMISSIONED: it is refused.
+//      cannot complete rolls back whole. PRODUCTION APPLY runs only inside the commissioned
+//      workflow path (`productionApplyOnly`: main, GitHub Actions, CRM_IMPORT_PRODUCTION_APPLY); any
+//      other production call is refused.
 //
 // IDEMPOTENT BY CONSTRUCTION. Every created subject is claimed under a deterministic import key in
 // the same transaction that creates it (unique per organization). A retried, resumed or concurrent

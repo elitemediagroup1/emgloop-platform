@@ -106,3 +106,10 @@ test('a failed run names a Prisma error code (e.g. P2028) and nothing else from 
   assert.equal(prismaErrorCode(new Error('no code')), null);
   assert.equal(prismaErrorCode('a string'), null);
 });
+
+test('backfill commands: required flags and the plan-digest confirmation', async () => {
+  const { backfillConfirmation } = await import('./crm-import');
+  assert.deepEqual(missingFlags(parseArgs(['backfill-context-dry-run', '--source', 's.csv'])), ['expected-sha256', 'import-run-id', 'organization', 'actor-user-id|actor-email']);
+  assert.deepEqual(missingFlags(parseArgs(['backfill-context-apply', '--source', 's.csv', '--expected-sha256', 'a', '--import-run-id', 'r', '--organization', 'o', '--actor-user-id', 'u'])), ['plan-digest', 'confirm']);
+  assert.equal(backfillConfirmation('0123456789abcdef'.repeat(4)), 'backfill 0123456789ab');
+});

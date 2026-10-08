@@ -989,7 +989,7 @@ export type { CrmImportActor } from './crm-import/crm-import-access';
 
 // --- CRM slice 6: the People command center ---
 // Human interpretation and recorded context (governed), the viewer-scoped directory and person
-// read, and Possible New People.
+// read, Possible New People, and the historical-context backfill.
 // See docs/architecture/crm-people-command-center.md.
 export { CrmOutreachService } from './crm-outreach/crm-outreach.service';
 export type { CrmOutreachActResult, CrmOutreachServiceDeps } from './crm-outreach/crm-outreach.service';
@@ -1010,3 +1010,5 @@ export type {
 export { CrmPeopleDiscoveryService } from './crm-outreach/crm-people-discovery.service';
 export type { CrmDiscoveryAddResult } from './crm-outreach/crm-people-discovery.service';
 export { linkCorrespondents, qualifyPartyMail } from './crm-outreach/crm-outreach-mail-link';
+export { CrmContextBackfillService, CRM_CONTEXT_BACKFILL_VERSION } from './crm-outreach/crm-context-backfill.service';
+export type { CrmContextBackfillPlan, CrmContextBackfillResult, CrmContextBackfillSkip, CrmContextBackfillTarget } from './crm-outreach/crm-context-backfill.service';

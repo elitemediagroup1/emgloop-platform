@@ -9,6 +9,11 @@ name: CRM Outreach Import
 #   dry-run        plan the import and record the run and its entries. Writes NO canonical CRM record.
 #   approve        bind explicit human approval to one successful reviewed dry run. Writes approval provenance only.
 #   apply          execute only the exact source/config/plan bound to an unused approval. Writes canonical CRM records.
+#   backfill-context-dry-run  CRM slice 6: plan the historical-context backfill (titles, notes, source status, last
+#                  contacted, creator and company context) from an APPLY run's OWN source onto the subjects it
+#                  created. Writes NOTHING; the summary carries counts and the plan digest.
+#   backfill-context-apply    write exactly the reviewed plan (plan_digest), context facts only -- no Party, Contact
+#                  Point, Opportunity or Relationship. Confirmation: backfill <first 12 of the plan digest>.
 # APPLY is separately guarded by the source SHA confirmation, approval binding, main-only environment,
 # the workflow-only commissioning flag, and the import service's production checks.
 #
@@ -29,7 +34,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'validate | inventory | record-config | dry-run | approve | apply'
+        description: 'validate | inventory | record-config | dry-run | approve | apply | backfill-context-dry-run | backfill-context-apply'
         required: true
         type: choice
         options:
@@ -39,6 +44,8 @@ on:
           - dry-run
           - approve
           - apply
+          - backfill-context-dry-run
+          - backfill-context-apply
       source_key:
         description: 'Private source object key, crm-import/source/<name>.csv. The name must not hold a run of 7+ digits (an ISO date is fine). Not needed for record-config.'
         required: false
@@ -68,6 +75,14 @@ on:
         default: ''
       approval_id:
         description: 'apply only: the unused approval id bound to the reviewed dry run'
+        required: false
+        default: ''
+      import_run_id:
+        description: 'backfill-context-* only: the APPLY run id whose source and subjects the backfill reads'
+        required: false
+        default: ''
+      plan_digest:
+        description: 'backfill-context-apply only: the plan digest the reviewed backfill dry run printed'
         required: false
         default: ''
       replace_existing_config:
@@ -127,7 +142,7 @@ jobs:
           [ "$(trim "${PRODUCTION_ACCOUNT_ID_VAR}")" = "${PRODUCTION_ACCOUNT}" ] || fail "Refusing: CONNECTIONS_PRODUCTION_ACCOUNT_ID is not ${PRODUCTION_ACCOUNT}."
 
           mode="$(trim "$(input mode)")"
-          case "${mode}" in validate|inventory|record-config|dry-run|approve|apply) ;; *) fail "mode must be validate, inventory, record-config, dry-run, approve or apply." ;; esac
+          case "${mode}" in validate|inventory|record-config|dry-run|approve|apply|backfill-context-dry-run|backfill-context-apply) ;; *) fail "mode must be validate, inventory, record-config, dry-run, approve, apply, backfill-context-dry-run or backfill-context-apply." ;; esac
           organization="$(trim "$(input organization)")"
           [[ "${organization}" =~ ^[a-z0-9][a-z0-9-]{1,62}$ ]] || fail "organization must be a slug."
           [ -n "$(trim "${ORGANIZATION_VAR}")" ] || fail "Refusing: the environment variable CRM_IMPORT_ORGANIZATION_SLUG is not set."
@@ -144,6 +159,7 @@ jobs:
             dry-run) needs_source=true; needs_config=true; needs_db=true ;;
             approve) needs_db=true ;;
             apply) needs_source=true; needs_config=true; needs_db=true ;;
+            backfill-context-dry-run|backfill-context-apply) needs_source=true; needs_db=true ;;
           esac
           if ${needs_source}; then
             key="$(trim "$(input source_key)")"; sha="$(trim "$(input expected_source_sha256)")"
@@ -151,9 +167,20 @@ jobs:
             [[ "${sha}" =~ ^[0-9a-f]{64}$ ]] || fail "expected_source_sha256 must be 64 lowercase hex."
             envs+=("SOURCE_KEY=${key}" "EXPECTED_SOURCE_SHA256=${sha}")
           fi
+          if [ "${mode}" = "backfill-context-dry-run" ] || [ "${mode}" = "backfill-context-apply" ]; then
+            import_run_id="$(trim "$(input import_run_id)")"
+            [[ "${import_run_id}" =~ ^[A-Za-z0-9_-]{8,80}$ ]] || fail "import_run_id must be a Loop import run id (the APPLY run)."
+            envs+=("IMPORT_RUN_ID=${import_run_id}")
+          fi
           if [ "${mode}" = "apply" ]; then
             expected_confirm="apply ${sha:0:12}"
             [ "${confirm,,}" = "${expected_confirm}" ] || fail "Confirmation text required: ${expected_confirm}"
+          elif [ "${mode}" = "backfill-context-apply" ]; then
+            digest="$(trim "$(input plan_digest)")"
+            [[ "${digest}" =~ ^[0-9a-f]{64}$ ]] || fail "plan_digest must be the 64-hex digest the reviewed backfill dry run printed."
+            expected_confirm="backfill ${digest:0:12}"
+            [ "${confirm,,}" = "${expected_confirm}" ] || fail "Confirmation text required: ${expected_confirm}"
+            envs+=("PLAN_DIGEST=${digest}" "CRM_CONTEXT_BACKFILL_PRODUCTION=commissioned-v1")
           else
             [ "${confirm,,}" = "crm import ${mode} ${organization}" ] || fail "Confirmation text required: crm import ${mode} ${organization}"
           fi
@@ -303,6 +330,10 @@ jobs:
               "${cli[@]}" dry-run --source "${WORK}/source.csv" --expected-sha256 "${EXPECTED_SOURCE_SHA256}" --config "${WORK}/config.json" --organization "${ORGANIZATION}" --actor-user-id "${ACTOR_USER_ID}" --importer-version "${IMPORTER_VERSION}" --source-ref "${SOURCE_REF}" --review-dir "${WORK}/review" | tee "${WORK}/out.jsonl" ;;
             approve)
               "${cli[@]}" approve --dry-run-id "${DRY_RUN_ID}" --organization "${ORGANIZATION}" --actor-user-id "${ACTOR_USER_ID}" --importer-version "${IMPORTER_VERSION}" | tee "${WORK}/out.jsonl" ;;
+            backfill-context-dry-run)
+              "${cli[@]}" backfill-context-dry-run --source "${WORK}/source.csv" --expected-sha256 "${EXPECTED_SOURCE_SHA256}" --import-run-id "${IMPORT_RUN_ID}" --organization "${ORGANIZATION}" --actor-user-id "${ACTOR_USER_ID}" | tee "${WORK}/out.jsonl" ;;
+            backfill-context-apply)
+              "${cli[@]}" backfill-context-apply --source "${WORK}/source.csv" --expected-sha256 "${EXPECTED_SOURCE_SHA256}" --import-run-id "${IMPORT_RUN_ID}" --plan-digest "${PLAN_DIGEST}" --organization "${ORGANIZATION}" --actor-user-id "${ACTOR_USER_ID}" --confirm "backfill ${PLAN_DIGEST:0:12}" | tee "${WORK}/out.jsonl" ;;
             apply)
               "${cli[@]}" apply --source "${WORK}/source.csv" --expected-sha256 "${EXPECTED_SOURCE_SHA256}" --config "${WORK}/config.json" --approval-id "${APPROVAL_ID}" --organization "${ORGANIZATION}" --actor-user-id "${ACTOR_USER_ID}" --importer-version "${IMPORTER_VERSION}" --source-ref "${SOURCE_REF}" --confirm "apply ${EXPECTED_SOURCE_SHA256:0:12}" | tee "${WORK}/out.jsonl" ;;
           esac
