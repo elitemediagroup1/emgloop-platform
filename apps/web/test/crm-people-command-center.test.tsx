@@ -102,6 +102,16 @@ test('record relationship from a person preselects that person and returns to th
   assert.match(actions, /RELATIONSHIP_RECORDED#relationships/);
 });
 
+test('People never presents imported source notes as AI summaries', () => {
+  const people = code(read(PAGES.people));
+  assert.match(people, /AI outreach brief/);
+  assert.match(people, /AI summary unavailable/);
+  assert.match(people, /data-label="AI summary"/);
+  const aiCell = people.slice(people.indexOf('data-label="AI summary"'));
+  assert.equal(aiCell.includes('row.latestNote'), false, 'AI summary cell must not fall back to imported/operator notes');
+  assert.equal(aiCell.includes('row.sourceStatus'), false, 'AI summary cell must not fall back to source status');
+});
+
 test('wording is honest about Gmail: a stale read says so with its time; unavailable never reads as "no reply"', () => {
   const sent = [new Date('2026-10-01T09:00:00Z')];
   const fresh = { state: 'FRESH' as const, observedFrom: null, observedThrough: new Date('2026-10-08T14:00:00Z') };
