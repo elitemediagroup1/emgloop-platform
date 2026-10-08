@@ -1,8 +1,10 @@
 # CRM People command center (CRM slice 6)
 
-**Status:** built on branch `feat/crm-people-command-center` (2026-10-08). Migration
-`20261013000000_crm_people_command_center` is additive and **not applied to production**. The backfill
-has **not** been run against production. See §9 for the gates.
+**Status:** merged, migrated and backfilled in production on 2026-10-08. The People command center is
+deployed and has been reviewed against production rows. This follow-up records the production findings:
+reply metadata must not be mistaken for a response obligation, the generic CRM-domain reading is not the
+People-page brief, relationship capture must be reachable from a Person, and body-aware summaries consume
+the existing viewer-private Mail intelligence digest only when that separately governed feature is commissioned.
 
 This record describes what is built. It does not describe plans.
 
@@ -35,7 +37,8 @@ viewer's own mail that the CRM does not hold, and adding one is always a human a
 |---|---|---|---|
 | **Fact** — a recorded title, note, source status, last-contacted time, creator or company context, origin | `crm_subject_context_facts` | the backfill (`IMPORTED`) or a person (`OPERATOR_RECORDED`) | yes, with everyone who may see People |
 | **Fact** — a send, a reply, a meeting | the viewer's own `work_messages` / `work_events` (Daily Loop) | Gmail / Calendar sync | **no**, only the viewer |
-| **Derived state** — cadence position, next touch and due date, AWAITING_REPLY, REPLIED_NEEDS_RESPONSE, REVIEW_REQUIRED, MEETING_SCHEDULED, ACTIVE_CONVERSATION | nowhere: computed on every read (`deriveCrmOutreach`) | rules | per viewer |
+| **Derived state** — cadence position, next touch and due date, AWAITING_REPLY, REVIEW_REQUIRED, MEETING_SCHEDULED, ACTIVE_CONVERSATION | nowhere: computed on every read (`deriveCrmOutreach`) | rules | per viewer |
+| **AI interpretation** — a minimized summary and suggested semantic next move from a governed Mail thread digest | viewer-private `intelligence_digests` | existing `mail.thread@1` producer | per viewer |
 | **Human interpretation** — conversation state, next action | `crm_outreach_states` (the projection) and `crm_outreach_events` (append-only) | a person, through `CrmOutreachService` | yes |
 
 - Each row's state carries its **basis**: `HUMAN`, `GMAIL`, `CALENDAR`, `IMPORT` or `NONE`. The screen
@@ -131,7 +134,9 @@ Due buckets (`OVERDUE`, `TODAY`, `UPCOMING`) use the viewer's calendar day in th
 **Resolution order** (`deriveCrmOutreach`, each rule tested on its own):
 
 1. A human reply newer than the last send **and** newer than any human-set state:
-   `REPLIED_NEEDS_RESPONSE`.
+   `REVIEW_REQUIRED (REPLY_CONTENT_UNKNOWN)`. Headers prove that a reply happened; they do **not** prove
+   that the viewer owes an answer. A body-aware Mail digest may suggest Reply, Wait, Circle back, Review,
+   or No immediate action, without writing CRM state.
 2. A human-set state: that state.
 3. An `UNCERTAIN` inbound newer than the last send: `REVIEW_REQUIRED (UNCERTAIN_INBOUND)`.
 4. An upcoming meeting with the person on the viewer's calendar: `MEETING_SCHEDULED`.
@@ -242,19 +247,22 @@ reversible preference:
   FK to the membership.
 - It is erased with the person's work state at offboarding (`ERASED_WORK_TABLES`), and it is not audited.
 
-No model takes part in anything here. The optional AI summary in the brief is **not built**.
+Identity and discovery still use no model. For established People, the UI may read the viewer's existing,
+private `mail.thread@1` digest and show its minimized summary as **AI interpretation**. This never changes
+identity, a Relationship, an Opportunity, a cadence event or a human-set state. If Mail content intelligence
+is not commissioned/authorized, the summary stays unavailable rather than being fabricated.
 
 ## 9. Gates
 
 | Gate | State |
 |---|---|
-| IMPLEMENTED | yes (this branch) |
-| TESTED | locally: shared, database (Postgres), web, operations, workflow guard |
-| PR REVIEWED / MERGED | no |
-| MIGRATION DEPLOYED | no (`Deploy Prisma Migrations`, Matt) |
-| BACKFILL DRY RUN / APPROVED / APPLIED | no / no / no |
-| GMAIL INGESTION VERIFIED | the production Gmail cycle runs for `servicesinmycity-demo` (2026-10-08 00:59Z: 3 of 3 synced); linkage to People is not verified in production |
-| CALENDAR INGESTION VERIFIED | the production Calendar cycle runs; meeting linkage is not verified in production |
-| UI DEPLOYED / UI VERIFIED / SLICE PROVEN | no / no / no |
+| IMPLEMENTED | yes |
+| TESTED | shared/database/web suites plus production data review; follow-up CI required before merge |
+| PR REVIEWED / MERGED | slices 6.1–6.3 merged; this production-polish follow-up pending |
+| MIGRATION DEPLOYED | yes |
+| BACKFILL DRY RUN / APPROVED / APPLIED | yes / yes / yes (929 context facts recorded) |
+| GMAIL INGESTION VERIFIED | production People renders exact-linked Gmail evidence; a production Crumbl thread exposed and drove the reply-semantics correction |
+| CALENDAR INGESTION VERIFIED | Calendar metadata is wired to Person and summary views; individual meeting examples still require ordinary production use to populate |
+| UI DEPLOYED / UI VERIFIED / SLICE PROVEN | deployed and partially verified; this follow-up addresses the production UX/data defects found on 2026-10-08 |
 
 Procedure: `docs/runbooks/crm-outreach-import.md` Part 6.
