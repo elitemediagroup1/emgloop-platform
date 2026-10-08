@@ -478,13 +478,17 @@ export function deriveCrmOutreach(input: CrmOutreachInput): CrmOutreachDerivatio
   const humanSetAt = human?.stateSetAt ?? null;
 
   let cadence = computeCrmCadence({ sends, humanReplies: replies });
+  const lastInboundAt = latest([...replies, ...uncertain]);
+  // "Last touch" means the latest human conversation touch in either direction. The old projection
+  // considered only our last send, which produced contradictions such as "Reply received 15d ago"
+  // beside "Last touch: none recorded". Automated inbound never becomes a touch.
+  const lastGmailTouch = latest([...(lastSend ? [lastSend] : []), ...(lastInboundAt ? [lastInboundAt] : [])]);
   const lastTouch: CrmOutreachDerivation['lastTouch'] =
-    lastSend && (!input.importedLastContact || lastSend >= input.importedLastContact.at)
-      ? { at: lastSend, source: 'GMAIL', precision: 'INSTANT' }
+    lastGmailTouch && (!input.importedLastContact || lastGmailTouch >= input.importedLastContact.at)
+      ? { at: lastGmailTouch, source: 'GMAIL', precision: 'INSTANT' }
       : input.importedLastContact
         ? { at: input.importedLastContact.at, source: 'IMPORT', precision: input.importedLastContact.precision }
         : null;
-  const lastInboundAt = latest([...replies, ...uncertain]);
 
   const replyStatus: CrmReplyStatus = !mailKnown
     ? 'UNKNOWN'
