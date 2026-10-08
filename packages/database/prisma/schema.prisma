@@ -6580,6 +6580,8 @@ model WorkMessage {
   /// The `References` chain, in order. Header identifiers only: no address and no content.
   references      String[] @default([])
   labels          String[] @default([])
+  /// Privacy-safe normalized automation/list evidence from Gmail metadata; never a raw header value.
+  automationClass String?
   /// When Loop read it, as against when it was sent.
   observedAt      DateTime @default(now())
 
