@@ -408,7 +408,7 @@ export class CrmPeopleCommandService {
       take: 10_000,
     });
     const workIdByProviderThread = new Map(threads.map((t) => [t.threadId, t.id]));
-    const digests = await absentUntilMigrated(new IntelligenceDigestRepository(this.prisma).forDomain(principal, 'MAIL', { now: new Date(), limit: 200 })).catch(() => []);
+    const digests = (await absentUntilMigrated(new IntelligenceDigestRepository(this.prisma).forDomain(principal, 'MAIL', { now: new Date(), limit: 200 }))) ?? [];
     const digestByRef = new Map(
       digests
         .filter((d) => d.subjectKind === 'THREAD' && d.status === 'CURRENT')
@@ -418,7 +418,7 @@ export class CrmPeopleCommandService {
     for (const [partyId, evidence] of mail.evidence) {
       const candidates = [...new Set(evidence.messages.map((m) => workIdByProviderThread.get(m.message.threadId)).filter((id): id is string => !!id))]
         .map((id) => digestByRef.get(`work_thread:${id}`))
-        .filter((d): d is NonNullable<typeof d> => !!d)
+        .filter((d): d is Exclude<typeof d, undefined> => d !== undefined)
         .sort((a, b) => (b.lastEvidenceAt?.getTime() ?? 0) - (a.lastEvidenceAt?.getTime() ?? 0));
       const d = candidates[0];
       if (!d) continue;
