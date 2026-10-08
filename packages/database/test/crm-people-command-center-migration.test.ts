@@ -15,7 +15,7 @@ test('the newest migration', () => {
   assert.equal(dirs.at(-1), NAME);
 });
 
-test('additive only: four new tables and one new outbox subject value; nothing existing altered, dropped or rewritten', () => {
+test('additive only: four new tables, one normalized Gmail metadata column, and one new outbox subject value; nothing destructive or rewritten', () => {
   assert.deepEqual([...code.matchAll(/CREATE TABLE "([a-z_]+)"/g)].map((m) => m[1]).sort(), [
     'crm_discovery_dismissals',
     'crm_outreach_events',
@@ -23,7 +23,17 @@ test('additive only: four new tables and one new outbox subject value; nothing e
     'crm_subject_context_facts',
   ]);
   assert.equal(/\bDROP\b|DELETE\s+FROM|^\s*UPDATE\s|\bTRUNCATE\b|RENAME/im.test(code), false);
-  for (const m of code.matchAll(/ALTER TABLE "([a-z_]+)"/g)) assert.match(m[1]!, /^crm_(subject_context_facts|outreach_|discovery_)/, `only new tables are altered (${m[1]})`);
+  const altered = [...code.matchAll(/ALTER TABLE "([a-z_]+)"/g)].map((m) => m[1]!);
+  for (const table of altered) {
+    assert.ok(
+      /^crm_(subject_context_facts|outreach_|discovery_)/.test(table) || table === 'work_messages',
+      `only the new CRM tables or work_messages are altered (${table})`,
+    );
+  }
+  assert.equal(altered.filter((t) => t === 'work_messages').length, 2, 'work_messages is changed only to add the normalized automation classification and its check');
+  assert.match(code, /ALTER TABLE "work_messages" ADD COLUMN "automationClass" TEXT;/);
+  assert.match(code, /work_messages_automationClass_check/);
+  assert.match(code, /"automationClass" IS NULL OR "automationClass" IN \('AUTO_SUBMITTED','MAILING_LIST','BULK'\)/);
   assert.deepEqual([...code.matchAll(/ALTER TYPE "(\w+)" ADD VALUE '(\w+)'/g)].map((m) => [m[1], m[2]]), [['OutboxSubjectType', 'CRM_OUTREACH']]);
   assert.equal(/intelligence_digests/.test(code), false, 'the unrelated pre-existing drift is not folded in');
 });
