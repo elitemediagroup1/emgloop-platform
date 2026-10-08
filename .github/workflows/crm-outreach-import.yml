@@ -58,6 +58,11 @@ on:
         description: 'The Loop user id of the member the run acts as (record-config and dry-run). An id, never an email.'
         required: false
         default: ''
+      replace_existing_config:
+        description: 'record-config only: replace changed active alias/route mappings append-only; false for every other mode'
+        required: false
+        type: boolean
+        default: false
       importer_version:
         description: 'Must be the running importer version'
         required: true
@@ -143,6 +148,10 @@ jobs:
             actor="$(trim "$(input actor_user_id)")"
             [[ "${actor}" =~ ^[A-Za-z0-9_-]{8,80}$ ]] || fail "actor_user_id must be a Loop user id (never an email)."
             envs+=("ACTOR_USER_ID=${actor}")
+            replace="$(trim "$(input replace_existing_config)")"
+            case "${replace}" in true|false|"") ;; *) fail "replace_existing_config must be true or false." ;; esac
+            [ "${mode}" = "record-config" ] || [ "${replace}" != "true" ] || fail "replace_existing_config is allowed only for record-config."
+            envs+=("REPLACE_EXISTING_CONFIG=${replace:-false}")
             migrate="$(trim "${MIGRATE_ROLE_VAR}")"
             case "${migrate}" in "arn:aws:iam::${PRODUCTION_ACCOUNT}:role/"?*) ;; *) fail "Refusing: the production migrate role is not a role in ${PRODUCTION_ACCOUNT}." ;; esac
             outs+=("migrate_role=${migrate}")
