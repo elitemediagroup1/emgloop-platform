@@ -254,7 +254,7 @@ export type WorkCursorKind = (typeof WORK_CURSOR_KINDS)[number];
 export const WORK_STATE_SENSITIVITY: Readonly<Record<string, Readonly<Record<string, string>>>> = Object.freeze({
   work_correspondents: Object.freeze({ addressHash: 'OPERATIONAL', displayAddress: 'CONTACT_IDENTIFIER', displayName: 'CONTACT_IDENTIFIER', domain: 'CONTACT_IDENTIFIER' }),
   work_threads: Object.freeze({ subject: 'COMMUNICATION_CONTENT', participantHashes: 'OPERATIONAL', derivedClass: 'OPERATIONAL' }),
-  work_messages: Object.freeze({ subject: 'COMMUNICATION_CONTENT', fromHash: 'OPERATIONAL', toHashes: 'OPERATIONAL', ccHashes: 'OPERATIONAL' }),
+  work_messages: Object.freeze({ subject: 'COMMUNICATION_CONTENT', fromHash: 'OPERATIONAL', toHashes: 'OPERATIONAL', ccHashes: 'OPERATIONAL', automationClass: 'OPERATIONAL' }),
   work_events: Object.freeze({ organizerHash: 'OPERATIONAL', attendeeCount: 'OPERATIONAL' }),
   work_documents: Object.freeze({ name: 'COMMUNICATION_CONTENT', ownerHashes: 'OPERATIONAL' }),
   work_items: Object.freeze({ title: 'COMMUNICATION_CONTENT', evidence: 'OPERATIONAL', evidenceQuote: 'COMMUNICATION_CONTENT' }),
