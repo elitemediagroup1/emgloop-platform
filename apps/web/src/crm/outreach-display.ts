@@ -58,6 +58,7 @@ const BASIS_TEXT: Readonly<Record<CrmConversationStateBasis, string>> = {
 export const basisText = (basis: CrmConversationStateBasis) => BASIS_TEXT[basis];
 
 const REVIEW_TEXT: Readonly<Record<CrmReviewReason, string>> = {
+  REPLY_CONTENT_UNKNOWN: 'They replied. Gmail metadata cannot tell whether the reply needs an answer; review the conversation or use the governed AI reading.',
   UNCERTAIN_INBOUND: 'A message arrived that rules cannot call a real reply.',
   IMPORTED_HISTORY_ONLY: 'Only imported history is known; where the cadence stands is not.',
 };

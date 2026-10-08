@@ -78,6 +78,30 @@ test('the person page shows outreach only for an established person, and links m
   assert.match(panel, /not a Relationship, an affiliation or an Opportunity/);
 });
 
+test('the People UX leads with outreach intelligence and person detail has direct navigation and relationship capture', () => {
+  const people = code(read(PAGES.people));
+  const person = code(read(PAGES.person));
+  assert.equal(people.includes('OrganizationReadingSection'), false, 'the generic CRM reading is not the People command-center lead');
+  assert.match(people, /Outreach intelligence/);
+  assert.match(people, /intelligenceByParty/);
+  assert.match(people, /AI summarizes and suggests; it does not silently change a CRM state or create a relationship/);
+  assert.match(person, /← Back to People/);
+  assert.match(person, /\+ Record relationship/);
+  assert.match(person, /Conversation summary/);
+  assert.match(person, /conversationIntelligence/);
+  assert.match(person, /\/crm\/relationships\/new\?party=/);
+});
+
+test('record relationship from a person preselects that person and returns to the person after a successful human act', () => {
+  const page = code(read('app/crm/relationships/new/page.tsx'));
+  const actions = code(read('crm/relationship-actions.ts'));
+  assert.match(page, /defaultValue=\{side === 'COUNTERPARTY' \? searchParams\.party \?\? '' : ''\}/);
+  assert.match(page, /name="returnParty"/);
+  assert.match(page, /Loop never infers the relationship/);
+  assert.match(actions, /sides\.some\(\(s\) => s\.partyId === returnParty\)/);
+  assert.match(actions, /RELATIONSHIP_RECORDED#relationships/);
+});
+
 test('wording is honest about Gmail: a stale read says so with its time; unavailable never reads as "no reply"', () => {
   const sent = [new Date('2026-10-01T09:00:00Z')];
   const fresh = { state: 'FRESH' as const, observedFrom: null, observedThrough: new Date('2026-10-08T14:00:00Z') };

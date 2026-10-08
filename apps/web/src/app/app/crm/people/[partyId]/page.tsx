@@ -24,8 +24,6 @@ import {
   ReadFailed,
   RecordLayout,
   StateBlock,
-  SummaryStrip,
-  type ActionSpec,
 } from '../../../_loop-os/record';
 import { SubjectCard } from '../../../_loop-os/subject-card';
 
@@ -47,8 +45,6 @@ export const dynamic = 'force-dynamic';
 // States: Established; Identity review required; Superseded (points to the current
 // person, history kept); Archived (history kept, new commercial action restricted).
 // A missing, foreign or non-person id is not found.
-
-const NO_CHANNEL = 'Loop has no governed communication channel for a person yet.';
 
 const LIMITATION_TEXT: Record<string, string> = {
   EVIDENCE_NOT_COLLECTED: 'No identity evidence is collected yet: establishment is a decision a person made, not a verification.',
@@ -78,7 +74,6 @@ export default async function PersonPage({ params, searchParams }: { params: { p
   const contactPoints = await readContactPoints(record.partyId);
   const outreach = state === 'ESTABLISHED' ? (await readPersonOutreach(record.partyId)).result : null;
 
-  const channel = (label: string): ActionSpec => ({ label, href: null, reason: NO_CHANNEL });
   // A creator profile for this person, within the session's organization. Its operating view
   // is in the ADMIN tree, so the link exists only for a seat that can open it.
   // Absent, not broken, while the Creator Hub migration has not reached this database.
@@ -104,13 +99,18 @@ export default async function PersonPage({ params, searchParams }: { params: { p
         trail={[...trailBase, { label: subject.name }]}
         actions={
           <div className="loop-btnrow">
-            <ActionButton action={channel('Email')} />
-            <ActionButton action={channel('Call')} />
-            <ActionButton action={channel('Message')} />
+            <ActionButton action={{ label: '← Back to People', href: PEOPLE_HREF }} />
+            {state === 'ESTABLISHED' ? (
+              <ActionButton action={{ label: '+ Record relationship', href: `/crm/relationships/new?party=${encodeURIComponent(record.partyId)}&returnParty=${encodeURIComponent(record.partyId)}`, primary: true }} />
+            ) : null}
           </div>
         }
       />
       <SubjectCard subject={subject} density="featured" headingLevel="h1" />
+
+      {searchParams?.outcome === 'RELATIONSHIP_RECORDED' ? (
+        <StateBlock kind="empty" compact title="Relationship recorded." body="This person is now linked to the commercial Relationship you just asserted." />
+      ) : null}
 
       {state === 'SUPERSEDED' && view.current ? (
         <StateBlock
@@ -136,19 +136,36 @@ export default async function PersonPage({ params, searchParams }: { params: { p
         />
       ) : null}
 
-      <SummaryStrip
-        label="Summary"
-        items={[
-          {
-            label: 'Relationships',
-            value: context.activeCount === null ? null : `${context.activeCount} active`,
-            unknownText: 'Not available to you',
-          },
-          { label: 'Opportunities', value: null, unknownText: 'Not summarised here' },
-          { label: 'Campaigns', value: null, unknownText: 'Not tracked yet' },
-          { label: 'Open work', value: null, unknownText: 'Not linked yet' },
-        ]}
-      />
+      <Panel title="Conversation summary">
+        {outreach && outreach.outcome === 'OK' && outreach.conversationIntelligence ? (
+          <>
+            <p className="loop-panel__lead">{outreach.conversationIntelligence.summary}</p>
+            <div className="loop-btnrow" style={{ marginTop: 10 }}>
+              <span className="loop-pill loop-pill--info">
+                AI suggests: {outreach.conversationIntelligence.suggestion === 'REPLY' ? 'Reply' : outreach.conversationIntelligence.suggestion === 'WAIT' ? 'Waiting on them' : outreach.conversationIntelligence.suggestion === 'CIRCLE_BACK' ? 'Circle back' : outreach.conversationIntelligence.suggestion === 'REVIEW' ? 'Review' : 'No immediate action'}
+              </span>
+              {outreach.conversationIntelligence.confidence ? <span className="loop-note">Confidence: {outreach.conversationIntelligence.confidence.toLowerCase()}</span> : null}
+            </div>
+            {outreach.conversationIntelligence.suggestionText ? <p className="loop-note" style={{ marginTop: 8 }}>{outreach.conversationIntelligence.suggestionText}</p> : null}
+            {outreach.nextMeeting ? <p className="loop-note" style={{ marginTop: 8 }}>Calendar: next meeting {time.dateTime(outreach.nextMeeting.at)}{outreach.nextMeeting.title ? ` — ${outreach.nextMeeting.title}` : ''}.</p> : null}
+            <p className="loop-note" style={{ marginTop: 8 }}>
+              This is a private AI interpretation of your linked Gmail plus your calendar context. It can suggest a next move, but it does not silently change the CRM record.
+            </p>
+          </>
+        ) : outreach && outreach.outcome === 'OK' ? (
+          <>
+            <p className="loop-panel__lead">
+              {outreach.row.outreach.lastTouch ? `Last conversation touch: ${time.relative(outreach.row.outreach.lastTouch.at)}.` : 'No conversation touch is recorded.'}
+              {outreach.nextMeeting ? ` Next meeting: ${time.dateTime(outreach.nextMeeting.at)}.` : ''}
+            </p>
+            <p className="loop-note">
+              A body-aware AI summary will appear here when Mail content intelligence has been commissioned and authorized for this mailbox. Until then Loop uses Gmail and Calendar metadata only.
+            </p>
+          </>
+        ) : (
+          <p className="loop-note">Conversation intelligence is not available for this person.</p>
+        )}
+      </Panel>
 
       <ContextTabs label="Person sections" tabs={tabs} />
 
@@ -185,7 +202,13 @@ export default async function PersonPage({ params, searchParams }: { params: { p
               <Panel title="Relationships">
                 {relationships.state === 'OK' ? (
                   relationships.value.length === 0 ? (
-                    <StateBlock kind="empty" compact title="No relationship recorded." body="Relationships appear here once one is recorded for this person." />
+                    <StateBlock
+                      kind="empty"
+                      compact
+                      title="No relationship recorded."
+                      body="This person is established, but no commercial relationship has been asserted yet."
+                      action={state === 'ESTABLISHED' ? { label: 'Record relationship', href: `/crm/relationships/new?party=${encodeURIComponent(record.partyId)}&returnParty=${encodeURIComponent(record.partyId)}` } : undefined}
+                    />
                   ) : (
                     <div className="loop-cards">
                       {relationships.value.map((r) => (

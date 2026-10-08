@@ -49,7 +49,12 @@ export async function createRelationshipAction(formData: FormData): Promise<void
 
   const result = await relationships.create(who, { kind, sides, occurredAt: new Date() });
   revalidatePath('/crm/relationships');
+  const returnParty = field(formData, 'returnParty');
   if (result.outcome === 'RECORDED') {
+    if (returnParty && sides.some((s) => s.partyId === returnParty)) {
+      revalidatePath(`/app/crm/people/${encodeURIComponent(returnParty)}`);
+      redirect(`/app/crm/people/${encodeURIComponent(returnParty)}?outcome=RELATIONSHIP_RECORDED#relationships`);
+    }
     redirect(`/crm/relationships/${result.value.relationship.id}?outcome=RECORDED`);
   }
   redirect(`/crm/relationships/new?${outcomeQuery(result)}`);

@@ -27,8 +27,7 @@ import {
   DUE_FILTER_LABELS,
   PEOPLE_SUMMARY_LABELS as L,
 } from '../../../../crm/outreach-display';
-import { OrganizationReadingSection } from '../../../../intelligence/domain-reading-section';
-import { ActionButton, LoopPage, PageHead, ReadFailed, StateBlock, SummaryStrip, type ActionSpec } from '../../_loop-os/record';
+import { ActionButton, LoopPage, PageHead, Panel, ReadFailed, StateBlock, SummaryStrip, type ActionSpec } from '../../_loop-os/record';
 
 export const dynamic = 'force-dynamic';
 
@@ -89,11 +88,29 @@ export default async function PeoplePage({ searchParams }: { searchParams?: CrmP
 
   const now = time.now;
   const summary = summarizeCrmPeople(result.rows, now);
-  const view = pageCrmPeople(result.rows, parsed.filters, parsed.page, now);
+  // "Replied — needs response" is semantic. When the body-aware reading exists, this preset follows
+  // that reading instead of pretending message metadata can know whether an answer is owed.
+  const semanticReplyPreset = parsed.filters.preset === 'replied-needs-response';
+  const viewRows = semanticReplyPreset
+    ? result.rows.filter((row) => result.intelligenceByParty.get(row.partyId)?.suggestion === 'REPLY')
+    : result.rows;
+  const viewFilters = semanticReplyPreset ? { ...parsed.filters, preset: null } : parsed.filters;
+  const view = pageCrmPeople(viewRows, viewFilters, parsed.page, now);
   const mail = result.mail;
   const mailKnown = mail.permitted && mail.gmail.state !== 'UNAVAILABLE';
   const n = (v: number) => v.toLocaleString('en-US');
   const mailCount = (v: number): string | null => (mailKnown ? n(v) : null);
+  const aiRows = result.rows
+    .map((row) => ({ row, ai: result.intelligenceByParty.get(row.partyId) ?? null }))
+    .filter((x) => x.ai !== null);
+  // Metadata can prove a reply exists, but not that an answer is owed. Only a human state or the
+  // governed body-aware reading may make that semantic suggestion. It is still a suggestion, never a write.
+  const aiRepliesNeedingResponse = aiRows.filter((x) => x.ai!.suggestion === 'REPLY').length;
+  const effectiveRepliesNeedingResponse = summary.repliesNeedingResponse + aiRepliesNeedingResponse;
+  const effectiveDueToday = summary.dueToday;
+  const effectiveOverdue = summary.overdue;
+  const suggestionLabel = (s: string) =>
+    s === 'REPLY' ? 'Reply' : s === 'WAIT' ? 'Waiting on them' : s === 'CIRCLE_BACK' ? 'Circle back' : s === 'REVIEW' ? 'Review' : 'No immediate action';
   const establish: ActionSpec = { label: '+ Establish person', href: IDENTITY_REVIEW_HREF };
   const discover: ActionSpec = result.discovery
     ? { label: `Possible new people · ${n(result.discovery.count)}`, href: DISCOVER_HREF, primary: result.discovery.count > 0 }
@@ -115,7 +132,41 @@ export default async function PeoplePage({ searchParams }: { searchParams?: CrmP
         }
       />
 
-      <OrganizationReadingSection domain="CRM" title="People reading" />
+      <Panel title="Outreach intelligence">
+        {aiRows.length > 0 ? (
+          <>
+            <p className="loop-panel__lead">
+              Loop has body-aware AI readings for {n(aiRows.length)} CRM-linked {aiRows.length === 1 ? 'conversation' : 'conversations'}.
+              {effectiveRepliesNeedingResponse > 0 ? ` ${n(effectiveRepliesNeedingResponse)} currently need your response.` : ' None of the AI-reviewed conversations currently require your reply.'}
+            </p>
+            <ul className="loop-note" style={{ margin: '10px 0 0', paddingLeft: 18 }}>
+              {aiRows
+                .filter((x) => x.ai!.suggestion !== 'NONE')
+                .slice(0, 4)
+                .map(({ row, ai }) => (
+                  <li key={row.partyId}>
+                    <Link href={personHref(row.partyId)}>{row.displayName}</Link>: {suggestionLabel(ai!.suggestion)}
+                    {ai!.suggestionText ? ` — ${ai!.suggestionText}` : ''}
+                  </li>
+                ))}
+            </ul>
+            <p className="loop-note" style={{ marginTop: 10 }}>
+              AI summarizes and suggests; it does not silently change a CRM state or create a relationship.
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="loop-panel__lead">
+              {mailKnown
+                ? `${n(summary.awaitingReply)} awaiting reply · ${n(summary.reviewRequired)} conversations need review · ${n(summary.overdue)} overdue by deterministic rules.`
+                : 'Connect and refresh Gmail to build the outreach picture.'}
+            </p>
+            <p className="loop-note">
+              Body-aware AI conversation summaries will appear here only when the existing Mail-content intelligence gate is commissioned and authorized. Until then, Loop uses Gmail metadata and never pretends it understood the message body.
+            </p>
+          </>
+        )}
+      </Panel>
       <StateBlock
         kind={mailKnown && mail.gmail.state === 'FRESH' ? 'empty' : 'attention'}
         compact
@@ -135,9 +186,9 @@ export default async function PeoplePage({ searchParams }: { searchParams?: CrmP
         items={[
           { label: L.activeContacts, value: mailKnown ? n(summary.activeContacts) : null, unknownText: 'Needs your Gmail' },
           { label: L.awaitingReply, value: mailCount(summary.awaitingReply), unknownText: 'Needs your Gmail' },
-          { label: L.dueToday, value: n(summary.dueToday) },
-          { label: L.overdue, value: n(summary.overdue) },
-          { label: L.repliesNeedingResponse, value: mailCount(summary.repliesNeedingResponse), unknownText: 'Needs your Gmail' },
+          { label: L.dueToday, value: n(effectiveDueToday) },
+          { label: L.overdue, value: n(effectiveOverdue) },
+          { label: L.repliesNeedingResponse, value: mailCount(effectiveRepliesNeedingResponse), unknownText: 'Needs your Gmail' },
           { label: L.activeOrInterested, value: n(summary.activeOrInterested) },
           { label: L.meetingsUpcoming, value: mail.calendar !== 'UNAVAILABLE' ? n(summary.meetingsUpcoming) : null, unknownText: 'Needs your Calendar' },
           { label: L.onHold, value: n(summary.onHold) },
@@ -320,27 +371,72 @@ export default async function PeoplePage({ searchParams }: { searchParams?: CrmP
                     </td>
                     <td data-label="Creator">{row.creator ? row.creator.label : <span className="loop-table__muted">None recorded</span>}</td>
                     <td data-label="Status">
-                      <span className={`loop-pill loop-pill--${state.tone}`}>{state.label}</span>
-                      <div className="loop-table__muted" style={{ fontSize: 12 }}>{basisText(o.basis)}</div>
+                      {(() => {
+                        const ai = result.intelligenceByParty.get(row.partyId) ?? null;
+                        const latestReplyNeedsReview = o.reviewReason === 'REPLY_CONTENT_UNKNOWN';
+                        const aiHasSemanticRead = latestReplyNeedsReview && ai !== null;
+                        const aiLabel =
+                          ai?.suggestion === 'REPLY'
+                            ? 'Replied — needs response'
+                            : ai?.suggestion === 'NONE'
+                              ? 'Replied — no immediate action'
+                              : ai
+                                ? `${suggestionLabel(ai.suggestion)} suggested`
+                                : null;
+                        return (
+                          <>
+                            <span className={`loop-pill loop-pill--${ai?.suggestion === 'REPLY' ? 'attention' : aiHasSemanticRead ? 'info' : state.tone}`}>
+                              {aiHasSemanticRead ? aiLabel : state.label}
+                            </span>
+                            <div className="loop-table__muted" style={{ fontSize: 12 }}>
+                              {aiHasSemanticRead ? 'AI interpretation of your linked Gmail thread' : basisText(o.basis)}
+                            </div>
+                          </>
+                        );
+                      })()}
                     </td>
                     <td data-label="Cadence">{cadenceText(o)}</td>
                     <td data-label="Last touch">{lastTouchText(o, time)}</td>
                     <td data-label="Next action">
-                      {o.nextAction.kind === 'NONE' ? <span className="loop-table__muted">{o.nextAction.label}</span> : <span className="loop-table__strong">{o.nextAction.label}</span>}
-                      {due ? (
-                        <div style={{ fontSize: 12.5, fontWeight: o.nextAction.bucket === 'OVERDUE' ? 700 : 500, color: o.nextAction.bucket === 'OVERDUE' ? 'var(--loop-crit)' : o.nextAction.bucket === 'TODAY' ? 'var(--loop-warn)' : 'var(--loop-muted)' }}>
-                          {due}
-                        </div>
-                      ) : null}
+                      {(() => {
+                        const ai = result.intelligenceByParty.get(row.partyId) ?? null;
+                        const semanticReplyReview = o.reviewReason === 'REPLY_CONTENT_UNKNOWN' && ai;
+                        if (semanticReplyReview) {
+                          return (
+                            <>
+                              <span className="loop-table__strong">
+                                {ai.suggestion === 'REPLY' ? 'Reply needed' : `AI suggests: ${suggestionLabel(ai.suggestion)}`}
+                              </span>
+                              {ai.suggestionText ? <div className="loop-table__muted" style={{ fontSize: 12 }}>{ai.suggestionText}</div> : null}
+                            </>
+                          );
+                        }
+                        return (
+                          <>
+                            {o.nextAction.kind === 'NONE' ? <span className="loop-table__muted">{o.nextAction.label}</span> : <span className="loop-table__strong">{o.nextAction.label}</span>}
+                            {due ? (
+                              <div style={{ fontSize: 12.5, fontWeight: o.nextAction.bucket === 'OVERDUE' ? 700 : 500, color: o.nextAction.bucket === 'OVERDUE' ? 'var(--loop-crit)' : o.nextAction.bucket === 'TODAY' ? 'var(--loop-warn)' : 'var(--loop-muted)' }}>
+                                {due}
+                              </div>
+                            ) : null}
+                          </>
+                        );
+                      })()}
                     </td>
                     <td data-label="Reply">{replyText(o, mail.gmail, time)}</td>
                     <td data-label="Summary">
-                      {row.latestNote ? (
+                      {result.intelligenceByParty.get(row.partyId) ? (
+                        <span title="AI summary of your own linked Gmail conversation">
+                          {result.intelligenceByParty.get(row.partyId)!.summary.length > 180
+                            ? `${result.intelligenceByParty.get(row.partyId)!.summary.slice(0, 179)}…`
+                            : result.intelligenceByParty.get(row.partyId)!.summary}
+                        </span>
+                      ) : row.latestNote ? (
                         <span title={row.latestNote.basis === 'IMPORTED' ? 'Imported note' : 'Recorded note'}>{row.latestNote.text.length > 140 ? `${row.latestNote.text.slice(0, 139)}…` : row.latestNote.text}</span>
                       ) : row.sourceStatus ? (
                         <span className="loop-table__muted">Source status: {row.sourceStatus}</span>
                       ) : (
-                        <span className="loop-table__muted">No note recorded</span>
+                        <span className="loop-table__muted">No conversation summary yet</span>
                       )}
                     </td>
                   </tr>

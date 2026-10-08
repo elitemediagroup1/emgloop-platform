@@ -24,7 +24,7 @@ export const dynamic = 'force-dynamic';
 export default async function NewRelationshipPage({
   searchParams,
 }: {
-  searchParams: { outcome?: string; refusal?: string; canonical?: string };
+  searchParams: { outcome?: string; refusal?: string; canonical?: string; party?: string; returnParty?: string };
 }) {
   await requirePermission('relationships', 'view');
   // Capabilities are the server's. A person without CREATE is sent back rather than
@@ -52,7 +52,9 @@ export default async function NewRelationshipPage({
           <h1>Record a Relationship</h1>
           <p className="crm-sub">An assertion that a commercial connection exists. Somebody is making it; Loop is not.</p>
         </div>
-        <Link className="crm-link" href="/crm/relationships">Back</Link>
+        <Link className="crm-link" href={searchParams.returnParty ? `/app/crm/people/${encodeURIComponent(searchParams.returnParty)}#relationships` : '/crm/relationships'}>
+          {searchParams.returnParty ? 'Back to person' : 'Back'}
+        </Link>
       </div>
 
       <OperatorNotice />
@@ -67,6 +69,8 @@ export default async function NewRelationshipPage({
         </div>
       ) : (
         <form action={createRelationshipAction} className="crm-panel">
+          {searchParams.returnParty ? <input type="hidden" name="returnParty" value={searchParams.returnParty} /> : null}
+          {searchParams.party ? <p className="crm-sub">The person you came from is preselected as the workspace counterparty. Choose the relationship kind and confirm it; Loop never infers the relationship.</p> : null}
           <label>
             Kind
             <select name="kind" defaultValue="CLIENT">
@@ -87,7 +91,7 @@ export default async function NewRelationshipPage({
               <legend>Side {side}</legend>
               <label>
                 Party
-                <select name={`party_${side}`} defaultValue="">
+                <select name={`party_${side}`} defaultValue={side === 'COUNTERPARTY' ? searchParams.party ?? '' : ''}>
                   <option value="">— not used by this kind —</option>
                   {parties.map((party) => (
                     <option key={party.partyId} value={party.partyId}>

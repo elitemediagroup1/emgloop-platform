@@ -15,11 +15,11 @@ For the team using Loop day to day. How it works underneath is in
 | Cadence | The next follow-up step (3-day, 7-day, 14-day, monthly) and how many emails you have sent. A reply stops it. |
 | Last touch | Your most recent email to them, or the import's last-contacted date. |
 | Next action | What is due and when. **Overdue is red.** |
-| Reply | "Replied — awaiting our response", "No reply observed through …", or "Gmail data unavailable". |
-| Summary | The latest note, or the source's status when there is no note. |
+| Reply | "Replied …", "No reply observed through …", or "Gmail data unavailable". Metadata never claims an answer is owed. |
+| Summary | The viewer-private AI Mail summary when available; otherwise the latest recorded note or source status. |
 
-The summary above the list counts the same rows: awaiting reply, due today, overdue, replies needing your
-response, meetings, on hold, and more. The chips under it are one-click views ("Overdue", "Replied — needs
+The summary above the list counts the same rows: awaiting reply, due today, overdue, AI-interpreted replies
+that need your response, meetings, on hold, and more. The chips under it are one-click views ("Overdue", "Replied — needs
 response", "3-day", "Meetings this week", …). Filters combine, and search finds names, titles and
 companies (never an email address or phone number).
 
@@ -35,6 +35,9 @@ refreshes it.
 
 ## What you can do on a person
 
+- **Go straight back to People** from the page header.
+- **Record a Relationship** from the person. The person is preselected, but the relationship kind remains a human assertion; Loop does not infer affiliation.
+- **Read the Conversation summary.** When governed Mail-content intelligence exists, Loop shows its minimized AI summary and suggested next move beside upcoming Calendar context. Without that authority it shows metadata only and says the body-aware summary is unavailable.
 - **Set the conversation state:** Interested, Negotiating, Meeting scheduled, On hold, Circle back, Passed,
   Closed or Active conversation. Choose "None set" to go back to what the facts show. If they reply after
   you set a state, the reply shows first: *Replied — needs response*.
