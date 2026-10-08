@@ -472,7 +472,10 @@ describe('The redesigned pages', () => {
       const src = code(read(file));
       const guard = src.indexOf(`await ${expected[name]}`);
       assert.ok(guard > 0, `${name} guards itself`);
-      assert.ok(guard < src.indexOf('crmSubjectReads('), `${name}: guard before the read`);
+      // People reads through the command center (CRM slice 6); the others through crmSubjectReads.
+      const readCall = name === 'people' ? 'readPeopleCommand(' : 'crmSubjectReads(';
+      assert.ok(src.indexOf(readCall) > 0, `${name} reads through ${readCall}`);
+      assert.ok(guard < src.indexOf(readCall), `${name}: guard before the read`);
       assert.equal(src.includes("'use client'"), false, name);
     }
     assert.match(code(read('app/app/crm/layout.tsx')), /await requireWorkspaceSession\(\)/);
