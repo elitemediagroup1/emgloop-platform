@@ -7,6 +7,8 @@ import { crmSubjectReads, personHref, PEOPLE_HREF, readContactPoints, relationsh
 import { readPersonView } from '../../../../../crm/crm-subject-reads';
 import { governedTerm, partyIdentityState } from '../../../../../crm/subject-display';
 import { viewerTime } from '../../../../../time/viewer-time';
+import { readPersonOutreach } from '../../../../../crm/outreach-data';
+import { OutreachNotice, PersonContext, PersonOutreach } from '../../../../../crm/person-outreach';
 // Creator Hub (2026-09-22): when a creator profile exists for this person, their operating
 // view (opportunities, campaigns, work in production) lives in Creator Operations. Only a
 // seat that can open that tree gets a link; anyone else is told where it is, honestly.
@@ -39,7 +41,9 @@ export const dynamic = 'force-dynamic';
 //     (PD-F-05) are shown -- values only to EMPLOYEE and above -- but recording an
 //     address is not a channel, and nothing here sends.
 //   - Opportunities, Campaigns and open Work: no authority links them to a Party.
-//   - Activity and Intelligence: no Party subject exists in either yet.
+//   - Intelligence: no Party subject exists in it yet.
+// Outreach (CRM slice 6) is shown: the conversation state, next action, cadence and a timeline of
+// imported history, notes, state changes and -- for the viewer only -- their own mail and meetings.
 // States: Established; Identity review required; Superseded (points to the current
 // person, history kept); Archived (history kept, new commercial action restricted).
 // A missing, foreign or non-person id is not found.
@@ -51,7 +55,7 @@ const LIMITATION_TEXT: Record<string, string> = {
   VERIFICATION_NOT_AVAILABLE: 'No contact detail has a recorded verification.',
 };
 
-export default async function PersonPage({ params }: { params: { partyId: string } }) {
+export default async function PersonPage({ params, searchParams }: { params: { partyId: string }; searchParams?: { outcome?: string } }) {
   const session = await requirePermission('identityResolution', 'view');
   const view = await readPersonView(await crmSubjectReads(), params.partyId, { relationship: relationshipHref });
   const trailBase = [{ label: 'CRM' }, { label: 'People', href: PEOPLE_HREF }];
@@ -72,6 +76,7 @@ export default async function PersonPage({ params }: { params: { partyId: string
   const activeLinks = record.linkedIntakeRecords.filter((l) => l.state === 'ACTIVE');
   const relationships = view.relationships;
   const contactPoints = await readContactPoints(record.partyId);
+  const outreach = state === 'ESTABLISHED' ? (await readPersonOutreach(record.partyId)).result : null;
 
   const channel = (label: string): ActionSpec => ({ label, href: null, reason: NO_CHANNEL });
   // A creator profile for this person, within the session's organization. Its operating view
@@ -83,7 +88,7 @@ export default async function PersonPage({ params }: { params: { partyId: string
   const tabs = [
     { label: 'Overview', href: personHref(record.partyId), current: true },
     { label: 'Relationships', href: '#relationships' },
-    { label: 'Activity', href: null, reason: 'Activity is not projected onto a person yet.' },
+    { label: 'Outreach', href: '#outreach' },
     creatorHref
       ? { label: 'Opportunities', href: `${creatorHref}#commercial` }
       : { label: 'Opportunities', href: null, reason: creatorProfile ? CREATOR_ELSEWHERE : 'Opportunities are not listed per person yet. They are listed under CRM, Opportunities.' },
@@ -171,13 +176,10 @@ export default async function PersonPage({ params }: { params: { partyId: string
               ) : (
                 <p className="loop-panel__lead">No active relationship is recorded for {subject.name}.</p>
               )}
-              <StateBlock
-                kind="unavailable"
-                compact
-                title="Activity for a person is not connected yet."
-                body="Loop does not project calls, messages or changes onto a person yet, so none are shown here. This does not mean nothing happened."
-              />
             </Panel>
+
+            <OutreachNotice outcome={typeof searchParams?.outcome === 'string' ? searchParams.outcome : undefined} />
+            {state === 'ESTABLISHED' ? <PersonOutreach read={outreach} time={time} /> : null}
 
             <section id="relationships" aria-label="Relationships">
               <Panel title="Relationships">
@@ -234,6 +236,8 @@ export default async function PersonPage({ params }: { params: { partyId: string
                 </ul>
               ) : null}
             </Panel>
+
+            <PersonContext read={outreach} time={time} />
 
             <Panel title="How Loop knows them">
               {activeLinks.length === 0 ? (
