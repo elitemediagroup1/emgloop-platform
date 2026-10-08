@@ -105,14 +105,13 @@ a Person's linked addresses is a meeting with that Person.
 |---|---|
 | `QUALIFYING_SEND` | the viewer sent it, the person is a direct (**To**) recipient, and it is not DRAFT, SPAM or TRASH |
 | `HUMAN_REPLY` | it came from the person's own address, and no rule below applies |
-| `AUTOMATED` | SPAM or TRASH; an automated sender local part (no-reply, mailer-daemon, notifications, …); or a subject that **starts** like an auto-reply, out-of-office, bounce, delivery or read receipt |
+| `AUTOMATED` | SPAM or TRASH; normalized Gmail automation evidence (Auto-Submitted, List-Id/List-Unsubscribe, Precedence bulk/list/junk); an automated sender local part (no-reply, mailer-daemon, notifications, …); or a subject that **starts** like an auto-reply, out-of-office, bounce, delivery or read receipt |
 | `UNCERTAIN` | from the person, but Gmail filed it in a bulk tab. Never counted as a reply; surfaces `REVIEW_REQUIRED` |
 | `NOT_OUTREACH` | the person was only copied (Cc), or the message is a draft |
 
-**Known limitation:** Gmail sync stores From/To/Cc/Subject/Date/ids only. Automation headers
-(`Auto-Submitted`, `List-Unsubscribe`, `Precedence`) are not fetched. An auto-reply with an ordinary
-subject from the person's own address therefore reads as a human reply. Fetching those headers is a
-change to the Gmail sync, not to this slice.
+Gmail sync requests automation/list headers as metadata and reduces them immediately to one safe
+classification (`AUTO_SUBMITTED`, `MAILING_LIST`, or `BULK`). Raw header values are never persisted.
+Therefore an ordinary-subject OOO carrying `Auto-Submitted` cannot stop cadence.
 
 **The cadence (locked):**
 
@@ -214,11 +213,12 @@ the same names) reads **that APPLY run's own source** again. It enforces:
 5. SUPPRESSED (in Mail)
 6. AUTOMATED_SENDER
 7. ROLE_OR_LIST_MAILBOX: info@, support@, …-request@
-8. NO_DIRECT_EXCHANGE: the viewer never wrote to the address **directly**. Inbound alone is not evidence.
+8. NO_DIRECT_EXCHANGE: neither a direct qualifying send nor a human inbound exists.
 9. ONLY_AUTOMATED_MAIL
 
-An address that survives these rules is surfaced with its reasons: `YOU_EMAILED_THEM`, and also
-`THEY_REPLIED` when they did.
+An address that survives these rules is surfaced with its reasons: `YOU_EMAILED_THEM`, `THEY_REPLIED`
+when they did, or `THEY_CONTACTED_YOU` for a legitimate inbound-first contact. Inbound-first candidates
+remain review-only; they never auto-create a Person.
 
 **Add to People** (`CrmPeopleDiscoveryService.add`):
 
