@@ -1,9 +1,6 @@
 # CRM outreach import — production commissioning runbook (Slice 5, PR B)
 
-**Status:** see the "Commissioning state" block at the end. **Production APPLY is NOT commissioned.**
-The workflow offers `validate`, `inventory`, `record-config`, `dry-run` and approval of one reviewed
-successful dry run. Approval writes provenance only; the command still refuses production APPLY, and
-the import service refuses a non-local APPLY on its own.
+**Status:** see the "Commissioning state" block at the end. Production APPLY is commissioned only through the governed `CRM Outreach Import` workflow on `main`, using an unused approval bound to the exact reviewed dry run. Direct/runtime production APPLY remains refused.
 
 **Who does what:**
 - **Matt:** every step in AWS (CloudShell, signed in through Identity Center to `080891698678`,
@@ -142,6 +139,7 @@ provenance never holds anything shaped like a phone number.
 | `record-config` | `config_key`, `expected_config_sha256`, `actor_user_id` (an OWNER/ADMIN's Loop user id) | the reviewed aliases and routes (governed, audited, append-only) |
 | `dry-run` | all of the above | an import run and its entries; the review artifacts to the review prefix; **no canonical CRM record** |
 | `approve` | `dry_run_id`, `actor_user_id` | one approval record bound to the reviewed dry run; **no canonical CRM record** |
+| `apply` | source/config keys + hashes, `approval_id`, `actor_user_id`, typed `apply <first 12 of source SHA>` confirmation | executes only the source/config/plan that exactly matches the unused approval; writes canonical CRM records through governed services |
 
 Every mode also needs:
 - `organization`, which must equal the pinned slug;
@@ -175,9 +173,8 @@ written under (the web app's). Exact matching cannot work, so nothing is planned
 
 Production import execution:
 - Approval of one reviewed successful dry run is commissioned through the production workflow.
-- APPLY remains **not commissioned**. Commissioning APPLY needs a separate reviewed change after the
-  approval record exists. **The first controlled import still needs a separate explicit authorization
-  to execute production APPLY.**
+- APPLY is commissioned only through that same `main` + `connections-production` workflow. It requires the exact source/config hashes, an unused approval, a typed source-hash confirmation, the workflow-only commissioning flag, and service-side approval/source/config/plan equality.
+- An approval is consumed when an APPLY run claims it, whether that run succeeds, fails, or is later abandoned. Recovery requires a new dry run and a new approval.
 
 ---
 
@@ -188,6 +185,6 @@ Production import execution:
 - **Deployed:** **no.** Parts 1 and 2 are Matt's.
 - **Source uploaded:** **no.** The final structured source has not been provided (`FINAL_SOURCE_REQUIRED`).
 - **Dry run in production:** **run and reviewed for the pinned v4 source / v3 config plan.**
-- **Human approval:** **explicitly granted for the reviewed CONTACTS_ONLY plan; record it with `approve`.**
-- **APPLY:** **not commissioned; execution not authorized.**
+- **Human approval:** **recorded** for dry run `cmuyw5rv90002szaez29oo7yc`; approval `cmuywgqrg0001tovzaiud6q4b`.
+- **APPLY:** **explicitly authorized for that approval and reviewed v4 CONTACTS_ONLY plan; commissioning PR pending merge.**
 - **Import proven:** **no.**
