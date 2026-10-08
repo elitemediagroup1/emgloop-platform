@@ -7,8 +7,8 @@
 #
 # OFF UNTIL SWITCHED ON -- AND OFF BEHIND THAT. Nothing runs unless the repository variable
 # INTELLIGENCE_MAIL_ENABLED is exactly `true`. Even then the route does nothing unless the deployment
-# names the Mail producers (LOOP_INTELLIGENCE_MAIL_PRODUCERS), records the counterparty-consent
-# governance decision (LOOP_MAIL_CONTENT_GOVERNANCE_DECISION -- UNRESOLVED today), activates the mail
+# names the Mail producers (LOOP_INTELLIGENCE_MAIL_PRODUCERS), names the repository's exact
+# LOOP_MAIL_CONTENT_GOVERNANCE_DECISION, activates the mail
 # tasks, and records a provider policy for COMMUNICATION_CONTENT; and each person must have authorized
 # their own mail content. See docs/runbooks/loop-intelligence-commissioning.md, section D.
 #

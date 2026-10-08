@@ -12,6 +12,7 @@ import {
   AI_TASKS,
   AI_TASK_MAIL_CONTENT_TRIAGE,
   MAIL_CONTENT_GOVERNANCE_STATUS,
+  MAIL_CONTENT_GOVERNANCE_DECISION_REF,
   aiOutputContract,
   aiPortableSchemaViolations,
   brainOwnershipRule,
@@ -26,7 +27,7 @@ import { mailDomainProducer, mailThreadProducer, type MailProducerPorts } from '
 
 const NOW = new Date('2026-09-26T12:00:00Z');
 const P = { organizationId: 'org_1', userId: 'u_1' };
-const DECIDED = 'counterparty-consent:2026-10-15:legal/mail-consent-v1';
+const DECIDED = MAIL_CONTENT_GOVERNANCE_DECISION_REF;
 const BODY = 'Hi Matt, can you send the revised allocation for Premier by Friday? BODYMARKER-never-stored';
 
 function fakePrisma(opts: { authorized?: boolean; thread?: boolean; laneCounts?: Record<string, number>; digests?: unknown[] } = {}) {
@@ -121,12 +122,21 @@ function ports(over: Partial<MailProducerPorts> = {}, prismaOpts: Parameters<typ
 const THREAD = { scope: 'PRINCIPAL', ...P, domain: 'MAIL', subjectKind: 'THREAD', subjectRef: 'work_thread:th_1' } as const;
 const DOMAIN = { scope: 'PRINCIPAL', ...P, domain: 'MAIL', subjectKind: 'DOMAIN', subjectRef: 'domain' } as const;
 
-test('the governance gate: UNRESOLVED in this repository, and nothing but a well-formed decision reference opens it', () => {
-  assert.equal(MAIL_CONTENT_GOVERNANCE_STATUS, 'UNRESOLVED');
-  for (const bad of [undefined, null, '', 'yes', 'approved', 'counterparty-consent:soon:x', 'counterparty-consent:2026-10-15:']) {
+test('the governance gate: DECIDED in this repository, but only the exact recorded decision reference opens it', () => {
+  assert.equal(MAIL_CONTENT_GOVERNANCE_STATUS, 'DECIDED');
+  for (const bad of [
+    undefined,
+    null,
+    '',
+    'yes',
+    'approved',
+    'counterparty-consent:soon:x',
+    'counterparty-consent:2026-10-15:legal/mail-consent-v1',
+    'counterparty-consent:2026-10-08:docs/governance/something-else',
+  ]) {
     assert.deepEqual(mailContentGovernance(bad as never), { state: 'UNDECIDED' }, String(bad));
   }
-  assert.equal(mailContentGovernance(DECIDED).state, 'DECIDED');
+  assert.deepEqual(mailContentGovernance(DECIDED), { state: 'DECIDED', decisionRef: DECIDED });
 });
 
 test('mail.thread@1: closed while governance is undecided or the person has not consented -- no Gmail read, no call', async () => {

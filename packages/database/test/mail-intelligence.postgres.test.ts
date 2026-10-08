@@ -25,7 +25,7 @@ const skip = !URL ? 'LOOP_TEST_POSTGRES_URL is not set' : !LOCAL ? 'refusing a n
 
 const NOW = new Date('2026-09-26T12:00:00Z');
 const GMAIL = 'https://www.googleapis.com/auth/gmail.readonly';
-const DECIDED = 'counterparty-consent:2026-10-15:legal/mail-consent-v1';
+const DECIDED = 'counterparty-consent:2026-10-08:docs/governance/mail-content-ai-2026-10-08';
 const sealer = new GoogleTokenSealer(randomBytes(32));
 
 async function tenant(prisma: PrismaClient) {
