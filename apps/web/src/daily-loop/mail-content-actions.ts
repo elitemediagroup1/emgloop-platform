@@ -1,9 +1,8 @@
 'use server';
 
 // Mail content -- the person's OWN consent (Loop Intelligence Phase D). Turning it on asks the repository,
-// which refuses unless the deployment names the recorded counterparty-consent decision
-// (LOOP_MAIL_CONTENT_GOVERNANCE_DECISION -- UNRESOLVED, so today it always refuses) and the person's Google
-// connection can read mail. Turning it off is always possible: it stops Mail content intelligence and
+// which refuses unless the deployment names the repository's exact recorded governance decision
+// (LOOP_MAIL_CONTENT_GOVERNANCE_DECISION) and the person's Google connection can read mail. Turning it off is always possible: it stops Mail content intelligence and
 // deletes the person's MAIL digests in the same transaction.
 
 import { revalidatePath } from 'next/cache';
