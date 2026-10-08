@@ -238,6 +238,8 @@ export interface CrmMessageEvidence {
   readonly direction: 'INBOUND' | 'OUTBOUND';
   readonly labels: readonly string[];
   readonly subject: string | null;
+  /** Normalized provider automation evidence; raw header values never reach this contract. */
+  readonly automationClass?: 'AUTO_SUBMITTED' | 'MAILING_LIST' | 'BULK' | null;
   /** For OUTBOUND: whether the person is a direct (To) recipient. */
   readonly personInTo?: boolean;
   /** For INBOUND: the sender's own stored address (for the automated-sender rule). */
@@ -252,6 +254,7 @@ export function qualifyCrmMessage(m: CrmMessageEvidence): CrmMessageQualificatio
     return m.personInTo ? 'QUALIFYING_SEND' : 'NOT_OUTREACH';
   }
   if ([...labels].some((l) => SPAM_OR_TRASH.has(l))) return 'AUTOMATED';
+  if (m.automationClass === 'AUTO_SUBMITTED' || m.automationClass === 'MAILING_LIST' || m.automationClass === 'BULK') return 'AUTOMATED';
   if (crmAutomatedAddress(m.senderAddress)) return 'AUTOMATED';
   if (m.subject && AUTOMATED_SUBJECT.test(m.subject)) return 'AUTOMATED';
   if ([...labels].some((l) => BULK_TABS.has(l))) return 'UNCERTAIN';
