@@ -195,7 +195,8 @@ test('exact Gmail association, cadence, calendar, privacy between viewers, and h
     assert.equal(j.nextAction.dueAt!.toISOString(), '2026-09-30T16:00:00.000Z', 'anchored on the ACTUAL late send');
     assert.equal(j.nextAction.bucket, 'OVERDUE');
     const s = byId.get(sam)!.outreach;
-    assert.equal(s.state, 'REPLIED_NEEDS_RESPONSE', 'a genuine reply after an out-of-office');
+    assert.equal(s.state, 'REVIEW_REQUIRED', 'a genuine reply after an out-of-office is real, but metadata alone cannot say an answer is owed');
+    assert.equal(s.reviewReason, 'REPLY_CONTENT_UNKNOWN');
     assert.equal(s.cadence.status, 'STOPPED');
     assert.equal(byId.get(sam)!.nextMeetingAt?.toISOString(), '2026-10-10T16:00:00.000Z');
     assert.equal(byId.get(near)!.outreach.state, 'NO_OUTREACH', 'a near-miss address links to nothing');
@@ -312,7 +313,8 @@ test('Possible New People: surfaced from the viewer’s own mail; ADD TO PEOPLE 
     assert.deepEqual(await disc.add(t.actor('OWNER'), riley.correspondentHash, 'Riley Chen'), { outcome: 'ALREADY_EXISTS', partyId: added.partyId });
     // Reconciled: the new Person's history appears from the viewer's own mail at once.
     const row = await read.person(t.actor('OWNER'), added.partyId, FRESH, OPTS);
-    assert.equal(row.outcome === 'OK' && row.row.outreach.state, 'REPLIED_NEEDS_RESPONSE');
+    assert.equal(row.outcome === 'OK' && row.row.outreach.state, 'REVIEW_REQUIRED');
+    assert.equal(row.outcome === 'OK' && row.row.outreach.reviewReason, 'REPLY_CONTENT_UNKNOWN');
 
     // A Company role-inbox address is never silently turned into a Person.
     const pressHash = createHash('sha256').update('press@lund.example.test').digest('hex');
