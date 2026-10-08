@@ -151,13 +151,15 @@ test('no reply: AWAITING_REPLY with the cadence as the next action, and "no repl
   assert.equal(stale.replyStatus, 'NO_REPLY_OBSERVED', 'true through the last read; the surface states that time and that it is stale');
 });
 
-test('a genuine reply stops the cadence and asks for a response; an automated one does not', () => {
+test('a genuine reply stops the cadence but metadata alone never claims a response is owed; an automated one does not stop it', () => {
   const sent = D('2026-10-01T09:00:00Z');
   const replied = deriveCrmOutreach(input({ sends: [sent], humanReplies: [D('2026-10-07T12:00:00Z')] }));
-  assert.equal(replied.state, 'REPLIED_NEEDS_RESPONSE');
+  assert.equal(replied.state, 'REVIEW_REQUIRED');
+  assert.equal(replied.reviewReason, 'REPLY_CONTENT_UNKNOWN');
   assert.equal(replied.cadence.status, 'STOPPED');
-  assert.equal(replied.nextAction.kind, 'RESPOND');
-  assert.equal(replied.replyStatus, 'AWAITING_OUR_RESPONSE');
+  assert.equal(replied.nextAction.kind, 'REVIEW');
+  assert.equal(replied.nextAction.dueAt, null);
+  assert.equal(replied.replyStatus, 'REPLIED');
   const ooo = deriveCrmOutreach(input({ sends: [sent], automated: [D('2026-10-01T09:01:00Z')] }));
   assert.equal(ooo.state, 'AWAITING_REPLY');
   assert.equal(ooo.cadence.status, 'ACTIVE');
@@ -169,7 +171,8 @@ test('the latest human reply is a Gmail last touch even when we have not answere
   const d = deriveCrmOutreach(input({ sends: [sent], humanReplies: [reply] }));
   assert.deepEqual(d.lastTouch, { at: reply, source: 'GMAIL', precision: 'INSTANT' });
   assert.equal(d.lastInboundAt?.getTime(), reply.getTime());
-  assert.equal(d.state, 'REPLIED_NEEDS_RESPONSE');
+  assert.equal(d.state, 'REVIEW_REQUIRED');
+  assert.equal(d.reviewReason, 'REPLY_CONTENT_UNKNOWN');
 });
 
 test('answered replies are an ACTIVE_CONVERSATION with no invented next action', () => {
@@ -197,7 +200,8 @@ test('a human state wins over derived facts -- until a newer reply arrives -- an
   assert.equal(held.nextAction.kind, 'HUMAN');
   assert.equal(held.nextAction.label, 'Circle back after the holidays');
   const newer = deriveCrmOutreach(input({ sends: [D('2026-10-01T09:00:00Z')], humanReplies: [D('2026-10-06T09:00:00Z')], human }));
-  assert.equal(newer.state, 'REPLIED_NEEDS_RESPONSE');
+  assert.equal(newer.state, 'REVIEW_REQUIRED');
+  assert.equal(newer.reviewReason, 'REPLY_CONTENT_UNKNOWN');
   assert.equal(newer.humanState, 'ON_HOLD', 'the interpretation is kept beside the fact, not erased');
   const older = deriveCrmOutreach(input({ sends: [D('2026-10-01T09:00:00Z')], humanReplies: [D('2026-10-02T09:00:00Z')], human }));
   assert.equal(older.state, 'ON_HOLD');
