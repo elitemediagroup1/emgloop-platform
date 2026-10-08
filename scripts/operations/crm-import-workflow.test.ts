@@ -100,6 +100,33 @@ test('the guard refuses everything else, before any credential is requested', ()
   }
 });
 
+test('record-config replacement is explicit, record-config-only, and reaches only the record-config CLI path', () => {
+  const base = {
+    mode: 'record-config',
+    source_key: '',
+    expected_source_sha256: '',
+    config_key: DRY.config_key,
+    expected_config_sha256: DRY.expected_config_sha256,
+    organization: 'emg-talent',
+    actor_user_id: DRY.actor_user_id,
+    replace_existing_config: 'true',
+    importer_version: 'crm-outreach-import.v2',
+    confirm: 'crm import record-config emg-talent',
+  };
+  const r = runGuard(base);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.env, /^REPLACE_EXISTING_CONFIG=true$/m);
+
+  const dry = runGuard({ ...DRY, replace_existing_config: 'true' });
+  assert.notEqual(dry.code, 0, 'dry-run cannot request mapping replacement');
+  assert.match(dry.out, /allowed only for record-config/);
+
+  const run = step('Run the importer (codes, counts, ids and hashes only)');
+  assert.match(run, /record_args=.*record-config/);
+  assert.match(run, /record_args\+\=\(--replace\)/);
+  assert.match(run, /REPLACE_EXISTING_CONFIG/);
+});
+
 test('validate and inventory need no database and no actor', () => {
   const r = runGuard({ mode: 'inventory', source_key: DRY.source_key, expected_source_sha256: SHA, organization: 'emg-talent', importer_version: 'crm-outreach-import.v2', confirm: 'crm import inventory emg-talent' });
   assert.equal(r.code, 0, r.out);
