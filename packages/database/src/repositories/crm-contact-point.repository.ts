@@ -178,6 +178,32 @@ export class CrmContactPointRepository {
     });
   }
 
+  /** As `currentHolders`, with each holder's Party type and classification (never a value). */
+  async currentHoldersDetailed(organizationId: string, kind: CrmContactPointKind, valueHash: string): Promise<{ partyId: string; partyType: string; classification: string; state: string }[]> {
+    if (!organizationId?.trim()) return [];
+    return this.prisma.crmContactPoint.findMany({
+      where: { organizationId, kind, valueHash, state: { in: ['ACTIVE', 'UNDELIVERABLE'] } },
+      select: { partyId: true, partyType: true, classification: true, state: true },
+    });
+  }
+
+  /**
+   * The organization's CURRENT Contact Points as an exact-match index (CRM slice 6): ids, Party,
+   * kind, classification, basis, the keyed hash and its key fingerprint, and the recorded last human
+   * contact. NEVER a value. One query; the command center joins a viewer's own correspondents to it by
+   * keyed hash, so no value is read to link mail to a Party.
+   */
+  async matchIndex(organizationId: string, kinds: readonly CrmContactPointKind[] = ['EMAIL', 'PHONE']): Promise<
+    { id: string; partyId: string; partyType: string; kind: string; classification: string; basis: string; valueHash: string; hashKeyFingerprint: string; state: string; lastHumanContactAt: Date | null }[]
+  > {
+    if (!organizationId?.trim()) return [];
+    return this.prisma.crmContactPoint.findMany({
+      where: { organizationId, kind: { in: [...kinds] }, state: { in: ['ACTIVE', 'UNDELIVERABLE'] } },
+      select: { id: true, partyId: true, partyType: true, kind: true, classification: true, basis: true, valueHash: true, hashKeyFingerprint: true, state: true, lastHumanContactAt: true },
+      orderBy: [{ addedAt: 'asc' }, { id: 'asc' }],
+    });
+  }
+
   /**
    * THE ONLY READ OF A RAW VALUE. The governed service calls it after the VIEW_VALUE grant, for
    * ids it already read in this organization. An erased value comes back null.

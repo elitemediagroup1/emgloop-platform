@@ -1033,7 +1033,10 @@ async function eraseWorkStateInTx(
   // Probed before the transaction (`intelligenceFabricPresent`): false per table only before its migration.
   fabric: IntelligenceFabricPresence,
 ): Promise<WorkErasure> {
-  const erased = await new WorkErasureRepository(tx).eraseAll({ organizationId, userId }, { intelligenceDigests: digests, intelligenceFabric: fabric });
+  const erased = await new WorkErasureRepository(tx).eraseAll(
+    { organizationId, userId },
+    { intelligenceDigests: digests, intelligenceFabric: fabric, crmDiscoveryDismissals: fabric.crmDiscoveryDismissals },
+  );
   const { suggestions: privateSuggestions } = await new IdentitySuggestionRepository(tx).erasePrivate({ organizationId, userId });
   const total = Object.values(erased).reduce((sum, n) => sum + n, 0) + privateSuggestions;
   if (total > 0) {

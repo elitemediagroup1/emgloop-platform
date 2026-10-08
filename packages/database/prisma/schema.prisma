@@ -279,6 +279,10 @@ model Organization {
   crmImportEntries            CrmImportEntry[]
   crmImportKeys               CrmImportKey[]
   crmContactPointEvents       CrmContactPointEvent[]
+  crmSubjectContextFacts      CrmSubjectContextFact[]
+  crmOutreachStates           CrmOutreachState[]
+  crmOutreachEvents           CrmOutreachEvent[]
+  crmDiscoveryDismissals      CrmDiscoveryDismissal[]
   aiInvocations               AiInvocation[]
   // --- Brain durable execution (B4) ---
   brainJobs                   BrainJob[]
@@ -589,6 +593,8 @@ model OrganizationMembership {
   workBriefs                  WorkBrief[]                  @relation("WorkBriefMember")
   workFeedback                WorkFeedback[]               @relation("WorkFeedbackMember")
   employeeWorkPreferences     EmployeeWorkPreferences[]    @relation("EmployeeWorkPreferencesMember")
+  /// CRM slice 6. One person's private "Possible New People" dismissals, derived from their own mail.
+  crmDiscoveryDismissals      CrmDiscoveryDismissal[]      @relation("CrmDiscoveryDismissalMember")
   /// Identity match suggestions resting on this person's private evidence (D1).
   privateHypotheses           IntelligenceHypothesis[]     @relation("IntelligenceHypothesisPrivateTo")
 
@@ -3130,6 +3136,9 @@ enum OutboxSubjectType {
   /// CRM Contact Points (PD-F-05). Payloads carry ids, kind, classification and states -- never a
   /// value or its hash.
   CONTACT_POINT
+  /// CRM outreach (slice 6): a Party's human-set conversation state, next action and recorded context.
+  /// Payloads carry ids, kinds, states and booleans -- never typed text.
+  CRM_OUTREACH
 }
 
 model StateChangeOutbox {
@@ -7962,4 +7971,143 @@ model CrmImportKey {
   @@unique([organizationId, keyKind, keyValue])
   @@index([organizationId, subjectId])
   @@map("crm_import_keys")
+}
+
+// =============================================================================================
+// CRM SLICE 6 -- THE PEOPLE COMMAND CENTER (2026-10-08). docs/architecture/crm-people-command-center.md
+//
+// THREE AUTHORITIES, KEPT APART:
+//   crm_subject_context_facts  FACTS recorded about a Party beyond its identity (title, notes, the
+//                              source's own status and last-contacted time, creator and company
+//                              context, origin), each with its basis, source and time precision.
+//                              Shared across the organization. Never a contact value (imported text
+//                              is redacted, operator text refused). Never a Relationship, never an
+//                              Opportunity, never identity evidence.
+//   crm_outreach_states/events HUMAN INTERPRETATION: a conversation state and a next action a person
+//                              set. Append-only events; the state row is their projection.
+//   crm_discovery_dismissals   ONE PERSON'S private dismissals in their own "Possible New People"
+//                              queue, keyed by the same address hash their own mail tables use.
+// Mail- and calendar-derived outreach (the cadence, replies, meetings) is NOT stored: it is derived
+// on every read from the viewer's own work_* rows.
+// =============================================================================================
+
+/// A fact about a Party beyond its identity, with its provenance.
+model CrmSubjectContextFact {
+  id             String @id @default(cuid())
+  organizationId String
+
+  /// The Party (PERSON or COMPANY), resolved through the Party Reference contract before it is written.
+  partyId   String
+  partyType String
+
+  /// TITLE | NOTE | SOURCE_STATUS | SOURCE_LAST_CONTACTED | CREATOR_CONTEXT | COMPANY_CONTEXT | ORIGIN.
+  kind           String
+  /// The text, when the kind has one. Never a contact value: imported text is redacted before it is
+  /// written (`redactions` counts what was replaced), operator text carrying one is refused.
+  text           String?
+  redactions     Int     @default(0)
+  /// COMPANY_CONTEXT: the governed Company Party. CREATOR_CONTEXT: the creator Party when the reviewed
+  /// alias maps to one. A context link, never a Relationship or an affiliation.
+  relatedPartyId String?
+
+  /// When the fact was true at its source. NULL when unknown -- shown as "unknown time", never as
+  /// `recordedAt`.
+  occurredAt          DateTime?
+  /// INSTANT | DATE | UNKNOWN.
+  occurredAtPrecision String    @default("UNKNOWN")
+
+  /// IMPORTED | OPERATOR_RECORDED.
+  basis       String
+  /// Contact-free provenance (e.g. `crm-context-backfill.v1:<importRunId>:<line>`).
+  sourceRef   String?
+  /// The CRM import run and source line an IMPORTED fact came from.
+  importRunId String?
+  importLine  Int?
+
+  /// Idempotency: the same fact from the same source is recorded once.
+  dedupeKey String
+
+  recordedByUserId  String?
+  recordedAt        DateTime  @default(now())
+  /// A retracted fact stays in history; it is no longer current.
+  retractedAt       DateTime?
+  retractedByUserId String?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, dedupeKey])
+  @@index([organizationId, partyId, kind])
+  @@index([organizationId, kind, relatedPartyId])
+  @@map("crm_subject_context_facts")
+}
+
+/// The human-set conversation state and next action for one Party: the projection of its events.
+model CrmOutreachState {
+  id             String @id @default(cuid())
+  organizationId String
+  partyId        String
+
+  /// A human-settable conversation state (`CRM_HUMAN_CONVERSATION_STATES`), or NULL (none set).
+  state            String?
+  stateSetAt       DateTime?
+  stateSetByUserId String?
+
+  nextAction            String?
+  nextActionDueAt       DateTime?
+  nextActionSetAt       DateTime?
+  nextActionSetByUserId String?
+
+  lastSequence Int      @default(0)
+  updatedAt    DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, partyId])
+  @@index([organizationId, state])
+  @@map("crm_outreach_states")
+}
+
+/// One human act on a Party's outreach state. Append-only.
+model CrmOutreachEvent {
+  id             String @id @default(cuid())
+  organizationId String
+  partyId        String
+  sequence       Int
+
+  /// STATE_SET | STATE_CLEARED | NEXT_ACTION_SET | NEXT_ACTION_CLEARED.
+  type            String
+  state           String?
+  nextAction      String?
+  nextActionDueAt DateTime?
+
+  actorUserId String
+  occurredAt  DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, partyId, sequence])
+  @@index([organizationId, partyId, occurredAt])
+  @@map("crm_outreach_events")
+}
+
+/// One person's dismissal of one address from their own "Possible New People" queue. Private to
+/// that person, like the mail it came from; restorable.
+model CrmDiscoveryDismissal {
+  id             String @id @default(cuid())
+  organizationId String
+  userId         String
+
+  /// The same SHA-256 address hash the person's own work_correspondents row carries.
+  correspondentHash String
+  /// IGNORE | NOT_A_PERSON | INTERNAL | AUTOMATED | NOT_RELEVANT.
+  reason            String
+  dismissedAt       DateTime
+  /// Set when the person restores it to the queue; a new dismissal clears it.
+  restoredAt        DateTime?
+
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  membership   OrganizationMembership @relation("CrmDiscoveryDismissalMember", fields: [userId, organizationId], references: [userId, organizationId], onDelete: Cascade)
+
+  @@unique([organizationId, userId, correspondentHash])
+  @@map("crm_discovery_dismissals")
 }

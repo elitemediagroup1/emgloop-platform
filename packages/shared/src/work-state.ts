@@ -332,7 +332,7 @@ export const WORK_RETENTION_CATEGORIES: readonly WorkRetentionCategory[] = Objec
   // Loop Intelligence Phase F (2026-09-26). A situation connected from one person's private intelligence
   // is theirs alone (case_private_scopes names them); it lives as long as the membership, like their links.
   Object.freeze({ category: 'PRIVATE_SITUATIONS', rule: 'TIED_TO_PARENT', days: null, anchor: 'the membership', tables: Object.freeze(['case_private_scopes', 'situation_candidates']), why: 'A situation read from one person’s own evidence is theirs, and means nothing once they are gone. (The organization’s own candidates name nobody.)' }),
-  Object.freeze({ category: 'EMPLOYEE_PREFERENCES', rule: 'TIED_TO_PARENT', days: null, anchor: 'the membership', tables: Object.freeze(['employee_work_preferences', 'work_retention_overrides']), why: "A person's own settings last as long as they are a member." }),
+  Object.freeze({ category: 'EMPLOYEE_PREFERENCES', rule: 'TIED_TO_PARENT', days: null, anchor: 'the membership', tables: Object.freeze(['employee_work_preferences', 'work_retention_overrides', 'crm_discovery_dismissals']), why: "A person's own settings -- including what they dismissed from their own Possible New People queue -- last as long as they are a member." }),
   Object.freeze({ category: 'SECURITY_AUDIT', rule: 'GOVERNED_ELSEWHERE', days: null, anchor: 'not applicable', tables: Object.freeze([]), why: 'Audit records acts, never correspondence, and has its own policy.' }),
 ]);
 
@@ -446,6 +446,8 @@ export const WORK_STATE_TABLES: readonly string[] = Object.freeze([
   // Loop Intelligence Phase F (2026-09-26): a person's private situations (their Cases, with the scope).
   'case_private_scopes',
   'situation_candidates',
+  // CRM slice 6 (2026-10-08): a person's own "Possible New People" dismissals (from their own mail).
+  'crm_discovery_dismissals',
 ]);
 
 /** Categories whose window is stamped on the row at write time, so an organization override cannot apply. */

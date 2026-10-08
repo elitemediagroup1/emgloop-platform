@@ -26,3 +26,12 @@ export { WorkDraftRepository, type DraftContent, type SendAttempt } from './work
 export { WorkFootprintRepository, type WorkFootprint } from './work-footprint.repository';
 export { WorkErasureRepository, ERASED_WORK_TABLES, type ErasedWorkTable, type WorkErasure } from './work-erasure.repository';
 export { WorkWithdrawalRepository, type WorkWithdrawal, type WorkDerivedDeletion } from './work-withdrawal.repository';
+export {
+  WorkOutreachRepository,
+  OUTREACH_CORRESPONDENT_LIMIT,
+  OUTREACH_MESSAGE_LIMIT,
+  type OutreachCorrespondent,
+  type OutreachMessage,
+  type OutreachEvent,
+  type OutreachDismissal,
+} from './work-outreach.repository';

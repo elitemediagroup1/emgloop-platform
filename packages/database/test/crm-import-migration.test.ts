@@ -23,9 +23,10 @@ test('additive only: six new tables, nothing existing altered, dropped or rewrit
   assert.equal(/intelligence_digests/.test(code), false, 'the unrelated pre-existing drift is not folded in');
 });
 
-test('the newest migration, and no earlier one was edited for it', () => {
+test('the slice 5 migration is in place; later slices add their own (the newest is pinned by its own test)', () => {
   const dirs = readdirSync(DIR).filter((d) => /^\d{14}_/.test(d)).sort();
-  assert.equal(dirs.at(-1), '20261012000000_crm_import_provenance');
+  assert.ok(dirs.includes('20261012000000_crm_import_provenance'));
+  assert.ok(dirs.indexOf('20261012000000_crm_import_provenance') > dirs.indexOf('20261011000000_crm_opportunity_owner_participants'));
 });
 
 test('no column can hold a contact value, a name, a title or a note', () => {
