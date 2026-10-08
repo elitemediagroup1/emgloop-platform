@@ -1,7 +1,7 @@
 # Run the Mail intelligence pass on a schedule (Loop Intelligence Phase E).
 #
-# THE DUMBEST POSSIBLE TRIGGER, like detect-callgrid-intelligence.yml: it holds a secret and makes one
-# POST. Who is read, how, and what is kept all live in the route
+# THE DUMBEST POSSIBLE TRIGGER, like detect-callgrid-intelligence.yml: it holds a secret and makes a
+# small bounded series of POSTs. Who is read, how, and what is kept all live in the route
 # (apps/web/src/app/api/internal/intelligence/mail/route.ts), which hosts the Mail producers because
 # only the web server holds each person's governed Gmail read-through.
 #
@@ -53,7 +53,7 @@ jobs:
           fi
           echo "enabled=true" >> "$GITHUB_OUTPUT"
 
-      - name: POST the Mail intelligence endpoint
+      - name: Drain a bounded Mail intelligence batch
         if: steps.gate.outputs.enabled == 'true'
         env:
           MAIL_URL: ${{ secrets.INTELLIGENCE_MAIL_URL }}
@@ -64,15 +64,24 @@ jobs:
             echo "::error::INTELLIGENCE_MAIL_URL and INTELLIGENCE_MAIL_SECRET must both be set while the pass is switched on."
             exit 1
           fi
-          response=$(curl --silent --show-error --fail-with-body \
-            --max-time 60 \
-            --request POST "${MAIL_URL}" \
-            --header "authorization: Bearer ${MAIL_SECRET}" \
-            --header 'content-type: application/json')
-          echo "$response"
           {
             echo "### Mail intelligence pass"
-            echo '```json'
-            echo "$response"
-            echo '```'
+            echo ""
+            echo "Running up to 4 bounded endpoint calls; each endpoint call claims at most 2 items."
           } >> "$GITHUB_STEP_SUMMARY"
+
+          for pass in 1 2 3 4; do
+            response=$(curl --silent --show-error --fail-with-body \
+              --max-time 60 \
+              --request POST "${MAIL_URL}" \
+              --header "authorization: Bearer ${MAIL_SECRET}" \
+              --header 'content-type: application/json')
+            echo "pass=$pass $response"
+            {
+              echo ""
+              echo "#### Pass $pass"
+              echo '```json'
+              echo "$response"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          done
