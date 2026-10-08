@@ -88,7 +88,14 @@ export default async function PeoplePage({ searchParams }: { searchParams?: CrmP
 
   const now = time.now;
   const summary = summarizeCrmPeople(result.rows, now);
-  const view = pageCrmPeople(result.rows, parsed.filters, parsed.page, now);
+  // "Replied — needs response" is semantic. When the body-aware reading exists, this preset follows
+  // that reading instead of pretending message metadata can know whether an answer is owed.
+  const semanticReplyPreset = parsed.filters.preset === 'replied-needs-response';
+  const viewRows = semanticReplyPreset
+    ? result.rows.filter((row) => result.intelligenceByParty.get(row.partyId)?.suggestion === 'REPLY')
+    : result.rows;
+  const viewFilters = semanticReplyPreset ? { ...parsed.filters, preset: null } : parsed.filters;
+  const view = pageCrmPeople(viewRows, viewFilters, parsed.page, now);
   const mail = result.mail;
   const mailKnown = mail.permitted && mail.gmail.state !== 'UNAVAILABLE';
   const n = (v: number) => v.toLocaleString('en-US');
