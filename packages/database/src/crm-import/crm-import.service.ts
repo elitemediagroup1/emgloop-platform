@@ -68,7 +68,7 @@ import {
   type CrmImportRouteView,
 } from './crm-import-plan';
 
-/** Where an APPLY may run. Only a local or test database, until the production path is commissioned (PR B). */
+/** Where an APPLY may run. Production is admitted only inside the commissioned GitHub Actions path. */
 export type CrmImportExecutionTarget = 'LOCAL_TEST' | 'PRODUCTION';
 
 export interface CrmImportSource {
@@ -225,9 +225,13 @@ export class CrmImportService {
     input: { source: CrmImportSource; stageMapping: readonly CrmImportStageMappingEntry[]; approvalId: string; executionTarget: CrmImportExecutionTarget },
   ): Promise<CrmImportApplyResult> {
     if (!(await crmImportPermits(this.prisma, this.iam, actor, 'APPLY'))) return { outcome: 'NOT_AUTHORIZED' };
-    // FAIL CLOSED. The production path (private source, OIDC, approvals in production) is PR B.
-    if (input.executionTarget !== 'LOCAL_TEST') return { outcome: 'PRODUCTION_APPLY_NOT_COMMISSIONED' };
-    if (!this.applyTargetGuard()) return { outcome: 'TARGET_REFUSED' };
+    // FAIL CLOSED. Local/test keeps the local-database guard. Production is admitted only from the
+    // explicitly commissioned main-branch GitHub Actions path; direct/runtime calls remain refused.
+    if (input.executionTarget === 'LOCAL_TEST') {
+      if (!this.applyTargetGuard()) return { outcome: 'TARGET_REFUSED' };
+    } else if (!productionApplyOnly()) {
+      return { outcome: 'PRODUCTION_APPLY_NOT_COMMISSIONED' };
+    }
 
     const org = actor.organizationId;
     const approval = await this.imports.findApproval(org, input.approvalId);
@@ -735,7 +739,17 @@ function entriesOf(p: CrmImportPrepared): CrmImportEntryInput[] {
   ].sort((a, b) => a.line - b.line);
 }
 
-/** The default APPLY target guard: a local database, and not a production runtime. */
+/** Production APPLY is valid only inside the reviewed workflow path on main. */
+function productionApplyOnly(): boolean {
+  return (
+    process.env.LOOP_CRM_IMPORT_TARGET === 'production' &&
+    process.env.GITHUB_ACTIONS === 'true' &&
+    process.env.GITHUB_REF === 'refs/heads/main' &&
+    process.env.CRM_IMPORT_PRODUCTION_APPLY === 'commissioned-v1'
+  );
+}
+
+/** The default LOCAL_TEST APPLY target guard: a local database, and not a production runtime. */
 function localDatabaseOnly(): boolean {
   if (process.env.NODE_ENV === 'production') return false;
   const url = process.env.DATABASE_URL ?? '';

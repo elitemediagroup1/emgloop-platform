@@ -13,16 +13,16 @@
 //                  Writes NO CRM row.
 //   approve        --dry-run-id <id> --organization <slug> --actor-...           (production: reviewed dry-run approval only)
 //   apply          --source --config --approval-id --expected-sha256 --organization --actor-...
-//                  --confirm "apply <first 12 of sha256>"                         (local only)
+//                  --confirm "apply <first 12 of sha256>"                         (production only via commissioned workflow, or local test)
 //   abandon        --run-id <id> --organization <slug> --actor-...               (local only)
 //
 // TARGETS (LOOP_CRM_IMPORT_TARGET), checked before the database package is even loaded:
 //   local       every command, against a database on this machine only.
-//   production  ONLY validate, inventory, record-config, dry-run and approve, ONLY inside GitHub Actions on
+//   production  validate, inventory, record-config, dry-run, approve and APPLY, ONLY inside GitHub Actions on
 //               refs/heads/main (the "CRM Outreach Import" workflow, connections-production), ONLY
-//               for CRM_IMPORT_ORGANIZATION_SLUG, and the dry run only with the identifier key set.
-//               APPLY and abandon are NOT commissioned in production: refused by name here, and the
-//               import service refuses a non-local APPLY on its own.
+//               for CRM_IMPORT_ORGANIZATION_SLUG. Dry-run/APPLY require the identifier key. APPLY also
+//               requires the reviewed approval id, exact source hash/config, typed source-hash confirmation,
+//               and the workflow-only production commissioning flag. Abandon remains uncommissioned.
 //
 // THE SOURCE IS HASHED OVER ITS BYTES AND CHECKED AGAINST --expected-sha256 BEFORE IT IS PARSED.
 // Bytes that are not valid UTF-8 are refused, never replaced.
@@ -87,8 +87,8 @@ const REQUIRED: Readonly<Record<Command, readonly string[]>> = {
 
 /** Commands that touch the database. `validate` and `inventory` read only the file. */
 const DATABASE_COMMANDS: readonly Command[] = ['record-config', 'dry-run', 'approve', 'apply', 'abandon'];
-/** What the production target may run. Approval is commissioned; APPLY and abandon remain refused. */
-export const PRODUCTION_COMMANDS: readonly Command[] = ['validate', 'inventory', 'record-config', 'dry-run', 'approve'];
+/** What the production target may run. APPLY is commissioned only behind the workflow/service guards; abandon remains refused. */
+export const PRODUCTION_COMMANDS: readonly Command[] = ['validate', 'inventory', 'record-config', 'dry-run', 'approve', 'apply'];
 
 /** The actor is a member named by user id (the workflow's path: no email in a workflow input) or by email (local). */
 const hasActor = (args: Args) => ['actor-user-id', 'actor-email'].some((f) => typeof args.flags[f] === 'string' && (args.flags[f] as string).trim() !== '');
@@ -103,10 +103,10 @@ export function missingFlags(args: Args): string[] {
  * saying which database this is.
  *   local       any command, against a database on this machine only (the host check catches a URL
  *               that says otherwise).
- *   production  ONLY validate, inventory, record-config, dry-run and approve, ONLY inside GitHub Actions on
- *               refs/heads/main, ONLY for the one organization the environment names, and (for the
- *               dry run) only with the configured identifier key. APPLY and abandon are NOT commissioned
- *               in production: refused by name here, and the service refuses a non-local APPLY on its own.
+ *   production  validate, inventory, record-config, dry-run, approve and APPLY, ONLY inside GitHub Actions
+ *               on refs/heads/main, ONLY for the one organization the environment names. Dry-run/APPLY
+ *               require the configured identifier key. The service independently requires the workflow-only
+ *               production APPLY commissioning flag. Abandon remains uncommissioned.
  */
 export function checkTarget(env: Readonly<Record<string, string | undefined>>, command: Command | null = null, organization: string | null = null): { ok: true } | { ok: false; reason: string } {
   const target = env.LOOP_CRM_IMPORT_TARGET;
@@ -117,7 +117,7 @@ export function checkTarget(env: Readonly<Record<string, string | undefined>>, c
     const pinned = (env.CRM_IMPORT_ORGANIZATION_SLUG ?? '').trim();
     if (!pinned) return { ok: false, reason: 'PRODUCTION_ORGANIZATION_NOT_CONFIGURED' };
     if (organization !== null && organization !== pinned) return { ok: false, reason: 'ORGANIZATION_NOT_THE_CONFIGURED_ONE' };
-    if (command === 'dry-run' && !(env.COGNITIVE_HASH_SECRET ?? '').length) return { ok: false, reason: 'HASH_KEY_NOT_CONFIGURED' };
+    if ((command === 'dry-run' || command === 'apply') && !(env.COGNITIVE_HASH_SECRET ?? '').length) return { ok: false, reason: 'HASH_KEY_NOT_CONFIGURED' };
     return { ok: true };
   }
   if (target !== 'local') return { ok: false, reason: 'LOOP_CRM_IMPORT_TARGET_MUST_BE_LOCAL_OR_PRODUCTION' };
@@ -548,12 +548,12 @@ async function main(): Promise<number> {
       return 0;
     }
 
-    // apply (local only: the target guard refuses it in production, and so does the service)
+    // apply: local test, or the separately commissioned production workflow path.
     if (f('confirm').trim() !== applyConfirmation(source!.sha256)) {
       log(line({ event: 'PRECONDITION_FAILED', reason: 'CONFIRMATION_MISMATCH', expected: 'apply <first 12 hex of the source SHA-256>', WROTE: false }));
       return 2;
     }
-    const r = await service.apply(actor, { source: importSource, stageMapping: cfg.config.stageMapping, approvalId: f('approval-id'), executionTarget: 'LOCAL_TEST' });
+    const r = await service.apply(actor, { source: importSource, stageMapping: cfg.config.stageMapping, approvalId: f('approval-id'), executionTarget: process.env.LOOP_CRM_IMPORT_TARGET === 'production' ? 'PRODUCTION' : 'LOCAL_TEST' });
     log(line({ event: 'APPLY', ...r }));
     return r.outcome === 'APPLIED' ? 0 : 1;
   } finally {

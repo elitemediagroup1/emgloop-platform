@@ -77,7 +77,7 @@ test('the guard admits a well-formed dry run and writes only validated values', 
 test('the guard refuses everything else, before any credential is requested', () => {
   const refusals: [string, Record<string, string>, Record<string, string>?][] = [
     ['a feature branch', DRY, { GITHUB_REF: 'refs/heads/feat/x' }],
-    ['an unknown mode', { ...DRY, mode: 'apply', confirm: 'crm import apply emg-talent' }],
+    ['apply without an approval id', { ...DRY, mode: 'apply', approval_id: '', confirm: `apply ${SHA.slice(0, 12)}` }],
     ['approve without a dry run id', { ...DRY, mode: 'approve', source_key: '', expected_source_sha256: '', config_key: '', expected_config_sha256: '', confirm: 'crm import approve emg-talent' }],
     ['the wrong organization', { ...DRY, organization: 'someone-else', confirm: 'crm import dry-run someone-else' }],
     ['an unpinned environment organization', DRY, { ORGANIZATION_VAR: '' }],
@@ -152,6 +152,32 @@ test('approve is production-commissioned only for a specific reviewed dry-run id
   assert.match(run, /approve --dry-run-id "\$\{DRY_RUN_ID\}"/);
 });
 
+
+test('apply requires an approval id and typed confirmation bound to the exact source hash', () => {
+  const input = {
+    ...DRY,
+    mode: 'apply',
+    approval_id: 'cmuywgqrg0001tovzaiud6q4b',
+    replace_existing_config: 'false',
+    confirm: `apply ${SHA.slice(0, 12)}`,
+  };
+  const r = runGuard(input);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.env, /^MODE=apply$/m);
+  assert.match(r.env, /^APPROVAL_ID=cmuywgqrg0001tovzaiud6q4b$/m);
+  assert.match(r.env, /^CRM_IMPORT_PRODUCTION_APPLY=commissioned-v1$/m);
+  assert.match(r.outputs, /^needs_db=true$/m);
+
+  const wrong = runGuard({ ...input, confirm: 'apply deadbeefdead' });
+  assert.notEqual(wrong.code, 0);
+  assert.match(wrong.out, /Confirmation text required/);
+
+  const run = step('Run the importer (codes, counts, ids and hashes only)');
+  assert.match(run, /apply --source/);
+  assert.match(run, /--approval-id "\$\{APPROVAL_ID\}"/);
+  assert.match(run, /--confirm "apply \$\{EXPECTED_SOURCE_SHA256:0:12\}"/);
+});
+
 test('validate and inventory need no database and no actor', () => {
   const r = runGuard({ mode: 'inventory', source_key: DRY.source_key, expected_source_sha256: SHA, organization: 'emg-talent', importer_version: 'crm-outreach-import.v2', confirm: 'crm import inventory emg-talent' });
   assert.equal(r.code, 0, r.out);
@@ -166,12 +192,13 @@ test('record-config passes --replace only when the reviewed replacement input is
   assert.match(run, /"\$\{cli\[@\]\}" "\$\{record_args\[@\]\}"/);
 });
 
-test('the workflow never offers APPLY or abandon, never traces, never prints the source, never publishes an artifact', () => {
+test('the workflow keeps APPLY guarded, never offers abandon, never traces, never prints the source, never publishes an artifact', () => {
   assert.doesNotMatch(WORKFLOW, /set -x|set -o xtrace|bash -x/);
   assert.doesNotMatch(WORKFLOW, /cat\s+"?\$\{?WORK\}?\/(source|config)/, 'the source and config are never printed');
   assert.doesNotMatch(WORKFLOW, /upload-artifact/, 'review files never become GitHub artifacts');
-  assert.doesNotMatch(WORKFLOW, /\b(apply|abandon)\s+--/);
+  assert.doesNotMatch(WORKFLOW, /\babandon\s+--/);
   assert.match(WORKFLOW, /\bapprove\s+--dry-run-id/);
+  assert.match(WORKFLOW, /\bapply\s+--source/);
   assert.match(WORKFLOW, /umask 077/);
   assert.match(step('Remove the source, the configuration and the review files from the runner'), /rm -rf "\$\{RUNNER_TEMP\}\/crm-import"/);
   assert.match(WORKFLOW, /- name: Remove the source, the configuration and the review files from the runner\n {8}if: always\(\)/);
@@ -198,19 +225,19 @@ test('a malformed header never echoes a cell: an unknown column is reported by p
   assert.deepEqual(inv, { ok: false, problem: 'UNKNOWN_COLUMN', column: null, position: 1 });
 });
 
-test('the command\'s production target: reviewed approval but no APPLY, from main in Actions, for the pinned organization', () => {
+test('the command\'s production target: reviewed approval and APPLY from main in Actions, for the pinned organization', () => {
   const env = { LOOP_CRM_IMPORT_TARGET: 'production', GITHUB_ACTIONS: 'true', GITHUB_REF: 'refs/heads/main', CRM_IMPORT_ORGANIZATION_SLUG: 'emg-talent', COGNITIVE_HASH_SECRET: 'x' };
-  assert.deepEqual(PRODUCTION_COMMANDS, ['validate', 'inventory', 'record-config', 'dry-run', 'approve']);
+  assert.deepEqual(PRODUCTION_COMMANDS, ['validate', 'inventory', 'record-config', 'dry-run', 'approve', 'apply']);
   assert.deepEqual(checkTarget(env, 'dry-run', 'emg-talent'), { ok: true });
   assert.deepEqual(checkTarget(env, 'approve', 'emg-talent'), { ok: true });
-  for (const command of ['apply', 'abandon'] as const) {
-    assert.deepEqual(checkTarget(env, command, 'emg-talent'), { ok: false, reason: 'PRODUCTION_APPLY_NOT_COMMISSIONED' }, command);
-  }
+  assert.deepEqual(checkTarget(env, 'apply', 'emg-talent'), { ok: true });
+  assert.deepEqual(checkTarget(env, 'abandon', 'emg-talent'), { ok: false, reason: 'PRODUCTION_APPLY_NOT_COMMISSIONED' });
   assert.deepEqual(checkTarget({ ...env, GITHUB_ACTIONS: '' }, 'dry-run', 'emg-talent'), { ok: false, reason: 'PRODUCTION_ONLY_FROM_GITHUB_ACTIONS' });
   assert.deepEqual(checkTarget({ ...env, GITHUB_REF: 'refs/heads/feat/x' }, 'dry-run', 'emg-talent'), { ok: false, reason: 'PRODUCTION_ONLY_FROM_MAIN' });
   assert.deepEqual(checkTarget({ ...env, CRM_IMPORT_ORGANIZATION_SLUG: '' }, 'dry-run', 'emg-talent'), { ok: false, reason: 'PRODUCTION_ORGANIZATION_NOT_CONFIGURED' });
   assert.deepEqual(checkTarget(env, 'dry-run', 'another-org'), { ok: false, reason: 'ORGANIZATION_NOT_THE_CONFIGURED_ONE' });
   assert.deepEqual(checkTarget({ ...env, COGNITIVE_HASH_SECRET: '' }, 'dry-run', 'emg-talent'), { ok: false, reason: 'HASH_KEY_NOT_CONFIGURED' });
+  assert.deepEqual(checkTarget({ ...env, COGNITIVE_HASH_SECRET: '' }, 'apply', 'emg-talent'), { ok: false, reason: 'HASH_KEY_NOT_CONFIGURED' });
 });
 
 test('the source is hashed over its bytes and refused before parsing on a mismatch; invalid UTF-8 is refused, never replaced', () => {
