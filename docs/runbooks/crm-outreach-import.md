@@ -178,13 +178,73 @@ Production import execution:
 
 ---
 
+## Part 6 — Historical-context backfill (CRM slice 6)
+
+The import kept no title or note: provenance holds hashes and ids by design. The backfill reads **the APPLY
+run's own source again** and attaches context facts to the subjects that APPLY created:
+
+- title;
+- notes (redacted of anything address- or number-shaped);
+- the source status, verbatim;
+- the last-contacted date;
+- creator context;
+- company context.
+
+It creates **no** Party, Contact Point, Opportunity, Relationship or Participant, and it never re-runs the
+import. Design: `docs/architecture/crm-people-command-center.md` §7.
+
+**Before you start:** migration `20261013000000_crm_people_command_center` must be applied (`Deploy Prisma
+Migrations`). Otherwise the dry run fails on the missing table.
+
+1. **Dry run.** Actions → **CRM Outreach Import** → Run workflow, from `main`:
+
+   | input | value |
+   |---|---|
+   | `mode` | `backfill-context-dry-run` |
+   | `source_key` | the APPLY's source, e.g. `crm-import/source/outreach-2026-10-06-v4.csv` |
+   | `expected_source_sha256` | that source's SHA-256 (it must equal the APPLY run's recorded hash) |
+   | `import_run_id` | the APPLY run id, e.g. `cmuywspvb0001tjlie5tcxut6` |
+   | `organization` | the pinned slug |
+   | `actor_user_id` | an OWNER/ADMIN's Loop user id |
+   | `confirm` | `crm import backfill-context-dry-run <organization>` |
+
+   It writes nothing. The summary's `BACKFILL_DRY_RUN` line carries:
+   - `planned` per kind, `alreadyRecorded`, and `subjects` (people, companies);
+   - `entries` (considered, used, and skipped per reason), `redactions`, `unknownTime`;
+   - the `planDigest`.
+
+   **Review the counts:**
+   - `ROW_CHANGED` should be 0. A changed row is skipped, never guessed. If every row is "changed", the
+     outcome is `FINGERPRINT_KEY_MISMATCH`: the workflow's `COGNITIVE_HASH_SECRET` is not the key the
+     import used.
+   - `SUBJECT_UNAVAILABLE` counts subjects archived or no longer established since the import.
+
+2. **Apply exactly that plan.** The same inputs, with:
+   - `mode` = `backfill-context-apply`;
+   - `plan_digest` = the 64-hex `planDigest` from step 1;
+   - `confirm` = `backfill <first 12 of the plan digest>`.
+
+   The step re-plans and refuses with `PLAN_CHANGED` if anything differs from the reviewed dry run. It
+   writes context facts in chunks and records one summary audit row (counts and digests).
+
+3. **Rerun safety.** Running step 2 again is a no-op (`recorded: 0`, everything `unchanged`). After a
+   failure part-way, run the dry run again. Its `alreadyRecorded` shows what landed; applying the same
+   digest completes the rest.
+
 ## Commissioning state (overwrite, don't append)
 
-- **Implemented:** PR B: access template, workflow, the command's production target, inventory, and
-  the hash-key check.
-- **Deployed:** **no.** Parts 1 and 2 are Matt's.
-- **Source uploaded:** **no.** The final structured source has not been provided (`FINAL_SOURCE_REQUIRED`).
-- **Dry run in production:** **run and reviewed for the pinned v4 source / v3 config plan.**
-- **Human approval:** **recorded** for dry run `cmuyw5rv90002szaez29oo7yc`; approval `cmuywgqrg0001tovzaiud6q4b`.
-- **APPLY:** **explicitly authorized for that approval and reviewed v4 CONTACTS_ONLY plan; commissioning PR pending merge.**
-- **Import proven:** **no.**
+- **Implemented:** PR B (access template, workflow, the command's production target, inventory, the
+  hash-key check). Approve and APPLY modes (#370, #371). The context backfill modes (slice 6, this
+  branch: not merged).
+- **Deployed:** the access stack and environment variables are in place. The production workflow has run
+  dry-run, approve and APPLY.
+- **APPLY:** **done**, as Matt reported on 2026-10-08:
+  - APPLY run `cmuywspvb0001tjlie5tcxut6`;
+  - source `crm-import/source/outreach-2026-10-06-v4.csv`, SHA-256 `8a3fe5cc…2082402`;
+  - config `crm-import/config/crm-outreach-import-config-v3.json`;
+  - approval `cmuywgqrg0001tovzaiud6q4b`;
+  - created about 230 Companies, 118 People, 251 Contact Points, 0 Opportunities and 0 Relationships
+    (CONTACTS_ONLY).
+- **Context backfill:** **not run.** It needs the slice 6 merge, then the migration deploy, then the dry
+  run (Part 6).
+- **Import proven:** the APPLY completed. The People surface over it is slice 6, which is not deployed.
