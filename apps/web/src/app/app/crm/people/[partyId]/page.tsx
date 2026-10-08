@@ -108,6 +108,10 @@ export default async function PersonPage({ params, searchParams }: { params: { p
       />
       <SubjectCard subject={subject} density="featured" headingLevel="h1" />
 
+      {searchParams?.outcome === 'RELATIONSHIP_RECORDED' ? (
+        <StateBlock kind="empty" compact title="Relationship recorded." body="This person is now linked to the commercial Relationship you just asserted." />
+      ) : null}
+
       {state === 'SUPERSEDED' && view.current ? (
         <StateBlock
           kind="attention"
