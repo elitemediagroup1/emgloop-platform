@@ -7,8 +7,9 @@ name: CRM Outreach Import
 #   inventory      count what the source contains (counts here; the detail goes to the private review prefix). No database.
 #   record-config  record the reviewed creator aliases and route classifications (the actor must be OWNER/ADMIN).
 #   dry-run        plan the import and record the run and its entries. Writes NO canonical CRM record.
-# There is no mode that writes canonical CRM records: production import execution is not commissioned, the
-# command refuses it by name for the production target, and the import service refuses it on its own.
+#   approve        bind explicit human approval to one successful reviewed dry run. Writes approval provenance only.
+# There is no mode that writes canonical CRM records: production APPLY is not commissioned, the command
+# refuses it by name for the production target, and the import service refuses it on its own.
 #
 # NOTHING SENSITIVE IN AN INPUT. Inputs are object keys, SHA-256s, an organization slug, a member's user id,
 # the importer version and a confirmation phrase -- never an address, a number, a name, a title, a note or file
@@ -27,7 +28,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'validate | inventory | record-config | dry-run'
+        description: 'validate | inventory | record-config | dry-run | approve'
         required: true
         type: choice
         options:
@@ -35,6 +36,7 @@ on:
           - inventory
           - record-config
           - dry-run
+          - approve
       source_key:
         description: 'Private source object key, crm-import/source/<name>.csv. The name must not hold a run of 7+ digits (an ISO date is fine). Not needed for record-config.'
         required: false
@@ -55,7 +57,11 @@ on:
         description: 'Organization slug; must equal the environment variable CRM_IMPORT_ORGANIZATION_SLUG'
         required: true
       actor_user_id:
-        description: 'The Loop user id of the member the run acts as (record-config and dry-run). An id, never an email.'
+        description: 'The Loop user id of the member the run acts as (record-config, dry-run and approve). An id, never an email.'
+        required: false
+        default: ''
+      dry_run_id:
+        description: 'approve only: the successful reviewed dry-run id to bind to this approval'
         required: false
         default: ''
       replace_existing_config:
@@ -115,7 +121,7 @@ jobs:
           [ "$(trim "${PRODUCTION_ACCOUNT_ID_VAR}")" = "${PRODUCTION_ACCOUNT}" ] || fail "Refusing: CONNECTIONS_PRODUCTION_ACCOUNT_ID is not ${PRODUCTION_ACCOUNT}."
 
           mode="$(trim "$(input mode)")"
-          case "${mode}" in validate|inventory|record-config|dry-run) ;; *) fail "mode must be validate, inventory, record-config or dry-run." ;; esac
+          case "${mode}" in validate|inventory|record-config|dry-run|approve) ;; *) fail "mode must be validate, inventory, record-config, dry-run or approve." ;; esac
           organization="$(trim "$(input organization)")"
           [[ "${organization}" =~ ^[a-z0-9][a-z0-9-]{1,62}$ ]] || fail "organization must be a slug."
           [ -n "$(trim "${ORGANIZATION_VAR}")" ] || fail "Refusing: the environment variable CRM_IMPORT_ORGANIZATION_SLUG is not set."
@@ -131,6 +137,7 @@ jobs:
             validate|inventory) needs_source=true ;;
             record-config) needs_config=true; needs_db=true ;;
             dry-run) needs_source=true; needs_config=true; needs_db=true ;;
+            approve) needs_db=true ;;
           esac
           if ${needs_source}; then
             key="$(trim "$(input source_key)")"; sha="$(trim "$(input expected_source_sha256)")"
@@ -143,6 +150,11 @@ jobs:
             [[ "${key}" =~ ^crm-import/config/[A-Za-z0-9._-]{1,80}\.json$ ]] || fail "config_key must be crm-import/config/<name>.json."
             [[ "${sha}" =~ ^[0-9a-f]{64}$ ]] || fail "expected_config_sha256 must be 64 lowercase hex."
             envs+=("CONFIG_KEY=${key}" "EXPECTED_CONFIG_SHA256=${sha}")
+          fi
+          if [ "${mode}" = "approve" ]; then
+            dry_run_id="$(trim "$(input dry_run_id)")"
+            [[ "${dry_run_id}" =~ ^[A-Za-z0-9_-]{8,80}$ ]] || fail "dry_run_id must be a Loop import run id."
+            envs+=("DRY_RUN_ID=${dry_run_id}")
           fi
           if ${needs_db}; then
             actor="$(trim "$(input actor_user_id)")"
@@ -272,6 +284,8 @@ jobs:
               "${cli[@]}" "${record_args[@]}" | tee "${WORK}/out.jsonl" ;;
             dry-run)
               "${cli[@]}" dry-run --source "${WORK}/source.csv" --expected-sha256 "${EXPECTED_SOURCE_SHA256}" --config "${WORK}/config.json" --organization "${ORGANIZATION}" --actor-user-id "${ACTOR_USER_ID}" --importer-version "${IMPORTER_VERSION}" --source-ref "${SOURCE_REF}" --review-dir "${WORK}/review" | tee "${WORK}/out.jsonl" ;;
+            approve)
+              "${cli[@]}" approve --dry-run-id "${DRY_RUN_ID}" --organization "${ORGANIZATION}" --actor-user-id "${ACTOR_USER_ID}" --importer-version "${IMPORTER_VERSION}" | tee "${WORK}/out.jsonl" ;;
           esac
 
       - name: Put the review artifacts in the private review prefix (never a GitHub artifact)
