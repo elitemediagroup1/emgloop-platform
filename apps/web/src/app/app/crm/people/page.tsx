@@ -96,12 +96,12 @@ export default async function PeoplePage({ searchParams }: { searchParams?: CrmP
   const aiRows = result.rows
     .map((row) => ({ row, ai: result.intelligenceByParty.get(row.partyId) ?? null }))
     .filter((x) => x.ai !== null);
-  const aiReplyOverrides = aiRows.filter((x) => x.row.outreach.state === 'REPLIED_NEEDS_RESPONSE' && x.ai!.suggestion !== 'REPLY');
-  const aiDueTodayOverrides = aiReplyOverrides.filter((x) => x.row.outreach.nextAction.bucket === 'TODAY').length;
-  const aiOverdueOverrides = aiReplyOverrides.filter((x) => x.row.outreach.nextAction.bucket === 'OVERDUE').length;
-  const effectiveRepliesNeedingResponse = Math.max(0, summary.repliesNeedingResponse - aiReplyOverrides.length);
-  const effectiveDueToday = Math.max(0, summary.dueToday - aiDueTodayOverrides);
-  const effectiveOverdue = Math.max(0, summary.overdue - aiOverdueOverrides);
+  // Metadata can prove a reply exists, but not that an answer is owed. Only a human state or the
+  // governed body-aware reading may make that semantic suggestion. It is still a suggestion, never a write.
+  const aiRepliesNeedingResponse = aiRows.filter((x) => x.ai!.suggestion === 'REPLY').length;
+  const effectiveRepliesNeedingResponse = summary.repliesNeedingResponse + aiRepliesNeedingResponse;
+  const effectiveDueToday = summary.dueToday;
+  const effectiveOverdue = summary.overdue;
   const suggestionLabel = (s: string) =>
     s === 'REPLY' ? 'Reply' : s === 'WAIT' ? 'Waiting on them' : s === 'CIRCLE_BACK' ? 'Circle back' : s === 'REVIEW' ? 'Review' : 'No immediate action';
   const establish: ActionSpec = { label: '+ Establish person', href: IDENTITY_REVIEW_HREF };
@@ -151,7 +151,7 @@ export default async function PeoplePage({ searchParams }: { searchParams?: CrmP
           <>
             <p className="loop-panel__lead">
               {mailKnown
-                ? `${n(summary.awaitingReply)} awaiting reply · ${n(summary.repliesNeedingResponse)} replies currently look like they need a response · ${n(summary.overdue)} overdue by deterministic rules.`
+                ? `${n(summary.awaitingReply)} awaiting reply · ${n(summary.reviewRequired)} conversations need review · ${n(summary.overdue)} overdue by deterministic rules.`
                 : 'Connect and refresh Gmail to build the outreach picture.'}
             </p>
             <p className="loop-note">
@@ -366,14 +366,23 @@ export default async function PeoplePage({ searchParams }: { searchParams?: CrmP
                     <td data-label="Status">
                       {(() => {
                         const ai = result.intelligenceByParty.get(row.partyId) ?? null;
-                        const overrideReply = o.state === 'REPLIED_NEEDS_RESPONSE' && ai && ai.suggestion !== 'REPLY';
+                        const latestReplyNeedsReview = o.reviewReason === 'REPLY_CONTENT_UNKNOWN';
+                        const aiHasSemanticRead = latestReplyNeedsReview && ai !== null;
+                        const aiLabel =
+                          ai?.suggestion === 'REPLY'
+                            ? 'Replied — needs response'
+                            : ai?.suggestion === 'NONE'
+                              ? 'Replied — no immediate action'
+                              : ai
+                                ? `${suggestionLabel(ai.suggestion)} suggested`
+                                : null;
                         return (
                           <>
-                            <span className={`loop-pill loop-pill--${overrideReply ? 'info' : state.tone}`}>
-                              {overrideReply ? `${suggestionLabel(ai.suggestion)} suggested` : state.label}
+                            <span className={`loop-pill loop-pill--${ai?.suggestion === 'REPLY' ? 'attention' : aiHasSemanticRead ? 'info' : state.tone}`}>
+                              {aiHasSemanticRead ? aiLabel : state.label}
                             </span>
                             <div className="loop-table__muted" style={{ fontSize: 12 }}>
-                              {overrideReply ? 'AI interpretation · deterministic rule saw the latest reply' : basisText(o.basis)}
+                              {aiHasSemanticRead ? 'AI interpretation of your linked Gmail thread' : basisText(o.basis)}
                             </div>
                           </>
                         );
@@ -384,11 +393,13 @@ export default async function PeoplePage({ searchParams }: { searchParams?: CrmP
                     <td data-label="Next action">
                       {(() => {
                         const ai = result.intelligenceByParty.get(row.partyId) ?? null;
-                        const overrideReply = o.nextAction.kind === 'RESPOND' && ai && ai.suggestion !== 'REPLY';
-                        if (overrideReply) {
+                        const semanticReplyReview = o.reviewReason === 'REPLY_CONTENT_UNKNOWN' && ai;
+                        if (semanticReplyReview) {
                           return (
                             <>
-                              <span className="loop-table__strong">AI suggests: {suggestionLabel(ai.suggestion)}</span>
+                              <span className="loop-table__strong">
+                                {ai.suggestion === 'REPLY' ? 'Reply needed' : `AI suggests: ${suggestionLabel(ai.suggestion)}`}
+                              </span>
                               {ai.suggestionText ? <div className="loop-table__muted" style={{ fontSize: 12 }}>{ai.suggestionText}</div> : null}
                             </>
                           );
