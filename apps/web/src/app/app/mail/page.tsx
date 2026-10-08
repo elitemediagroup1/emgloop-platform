@@ -72,7 +72,8 @@ export default async function MailPage({ searchParams }: { searchParams?: Record
 
   // LOOP INTELLIGENCE (Phase D). The person's own MAIL reading -- the SAME stored digest Home's Mail tile
   // leads with -- and their own Mail-content consent. The consent is OFFERED only once the deployment
-  // names the recorded counterparty-consent decision (UNRESOLVED today); stopping is always offered.
+  // names the repository's exact recorded decision (docs/governance/mail-content-ai-2026-10-08.md);
+  // stopping is always offered.
   const governance = mailContentGovernance(process.env[MAIL_CONTENT_GOVERNANCE_ENV]);
   const [reading, consent] = await Promise.all([
     loadPrincipalReading(session, 'MAIL', { now: time.now, connectionLive: true }).catch(() => null),
