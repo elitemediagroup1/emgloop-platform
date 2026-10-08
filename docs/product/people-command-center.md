@@ -47,9 +47,10 @@ refreshes it.
 
 ## Possible new people
 
-**People → Possible new people** lists people you have emailed directly who are not in the CRM. It leaves
-out yourself, colleagues, no-reply and newsletter senders, and shared inboxes like info@ or support@. Each
-entry says why it surfaced.
+**People → Possible new people** lists people from qualifying direct exchanges who are not in the CRM.
+That includes legitimate human inbound-first contacts before you have replied. It leaves out yourself,
+colleagues, no-reply and newsletter senders, and shared inboxes like info@ or support@. Each entry says why
+it surfaced.
 
 - **Add to People** first shows exactly what will be created: one person, established by you, with that
   email. You confirm the name. No company, opportunity or relationship is created. If the address is
