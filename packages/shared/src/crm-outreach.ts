@@ -435,7 +435,7 @@ export type CrmReplyStatus =
   /** Mail cannot be read: no claim either way. */
   | 'UNKNOWN';
 
-export type CrmReviewReason = 'UNCERTAIN_INBOUND' | 'IMPORTED_HISTORY_ONLY';
+export type CrmReviewReason = 'REPLY_CONTENT_UNKNOWN' | 'UNCERTAIN_INBOUND' | 'IMPORTED_HISTORY_ONLY';
 
 export interface CrmOutreachDerivation {
   readonly version: typeof CRM_OUTREACH_CONTRACT_VERSION;
@@ -455,7 +455,8 @@ const latest = (xs: readonly Date[]): Date | null => xs.reduce<Date | null>((m, 
 
 /**
  * THE RESOLUTION ORDER (documented in the decision record, tested one rule at a time):
- *   1. a human reply newer than our last send and newer than any human-set state -> REPLIED_NEEDS_RESPONSE;
+ *   1. a human reply newer than our last send and newer than any human-set state -> REVIEW_REQUIRED
+ *      (REPLY_CONTENT_UNKNOWN). Metadata proves a reply happened; it cannot prove a response is owed.
  *   2. a human-set state -> that state (cadence stops: a person is steering);
  *   3. an UNCERTAIN inbound newer than our last send -> REVIEW_REQUIRED (UNCERTAIN_INBOUND);
  *   4. an upcoming meeting on the viewer's calendar -> MEETING_SCHEDULED (basis CALENDAR);
@@ -492,12 +493,10 @@ export function deriveCrmOutreach(input: CrmOutreachInput): CrmOutreachDerivatio
 
   const replyStatus: CrmReplyStatus = !mailKnown
     ? 'UNKNOWN'
-    : lastReply && (!lastSend || lastReply > lastSend)
-      ? 'AWAITING_OUR_RESPONSE'
-      : lastReply
-        ? 'REPLIED'
-        : // True through the last completed read, fresh or stale; the reader is told which, with its time.
-          'NO_REPLY_OBSERVED';
+    : lastReply
+      ? 'REPLIED'
+      : // True through the last completed read, fresh or stale; the reader is told which, with its time.
+        'NO_REPLY_OBSERVED';
 
   const bucket = (at: Date | null) => crmDueBucket(at, input.now, input.timeZone);
   const humanNext = (): CrmNextAction | null =>
@@ -518,9 +517,16 @@ export function deriveCrmOutreach(input: CrmOutreachInput): CrmOutreachDerivatio
     nextAction,
   });
 
-  // 1. Their word is the latest, and newer than anything a person decided.
+  // 1. Their word is the latest, and newer than anything a person decided. Headers prove a reply,
+  // not whether it asks us to do anything. Keep that semantic question open until a person or the
+  // governed body-aware Mail reading interprets it.
   if (lastReply && (!lastSend || lastReply > lastSend) && (!humanSetAt || lastReply > humanSetAt)) {
-    return out('REPLIED_NEEDS_RESPONSE', 'GMAIL', humanNext() ?? { kind: 'RESPOND', label: 'Reply needs a response', dueAt: lastReply, bucket: bucket(lastReply) });
+    return out(
+      'REVIEW_REQUIRED',
+      'GMAIL',
+      humanNext() ?? { kind: 'REVIEW', label: 'Review latest reply', dueAt: null, bucket: 'NONE' },
+      'REPLY_CONTENT_UNKNOWN',
+    );
   }
   // 2. A person is steering.
   if (humanState) {
