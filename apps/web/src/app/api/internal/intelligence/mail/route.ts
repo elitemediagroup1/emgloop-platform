@@ -39,6 +39,83 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 const MAIL_PRODUCERS = new Set(['mail.thread@1', 'mail.domain@1']);
+const CRM_PROMOTION_LIMIT = 150;
+const CRM_PROMOTION_WINDOW_MS = 45 * 24 * 60 * 60 * 1000;
+const CRM_PROMOTION_NOT_BEFORE = new Date(0);
+
+async function promoteUncoveredCrmThreads(
+  queue: IntelligenceRefreshQueueRepository,
+  crmMailPriority: CrmMailPriorityService,
+  at: Date,
+): Promise<number> {
+  const principals = await prisma.sourceContentAuthorization.findMany({
+    where: { provider: 'GMAIL', revokedAt: null },
+    select: { organizationId: true, userId: true },
+    take: 500,
+  });
+  let promoted = 0;
+  const since = new Date(at.getTime() - CRM_PROMOTION_WINDOW_MS);
+
+  for (const principal of principals) {
+    if (promoted >= CRM_PROMOTION_LIMIT) break;
+
+    const providerThreadIds = await crmMailPriority.recentThreadIds(principal, {
+      since,
+      limit: CRM_PROMOTION_LIMIT - promoted,
+    });
+    if (providerThreadIds.length === 0) continue;
+
+    const threads = await prisma.workThread.findMany({
+      where: { ...principal, threadId: { in: providerThreadIds }, lastMessageAt: { gte: since } },
+      select: { id: true },
+      take: CRM_PROMOTION_LIMIT - promoted,
+    });
+    if (threads.length === 0) continue;
+
+    const refs = threads.map((thread) => `work_thread:${thread.id}`);
+    const current = await prisma.intelligenceDigest.findMany({
+      where: {
+        ...principal,
+        scope: 'PRINCIPAL',
+        domain: 'MAIL',
+        subjectKind: 'THREAD',
+        subjectRef: { in: refs },
+        status: 'CURRENT',
+        expiresAt: { gt: at },
+      },
+      select: { subjectRef: true },
+    });
+    const covered = new Set(current.map((row) => row.subjectRef));
+
+    for (const thread of threads) {
+      if (promoted >= CRM_PROMOTION_LIMIT) break;
+      const subjectRef = `work_thread:${thread.id}`;
+      if (covered.has(subjectRef)) continue;
+
+      const outcome = await queue.enqueue(
+        {
+          scope: 'PRINCIPAL',
+          organizationId: principal.organizationId,
+          userId: principal.userId,
+          domain: 'MAIL',
+          subjectKind: 'THREAD',
+          subjectRef,
+        },
+        {
+          reason: 'SCHEDULED',
+          // The queue orders due work by notBefore. Backdating ONLY CRM-linked threads that have no
+          // current digest moves initial CRM coverage ahead of the legacy general-Mail backlog without
+          // deleting or mutating that backlog. Once a digest exists, this promotion no longer applies.
+          notBefore: CRM_PROMOTION_NOT_BEFORE,
+        },
+        at,
+      );
+      if (outcome.outcome !== 'REFUSED') promoted += 1;
+    }
+  }
+
+  return promoted;
+}
 
 function secretMatches(provided: string, expected: string): boolean {
   const a = Buffer.from(provided, 'utf8');
@@ -59,6 +136,12 @@ export async function POST(request: Request): Promise<Response> {
   const activated = env.activation.enabled ? env.activation.tasks : [];
   const now = () => new Date();
   const crmMailPriority = new CrmMailPriorityService(prisma);
+  const queue = new IntelligenceRefreshQueueRepository(prisma);
+  const promotionAt = now();
+  const promoted = active.includes('mail.thread@1')
+    ? await promoteUncoveredCrmThreads(queue, crmMailPriority, promotionAt)
+    : 0;
+
   const producers = loopProducers({
     prisma,
     work: repositories.work,
@@ -76,7 +159,7 @@ export async function POST(request: Request): Promise<Response> {
   const report = await runIntelligencePass(
     {
       registry: new IntelligenceProducerRegistry(producers, active),
-      queue: new IntelligenceRefreshQueueRepository(prisma),
+      queue,
       digests: new IntelligenceDigestRepository(prisma),
       leaseOwner: 'web:mail-intelligence',
       now,
@@ -85,5 +168,5 @@ export async function POST(request: Request): Promise<Response> {
     // What does not fit remains queued for the next scheduled pass.
     { limit: 2, leaseMs: 2 * 60 * 1000, maxAttempts: 4, discoverLimit: 200 },
   );
-  return NextResponse.json({ ok: true, active: report.activeProducers, discovered: report.discovered, enqueued: report.enqueued, refused: report.refused, cycle: report.cycle });
+  return NextResponse.json({ ok: true, active: report.activeProducers, promoted, discovered: report.discovered, enqueued: report.enqueued, refused: report.refused, cycle: report.cycle });
 }
