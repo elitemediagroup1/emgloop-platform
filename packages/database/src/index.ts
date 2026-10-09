@@ -997,6 +997,7 @@ export { CrmOutreachRepository } from './crm-outreach/crm-outreach.repository';
 export type { CrmContextFactRecord, CrmContextFactInput, CrmOutreachStateRecord, CrmOutreachEventRecord } from './crm-outreach/crm-outreach.repository';
 export type { CrmOutreachActor } from './crm-outreach/crm-outreach-access';
 export { CrmPeopleCommandService } from './crm-outreach/crm-people-command.service';
+export { CrmMailPriorityService } from './crm-outreach/crm-mail-priority.service';
 export type {
   CrmViewerSources,
   CrmViewerMailStatus,

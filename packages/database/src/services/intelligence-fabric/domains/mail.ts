@@ -49,6 +49,8 @@ export interface MailProducerPorts {
   /** The governed Gmail read-through: the person's OWN thread, bodies transient. Null when unreadable. */
   readonly readThread: (principal: { organizationId: string; userId: string }, loopThreadId: string) => Promise<MailThreadRead | null>;
   readonly triage: Pick<MailContentTriageService, 'triage'> | null;
+  /** CRM-owned priority projection: opaque provider thread ids only; no Contact Point data crosses here. */
+  readonly prioritizedThreadIds?: (principal: { organizationId: string; userId: string }, since: Date, limit: number) => Promise<readonly string[]>;
   readonly modelEnabled: (taskId: string) => boolean;
   readonly now: () => Date;
 }
@@ -58,7 +60,8 @@ export interface MailProducerPorts {
 // before People could consume their private digest. Keep discovery bounded, but wide enough for the CRM
 // operating horizon; unchanged fingerprints still prevent repeat Gmail/model work and runtime budgets cap spend.
 const RECENT_DAYS = 45;
-const THREADS_PER_PERSON = 100;
+const GENERAL_THREADS_PER_PERSON = 100;
+const THREADS_PER_PERSON = 150;
 const DAY = 24 * 60 * 60 * 1000;
 
 interface ThreadContext {
@@ -79,6 +82,7 @@ async function authorizedPeople(prisma: PrismaClient): Promise<{ organizationId:
   return prisma.sourceContentAuthorization.findMany({ where: { provider: 'GMAIL', revokedAt: null }, select: { organizationId: true, userId: true }, take: 500 });
 }
 
+
 export function mailThreadProducer(ports: MailProducerPorts): IntelligenceProducer<ThreadContext> {
   const governance = mailContentGovernance(ports.governanceDecision);
   return {
@@ -92,12 +96,34 @@ export function mailThreadProducer(ports: MailProducerPorts): IntelligenceProduc
       if (governance.state !== 'DECIDED') return [];
       const out: IntelligenceRefreshTarget[] = [];
       for (const p of await authorizedPeople(ports.prisma)) {
-        const threads = await ports.prisma.workThread.findMany({
-          where: { ...p, lastMessageAt: { gte: new Date(now.getTime() - RECENT_DAYS * DAY) } },
-          orderBy: { lastMessageAt: 'desc' },
-          take: THREADS_PER_PERSON,
-          select: { id: true },
-        });
+        const cutoff = new Date(now.getTime() - RECENT_DAYS * DAY);
+        const [priorityProviderThreadIds, recent] = await Promise.all([
+          ports.prioritizedThreadIds?.(p, cutoff, THREADS_PER_PERSON) ?? Promise.resolve([]),
+          ports.prisma.workThread.findMany({
+            where: { ...p, lastMessageAt: { gte: cutoff } },
+            orderBy: { lastMessageAt: 'desc' },
+            take: GENERAL_THREADS_PER_PERSON,
+            select: { id: true, threadId: true, lastMessageAt: true },
+          }),
+        ]);
+        const priority = priorityProviderThreadIds.length === 0
+          ? []
+          : await ports.prisma.workThread.findMany({
+              where: { ...p, threadId: { in: [...priorityProviderThreadIds] }, lastMessageAt: { gte: cutoff } },
+              orderBy: { lastMessageAt: 'desc' },
+              take: THREADS_PER_PERSON,
+              select: { id: true, threadId: true, lastMessageAt: true },
+            });
+
+        // CRM supplies only opaque provider thread ids. The producer owns the WorkThread lookup and
+        // prioritization; ordinary recent mailbox threads fill the remaining bounded slots.
+        const seen = new Set<string>();
+        const threads = [...priority, ...recent].filter((t) => {
+          if (seen.has(t.id)) return false;
+          seen.add(t.id);
+          return true;
+        }).slice(0, THREADS_PER_PERSON);
+
         for (const t of threads) out.push({ scope: 'PRINCIPAL', organizationId: p.organizationId, userId: p.userId, domain: 'MAIL', subjectKind: 'THREAD', subjectRef: `work_thread:${t.id}` });
       }
       return out;
