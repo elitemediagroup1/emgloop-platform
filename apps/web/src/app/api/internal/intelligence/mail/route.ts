@@ -18,6 +18,7 @@
 import { NextResponse } from 'next/server';
 import { timingSafeEqual } from 'crypto';
 import {
+  CrmMailPriorityService,
   DomainReadingService,
   IntelligenceDigestRepository,
   IntelligenceProducerRegistry,
@@ -57,6 +58,7 @@ export async function POST(request: Request): Promise<Response> {
   const { env, gateway } = governedGateway();
   const activated = env.activation.enabled ? env.activation.tasks : [];
   const now = () => new Date();
+  const crmMailPriority = new CrmMailPriorityService(prisma);
   const producers = loopProducers({
     prisma,
     work: repositories.work,
@@ -68,6 +70,7 @@ export async function POST(request: Request): Promise<Response> {
       governanceDecision: process.env.LOOP_MAIL_CONTENT_GOVERNANCE_DECISION ?? null,
       readThread: gmailMailReadThrough(prisma, GMAIL_CONFIG()),
       triage: new MailContentTriageService(gateway),
+      prioritizedThreadIds: (principal, since, limit) => crmMailPriority.recentThreadIds(principal, { since, limit }),
     },
   });
   const report = await runIntelligencePass(
