@@ -29,8 +29,6 @@ import {
 } from '@emgloop/shared';
 
 import { IntelligenceDigestRepository, type IntelligenceDigestInput } from '../../../repositories/intelligence/intelligence-digest.repository';
-import { CrmContactPointRepository } from '../../../repositories/crm-contact-point.repository';
-import { linkCorrespondents } from '../../../crm-outreach/crm-outreach-mail-link';
 import type { IntelligenceRefreshTarget } from '../../../repositories/intelligence/intelligence-refresh-queue.repository';
 import type { MailContentTriageService } from '../../ai-runtime/mail-content-triage.service';
 import type { MailTriageMessage } from '../../ai-runtime/mail-content-triage-context';
@@ -51,6 +49,8 @@ export interface MailProducerPorts {
   /** The governed Gmail read-through: the person's OWN thread, bodies transient. Null when unreadable. */
   readonly readThread: (principal: { organizationId: string; userId: string }, loopThreadId: string) => Promise<MailThreadRead | null>;
   readonly triage: Pick<MailContentTriageService, 'triage'> | null;
+  /** CRM-owned priority projection: opaque provider thread ids only; no Contact Point data crosses here. */
+  readonly prioritizedThreadIds?: (principal: { organizationId: string; userId: string }, since: Date, limit: number) => Promise<readonly string[]>;
   readonly modelEnabled: (taskId: string) => boolean;
   readonly now: () => Date;
 }
@@ -62,7 +62,6 @@ export interface MailProducerPorts {
 const RECENT_DAYS = 45;
 const GENERAL_THREADS_PER_PERSON = 100;
 const THREADS_PER_PERSON = 150;
-const CRM_LINK_SCAN_LIMIT = 5_000;
 const DAY = 24 * 60 * 60 * 1000;
 
 interface ThreadContext {
@@ -84,64 +83,6 @@ async function authorizedPeople(prisma: PrismaClient): Promise<{ organizationId:
 }
 
 
-/**
- * CRM-linked outreach gets first claim on the bounded Mail discovery window.
- *
- * The original discovery selected only the newest mailbox threads. A busy mailbox can therefore fill
- * all 100 slots with unrelated mail and permanently exclude an older, still-live CRM conversation
- * (the Crumbl/Tayler production counterexample exposed this). This helper uses the SAME exact Contact
- * Point hash linkage as People: no names, domains, fuzzy matching or model attribution. It reads only
- * the viewer's own stored correspondent/message metadata and returns Loop WorkThread ids; no address
- * or message body is persisted or logged.
- *
- * Missing delegates (unit fakes / pre-migration deploys) fail empty and ordinary recent discovery
- * continues unchanged.
- */
-async function crmLinkedRecentThreads(
-  prisma: PrismaClient,
-  principal: { organizationId: string; userId: string },
-  cutoff: Date,
-): Promise<{ id: string; lastMessageAt: Date | null }[]> {
-  const delegates = prisma as unknown as { workCorrespondent?: unknown; workMessage?: unknown; crmContactPoint?: unknown };
-  if (!delegates.workCorrespondent || !delegates.workMessage || !delegates.crmContactPoint) return [];
-
-  const [index, correspondents] = await Promise.all([
-    new CrmContactPointRepository(prisma).matchIndex(principal.organizationId, ['EMAIL']),
-    prisma.workCorrespondent.findMany({
-      where: principal,
-      select: { addressHash: true, displayAddress: true },
-      take: CRM_LINK_SCAN_LIMIT,
-    }),
-  ]);
-  if (index.length === 0 || correspondents.length === 0) return [];
-
-  const links = linkCorrespondents(principal.organizationId, correspondents, index);
-  const personHashes = [...links.byCorrespondent.entries()]
-    .filter(([, link]) => link.kind === 'PERSON')
-    .map(([hash]) => hash);
-  if (personHashes.length === 0) return [];
-
-  const messages = await prisma.workMessage.findMany({
-    where: {
-      ...principal,
-      internalDate: { gte: cutoff },
-      OR: [{ fromHash: { in: personHashes } }, { toHashes: { hasSome: personHashes } }, { ccHashes: { hasSome: personHashes } }],
-    },
-    select: { threadId: true, internalDate: true },
-    orderBy: [{ internalDate: 'desc' }, { messageId: 'desc' }],
-    take: CRM_LINK_SCAN_LIMIT,
-  });
-  const providerThreadIds = [...new Set(messages.map((m) => m.threadId))].slice(0, THREADS_PER_PERSON);
-  if (providerThreadIds.length === 0) return [];
-
-  return prisma.workThread.findMany({
-    where: { ...principal, threadId: { in: providerThreadIds }, lastMessageAt: { gte: cutoff } },
-    orderBy: { lastMessageAt: 'desc' },
-    take: THREADS_PER_PERSON,
-    select: { id: true, lastMessageAt: true },
-  });
-}
-
 export function mailThreadProducer(ports: MailProducerPorts): IntelligenceProducer<ThreadContext> {
   const governance = mailContentGovernance(ports.governanceDecision);
   return {
@@ -156,20 +97,28 @@ export function mailThreadProducer(ports: MailProducerPorts): IntelligenceProduc
       const out: IntelligenceRefreshTarget[] = [];
       for (const p of await authorizedPeople(ports.prisma)) {
         const cutoff = new Date(now.getTime() - RECENT_DAYS * DAY);
-        const [crmLinked, recent] = await Promise.all([
-          crmLinkedRecentThreads(ports.prisma, p, cutoff),
+        const [priorityProviderThreadIds, recent] = await Promise.all([
+          ports.prioritizedThreadIds?.(p, cutoff, THREADS_PER_PERSON) ?? Promise.resolve([]),
           ports.prisma.workThread.findMany({
             where: { ...p, lastMessageAt: { gte: cutoff } },
             orderBy: { lastMessageAt: 'desc' },
             take: GENERAL_THREADS_PER_PERSON,
-            select: { id: true, lastMessageAt: true },
+            select: { id: true, threadId: true, lastMessageAt: true },
           }),
         ]);
+        const priority = priorityProviderThreadIds.length === 0
+          ? []
+          : await ports.prisma.workThread.findMany({
+              where: { ...p, threadId: { in: [...priorityProviderThreadIds] }, lastMessageAt: { gte: cutoff } },
+              orderBy: { lastMessageAt: 'desc' },
+              take: THREADS_PER_PERSON,
+              select: { id: true, threadId: true, lastMessageAt: true },
+            });
 
-        // Exact CRM-linked conversations first, then ordinary recent mailbox threads. Keep one target
-        // per WorkThread and one bounded total per person.
+        // CRM supplies only opaque provider thread ids. The producer owns the WorkThread lookup and
+        // prioritization; ordinary recent mailbox threads fill the remaining bounded slots.
         const seen = new Set<string>();
-        const threads = [...crmLinked, ...recent].filter((t) => {
+        const threads = [...priority, ...recent].filter((t) => {
           if (seen.has(t.id)) return false;
           seen.add(t.id);
           return true;
