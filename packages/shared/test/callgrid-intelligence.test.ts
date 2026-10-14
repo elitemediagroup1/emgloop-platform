@@ -255,7 +255,7 @@ test('a margin concern is withheld when profit coverage cannot support it', () =
   assert.ok(supported.findings.some((f) => f.findingType === 'MARGIN'));
 });
 
-test('billable efficiency is never described as call quality', () => {
+test('monetized efficiency is never described as call quality', () => {
   const result = analyzeCallGrid(input({
     metrics: metrics({ totalCalls: 400, billableCalls: 100 }),
     comparison: metrics({ totalCalls: 400, billableCalls: 200 }),
@@ -266,7 +266,7 @@ test('billable efficiency is never described as call quality', () => {
   assert.ok(eff!.limitations.some((l) => /not a measure of call quality/i.test(l)));
 });
 
-test('billable efficiency is suppressed on a small sample', () => {
+test('monetized efficiency is suppressed on a small sample', () => {
   const result = analyzeCallGrid(input({
     metrics: metrics({ totalCalls: 20, billableCalls: 5 }),
     comparison: metrics({ totalCalls: 20, billableCalls: 15 }),

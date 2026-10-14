@@ -9,6 +9,11 @@ _Last updated: 2026-10-08 (CRM People command center built, PRs open, nothing co
 
 ---
 
+## CallGrid coverage repair — PREPARED, not deployed (2026-10-14)
+
+Audit isolated October 13's 98-call/$275.64 discrepancy to five campaign groups absent from Loop. The scheduled poll job was a green no-op because its organization configuration was unset. Branch `fix/callgrid-coverage-truth` makes that condition fail visibly, shows checkpoint coverage separately from delivery freshness, and labels the derived commercial outcome count Monetized throughout current reporting and new intelligence. No ingestion rewrite or migration. Production polling activation, upstream campaign-scope verification, call-ID reconciliation, and bounded historical recovery remain required; see `docs/validation/callgrid-coverage-repair.md`. No production totals have been certified or repaired by this branch.
+
+
 ## How to read this
 Each workstream is either **DONE (merged)**, **IN REVIEW (open PR)**, or **NOT BUILT**.
 "NOT BUILT" surfaces show honest "Not Configured / unavailable" states — never fake data.

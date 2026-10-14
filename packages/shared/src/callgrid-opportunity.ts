@@ -64,7 +64,7 @@ export const OPPORTUNITY_SIGNIFICANCE_RULES: readonly SignificanceRule[] = [
     ruleId: 'opportunity-efficiency-gap',
     version: OPPORTUNITY_RULE_VERSION,
     metric: 'billableRate',
-    minimumDataRequirements: 'A source with at least 30 calls and a known period-wide billable rate.',
+    minimumDataRequirements: 'A source with at least 30 calls and a known period-wide monetized rate.',
     absoluteThreshold: null,
     percentageThreshold: EFFICIENCY_GAP,
     minimumVolume: 30,
@@ -72,7 +72,7 @@ export const OPPORTUNITY_SIGNIFICANCE_RULES: readonly SignificanceRule[] = [
     severityLogic: 'NOTABLE always — an efficiency gap is a question, not a verdict.',
     suppressionConditions: [
       'Fewer than 30 calls, where a rate is noise.',
-      'The period-wide billable rate is unknown.',
+      'The period-wide monetized rate is unknown.',
     ],
     explanation: 'A source converting far below the period average is the clearest measurable gap in the data. Whether it can be closed depends on traffic mix, which is not exposed.',
   },
@@ -93,13 +93,13 @@ export const OPPORTUNITY_SIGNIFICANCE_RULES: readonly SignificanceRule[] = [
     ruleId: 'opportunity-value-improving',
     version: OPPORTUNITY_RULE_VERSION,
     metric: 'revenuePerBillableCall',
-    minimumDataRequirements: 'Known revenue and billable calls for the entity in both the selected and comparison periods.',
+    minimumDataRequirements: 'Known revenue and monetized calls for the entity in both the selected and comparison periods.',
     absoluteThreshold: MONEY_FLOOR,
     percentageThreshold: 0.15,
     minimumVolume: 10,
     baselineWindow: 'comparison_window',
     severityLogic: 'INFORMATIONAL — improving value is good news and must not outrank a problem.',
-    suppressionConditions: ['Either period lacks billable calls.', 'Revenue unknown in either period.'],
+    suppressionConditions: ['Either period lacks monetized calls.', 'Revenue unknown in either period.'],
     explanation: 'An entity whose value per call is rising while volume holds is worth understanding before anything is changed elsewhere.',
   },
 ];
@@ -225,7 +225,7 @@ function diversificationOpportunity(
           metricKey: 'revenue', entityType: noun.entity, entityId: top.key, entityName: top.label,
           window: input.windowLabel, normalizedValue: top.revenueCents,
           classification: 'VERIFIED', completeness: input.revenueCoverage,
-          notes: `${top.calls} calls, ${top.monetized} billable.`,
+          notes: `${top.calls} calls, ${top.monetized} monetized.`,
         },
         {
           metricKey: 'revenueShare', entityType: noun.entity, entityId: top.key, entityName: top.label,
@@ -303,9 +303,9 @@ function efficiencyGapOpportunity(input: OpportunityInput): Opportunity | null {
       findingType: 'OPPORTUNITY',
       title: `${worst.row.label} converts well below the period average`,
       plainLanguageSummary:
-        `${worst.row.label} sent ${worst.row.calls.toLocaleString('en-US')} calls and ${worst.row.monetized.toLocaleString('en-US')} were billable ` +
+        `${worst.row.label} sent ${worst.row.calls.toLocaleString('en-US')} calls and ${worst.row.monetized.toLocaleString('en-US')} were monetized ` +
         `(${Math.round(worst.rate * 100)}%), against a period-wide rate of ${Math.round(periodRate * 100)}%. ` +
-        `At the period rate that same volume corresponds to ${impliedBillable.toLocaleString('en-US')} billable calls — an arithmetic difference of ` +
+        `At the period rate that same volume corresponds to ${impliedBillable.toLocaleString('en-US')} monetized calls — an arithmetic difference of ` +
         `${shortfallCalls.toLocaleString('en-US')}. This is a gap in the numbers, not a promise: traffic from different sources is not necessarily interchangeable.`,
       classification: 'DERIVED',
       severity: 'NOTABLE',
@@ -318,19 +318,19 @@ function efficiencyGapOpportunity(input: OpportunityInput): Opportunity | null {
         {
           metricKey: 'billableRate', entityType: 'source', entityId: worst.row.key, entityName: worst.row.label,
           window: input.windowLabel, derivedValue: Math.round(worst.rate * 1000) / 1000,
-          formula: 'billable calls / total calls, for this source',
+          formula: 'monetized calls / total calls, for this source',
           formulaVersion: OPPORTUNITY_RULE_VERSION, classification: 'DERIVED',
         },
         {
           metricKey: 'billableRate', entityType: 'window', window: input.windowLabel,
           derivedValue: Math.round(periodRate * 1000) / 1000,
-          formula: 'billable calls / total calls, across the period',
+          formula: 'monetized calls / total calls, across the period',
           formulaVersion: OPPORTUNITY_RULE_VERSION, classification: 'DERIVED',
           notes: 'The benchmark is the period itself, not an external target.',
         },
       ],
       limitations: [
-        'Billable rate is an efficiency measure. CallGrid exposes nothing that would make it a measure of call quality.',
+        'Monetized rate is an efficiency measure. CallGrid exposes nothing that would make it a measure of call quality.',
         'The implied figure applies the period average to this source\'s volume. It is arithmetic, not a projection.',
         ...liveLimitation(input),
       ],
@@ -352,7 +352,7 @@ function efficiencyGapOpportunity(input: OpportunityInput): Opportunity | null {
     finding,
     estimatedImpactCents: gapCents,
     impactBasis: gapCents === null ? 'none' : 'measured_gap',
-    impactLabel: `Arithmetic gap at the period's own billable rate`,
+    impactLabel: `Arithmetic gap at the period's own monetized rate`,
     lever: 'Source traffic allocation',
   };
 }
@@ -457,11 +457,11 @@ function valueImprovingOpportunity(
       {
         id: `opportunity-value-${dim}-${row.key}`,
         findingType: 'OPPORTUNITY',
-        title: `${row.label} is producing more value per billable call`,
+        title: `${row.label} is producing more value per monetized call`,
         plainLanguageSummary:
-          `${row.label} earned ${money(Math.round(now))} per billable call this period against ${money(Math.round(before))} in ` +
+          `${row.label} earned ${money(Math.round(now))} per monetized call this period against ${money(Math.round(before))} in ` +
           `${(input.comparisonLabel ?? 'the comparison period').toLowerCase()}, a rise of ${Math.round(lift * 100)}% on ` +
-          `${row.monetized.toLocaleString('en-US')} billable calls. The value side improved rather than the volume side.`,
+          `${row.monetized.toLocaleString('en-US')} monetized calls. The value side improved rather than the volume side.`,
         classification: 'DERIVED',
         severity: 'INFORMATIONAL',
         confidence: deriveConfidence(input.revenueCoverage, row.monetized, 10),
@@ -475,18 +475,18 @@ function valueImprovingOpportunity(
           {
             metricKey: 'revenuePerBillableCall', entityType: noun.entity, entityId: row.key, entityName: row.label,
             window: input.windowLabel, derivedValue: Math.round(now),
-            formula: 'entity revenue / entity billable calls',
+            formula: 'entity revenue / entity monetized calls',
             formulaVersion: OPPORTUNITY_RULE_VERSION, classification: 'DERIVED',
           },
           {
             metricKey: 'revenuePerBillableCall', entityType: noun.entity, entityId: row.key, entityName: row.label,
             window: input.comparisonLabel ?? 'the comparison period', derivedValue: Math.round(before),
-            formula: 'entity revenue / entity billable calls',
+            formula: 'entity revenue / entity monetized calls',
             formulaVersion: OPPORTUNITY_RULE_VERSION, classification: 'DERIVED',
           },
         ],
         limitations: [
-          'Both periods must carry revenue and billable counts for this entity; entities missing either are skipped.',
+          'Both periods must carry revenue and monetized counts for this entity; entities missing either are skipped.',
           ...liveLimitation(input),
         ],
         unknowns: [

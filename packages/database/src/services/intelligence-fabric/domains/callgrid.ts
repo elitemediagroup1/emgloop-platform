@@ -61,7 +61,7 @@ export function callgridRule(ctx: CallsContext, now: Date): RuleReading {
   const signals: IntelligenceSignal[] = [];
   const limitations: string[] = [];
   signals.push({ key: 'calls', kind: 'OPERATIONAL', knowledge: 'MEASURED', statement: `${plural(c.calls, 'call')} in the last ${WINDOW_DAYS} days.`, evidenceRefs: [WINDOW_REF], metric: { name: 'calls', value: c.calls, unit: 'count' }, asOf });
-  signals.push({ key: 'billable', kind: 'OPERATIONAL', knowledge: 'MEASURED', statement: `${plural(c.monetized, 'billable call')}.`, evidenceRefs: [WINDOW_REF], metric: { name: 'billable_calls', value: c.monetized, unit: 'count' }, asOf });
+  signals.push({ key: 'billable', kind: 'OPERATIONAL', knowledge: 'MEASURED', statement: `${plural(c.monetized, 'monetized call')}.`, evidenceRefs: [WINDOW_REF], metric: { name: 'monetized_calls', value: c.monetized, unit: 'count' }, asOf });
   if (c.callsWithRevenue > 0) {
     const partial = c.callsWithRevenue < c.calls;
     signals.push({ key: 'revenue', kind: 'OPERATIONAL', knowledge: 'MEASURED', statement: `${money(c.revenueCents)} reported revenue${partial ? ` on ${plural(c.callsWithRevenue, 'call')} that reported it (a lower bound)` : ''}.`, evidenceRefs: [WINDOW_REF], metric: { name: 'revenue', value: c.revenueCents, unit: 'minor_currency' }, asOf, confidence: partial ? 'MEDIUM' : 'HIGH' });
@@ -100,7 +100,7 @@ export function callgridRule(ctx: CallsContext, now: Date): RuleReading {
   const watch = signals.some((s) => s.kind === 'RISK' || s.kind === 'QUIET');
   const change = signals.find((s) => s.key === 'calls-change');
   return {
-    statement: c.calls === 0 ? `No calls in the last ${WINDOW_DAYS} days.` : `${plural(c.calls, 'call')} in the last ${WINDOW_DAYS} days, ${c.monetized} billable${c.callsWithRevenue > 0 ? `, ${money(c.revenueCents)} reported revenue` : ''}${change ? `; ${change.statement.charAt(0).toLowerCase()}${change.statement.slice(1, -1)}` : ''}.`,
+    statement: c.calls === 0 ? `No calls in the last ${WINDOW_DAYS} days.` : `${plural(c.calls, 'call')} in the last ${WINDOW_DAYS} days, ${c.monetized} monetized${c.callsWithRevenue > 0 ? `, ${money(c.revenueCents)} reported revenue` : ''}${change ? `; ${change.statement.charAt(0).toLowerCase()}${change.statement.slice(1, -1)}` : ''}.`,
     status: attention ? 'ATTENTION' : watch ? 'WATCH' : 'CALM',
     confidence: ctx.prior ? 'HIGH' : 'MEDIUM',
     signals,
@@ -178,11 +178,11 @@ export function campaignsRule(ctx: CallsContext, now: Date): RuleReading {
     const ref = memberRef('campaign', r.key);
     if (!ref) continue;
     name(ref);
-    signals.push({ key: campaignSignalKey('unsold', r.key, ref, false), kind: 'RISK', knowledge: 'OBSERVED', statement: `A campaign carried ${r.calls} calls and none were billable.`, entities: [ref], evidenceRefs: [WINDOW_REF], severity: 'HIGH', asOf });
+    signals.push({ key: campaignSignalKey('unsold', r.key, ref, false), kind: 'RISK', knowledge: 'OBSERVED', statement: `A campaign carried ${r.calls} calls and none were monetized.`, entities: [ref], evidenceRefs: [WINDOW_REF], severity: 'HIGH', asOf });
   }
   const high = signals.filter((s) => s.severity === 'HIGH').length;
   return {
-    statement: current.length === 0 ? `No campaign carried calls in the last ${WINDOW_DAYS} days.` : `${plural(current.length, 'campaign')} active${moves.length ? `; ${plural(Math.min(moves.length, 6), 'campaign')} moved sharply against the week before` : ''}${unsold.length ? `; ${plural(unsold.length, 'campaign')} with no billable calls` : ''}.`,
+    statement: current.length === 0 ? `No campaign carried calls in the last ${WINDOW_DAYS} days.` : `${plural(current.length, 'campaign')} active${moves.length ? `; ${plural(Math.min(moves.length, 6), 'campaign')} moved sharply against the week before` : ''}${unsold.length ? `; ${plural(unsold.length, 'campaign')} with no monetized calls` : ''}.`,
     status: high > 0 ? 'ATTENTION' : moves.length > 0 ? 'WATCH' : 'CALM',
     confidence: ctx.prior ? 'HIGH' : 'MEDIUM',
     signals: signals.slice(0, 12),
@@ -207,7 +207,7 @@ function callsSpec(calls: CallsPort, domain: 'CALLGRID' | 'CAMPAIGNS') {
   return {
     domain,
     scope: 'ORGANIZATION' as const,
-    version: '1',
+    version: '2',
     provider: null,
     consentBasis: 'LOOP_RECORDS' as const,
     async discover(now: Date) {

@@ -219,7 +219,7 @@ function breadthSignal(
   const score = Math.max(0, Math.min(1, productive / healthyCount));
   return {
     id, label, score, weight, available: true,
-    measurement: `${productive} of ${rows.length} observed ${noun} produced revenue or a billable call.`,
+    measurement: `${productive} of ${rows.length} observed ${noun} produced revenue or a monetized call.`,
     interpretation: productive <= 1
       ? `The business ran on a single active ${noun.replace(/s$/, '')} this period — there is nothing to absorb a change in it.`
       : productive < healthyCount
@@ -231,16 +231,16 @@ function breadthSignal(
 /** Billable efficiency — how much observed traffic converts. Efficiency, never "quality". */
 function billableEfficiencySignal(weight: number, billable: number | null, total: number | null): HealthSignal {
   if (billable === null || total === null || total <= 0) {
-    return ABSENT_SIGNAL('billable-efficiency', 'Billable efficiency', weight,
-      'Call volume or billable count was not reported for this period.');
+    return ABSENT_SIGNAL('billable-efficiency', 'Monetized efficiency', weight,
+      'Call volume or monetized count was not reported for this period.');
   }
   const rate = billable / total;
   return {
-    id: 'billable-efficiency', label: 'Billable efficiency', score: Math.max(0, Math.min(1, rate / 0.5)),
+    id: 'billable-efficiency', label: 'Monetized efficiency', score: Math.max(0, Math.min(1, rate / 0.5)),
     weight, available: true,
-    measurement: `${Math.round(rate * 100)}% of calls were billable (${billable.toLocaleString('en-US')} of ${total.toLocaleString('en-US')}).`,
+    measurement: `${Math.round(rate * 100)}% of calls were monetized (${billable.toLocaleString('en-US')} of ${total.toLocaleString('en-US')}).`,
     // The engine's existing rule: this is efficiency, not a measure of call quality.
-    interpretation: 'This measures how much observed traffic converts to a billable call. It is an efficiency measure — CallGrid exposes nothing that would make it a measure of call quality.',
+    interpretation: 'This measures how much observed traffic converts to a monetized call. It is an efficiency measure — CallGrid exposes nothing that would make it a measure of call quality.',
   };
 }
 
@@ -430,7 +430,7 @@ export const HEALTH_SIGNAL_REASONS: Readonly<Record<string, { readonly weak: str
   'revenue-coverage': { weak: 'revenue is only partly reported', area: 'revenue reporting', weakAt: 0.989 },
   'profit-coverage': { weak: 'profit is only partly reported', area: 'profit reporting', weakAt: 0.989 },
   // Efficiency: one call in four or fewer billable.
-  'billable-efficiency': { weak: 'few calls become billable', area: 'billable efficiency', weakAt: 0.5 },
+  'billable-efficiency': { weak: 'few calls become monetized', area: 'monetized efficiency', weakAt: 0.5 },
   // Concentration: "depends heavily on one" at a fragility of 0.6 (score 0.4).
   'buyer-concentration': { weak: 'revenue leans on one buyer', area: 'buyer mix', weakAt: 0.4 },
   'profit-concentration': { weak: 'profit leans on one buyer', area: 'profit mix by buyer', weakAt: 0.4 },

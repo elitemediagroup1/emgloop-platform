@@ -552,7 +552,7 @@ function divergenceFinding(input: AnomalyInput): CallGridFinding | null {
       unknowns: [
         'What changed the value per call. Pricing, buyer mix and call quality are not separable from the fields CallGrid exposes.',
       ],
-      recommendedReview: 'Compare revenue per billable call by buyer across the two periods to see which buyers moved.',
+      recommendedReview: 'Compare revenue per monetized call by buyer across the two periods to see which buyers moved.',
       actionSafety: 'SAFE_TO_REVIEW',
       ruleId: 'anomaly-divergence',
       ruleVersion: ANOMALY_RULE_VERSION,
@@ -627,7 +627,7 @@ function profitDivergenceFinding(input: AnomalyInput): CallGridFinding | null {
       unknowns: [
         'Which cost component moved. CallGrid reports payout and cost per call but exposes nothing about why either changed.',
       ],
-      recommendedReview: 'Compare payout and cost per billable call by buyer across the two periods.',
+      recommendedReview: 'Compare payout and cost per monetized call by buyer across the two periods.',
       actionSafety: 'SAFE_TO_REVIEW',
       ruleId: 'anomaly-profit-divergence',
       ruleVersion: ANOMALY_RULE_VERSION,

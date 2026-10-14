@@ -1,3 +1,4 @@
+import { CallGridCoverage } from '../../../../crm/CallGridCoverage';
 // The CallGrid command center's chrome and charts — one shell for every section.
 //
 // ORDER, ON EVERY SECTION: header (what this is, which period, how current), the
@@ -378,6 +379,7 @@ export function CommandShell({
           </span>
           {coverageNote ? <span className="cgx-period-line__cov">{coverageNote}</span> : null}
         </p>
+        {ctx.pollCoverage ? <CallGridCoverage coverage={ctx.pollCoverage} /> : null}
         <KpiRow ctx={ctx} />
         {executive ?? null}
         <CallGridNav active={active} rangeQuery={ctx.query} />

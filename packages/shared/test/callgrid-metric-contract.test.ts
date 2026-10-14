@@ -99,7 +99,7 @@ test('profit declares that partial payout or cost coverage overstates it', () =>
   assert.match(metricDefinition('profit')!.completenessRule, /WEAKEST|OVERSTATES/);
 });
 
-test('billable rate is never allowed to be described as call quality', () => {
+test('monetized rate is never allowed to be described as call quality', () => {
   assert.ok(metricDefinition('billableRate')!.invalidCrossGrainUses.some((u) => /QUALITY/.test(u)));
 });
 
@@ -137,7 +137,7 @@ test('profit is unknown when revenue is unknown, never a negative made of costs'
   assert.equal(profitCents(0, 0, 0), 0); // a proven zero survives
 });
 
-test('per-billable-call metrics are unknown without a billable denominator', () => {
+test('per-billable-call metrics are unknown without a monetized denominator', () => {
   assert.equal(revenuePerBillableCall(10000, 0), null);
   assert.equal(revenuePerBillableCall(null, 5), null);
   assert.equal(revenuePerBillableCall(10000, 4), 2500);
@@ -146,7 +146,7 @@ test('per-billable-call metrics are unknown without a billable denominator', () 
   assert.equal(profitPerBillableCall(1000, 4), 250);
 });
 
-test('billable rate is unknown with no calls, and a true zero with no billables', () => {
+test('monetized rate is unknown with no calls, and a true zero with no billables', () => {
   assert.equal(billableRate(0, 0), null);
   assert.equal(billableRate(0, 10), 0);
   assert.equal(billableRate(3, 12), 0.25);

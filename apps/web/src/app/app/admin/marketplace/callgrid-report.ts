@@ -20,6 +20,7 @@ export type Dimension = 'buyers' | 'vendors' | 'sources' | 'campaigns';
 export interface CallGridMetrics {
   available: boolean;
   totalCalls: number | null;
+  /** Legacy key: derived monetized count (billable OR converted OR paid), not provider billable. */
   billableCalls: number | null;
   revenueCents: number | null;
   /** Net Profit: revenue − payout − telco cost (`profitCents`). Null when revenue is unknown. */
@@ -47,7 +48,7 @@ export interface CallGridDimRow {
   key: string;
   label: string;
   calls: number;
-  monetized: number; // billable calls
+  monetized: number; // derived commercial outcomes
   converted: number;
   /** Null when NO call for this entity reported revenue. */
   revenueCents: number | null;
