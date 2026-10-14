@@ -27,7 +27,7 @@ export function callGridPollCoverage(input: {
     completedThrough: c.completedThrough, intervalSince: c.lastIntervalSince, recordedAt: c.updatedAt,
     state: health.status === 'HEALTHY' ? 'CURRENT' : health.status,
     message: health.status === 'HEALTHY'
-      ? 'A recent routine interval completed. This does not certify all historical days or the provider credential’s campaign scope.'
+      ? 'The recovery job is within its health threshold; this does not mean live totals are reconciled. This does not certify all historical days or the provider credential’s campaign scope.'
       : 'Routine recovery coverage is behind. Recent webhook activity does not establish completeness; check the scheduled recovery job.',
   };
 }

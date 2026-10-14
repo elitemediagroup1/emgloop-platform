@@ -26,6 +26,10 @@ test('coverage falls behind independently of delivery freshness and never certif
   const recent = callGridPollCoverage({ now, readOk: true, checkpoint: checkpoint(1) });
   assert.equal(recent.state, 'CURRENT');
   assert.match(recent.message, /does not certify.*campaign scope/);
+  const html = renderToStaticMarkup(<CallGridCoverage coverage={recent} />);
+  assert.match(html, /Recovery job health: within threshold/);
+  assert.match(html, /does not mean live totals are reconciled/);
+  assert.match(html, /later financial updates/);
   assert.equal(callGridPollCoverage({ now, readOk: true, checkpoint: checkpoint(4) }).state, 'LAGGING');
   assert.equal(callGridPollCoverage({ now, readOk: true, checkpoint: checkpoint(13) }).state, 'STALE');
   assert.equal(callGridPollCoverage({ now, readOk: true, checkpoint: checkpoint(-1) }).state, 'INVALID');
