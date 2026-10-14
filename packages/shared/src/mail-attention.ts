@@ -30,6 +30,7 @@ export interface MailThreadFacts {
   readonly unread: boolean;
   /** True when both sides have sent at least one message: a conversation, not a broadcast. */
   readonly hasExchange: boolean;
+  readonly latestInboundAutomated?: boolean;
 }
 
 /**
@@ -96,6 +97,7 @@ export function mailAttentionFor(thread: MailThreadFacts, now: Date, policy = MA
   };
 
   if (thread.lastDirection === 'INBOUND') {
+    if (thread.latestInboundAutomated) return null;
     // They wrote last and you have not answered. Unread makes it immediate; otherwise it becomes
     // "needs you" once it has sat for the policy's window.
     if (thread.unread || ageMs >= policy.needsYouAfterMs) {

@@ -151,6 +151,8 @@ export async function loadMailDashboard(
       fromName: sender?.name ?? null,
       labels: m.labels,
       inReplyTo: m.inReplyTo,
+      subject: m.subject,
+      automationClass: m.automationClass as MailMessageEvidence['automationClass'],
     });
     messagesByThread.set(m.threadId, list);
   }

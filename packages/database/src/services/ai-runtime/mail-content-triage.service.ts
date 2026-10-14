@@ -21,7 +21,7 @@ export type MailContentTriageResult =
   | {
       readonly outcome: 'TRIAGED';
       readonly reading: KeyedConversationReading | null;
-      readonly obligations: readonly { readonly anchorRef: string; readonly statement: string; readonly owedBy: 'VIEWER' | 'OTHER' | 'UNKNOWN'; readonly who: string | null }[];
+      readonly obligations: readonly { readonly category: string; readonly nextStep: string; readonly anchorRef: string; readonly statement: string; readonly owedBy: 'VIEWER' | 'OTHER' | 'UNKNOWN'; readonly who: string | null }[];
       readonly limitations: readonly string[];
       readonly provenance: AiInvocationProvenance;
     }
@@ -33,7 +33,7 @@ export class MailContentTriageService {
 
   async triage(principal: AiPrincipal, input: Omit<MailTriageContextInput, 'organizationId' | 'viewerUserId'>): Promise<MailContentTriageResult> {
     const built = buildMailTriageContext({ ...input, organizationId: principal.organizationId, viewerUserId: principal.userId });
-    const result = await this.runtime.run(principal, {
+    const request: AiRunRequest = {
       task: AI_TASK_MAIL_CONTENT_TRIAGE,
       context: built.context,
       instructions: built.instructions,
@@ -41,7 +41,17 @@ export class MailContentTriageService {
       templateVersion: MAIL_CONTENT_TRIAGE_TEMPLATE_VERSION,
       schema: MAIL_CONTENT_TRIAGE_SCHEMA,
       evidence: built.evidence,
-    });
+    };
+    let result = await this.runtime.run(principal, request);
+    // Repair only formatting/length failures, once, from the original authorized evidence.
+    // Never pass rejected text, loosen validation, or shop another provider for an accepted answer.
+    if (result.outcome === 'REJECTED_OUTPUT' && result.rejections.length > 0 && result.rejections.every((code) => code === 'ANSWER_TOO_LONG' || code.startsWith('TOO_LONG_') || code === 'WRONG_SCHEMA' || code === 'EMPTY_ANSWER')) {
+      result = await this.runtime.run(principal, {
+        ...request,
+        templateVersion: `${MAIL_CONTENT_TRIAGE_TEMPLATE_VERSION}.repair1`,
+        instructions: `${built.instructions}\nFORMAT REPAIR: the previous attempt failed ${result.rejections.join(', ')}. Re-read the original evidence. Return fewer items and signals, much shorter fields, and valid JSON matching the schema. Do not add claims to fill empty lists.`,
+      });
+    }
     if (result.outcome === 'REFUSED_BY_LOOP') return { outcome: 'NOT_AVAILABLE' };
     if (result.outcome === 'REJECTED_OUTPUT') return { outcome: 'REJECTED_OUTPUT', rejections: result.rejections };
     if (result.outcome === 'REFUSED_BY_MODEL') return { outcome: 'REFUSED_BY_MODEL' };
@@ -68,7 +78,7 @@ export class MailContentTriageService {
           };
     const obligations = t.items.flatMap((o) => {
       const anchorRef = refOf(o.anchorOrdinal);
-      return anchorRef ? [{ anchorRef, statement: o.oneLineMeaning, owedBy: o.owedBy, who: o.owedBy === 'OTHER' ? o.who : null }] : [];
+      return anchorRef ? [{ category: o.category, nextStep: o.nextStep, anchorRef, statement: o.oneLineMeaning, owedBy: o.owedBy, who: o.owedBy === 'OTHER' ? o.who : null }] : [];
     });
     return { outcome: 'TRIAGED', reading, obligations, limitations: result.output.limitations, provenance: result.provenance };
   }

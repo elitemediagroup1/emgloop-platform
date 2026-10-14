@@ -20,6 +20,7 @@ import {
   MAIL_ATTENTION_PRODUCER,
   MAIL_ATTENTION_VERSION,
   mailAttention,
+  qualifyCrmMessage,
   type MailAttention,
   type MailThreadFacts,
   type WorkClass,
@@ -38,12 +39,19 @@ import type { WorkPrincipal } from '../../repositories/work-state/work-principal
  */
 export async function mailThreadFacts(graph: WorkGraphRepository, principal: WorkPrincipal, limit = 200): Promise<MailThreadFacts[]> {
   const rows = await graph.threads(principal, { limit });
+  const messages = await graph.threadEvidence(principal, rows.map((row) => row.threadId));
+  const latest = new Map<string, (typeof messages)[number]>();
+  for (const message of messages) {
+    const previous = latest.get(message.threadId);
+    if (!previous || message.internalDate >= previous.internalDate) latest.set(message.threadId, message);
+  }
   return rows.map((row) => ({
     threadId: row.threadId,
     subject: row.subject,
     lastMessageAt: row.lastMessageAt,
     firstMessageAt: row.firstMessageAt,
     lastDirection: (row.lastDirection as 'INBOUND' | 'OUTBOUND' | null) ?? null,
+    latestInboundAutomated: latest.get(row.threadId)?.direction === 'INBOUND' && qualifyCrmMessage({ direction: 'INBOUND', labels: latest.get(row.threadId)!.labels, subject: latest.get(row.threadId)!.subject, automationClass: latest.get(row.threadId)!.automationClass as 'AUTO_SUBMITTED' | 'MAILING_LIST' | 'BULK' | null }) === 'AUTOMATED',
     messageCount: row.messageCount,
     unread: row.labels.includes('UNREAD'),
     // Treated as a two-sided conversation when it holds more than one message. That is coarser
