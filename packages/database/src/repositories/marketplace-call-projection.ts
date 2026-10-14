@@ -200,6 +200,7 @@ export interface StoredCallFacts {
   interactionId: string | null;
   revenueCents: number | null;
   payoutCents: number | null;
+  costCents: number | null;
   billable: boolean | null;
   paid: boolean | null;
   converted: boolean | null;
@@ -212,7 +213,7 @@ export interface StoredCallFacts {
  * `CALLGRID_FACT_KINDS`, and the decision from `convergeFact`. Money is compared in
  * cents, the unit the column stores.
  *
- * DELIBERATELY SHORT, and the same list the rule classifies. Cost, labels,
+ * DELIBERATELY SHORT, and the same list the rule classifies. Labels,
  * geography, status and duration are not here: they keep what the first
  * observation stated, because no provider evidence says how they settle -- and
  * because nothing rewrites the row, a later observation cannot erase them either.
@@ -220,6 +221,7 @@ export interface StoredCallFacts {
 const CONVERGED_FACTS = [
   ['revenue', 'revenueCents'],
   ['payout', 'payoutCents'],
+  ['cost', 'costCents'],
   ['billable', 'billable'],
   ['paid', 'paid'],
   ['converted', 'converted'],
@@ -230,6 +232,8 @@ export type ConvergedFact = (typeof CONVERGED_FACTS)[number][0];
 export interface CallFactDecision {
   readonly fact: ConvergedFact;
   readonly existing: number | boolean | null;
+  /** Same canonical unit as existing (money is cents). */
+  readonly incoming: number | boolean | null;
   readonly converged: FactConvergence<number | boolean>;
 }
 
@@ -262,7 +266,7 @@ export function convergeCallObservation(existing: StoredCallFacts, incoming: Mar
       existing: existing[column],
       incoming: incoming[column],
     });
-    decisions.push({ fact, existing: existing[column], converged });
+    decisions.push({ fact, existing: existing[column], incoming: incoming[column], converged });
     if (converged.decision === 'UPDATE' && converged.value !== undefined) {
       (update as Record<string, unknown>)[column] = converged.value;
       after[column] = converged.value;

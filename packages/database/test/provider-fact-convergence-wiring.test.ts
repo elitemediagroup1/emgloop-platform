@@ -35,6 +35,7 @@ const OCCURRED = new Date('2026-08-11T18:30:00.000Z');
 const FIRST_RECEIPT = new Date('2026-08-11T18:30:05.000Z');
 
 type Facts = {
+  costCents: number | null;
   revenueCents: number | null;
   payoutCents: number | null;
   billable: boolean | null;
@@ -43,6 +44,7 @@ type Facts = {
 };
 
 const UNKNOWN_FACTS: Facts = {
+  costCents: null,
   revenueCents: null,
   payoutCents: null,
   billable: null,
@@ -219,7 +221,7 @@ test('9. TWO SETTLED AMOUNTS THAT DISAGREE ARE A CONFLICT — neither silently w
   const conflict = revisionFor(state, 'revenue')!;
   assert.equal(conflict.decision, 'CONFLICT');
   assert.equal(conflict.fromValue, '1700');
-  assert.equal(conflict.toValue, '15', 'what the provider said, so a person can judge');
+  assert.equal(conflict.toValue, '1500', 'both sides use canonical cents, never dollars against cents');
   assert.equal(conflict.appliedAt, null, 'NULL means the canonical value did not move');
 });
 
@@ -343,10 +345,11 @@ test('18. the field-specific decisions live in ONE pure rule, not in this servic
     assert.ok(!planner.includes(smell), `no field-specific branching in the planner: ${smell}`);
   }
   assert.ok(SERVICE_SOURCE.includes('this.marketplaceCalls.observe('), 'the service delegates to the one merge');
-  // And descriptive facts -- and cost -- are not converged at all: no provider
+  // Descriptive facts are not converged at all: no provider
   // evidence says how they settle, and since nothing rewrites the row, a later
   // observation cannot erase them either.
-  for (const absent of ['callerZip', 'callerState', 'campaignLabel', 'connectedDurationSeconds', 'status', 'costCents']) {
+  assert.ok(planner.includes("['cost', 'costCents']"), 'cost is observed through the shared rule');
+  for (const absent of ['callerZip', 'callerState', 'campaignLabel', 'connectedDurationSeconds', 'status']) {
     assert.ok(!planner.includes(absent), `${absent} must not be converged`);
   }
 });
@@ -370,4 +373,20 @@ test('19/20/21. no poller, schedule, checkpoint, recovery, readiness or measurem
   ]) {
     assert.ok(!SERVICE_SOURCE.includes(symbol), `ingestion must not reference ${symbol}`);
   }
+});
+
+test('cost missing on the first delivery is strengthened and recorded; a different known cost is recorded without overwriting', async () => {
+  const missing = harness({ ...UNKNOWN_FACTS });
+  await observe(missing.prisma, { id: CALL_ID, cost: 0.12 });
+  assert.equal((missing.state.call as Record<string, unknown>).costCents, 12);
+  const added = revisionFor(missing.state, 'cost')!;
+  assert.equal(added.decision, 'UPDATE');
+  assert.equal(added.toValue, '12');
+  assert.ok(added.appliedAt);
+  await observe(missing.prisma, { id: CALL_ID, cost: 0.16 });
+  assert.equal((missing.state.call as Record<string, unknown>).costCents, 12);
+  const conflict = missing.state.revisions.find((r) => r.fact === 'cost' && r.decision === 'CONFLICT')!;
+  assert.equal(conflict.fromValue, '12');
+  assert.equal(conflict.toValue, '16');
+  assert.equal(conflict.appliedAt, null);
 });

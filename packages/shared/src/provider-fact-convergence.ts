@@ -58,6 +58,8 @@ export type FactConvergenceDecision = (typeof FACT_CONVERGENCE_DECISIONS)[number
  * guessed from a type.
  */
 export const FACT_KINDS = [
+  /** Fill an absent amount; a different known amount needs an explicit correction. */
+  'FIRST_OBSERVED_AMOUNT',
   /** Identity or occurrence. It cannot change; a difference is a defect. */
   'IMMUTABLE',
   /**
@@ -92,13 +94,14 @@ export interface FactConvergence<T> {
  * established downstream reason to refresh them, so they are not converged at
  * all until there is one.
  *
- * `cost` is absent for the same reason: it is CallGrid's telco cost, no evidence
- * establishes that it settles upward, and money must not be given a monotonic
- * rule on symmetry with revenue alone.
+ * Cost has no established monotonic settlement rule. An explicit observation
+ * can fill an absent cost, but a different known value is recorded as a conflict,
+ * never silently replaced. This includes zero-to-positive differences.
  */
 export const CALLGRID_FACT_KINDS = {
   revenue: 'MONOTONIC_AMOUNT',
   payout: 'MONOTONIC_AMOUNT',
+  cost: 'FIRST_OBSERVED_AMOUNT',
   billable: 'MONOTONIC_ASSERTION',
   paid: 'MONOTONIC_ASSERTION',
   converted: 'MONOTONIC_ASSERTION',
@@ -137,6 +140,14 @@ export function convergeFact<T>(input: {
   incoming: T | null | undefined;
 }): FactConvergence<T> {
   const { kind, existing, incoming } = input;
+
+  if (kind === 'FIRST_OBSERVED_AMOUNT') {
+    if (unknown(incoming)) return { decision: unknown(existing) ? 'REMAIN_UNKNOWN' : 'KEEP_EXISTING', reason: 'the observation says nothing' };
+    if (typeof incoming !== 'number' || !Number.isFinite(incoming)) return { decision: 'CONFLICT', reason: 'the observed amount is not a finite number' };
+    if (unknown(existing)) return { decision: 'UPDATE', value: incoming as T, reason: 'first explicit amount; no previous value is replaced' };
+    if (Object.is(existing, incoming)) return { decision: 'KEEP_EXISTING', reason: 'unchanged' };
+    return { decision: 'CONFLICT', reason: 'a different observed amount requires an explicit correction; settlement order is not established' };
+  }
 
   if (kind === 'IMMUTABLE') {
     if (unknown(incoming)) return { decision: 'KEEP_EXISTING', reason: 'the observation says nothing' };

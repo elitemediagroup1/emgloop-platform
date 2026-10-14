@@ -26,7 +26,9 @@ export interface RecordFactRevisionInput {
   externalId: string;
   fact: string;
   decision: Extract<FactConvergenceDecision, 'UPDATE' | 'CONFLICT'>;
-  /** Rendered values. Null means the fact was unknown on that side. */
+  /** Canonical rendered values (amounts in cents on both sides). Null means unknown.
+   * Historical pre-2026-10-14 conflicts used raw provider units on toValue; never
+   * perform arithmetic across old revision strings without checking provenance. */
   fromValue: string | null;
   toValue: string | null;
   observationSource: ObservationSource;

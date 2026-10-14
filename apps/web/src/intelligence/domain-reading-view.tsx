@@ -55,6 +55,9 @@ export function DomainReadingPanel({ title, view, time, empty }: { title: string
         {p.asCurrent ? 'Read ' : 'As of '}
         {p.generatedAt ? <time dateTime={time.iso(p.generatedAt)}>{time.relative(p.generatedAt)}</time> : null}
       </p>
+      {view.digest.domain === 'CALLGRID' || view.digest.domain === 'CAMPAIGNS' ? (
+        <p className="loop-chats__meta">Reading window: {time.dateTime(view.digest.windowStart)} through {time.dateTime(view.digest.windowEnd)} (exclusive). This rolling reading is independent of the report’s selected period. It describes stored calls; provider completeness and call-quality scoring are separate checks.</p>
+      ) : null}
       {signals.length > 0 ? (
         <ul className="loop-chats__list" data-domain-reading-signals>
           {signals.map((s) => (

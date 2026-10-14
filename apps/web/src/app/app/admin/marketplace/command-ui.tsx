@@ -36,7 +36,7 @@ import { withQuery } from './command-data';
 export function money(cents: number | null): string {
   if (cents === null) return 'Unknown';
   const sign = cents < 0 ? '−' : '';
-  return `${sign}$${Math.round(Math.abs(cents) / 100).toLocaleString('en-US')}`;
+  return `${sign}$${(Math.abs(cents) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 export function count(n: number | null): string {
   return n === null ? 'Unknown' : n.toLocaleString('en-US');

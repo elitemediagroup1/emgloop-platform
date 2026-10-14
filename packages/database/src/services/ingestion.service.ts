@@ -257,10 +257,10 @@ export class IngestionService {
         // eslint-disable-next-line no-console
         console.warn(JSON.stringify({ evt: 'marketplace_call_observation_not_applied', provider: input.provider, outcome: observed.outcome }));
       }
-      for (const { fact, existing, converged } of observed.decisions) {
+      for (const { fact, existing, incoming, converged } of observed.decisions) {
         if (converged.decision === 'UPDATE' && observed.outcome === 'MERGED') summary.strengthened.push(fact);
         if (converged.decision === 'CONFLICT') summary.conflicted.push(fact);
-        await this.recordIfNotable(input, ev, integrationEventId, observedAt, fact, converged, existing, observed.outcome === 'MERGED');
+        await this.recordIfNotable(input, ev, integrationEventId, observedAt, fact, converged, existing, incoming, observed.outcome === 'MERGED');
       }
     } catch (error) {
       // eslint-disable-next-line no-console
@@ -284,6 +284,7 @@ export class IngestionService {
     fact: string,
     converged: { decision: string; value?: unknown; reason: string },
     existing: unknown,
+    incoming: unknown,
     applied: boolean,
   ): Promise<void> {
     if (converged.decision !== 'UPDATE' && converged.decision !== 'CONFLICT') return;
@@ -297,7 +298,7 @@ export class IngestionService {
       decision: converged.decision,
       fromValue: renderFactValue(existing),
       toValue: renderFactValue(
-        converged.decision === 'UPDATE' ? converged.value : (ev.payload as Record<string, unknown>)[fact],
+        converged.decision === 'UPDATE' ? converged.value : incoming,
       ),
       observationSource: input.observationSource,
       observedAt,

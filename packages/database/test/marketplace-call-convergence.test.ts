@@ -39,6 +39,7 @@ const STORED: StoredCallFacts = {
   interactionId: null,
   revenueCents: null,
   payoutCents: null,
+  costCents: 4,
   billable: null,
   paid: null,
   converted: null,
@@ -84,8 +85,9 @@ test('the Interaction link is filled once, and never replaced', () => {
   assert.deepEqual(convergeCallObservation({ ...STORED, interactionId: 'int_1' }, observation({}, { interactionId: 'int_2' })).update, {});
 });
 
-test('cost, attribution, geography, status and duration are never in a merge -- the first statement stands', () => {
+test('known cost and descriptive fields are not overwritten -- a changed cost is a conflict', () => {
   const plan = convergeCallObservation(STORED, observation({ cost: 9.99, buyer: 'Someone Else', callerState: 'TX', durationSeconds: 999, eventType: 'call.answered' }));
+  assert.equal(plan.decisions.find((d) => d.fact === 'cost')?.converged.decision, 'CONFLICT');
   for (const column of ['costCents', 'buyerLabel', 'buyerExternalId', 'callerState', 'connectedDurationSeconds', 'status', 'rawStatus']) {
     assert.equal(column in plan.update, false, column);
   }
@@ -160,4 +162,19 @@ test('a key held by another organization is refused -- never moved, never merged
   assert.equal(fake.marketplaceCall.__rows.length, 1);
   assert.equal(fake.marketplaceCall.__rows[0].organizationId, 'org_a');
   assert.equal(fake.marketplaceCall.__rows[0].revenueCents, 2500);
+});
+
+test('an explicit later cost fills a missing projection amount and can be replayed without changing it', async () => {
+  const { repo, fake } = repository();
+  const missing = observation({ cost: null });
+  await repo.observe(missing);
+  assert.equal(fake.marketplaceCall.__rows[0].costCents, null);
+  const update = await repo.observe(observation({ cost: 0.12 }));
+  assert.equal(update.outcome, 'MERGED');
+  assert.equal(fake.marketplaceCall.__rows[0].costCents, 12);
+  assert.equal((await repo.observe(observation({ cost: 0.12 }))).outcome, 'UNCHANGED');
+  const changed = await repo.observe(observation({ cost: 0.16 }));
+  assert.equal(changed.outcome, 'UNCHANGED');
+  assert.equal(changed.decisions.find((d) => d.fact === 'cost')?.converged.decision, 'CONFLICT');
+  assert.equal(fake.marketplaceCall.__rows[0].costCents, 12);
 });

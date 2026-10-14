@@ -59,6 +59,7 @@ const STORED_FACTS = {
   interactionId: true,
   revenueCents: true,
   payoutCents: true,
+  costCents: true,
   billable: true,
   paid: true,
   converted: true,

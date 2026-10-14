@@ -25,7 +25,7 @@ import {
 } from '@emgloop/shared';
 
 import { CallGridNav, CALLGRID_SECTIONS } from '../src/app/app/admin/marketplace/_CallGridNav';
-import { CommandShell, FreshnessBadge, KpiRow, PeriodBar, TrendChart, BarList } from '../src/app/app/admin/marketplace/command-ui';
+import { CommandShell, FreshnessBadge, KpiRow, PeriodBar, TrendChart, BarList, money } from '../src/app/app/admin/marketplace/command-ui';
 import { TodaysBrief, TopPriorities } from '../src/app/app/admin/marketplace/executive-ui';
 import { withQuery, type CommandContext } from '../src/app/app/admin/marketplace/command-data';
 import { priorityOf } from '../src/app/app/admin/marketplace/executive-data';
@@ -74,6 +74,12 @@ function context(params?: Record<string, string>, over: Partial<CommandContext> 
 }
 
 describe('the executive layer', () => {
+  it('preserves cents for provider reconciliation and small losses', () => {
+    assert.equal(money(113996), '$1,139.96');
+    assert.equal(money(-4), '−$0.04');
+    assert.equal(money(0), '$0.00');
+    assert.equal(money(null), 'Unknown');
+  });
   it('shows the five KPIs, Net Profit first, each opening Money with the period carried', () => {
     const html = renderToStaticMarkup(<KpiRow ctx={context({ period: 'weekly', date: '2026-09-02' })} />);
     const labels = [...html.matchAll(/class="cgx-kpi__label">([^<]+)</g)].map((m) => m[1]);
