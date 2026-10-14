@@ -1,0 +1,94 @@
+name: Audit CallGrid Financials
+
+# Manual, read-only diagnostics for one completed Eastern business day.
+on:
+  workflow_dispatch:
+    inputs:
+      organization_slug:
+        description: 'Organization slug'
+        required: true
+        type: string
+      business_date:
+        description: 'Completed Eastern business date (YYYY-MM-DD)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: audit-callgrid-financials
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Test the read-only boundary before credentials are available
+        run: node --import tsx --test scripts/operations/audit-callgrid-financials.test.ts
+      - name: Restrict the shared provider credential to configured organizations
+        env:
+          ORG_SLUG: ${{ inputs.organization_slug }}
+          CONFIGURED_ORGANIZATIONS: ${{ vars.ROUTINE_POLL_ORGANIZATIONS }}
+        run: |
+          set -euo pipefail
+          allowed=false
+          IFS=',' read -ra PARTS <<< "${CONFIGURED_ORGANIZATIONS:-}"
+          for raw in "${PARTS[@]}"; do
+            slug="$(printf '%s' "${raw}" | tr -d '[:space:]')"
+            if [ -n "${slug}" ] && [ "${slug}" = "${ORG_SLUG}" ]; then allowed=true; fi
+          done
+          if [ "${allowed}" != true ]; then
+            echo "::error::Requested organization is not in ROUTINE_POLL_ORGANIZATIONS. No provider or database read was made."
+            exit 1
+          fi
+      - name: Read financial evidence
+        env:
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+          CALLGRID_API_KEY: ${{ secrets.CALLGRID_API_KEY }}
+          LOOP_PRISMA_LOG: none
+          ORG_SLUG: ${{ inputs.organization_slug }}
+          BUSINESS_DATE: ${{ inputs.business_date }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DATABASE_URL:-}" ] || [ -z "${CALLGRID_API_KEY:-}" ]; then
+            echo "::error::DIRECT_DATABASE_URL and CALLGRID_API_KEY must both be configured."
+            exit 1
+          fi
+          node --import tsx scripts/operations/audit-callgrid-financials.ts \
+            --organization "${ORG_SLUG}" --date "${BUSINESS_DATE}" \
+            > callgrid-financial-audit.json
+      - name: Summarize the result
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib
+          report = pathlib.Path('callgrid-financial-audit.json')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as out:
+              out.write('### CallGrid financial audit\n\nRead-only. No financial values were changed.\n\n')
+              if not report.exists():
+                  out.write('No report was produced. Check the failed step; no reconciliation claim is available.\n')
+              else:
+                  data = json.loads(report.read_text())
+                  out.write('Verdict: **' + data['verdict'] + '**\n\n')
+                  for key in ['mismatchedFields', 'unknownFields', 'unmatchedCalls']:
+                      out.write(key + ': ' + str(data.get('summary', {}).get(key, 'unavailable')) + '\n\n')
+                  out.write('Download the JSON artifact for call IDs, campaign labels, raw provider dollar amounts, canonical/stored cents, and coverage counts.\n\n')
+                  out.write('A green job means the audit executed. INCONCLUSIVE, DIFFERS, and MATCHED_REPORTED_FIELDS are distinct findings. None certifies the provider report UI or missing cost fields.\n')
+          PY
+      - name: Save the evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: callgrid-financial-audit
+          path: callgrid-financial-audit.json
+          if-no-files-found: ignore
+          retention-days: 7

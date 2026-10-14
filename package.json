@@ -35,6 +35,7 @@
     "cycle:gmail": "tsx scripts/operations/cycle-employee-sources.ts --source gmail",
     "recover:callgrid": "tsx scripts/operations/recover-callgrid-interval.ts",
     "verify:callgrid": "tsx scripts/operations/verify-callgrid-recovery.ts",
+    "audit:callgrid-financials": "tsx scripts/operations/audit-callgrid-financials.ts",
     "repair:removed-marker": "tsx scripts/operations/repair-removed-marker.ts",
     "drain:failed-events": "tsx scripts/operations/drain-failed-events.ts",
     "read:identity-footprint": "tsx scripts/operations/read-identity-footprint.ts",

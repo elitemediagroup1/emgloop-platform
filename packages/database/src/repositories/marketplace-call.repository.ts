@@ -484,12 +484,14 @@ export class MarketplaceCallRepository {
    *
    * Selects only the columns the comparison needs — no caller phone, no raw
    * payload — so a reconciliation response cannot carry PII it never loaded.
+   * An optional provider narrows the same tenant/window for provider-specific audits.
    */
   async listWindowForReconciliation(
     organizationId: string,
     since: Date,
     until: Date,
     take: number,
+    provider?: string,
   ): Promise<
     Array<{
       externalId: string;
@@ -507,7 +509,7 @@ export class MarketplaceCallRepository {
     }>
   > {
     return this.prisma.marketplaceCall.findMany({
-      where: { organizationId, sourceOccurredAt: { gte: since, lt: until } },
+      where: { organizationId, ...(provider ? { provider } : {}), sourceOccurredAt: { gte: since, lt: until } },
       orderBy: { sourceOccurredAt: 'asc' },
       take,
       select: {
