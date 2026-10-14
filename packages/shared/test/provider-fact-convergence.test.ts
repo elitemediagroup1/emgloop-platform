@@ -34,11 +34,25 @@ test('only facts with provider evidence are classified — descriptive fields ar
   assert.equal(CALLGRID_FACT_KINDS.occurredAt, 'IMMUTABLE');
   // Deliberately unclassified: labels, geography, status and duration may
   // legitimately change and there is no established downstream reason to refresh
-  // them. `cost` is absent too — no evidence says telco cost settles upward, and
-  // money must not inherit a monotonic rule by symmetry with revenue.
-  for (const absent of ['cost', 'callerZip', 'callerState', 'status', 'durationSeconds', 'campaign']) {
+  // them. Cost has its own conservative first-observation rule, never the revenue rule.
+  assert.equal(CALLGRID_FACT_KINDS.cost, 'FIRST_OBSERVED_AMOUNT');
+  for (const absent of ['callerZip', 'callerState', 'status', 'durationSeconds', 'campaign']) {
     assert.equal(isCallGridFact(absent), false, `${absent} must not be converged`);
   }
+});
+
+test('cost fills an unknown amount, including explicit zero, but never silently corrects a known value', () => {
+  const cost = (existing: number | null, incoming: number | null) => convergeFact({ kind: 'FIRST_OBSERVED_AMOUNT', existing, incoming });
+  assert.deepEqual(cost(null, 4).value, 4);
+  assert.equal(cost(null, 0).decision, 'UPDATE');
+  assert.equal(cost(null, null).decision, 'REMAIN_UNKNOWN');
+  assert.equal(cost(4, null).decision, 'KEEP_EXISTING');
+  assert.equal(cost(4, 4).decision, 'KEEP_EXISTING');
+  for (const [before, after] of [[0, 4], [4, 8], [8, 4], [4, 0]]) {
+    assert.equal(cost(before!, after!).decision, 'CONFLICT');
+    assert.equal(cost(before!, after!).value, undefined);
+  }
+  assert.equal(cost(null, NaN).decision, 'CONFLICT');
 });
 
 // --- CASE A: unknown strengthened by a provider positive ----------------------------
