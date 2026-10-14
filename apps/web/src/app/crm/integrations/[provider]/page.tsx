@@ -1,3 +1,5 @@
+import { loadCallGridPollCoverage } from '../../../../crm/callgrid-coverage-data';
+import { CallGridCoverage } from '../../../../crm/CallGridCoverage';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { loadOrFallback, DataUnavailable } from '../../../../demo/db-health';
@@ -54,6 +56,7 @@ export default async function ProviderDetailPage({
   const { spec, status } = card;
   const webhookUrl = webhookUrlFor(spec);
   const isWebsite = spec.manages === 'website_properties';
+  const pollCoverage = spec.id === 'callgrid' ? await loadCallGridPollCoverage(organizationId) : null;
 
   return (
     <>
@@ -71,9 +74,10 @@ export default async function ProviderDetailPage({
         </div>
       </div>
 
+      {pollCoverage ? <CallGridCoverage coverage={pollCoverage} /> : null}
       {/* Health Center row */}
       <div className="ios-card-meta" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: '1.5rem' }}>
-        <div><span className="k">Health</span><span className="v">{healthLabel(status.health)}</span></div>
+        <div><span className="k">Delivery health</span><span className="v">{healthLabel(status.health)}</span></div>
         <div><span className="k">Webhook</span><span className="v">{spec.webhookPath ? (status.webhookActive ? 'Active' : 'Awaiting events') : 'n/a'}</span></div>
         <div><span className="k">Authentication</span><span className="v">{status.authVerified ? 'Verified' : 'Pending'}</span></div>
         <div><span className="k">Last Event</span><span className="v">{relativeTime(status.lastEvent ? status.lastEvent.receivedAt : null)}</span></div>
@@ -229,7 +233,7 @@ export default async function ProviderDetailPage({
               <div><span className="k">Readiness</span><span className="v">{spec.readiness.replace('_', ' ')}</span></div>
               <div><span className="k">Authentication</span><span className="v">{spec.authentication}</span></div>
               <div><span className="k">Delivery</span><span className="v">{spec.delivery.join(', ')}</span></div>
-              <div><span className="k">Polling / Backfill</span><span className="v">{spec.pollingSupported ? 'Yes' : 'No'}</span></div>
+              <div><span className="k">Polling / Backfill capability</span><span className="v">{spec.pollingSupported ? 'Yes' : 'No'}</span></div>
               <div><span className="k">Idempotency</span><span className="v">{spec.idempotency ? 'Yes' : 'No'}</span></div>
               <div><span className="k">Retry</span><span className="v">{spec.retrySupported ? 'Yes' : 'No'}</span></div>
               <div><span className="k">Connected</span><span className="v">{fmtTime(status.connectedAt)}</span></div>

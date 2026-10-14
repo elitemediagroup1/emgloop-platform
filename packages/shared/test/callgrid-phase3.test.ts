@@ -90,7 +90,7 @@ test('growth does not reduce health — only decline does', () => {
   assert.equal(trend.score, 1, 'a growing business must score full marks on direction');
 });
 
-test('billable efficiency is described as efficiency, never as quality', () => {
+test('monetized efficiency is described as efficiency, never as quality', () => {
   const health = assessBusinessHealth(healthInput());
   const sig = health.dimensions
     .flatMap((d) => d.signals)

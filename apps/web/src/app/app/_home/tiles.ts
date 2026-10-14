@@ -357,9 +357,9 @@ function campaignsTile(input: TilesInput, parent: TileNavItem): HomeTile | null 
   return {
     ...base,
     metric: { value: strip.activeCampaigns.toLocaleString('en-US'), label: `active ${strip.periodLabel.toLowerCase()}` },
-    lines: [lead ? `${lead.label} is earning the most ${strip.periodLabel.toLowerCase()}` : null, kpi?.subline ?? 'Campaigns with a billable call or revenue in the period.'].filter((l): l is string => l !== null),
+    lines: [lead ? `${lead.label} is earning the most ${strip.periodLabel.toLowerCase()}` : null, kpi?.subline ?? 'Campaigns with a monetized call or revenue in the period.'].filter((l): l is string => l !== null),
     state: strip.activeCampaigns === 0 ? 'EMPTY' : 'OK',
-    stateLine: strip.activeCampaigns === 0 ? 'No campaign has a billable call or revenue yet in this period.' : null,
+    stateLine: strip.activeCampaigns === 0 ? 'No campaign has a monetized call or revenue yet in this period.' : null,
     note: kpi?.note ?? null,
     status: 'Observed in calls, not a roster',
   };

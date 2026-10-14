@@ -47,9 +47,9 @@ function EconomicsTable({ m, c, compareTitle }: { m: CallGridMetrics; c: CallGri
     { id: "telcoCost", label: "Telco cost", cur: m.costCents, prior: c?.costCents ?? null, kind: "money", note: "Carrying the calls" },
     { id: "netProfit", label: "Net profit", cur: m.profitCents, prior: c?.profitCents ?? null, kind: "money", note: "Revenue − payout − telco cost" },
     { id: "margin", label: "Margin", cur: marginPct(m.profitCents, m.revenueCents), prior: c ? marginPct(c.profitCents, c.revenueCents) : null, kind: "pct", note: "Net profit ÷ revenue" },
-    { id: "billableCalls", label: "Billable calls", cur: m.billableCalls, prior: c?.billableCalls ?? null, kind: "count" },
+    { id: "billableCalls", label: "Monetized calls", cur: m.billableCalls, prior: c?.billableCalls ?? null, kind: "count" },
     { id: "calls", label: "Total calls", cur: m.totalCalls, prior: c?.totalCalls ?? null, kind: "count" },
-    { id: "revPerBillable", label: "Revenue per billable call", cur: m.billableCalls !== null ? revenuePerBillableCall(m.revenueCents, m.billableCalls) : null, prior: c && c.billableCalls !== null ? revenuePerBillableCall(c.revenueCents, c.billableCalls) : null, kind: "money" },
+    { id: "revPerBillable", label: "Revenue per monetized call", cur: m.billableCalls !== null ? revenuePerBillableCall(m.revenueCents, m.billableCalls) : null, prior: c && c.billableCalls !== null ? revenuePerBillableCall(c.revenueCents, c.billableCalls) : null, kind: "money" },
   ];
   const fmt = (v: number | null, k: "money" | "count" | "pct") => (k === "money" ? money(v) : k === "pct" ? pct(v, 1) : count(v));
   return (

@@ -152,7 +152,7 @@ export const CALLGRID_COMMAND_KPIS: readonly CallGridKpiKey[] = Object.freeze(['
 export const CALLGRID_KPI_LABELS: Readonly<Record<CallGridKpiKey, string>> = Object.freeze({
   netProfit: 'Net Profit',
   revenue: 'Revenue',
-  billableCalls: 'Billable Calls',
+  billableCalls: 'Monetized Calls',
   margin: 'Margin',
   telcoCost: 'Telco Cost',
   totalCalls: 'Total Calls',
@@ -526,10 +526,10 @@ const MATERIAL_PTS = 1;
 type Movement = { readonly metric: 'profit' | 'margin' | 'revenue' | 'billableRate' | 'totalCalls'; readonly up: boolean };
 
 const MOVEMENT_NOUN: Readonly<Record<Movement['metric'], string>> = {
-  profit: 'profit', margin: 'margin', revenue: 'revenue', billableRate: 'billable rate', totalCalls: 'call volume',
+  profit: 'profit', margin: 'margin', revenue: 'revenue', billableRate: 'monetized rate', totalCalls: 'call volume',
 };
 const MOVEMENT_LOWER: Readonly<Record<Movement['metric'], string>> = {
-  profit: 'lower profit', margin: 'a lower margin', revenue: 'lower revenue', billableRate: 'a lower billable rate', totalCalls: 'lower call volume',
+  profit: 'lower profit', margin: 'a lower margin', revenue: 'lower revenue', billableRate: 'a lower monetized rate', totalCalls: 'lower call volume',
 };
 
 function billableRate(m: CommandMetrics): number | null {
@@ -625,7 +625,7 @@ export interface BriefPriority {
 
 // Metrics the change sentence can state. When the first priority is about one of
 // them, the brief points at it by name instead of repeating its headline.
-const POINTER_NOUN: Readonly<Record<string, string>> = { totalCalls: 'call', billableRate: 'billable-rate' };
+const POINTER_NOUN: Readonly<Record<string, string>> = { totalCalls: 'call', billableRate: 'monetized-rate' };
 
 /**
  * Today's Brief: a band with its reason, then at most two short sentences -- what
@@ -684,24 +684,24 @@ export function composeCallGridBrief(input: {
     const rateMoved = rate !== null && prior !== null && Math.abs(Math.round(rate) - Math.round(prior)) >= MATERIAL_PTS;
     const callsMoved = Math.abs(callPct) >= MATERIAL_PCT;
     const callText = callsMoved ? `Total calls are ${callPct > 0 ? 'up' : 'down'} ${Math.abs(callPct)}% versus ${phrase}` : null;
-    const rateText = rateMoved ? `the billable rate ${rate! > prior! ? 'rose' : 'fell'} from ${Math.round(prior!)}% to ${Math.round(rate!)}%` : null;
+    const rateText = rateMoved ? `the monetized rate ${rate! > prior! ? 'rose' : 'fell'} from ${Math.round(prior!)}% to ${Math.round(rate!)}%` : null;
     let text: string;
     if (callText && rateText) text = `${callText}, while ${rateText}.`;
     else if (callText) text = `${callText}.`;
     else if (rateText) text = `Total calls held level versus ${phrase}, while ${rateText}.`;
-    else text = `Total calls and the billable rate held level versus ${phrase}.`;
+    else text = `Total calls and the monetized rate held level versus ${phrase}.`;
     if (callsMoved) stated.add('totalCalls');
     if (rateMoved) stated.add('billableRate');
     change = {
       text,
       basis: 'ARITHMETIC',
       detail: `${calls.toLocaleString('en-US')} total calls against ${c.totalCalls.toLocaleString('en-US')}` +
-        (m.billableCalls !== null && c.billableCalls !== null ? `; billable ${m.billableCalls.toLocaleString('en-US')} of ${calls.toLocaleString('en-US')} against ${c.billableCalls.toLocaleString('en-US')} of ${c.totalCalls.toLocaleString('en-US')}.` : '.'),
+        (m.billableCalls !== null && c.billableCalls !== null ? `; monetized ${m.billableCalls.toLocaleString('en-US')} of ${calls.toLocaleString('en-US')} against ${c.billableCalls.toLocaleString('en-US')} of ${c.totalCalls.toLocaleString('en-US')}.` : '.'),
     };
   } else if (calls !== null) {
     const rate = billableRate(m);
     change = {
-      text: `${calls.toLocaleString('en-US')} total calls ${window.includesLiveData ? 'so far' : 'in this period'}${rate !== null ? `, ${Math.round(rate)}% billable` : ''}; there is no comparison period.`,
+      text: `${calls.toLocaleString('en-US')} total calls ${window.includesLiveData ? 'so far' : 'in this period'}${rate !== null ? `, ${Math.round(rate)}% monetized` : ''}; there is no comparison period.`,
       basis: 'MEASURED',
       detail: null,
     };
@@ -871,7 +871,7 @@ export function callFunnel(outcomes: CallOutcomeFacts, economics: { readonly rev
         : outcomes.completedReported < outcomes.calls ? `${outcomes.completedReported} of ${outcomes.calls} calls reported completion.` : null,
       grain: 'calls',
     },
-    { key: 'billable', label: 'Billable', value: outcomes.monetized, note: null, grain: 'calls' },
+    { key: 'billable', label: 'Monetized', value: outcomes.monetized, note: null, grain: 'calls' },
     { key: 'revenue', label: 'Revenue', value: economics.revenueCents, note: null, grain: 'money' },
     { key: 'profit', label: 'Net Profit', value: economics.profitCents, note: null, grain: 'money' },
   ];

@@ -90,8 +90,8 @@ export async function CallDimensionPage({ config, session, searchParams }: { con
   const columns: PerfColumn<CallGridDimRow>[] = [
     { label: config.entityLabel, render: (r) => <Link href={detailHref(r.key)} className="dim-rowlink">{r.label}</Link> },
     { label: 'Calls', align: 'right', sortKey: 'calls', render: (r) => count(r.calls) },
-    { label: 'Billable', align: 'right', sortKey: 'billable', render: (r) => count(r.monetized) },
-    { label: 'Billable rate', align: 'right', render: (r) => pct(rate(r)) },
+    { label: 'Monetized', align: 'right', sortKey: 'billable', render: (r) => count(r.monetized) },
+    { label: 'Monetized rate', align: 'right', render: (r) => pct(rate(r)) },
     { label: 'Revenue', align: 'right', sortKey: 'revenue', render: (r) => money(r.revenueCents) },
     { label: 'Net profit', align: 'right', sortKey: 'profit', render: (r) => money(r.marginCents) },
     { label: 'Margin', align: 'right', render: (r) => pct(margin(r), 1) },
@@ -124,7 +124,7 @@ export async function CallDimensionPage({ config, session, searchParams }: { con
         <>
           <div className="cgx-strip" aria-label={`${config.title} summary`}>
             <div className="cgx-strip__item"><span className="cgx-strip__n">{count(s.observed)}</span><span className="cgx-strip__l">{config.entityLabel}s with calls</span></div>
-            <div className="cgx-strip__item"><span className="cgx-strip__n">{count(s.active)}</span><span className="cgx-strip__l">produced revenue or a billable call</span></div>
+            <div className="cgx-strip__item"><span className="cgx-strip__n">{count(s.active)}</span><span className="cgx-strip__l">produced revenue or a monetized call</span></div>
             <div className="cgx-strip__item"><span className="cgx-strip__n">{top1 === null ? '—' : `${Math.round(top1 * 100)}%`}</span><span className="cgx-strip__l">of revenue from the top {config.entityLabelLower}</span></div>
             <div className="cgx-strip__item"><span className="cgx-strip__n">{top3 === null ? '—' : `${Math.round(top3 * 100)}%`}</span><span className="cgx-strip__l">from the top three</span></div>
           </div>

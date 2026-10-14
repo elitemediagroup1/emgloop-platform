@@ -161,7 +161,7 @@ export default async function CallGridOverviewPage({ searchParams }: { searchPar
           ) : (
             <ul className="cgx-live">
               {recentR.data.map((c) => {
-                const word = c.noRoute ? "No route" : c.monetized ? "Billable" : c.completed ? "Completed" : c.completed === false ? "Not completed" : "Call received";
+                const word = c.noRoute ? "No route" : c.monetized ? "Monetized" : c.completed ? "Completed" : c.completed === false ? "Not completed" : "Call received";
                 const tone = c.noRoute ? "crit" : c.monetized ? "good" : "neutral";
                 return (
                   <li key={c.id} className="cgx-live__item">
@@ -188,7 +188,7 @@ export default async function CallGridOverviewPage({ searchParams }: { searchPar
             <Link className="cgx-action" href="/crm/live/calls">Open live calls</Link>
             <Link className="cgx-action" href={withQuery(`${BASE}/activity`, query)}>Findings stream</Link>
           </div>
-          <p className="cgx-foot">{count(report.metrics.totalCalls)} calls and {count(report.metrics.billableCalls)} billable in {ctx.selection.label}.</p>
+          <p className="cgx-foot">{count(report.metrics.totalCalls)} calls and {count(report.metrics.billableCalls)} monetized in {ctx.selection.label}.</p>
         </Card>
       </div>
     </CommandShell>

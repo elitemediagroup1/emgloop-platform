@@ -90,7 +90,7 @@ function CompositionTable({ rows, dim, query, total }: { rows: readonly CallDime
     <div className="adm-tablewrap">
       <table className="adm-table dim-table cgx-table">
         <thead>
-          <tr><th>Name</th><th className="dim-num">Calls</th><th className="dim-num">Share</th><th className="dim-num">Billable</th><th className="dim-num">Revenue</th><th className="dim-num">Net profit</th></tr>
+          <tr><th>Name</th><th className="dim-num">Calls</th><th className="dim-num">Share</th><th className="dim-num">Monetized</th><th className="dim-num">Revenue</th><th className="dim-num">Net profit</th></tr>
         </thead>
         <tbody>
           {rows.slice(0, 8).map((r) => {
@@ -215,8 +215,8 @@ export async function EntityDetailPage({ dim, entityKey, session, searchParams }
     { label: 'Revenue', value: money(revenue), delta: change(revenue, priorRevenue) },
     { label: 'Net profit', value: money(profit), delta: change(profit, priorProfit) },
     { label: 'Calls', value: count(agg?.calls ?? null), delta: change(agg?.calls ?? null, prior?.calls ?? null) },
-    { label: 'Billable calls', value: count(agg?.monetized ?? null), delta: change(agg?.monetized ?? null, prior?.monetized ?? null) },
-    { label: 'Billable rate', value: pct(rate), delta: rate !== null && priorRate !== null ? `${rate - priorRate >= 0 ? '+' : '−'}${Math.abs(rate - priorRate).toFixed(0)} pts` : null },
+    { label: 'Monetized calls', value: count(agg?.monetized ?? null), delta: change(agg?.monetized ?? null, prior?.monetized ?? null) },
+    { label: 'Monetized rate', value: pct(rate), delta: rate !== null && priorRate !== null ? `${rate - priorRate >= 0 ? '+' : '−'}${Math.abs(rate - priorRate).toFixed(0)} pts` : null },
     { label: 'Share of revenue', value: pct(share), delta: null },
   ];
 

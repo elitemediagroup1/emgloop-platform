@@ -67,7 +67,7 @@ test('Net Profit, Margin and Telco Cost are the report’s own figures, never re
     series: [point(), point({ calls: 0, monetized: 0, revenueCents: 0, payoutCents: 0, costCents: 0, callsWithRevenue: 0, callsWithCost: 0 })],
   });
   const by = Object.fromEntries(kpis.map((k) => [k.key, k]));
-  assert.deepEqual(kpis.map((k) => k.label), ['Net Profit', 'Revenue', 'Billable Calls', 'Margin', 'Telco Cost']);
+  assert.deepEqual(kpis.map((k) => k.label), ['Net Profit', 'Revenue', 'Monetized Calls', 'Margin', 'Telco Cost']);
   assert.equal(by.netProfit!.value, 6_452_800);
   assert.equal(by.telcoCost!.value, 8_391_200);
   assert.equal(by.margin!.value, 17.3, 'net profit ÷ revenue');
@@ -166,7 +166,7 @@ test('the brief is a band, a reason and at most two short sentences: what change
   const brief = briefOf();
   assert.equal(brief.band, 'WATCH');
   assert.deepEqual(brief.sentences.map((x) => x.text), [
-    'Total calls are down 15% versus yesterday to the same time, while the billable rate rose from 28% to 33%.',
+    'Total calls are down 15% versus yesterday to the same time, while the monetized rate rose from 28% to 33%.',
     'Review first: Markytek carries 50% of buyer revenue.',
   ]);
   assert.deepEqual(brief.sentences.map((x) => x.basis), ['ARITHMETIC', 'READING']);
@@ -193,7 +193,7 @@ test('the brief points at the first priority by name instead of repeating a head
   const none = briefOf({ firstPriority: null });
   assert.equal(none.sentences[1]!.text, 'Nothing undecided needs review.');
   const level = briefOf({ comparison: metrics({ totalCalls: 405, billableCalls: 134 }) });
-  assert.equal(level.sentences[0]!.text, 'Total calls and the billable rate held level versus yesterday to the same time.');
+  assert.equal(level.sentences[0]!.text, 'Total calls and the monetized rate held level versus yesterday to the same time.');
   const empty = briefOf({ metrics: metrics({ totalCalls: 0 }), comparison: null, health: { band: 'UNKNOWN', reason: null, explanation: null, determinacy: 0 }, firstPriority: null });
   assert.deepEqual(empty.sentences.map((x) => x.text), ['No calls were recorded so far.']);
 });
@@ -202,7 +202,7 @@ test('the word budget holds for the longest band, reason, comparison and headlin
   const long = briefOf({
     window: resolveCallGridWindow({ preset: 'last_30_days' }, NOW),
     health: { band: 'CRITICAL', reason: 'call volume swings widely between periods, though profit and revenue improved', explanation: null, determinacy: 1 },
-    firstPriority: { title: 'Home Insurance Direct revenue per billable call fell 42% against the previous thirty days', metric: 'revenuePerBillableCall', direction: 'down' },
+    firstPriority: { title: 'Home Insurance Direct revenue per monetized call fell 42% against the previous thirty days', metric: 'revenuePerBillableCall', direction: 'down' },
   });
   assert.ok(briefWordCount(long) <= BRIEF_MAX_WORDS, `${briefWordCount(long)} words: ${long.sentences.map((x) => x.text).join(' ')}`);
   assert.ok(long.sentences.length >= 1);
@@ -253,8 +253,8 @@ test('every signal the health model produces has words, and they never say more 
   assert.equal(healthSignalReason({ id: 'vendor-concentration', score: 0.4 }), 'supply leans on one vendor', 'fragility 0.6: the model says "depends heavily"');
   assert.equal(healthSignalReason({ id: 'revenue-coverage', score: 0.89 }), 'revenue is only partly reported');
   assert.equal(healthSignalReason({ id: 'revenue-coverage', score: 1 }), 'revenue reporting is the weakest area');
-  assert.equal(healthSignalReason({ id: 'billable-efficiency', score: 0.66 }), 'billable efficiency is the weakest area', '33% billable is not "few"');
-  assert.equal(healthSignalReason({ id: 'billable-efficiency', score: 0.4 }), 'few calls become billable');
+  assert.equal(healthSignalReason({ id: 'billable-efficiency', score: 0.66 }), 'monetized efficiency is the weakest area', '33% monetized is not "few"');
+  assert.equal(healthSignalReason({ id: 'billable-efficiency', score: 0.4 }), 'few calls become monetized');
   assert.equal(healthSignalReason({ id: 'not-a-signal', score: 0.1 }), null);
 });
 
@@ -329,7 +329,7 @@ test('REGRESSION (PR #300 review): a half-covered month never produces a +305% h
   assert.equal(callGridHealthReason({ band: 'HEALTHY', weakest: null, metrics: metrics(), comparison }), 'the measured signals are sound');
 });
 
-test('the Billable Calls tile states the total calls it is part of, in the brief’s words', () => {
+test('the Monetized Calls tile states the total calls it is part of, in the brief’s words', () => {
   const kpis = callGridKpis({ metrics: metrics(), comparison: null, series: [] });
   assert.equal(kpis.find((k) => k.key === 'billableCalls')!.subline, 'of 400 total calls');
   assert.equal(kpis.filter((k) => k.subline !== null).length, 1, 'no sixth figure: one subline, on one tile');
@@ -349,7 +349,7 @@ test('a situation’s kind comes from the finding that raised it — and which w
   assert.equal(situationKind(sit('CONCENTRATION')), 'RISK');
   assert.equal(situationKind(sit('BID_REJECTION', { percentageChange: 40 })), 'RISK', 'a risk whichever way it moved');
   assert.equal(situationKind(sit('CHANGE', { percentageChange: -15, primaryMetric: 'totalCalls' })), 'NEEDS_INVESTIGATION', 'calls fell');
-  assert.equal(situationKind(sit('QUALITY', { percentageChange: 34, primaryMetric: 'billableRate' })), 'OPPORTUNITY', 'billable rate rose: not a risk');
+  assert.equal(situationKind(sit('QUALITY', { percentageChange: 34, primaryMetric: 'billableRate' })), 'OPPORTUNITY', 'monetized rate rose: not a risk');
   assert.equal(situationKind(sit('QUALITY', { percentageChange: -20, primaryMetric: 'billableRate' })), 'RISK');
   // REGRESSION (PR #300 review): the billable-efficiency rule is OPERATIONAL in both directions,
   // and "Billable rate increased 32%" was labelled Risk.

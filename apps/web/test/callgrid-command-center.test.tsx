@@ -77,7 +77,7 @@ describe('the executive layer', () => {
   it('shows the five KPIs, Net Profit first, each opening Money with the period carried', () => {
     const html = renderToStaticMarkup(<KpiRow ctx={context({ period: 'weekly', date: '2026-09-02' })} />);
     const labels = [...html.matchAll(/class="cgx-kpi__label">([^<]+)</g)].map((m) => m[1]);
-    assert.deepEqual(labels, ['Net Profit', 'Revenue', 'Billable Calls', 'Margin', 'Telco Cost']);
+    assert.deepEqual(labels, ['Net Profit', 'Revenue', 'Monetized Calls', 'Margin', 'Telco Cost']);
     assert.match(html, /href="\/app\/admin\/marketplace\/money\?period=weekly&amp;date=2026-08-31#kpi-netProfit"/);
     assert.match(html, /\$64,528/);
     assert.match(html, /17\.3%/);
@@ -134,7 +134,7 @@ describe('the executive layer', () => {
     assert.match(p.title, /^Total calls decreased/);
     assert.match(p.action ?? '', /^Compare total calls by source and campaign/);
     for (const line of [p.explanation, p.action ?? '']) {
-      assert.doesNotMatch(line, /improved|billable rate/i, `"${line}" belongs to another finding`);
+      assert.doesNotMatch(line, /improved|monetized rate/i, `"${line}" belongs to another finding`);
     }
     const html = renderToStaticMarkup(<TopPriorities priorities={[p]} allHref="/i" emptyLine="-" unavailable={null} />);
     assert.doesNotMatch(html, /Confirm which sources improved/);
@@ -145,7 +145,7 @@ describe('the executive layer', () => {
       band: 'HEALTHY',
       reason: 'profit and revenue improved despite lower call volume',
       sentences: [
-        { text: 'Total calls are down 17% versus yesterday to the same time, while the billable rate rose from 26% to 33%.', basis: 'ARITHMETIC', detail: '289 total calls against 349' },
+        { text: 'Total calls are down 17% versus yesterday to the same time, while the monetized rate rose from 26% to 33%.', basis: 'ARITHMETIC', detail: '289 total calls against 349' },
         { text: 'Review the call decline first.', basis: 'READING', detail: null },
       ],
       details: [
@@ -157,7 +157,7 @@ describe('the executive layer', () => {
     assert.match(html, /Business health: <strong class="cgx-health__band">Healthy<\/strong><span class="cgx-health__reason"> — profit and revenue improved despite lower call volume\.<\/span>/);
     // Shown: the two sentences only. Concentration and coverage are details, with their basis.
     const shown = /<p class="cgx-brief__text">([^<]*)<\/p>/.exec(html)![1]!;
-    assert.equal(shown, 'Total calls are down 17% versus yesterday to the same time, while the billable rate rose from 26% to 33%. Review the call decline first.');
+    assert.equal(shown, 'Total calls are down 17% versus yesterday to the same time, while the monetized rate rose from 26% to 33%. Review the call decline first.');
     assert.doesNotMatch(shown, /Markytek|89%/);
     assert.match(html, /<summary class="cgx-brief__more">View details<\/summary>/);
     assert.match(html, /Arithmetic on measured values/);
@@ -165,10 +165,10 @@ describe('the executive layer', () => {
     assert.match(html, /Nothing here is a model’s summary/);
   });
 
-  it('the Billable Calls tile names the total calls it is part of — no sixth KPI', () => {
+  it('the Monetized Calls tile names the total calls it is part of — no sixth KPI', () => {
     const html = renderToStaticMarkup(<KpiRow ctx={context()} />);
     assert.equal((html.match(/class="cgx-kpi"/g) ?? []).length, 5);
-    assert.match(html, /Billable Calls<\/span><span class="cgx-kpi__value">132<\/span><span class="cgx-kpi__sub">of 400 total calls<\/span>/);
+    assert.match(html, /Monetized Calls<\/span><span class="cgx-kpi__value">132<\/span><span class="cgx-kpi__sub">of 400 total calls<\/span>/);
   });
 
   it('a withheld comparison is said once, in the header, where there is no brief to say it', () => {
@@ -203,7 +203,7 @@ describe('a situation reads in words and units', () => {
       classification: 'DERIVED', completeness: 1, notes: null, ...over,
     });
     const finding = {
-      id: 'efficiency:billable-rate', findingType: 'OPERATIONAL', title: 'Billable rate increased 34%', plainLanguageSummary: 'x',
+      id: 'efficiency:billable-rate', findingType: 'OPERATIONAL', title: 'Monetized rate increased 34%', plainLanguageSummary: 'x',
       classification: 'DERIVED', severity: 'NOTABLE', confidence: 0.9, currentWindow: 'Today · Live', comparisonWindow: 'Yesterday · through 7:51 PM',
       primaryMetric: 'billableRate', currentValue: 0.332, comparisonValue: 0.249, absoluteChange: null, percentageChange: 0.336,
       affectedEntities: [], drivers: [], limitations: [], unknowns: [], recommendedReview: null, recommendedActionType: null,
@@ -216,9 +216,9 @@ describe('a situation reads in words and units', () => {
     } as never;
     const html = renderToStaticMarkup(<EvidenceDrawer finding={finding} />);
     const cells = [...html.matchAll(/<td[^>]*>([^<]*)</g)].map((m) => m[1]);
-    assert.ok(cells.includes('Billable rate') && cells.includes('Billable calls') && cells.includes('Revenue'), cells.join(' | '));
+    assert.ok(cells.includes('Monetized rate') && cells.includes('Monetized calls') && cells.includes('Revenue'), cells.join(' | '));
     assert.ok(cells.includes('33.2%') && cells.includes('$4,132') && cells.includes('112'), cells.join(' | '));
-    assert.match(html, /billable calls \/ total calls \(v1\)/);
+    assert.match(html, /monetized calls \/ total calls \(v1\)/);
     assert.equal(cells.some((c) => /^(billableRate|billableCalls|0\.332|413,200)$/.test(c ?? '')), false);
 
     // The situation page takes its measured values and recorded evidence from the same words.

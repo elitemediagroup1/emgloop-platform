@@ -111,7 +111,7 @@ export default async function SourcesPage({ searchParams }: { searchParams?: Sea
                 </tr>
                 <tr>
                   <th className="dim-num">Opportunities</th><th className="dim-num">Bids</th><th className="dim-num">Won</th><th className="dim-num">Win rate</th>
-                  <th className="dim-num">Calls</th><th className="dim-num">Billable</th><th className="dim-num">Rate</th><th className="dim-num">Revenue</th><th className="dim-num">Net profit</th><th className="dim-num">vs prior</th>
+                  <th className="dim-num">Calls</th><th className="dim-num">Monetized</th><th className="dim-num">Rate</th><th className="dim-num">Revenue</th><th className="dim-num">Net profit</th><th className="dim-num">vs prior</th>
                 </tr>
               </thead>
               <tbody>

@@ -46,6 +46,8 @@ import { loadCallGridReport, type CallGridReport } from './callgrid-report';
 
 export type SearchParams = Readonly<Record<string, string | string[] | undefined>> | undefined;
 
+import { callGridPollCoverage, type CallGridPollCoverage } from '../../../../crm/callgrid-coverage';
+
 const PROVIDER = 'callgrid';
 
 export interface CommandContext {
@@ -70,6 +72,7 @@ export interface CommandContext {
   readonly comparisonFacts: CallWindowFacts | null;
   readonly kpis: CallGridKpi[];
   readonly freshness: CallGridFreshness;
+  readonly pollCoverage?: CallGridPollCoverage;
   /** The selection's query, to carry on every CallGrid link. */
   readonly query: string;
   /** May this person act on decisions (Review/Assign/Watch/Resolve/Dismiss)? */
@@ -151,6 +154,7 @@ export async function loadCommandContextFor(
     comparisonFacts,
     kpis,
     freshness,
+    pollCoverage: freshnessFacts.pollCoverage,
     query: selection.query,
     canAct,
   };
@@ -162,6 +166,7 @@ async function loadFreshnessFacts(organizationId: string): Promise<{
   pollCompletedThrough: Date | null;
   recentDeliveries: { status: string; receivedAt: Date }[];
   factsOk: boolean;
+  pollCoverage: CallGridPollCoverage;
 }> {
   try {
     const [connections, events, checkpoint] = await Promise.all([
@@ -180,9 +185,10 @@ async function loadFreshnessFacts(organizationId: string): Promise<{
       pollCompletedThrough: checkpoint?.completedThrough ?? null,
       recentDeliveries: received,
       factsOk: true,
+      pollCoverage: callGridPollCoverage({ readOk: true, now: new Date(), checkpoint }),
     };
   } catch {
-    return { lastDeliveryAt: null, pollCompletedThrough: null, recentDeliveries: [], factsOk: false };
+    return { lastDeliveryAt: null, pollCompletedThrough: null, recentDeliveries: [], factsOk: false, pollCoverage: callGridPollCoverage({ readOk: false, now: new Date(), checkpoint: null }) };
   }
 }
 

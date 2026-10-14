@@ -282,7 +282,7 @@ describe('the briefing is a pure projection of what the loaders returned', () =>
     const moved = brief().changes.find((c) => c.source === 'CALLGRID')!;
     // The contract's own figures and percentages (14 against 9 is +56%), the window's own comparison words.
     // Total calls did not move (20 against 20), so it is not part of the change row: only moved figures are.
-    assert.match(moved.what, /^CallGrid: Revenue \$1,120 \(▲ 32%\) · Net Profit \$610 \(▲ 53%\) · Billable Calls 14 \(▲ 56%\)$/);
+    assert.match(moved.what, /^CallGrid: Revenue \$1,120 \(▲ 32%\) · Net Profit \$610 \(▲ 53%\) · Monetized Calls 14 \(▲ 56%\)$/);
     assert.equal(moved.where, 'Today so far');
     assert.equal(moved.why, 'against yesterday to the same time; a move, not a verdict');
     const still = brief({ callgrid: callgrid({ comparison: { totalCalls: 20, billableCalls: 14, revenueCents: 112_000, profitCents: 61_000 } }) });
@@ -494,7 +494,7 @@ describe('your briefing is a synthesis in prose, not the What-changed list', () 
     assert.ok(n.length >= 2 && n.length <= NARRATIVE_MAX);
     assert.deepEqual(n.map((x) => x.topic), ['business', 'intelligence', 'communications', 'day']);
     assert.deepEqual(n.map((x) => x.text), [
-      'Today so far: revenue $1,120 (up 32%), net profit $610 (up 53%) and billable calls 14 (up 56%) against yesterday to the same time.',
+      'Today so far: revenue $1,120 (up 32%), net profit $610 (up 53%) and monetized calls 14 (up 56%) against yesterday to the same time.',
       '2 Headlines are open; 1 under investigation.',
       '3 conversations in your mail need your reply and you are waiting on 2 replies; 2 Telegram conversations need you.',
       '“Harbor / Kona — reel review” is on now, then “CallGrid weekly” at 4:00 PM; 4 work items are assigned to you, 1 overdue and 2 due today.',
@@ -516,7 +516,7 @@ describe('your briefing is a synthesis in prose, not the What-changed list', () 
 
   it('business: the window’s own comparison, or why nothing is compared, or that CallGrid could not be read -- never a zero', () => {
     assert.equal(said({ business: { ok: true, value: callgrid({ comparison: { totalCalls: 20, billableCalls: 14, revenueCents: 112_000, profitCents: 61_000 } }) } }).business, 'Today so far: revenue $1,120 and net profit $610, level with yesterday to the same time.');
-    assert.equal(said({ business: { ok: true, value: callgrid({ comparison: null, withheld: true }) } }).business, 'Today so far: revenue $1,120, net profit $610 and billable calls 14. Not compared: Loop’s call record starts Sep 24, after the comparison period began.');
+    assert.equal(said({ business: { ok: true, value: callgrid({ comparison: null, withheld: true }) } }).business, 'Today so far: revenue $1,120, net profit $610 and monetized calls 14. Not compared: Loop’s call record starts Sep 24, after the comparison period began.');
     assert.equal(said({ business: { ok: false } }).business, 'CallGrid could not be read just now, so Loop says nothing about the numbers.');
     assert.equal(said({ business: { ok: true, value: callgrid({ ok: false }) } }).business, 'CallGrid could not be read just now, so Loop says nothing about the numbers.');
     const unknown = said({ business: { ok: true, value: callgrid({ current: { revenueCents: null, profitCents: null, revenueCoverage: 0, profitCoverage: 0 } }) } }).business!;

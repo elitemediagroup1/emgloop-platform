@@ -111,7 +111,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${ORGANIZATIONS:-}" ]; then
-            echo "ROUTINE_POLL_ORGANIZATIONS is not set. Routine polling is OFF and nothing was read."
+            echo "::error::ROUTINE_POLL_ORGANIZATIONS is not set. Routine polling is OFF and nothing was read."
             {
               echo "### Routine CallGrid polling is not enabled"
               echo ""
@@ -120,7 +120,7 @@ jobs:
               echo "To enable: set the repository variable \`ROUTINE_POLL_ORGANIZATIONS\` to the"
               echo "organization slug (or a comma-separated list). To disable again: clear it."
             } >> "$GITHUB_STEP_SUMMARY"
-            exit 0
+            exit 1
           fi
           echo "enabled=true" >> "$GITHUB_OUTPUT"
         id: gate

@@ -41,6 +41,8 @@ export type ComparisonSupport =
   | 'snapshot_only'     // comparable only against another stored snapshot
   | 'none';
 
+// Legacy billable* metric keys remain stable for stored evidence and URLs. Their
+// displayed definition is Monetized: billable OR converted OR paid.
 export interface CallGridMetricDefinition {
   metricKey: string;
   displayName: string;
@@ -136,9 +138,9 @@ const CALL_PERFORMANCE: CallGridMetricDefinition[] = [
   },
   {
     metricKey: 'billableCalls',
-    displayName: 'Billable Calls',
-    description: 'Calls the provider marked as billable (monetized) in the selected period.',
-    classification: 'VERIFIED',
+    displayName: 'Monetized Calls',
+    description: 'Derived commercial outcomes: the provider reported billable, converted, or paid. This is not the explicit provider billable count.',
+    classification: 'DERIVED',
     providerSource: CALL_SOURCE,
     providerFields: ['monetized'],
     grain: CALL_DIMS,
@@ -147,13 +149,13 @@ const CALL_PERFORMANCE: CallGridMetricDefinition[] = [
     timezoneRule: EASTERN_RULE,
     dateWindowSupport: 'arbitrary_window',
     comparisonSupport: 'elapsed_matched',
-    zeroSemantics: 'A true zero: calls were observed and none were billable.',
+    zeroSemantics: 'A true zero: calls were observed and none were monetized.',
     unknownSemantics: 'Not applicable — a call either carries the flag or does not count toward it.',
     unavailableSemantics: 'The call read failed.',
-    completenessRule: 'Complete whenever the window read succeeded.',
+    completenessRule: 'Counts positive outcomes on stored calls only; a successful read does not prove provider population coverage.',
     evidenceFields: ['monetized', 'calls'],
     validDimensions: CALL_DIMS,
-    invalidCrossGrainUses: ['Never equated with bids won — a won bid is not a billable call.'],
+    invalidCrossGrainUses: ['Never equated with bids won — a won bid is not a monetized call.'],
   },
   {
     metricKey: 'totalCalls',
@@ -171,7 +173,7 @@ const CALL_PERFORMANCE: CallGridMetricDefinition[] = [
     zeroSemantics: 'A true zero: the window was read and contained no calls.',
     unknownSemantics: 'Not applicable.',
     unavailableSemantics: 'The call read failed.',
-    completenessRule: 'Complete whenever the window read succeeded.',
+    completenessRule: 'Counts positive outcomes on stored calls only; a successful read does not prove provider population coverage.',
     evidenceFields: ['calls'],
     validDimensions: CALL_DIMS,
     invalidCrossGrainUses: [
@@ -180,8 +182,8 @@ const CALL_PERFORMANCE: CallGridMetricDefinition[] = [
   },
   {
     metricKey: 'revenuePerBillableCall',
-    displayName: 'Revenue per Billable Call',
-    description: 'Average revenue earned per billable call — the value side of performance.',
+    displayName: 'Revenue per Monetized Call',
+    description: 'Average revenue earned per monetized call — the value side of performance.',
     classification: 'DERIVED',
     providerSource: CALL_SOURCE,
     providerFields: ['revenueCents', 'monetized'],
@@ -191,8 +193,8 @@ const CALL_PERFORMANCE: CallGridMetricDefinition[] = [
     timezoneRule: EASTERN_RULE,
     dateWindowSupport: 'arbitrary_window',
     comparisonSupport: 'elapsed_matched',
-    zeroSemantics: 'Zero only when billable calls exist and carried zero revenue.',
-    unknownSemantics: 'Unknown when there are no billable calls (no denominator) or revenue is unknown. Never rendered as 0.',
+    zeroSemantics: 'Zero only when monetized calls exist and carried zero revenue.',
+    unknownSemantics: 'Unknown when there are no monetized calls (no denominator) or revenue is unknown. Never rendered as 0.',
     unavailableSemantics: 'The economics read failed.',
     completenessRule: 'Inherits revenue completeness; partial revenue coverage understates it.',
     evidenceFields: ['revenueCents', 'monetized', 'callsWithRevenue'],
@@ -201,8 +203,8 @@ const CALL_PERFORMANCE: CallGridMetricDefinition[] = [
   },
   {
     metricKey: 'profitPerBillableCall',
-    displayName: 'Net Profit per Billable Call',
-    description: 'Average net profit (after payout and call cost) per billable call — the margin side of performance.',
+    displayName: 'Net Profit per Monetized Call',
+    description: 'Average net profit (after payout and call cost) per monetized call — the margin side of performance.',
     classification: 'DERIVED',
     providerSource: CALL_SOURCE,
     providerFields: ['revenueCents', 'payoutCents', 'costCents', 'monetized'],
@@ -212,8 +214,8 @@ const CALL_PERFORMANCE: CallGridMetricDefinition[] = [
     timezoneRule: EASTERN_RULE,
     dateWindowSupport: 'arbitrary_window',
     comparisonSupport: 'elapsed_matched',
-    zeroSemantics: 'Zero only when profit is known and nets to zero over known billable calls.',
-    unknownSemantics: 'Unknown when profit is unknown or there are no billable calls.',
+    zeroSemantics: 'Zero only when profit is known and nets to zero over known monetized calls.',
+    unknownSemantics: 'Unknown when profit is unknown or there are no monetized calls.',
     unavailableSemantics: 'The economics read failed.',
     completenessRule: 'Inherits profit completeness (weakest of revenue/payout/cost coverage).',
     evidenceFields: ['revenueCents', 'payoutCents', 'costCents', 'monetized'],
@@ -222,8 +224,8 @@ const CALL_PERFORMANCE: CallGridMetricDefinition[] = [
   },
   {
     metricKey: 'billableRate',
-    displayName: 'Billable Rate',
-    description: 'Share of calls that were billable. An efficiency measure, not a quality measure.',
+    displayName: 'Monetized Rate',
+    description: 'Share of calls that were monetized. An efficiency measure, not a quality measure.',
     classification: 'DERIVED',
     providerSource: CALL_SOURCE,
     providerFields: ['monetized'],
@@ -233,10 +235,10 @@ const CALL_PERFORMANCE: CallGridMetricDefinition[] = [
     timezoneRule: EASTERN_RULE,
     dateWindowSupport: 'arbitrary_window',
     comparisonSupport: 'elapsed_matched',
-    zeroSemantics: 'A true zero: calls were observed and none were billable.',
+    zeroSemantics: 'A true zero: calls were observed and none were monetized.',
     unknownSemantics: 'Unknown when there are no calls (no denominator).',
     unavailableSemantics: 'The call read failed.',
-    completenessRule: 'Complete whenever the window read succeeded.',
+    completenessRule: 'Counts positive outcomes on stored calls only; a successful read does not prove provider population coverage.',
     evidenceFields: ['monetized', 'calls'],
     validDimensions: CALL_DIMS,
     invalidCrossGrainUses: [
@@ -325,7 +327,7 @@ function entityCount(dim: 'buyer' | 'vendor' | 'source' | 'campaign', plural: st
     {
       metricKey: `active${cap}`,
       displayName: `Active ${cap}`,
-      description: `${cap} that produced revenue or billable calls in the selected period.`,
+      description: `${cap} that produced revenue or monetized calls in the selected period.`,
       classification: 'DERIVED',
       providerSource: CALL_SOURCE,
       providerFields: [`${dim}ExternalId`, 'monetized', 'revenueCents'],
@@ -335,7 +337,7 @@ function entityCount(dim: 'buyer' | 'vendor' | 'source' | 'campaign', plural: st
       timezoneRule: EASTERN_RULE,
       dateWindowSupport: 'arbitrary_window',
       comparisonSupport: 'elapsed_matched',
-      zeroSemantics: 'A true zero: entities appeared but none produced revenue or a billable call.',
+      zeroSemantics: 'A true zero: entities appeared but none produced revenue or a monetized call.',
       unknownSemantics: 'Not applicable.',
       unavailableSemantics: 'The call read failed.',
       completenessRule: `${ENTITY_COUNT_NOTE} "Active" is strictly narrower than observed: it requires economic activity, not merely a call.`,

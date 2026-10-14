@@ -81,10 +81,10 @@ test('REGRESSION: the billable-rate situation reads as a sentence, with percenta
       ev({ metricKey: 'billableRate', window: 'Today · Live', derivedValue: 0.332, formula: 'billableCalls / totalCalls' }),
     ],
   });
-  assert.equal(observationSentence(f), 'Billable rate increased from 25% to 33% compared with yesterday through 7:51 PM.');
+  assert.equal(observationSentence(f), 'Monetized rate increased from 25% to 33% compared with yesterday through 7:51 PM.');
   const m = measuredValuesOf(f)!;
   assert.deepEqual(m, {
-    subject: 'Billable rate',
+    subject: 'Monetized rate',
     current: { label: 'Today · Live', value: '33%' },
     comparison: { label: 'Yesterday · through 7:51 PM', value: '25%' },
   });
@@ -111,7 +111,7 @@ test('money: cents read as dollars, with cents only when the dollars alone would
     comparisonWindow: 'Prior Week', currentWindow: 'Last Week',
     supportingEvidence: [ev({ metricKey: 'revenuePerBillableCall', window: 'Last Week', derivedValue: 2_540, entityType: 'buyer', entityName: 'Markytek' })],
   });
-  assert.equal(observationSentence(perCall), 'Revenue per billable call for Markytek increased from $25.10 to $25.40 compared with the prior week.');
+  assert.equal(observationSentence(perCall), 'Revenue per monetized call for Markytek increased from $25.10 to $25.40 compared with the prior week.');
 });
 
 test('rates: fractions read as percentages, one more digit only when whole percents would look equal', () => {
@@ -126,7 +126,7 @@ test('rates: fractions read as percentages, one more digit only when whole perce
     ruleId: 'billable-efficiency', primaryMetric: 'billableRate', currentValue: 0.251, comparisonValue: 0.249,
     supportingEvidence: [ev({ metricKey: 'billableRate', derivedValue: 0.251 })],
   });
-  assert.equal(observationSentence(close), 'Billable rate increased from 24.9% to 25.1% compared with yesterday through 9:09 PM.');
+  assert.equal(observationSentence(close), 'Monetized rate increased from 24.9% to 25.1% compared with yesterday through 9:09 PM.');
 });
 
 test('counts read as whole numbers, and bid outcomes by their provider name', () => {
@@ -176,7 +176,7 @@ test('a period-wide rate is stated as all sources in the same period, not as the
       ev({ metricKey: 'billableRate', entityType: 'window', derivedValue: 0.332 }),
     ],
   });
-  assert.equal(observationSentence(gap), 'Billable rate for Turtle Leads was 18% today so far, against 33% across all sources.');
+  assert.equal(observationSentence(gap), 'Monetized rate for Turtle Leads was 18% today so far, against 33% across all sources.');
   assert.equal(measuredValuesOf(gap)!.comparison!.label, 'All sources, same period');
 });
 
@@ -216,8 +216,8 @@ test('period wording', () => {
 });
 
 test('evidence values and formulas read in words and units', () => {
-  assert.equal(metricLabel('billableRate'), 'Billable rate');
-  assert.equal(metricLabel('revenuePerBillableCall'), 'Revenue per billable call');
+  assert.equal(metricLabel('billableRate'), 'Monetized rate');
+  assert.equal(metricLabel('revenuePerBillableCall'), 'Revenue per monetized call');
   assert.equal(metricLabel('callerIdRejected'), '“Caller ID Rejected” outcomes');
   assert.equal(metricLabel('shareOfGrain'), 'Share of outcomes');
   assert.equal(metricLabel('destinationAccepted'), 'Accepted pings');
@@ -228,7 +228,7 @@ test('evidence values and formulas read in words and units', () => {
   assert.equal(formatEvidenceValue({ metricKey: 'totalCalls', formula: null, normalizedValue: 1_956 }), '1,956');
   assert.equal(formatEvidenceValue({ metricKey: 'rankChange', formula: null, derivedValue: 4 }), '+4 places');
   assert.equal(formatEvidenceValue({ metricKey: 'revenue', formula: '(current - mean) / standard deviation', derivedValue: 2.14 }), '2.14 standard deviations');
-  assert.equal(humanizeFormula('billableCalls / totalCalls'), 'billable calls / total calls');
+  assert.equal(humanizeFormula('billableCalls / totalCalls'), 'monetized calls / total calls');
   assert.equal(humanizeFormula('comparisonRank - currentRank'), 'comparison rank - current rank');
 });
 

@@ -242,8 +242,8 @@ describe('the executive KPI row is the Command Center’s own context, in words'
     assert.equal(s.kpis.find((k) => k.key === 'billableCalls')!.subline, 'of 20 total calls');
     // Active campaigns is OBSERVED (a billable call or revenue in the window), never a roster, and its tile says so.
     const campaigns = s.kpis.find((k) => k.key === 'activeCampaigns')!;
-    assert.equal(s.activeCampaigns, 2, 'monetized or revenue > 0; a null or zero revenue with no billable call is not active');
-    assert.match(campaigns.subline!, /produced revenue or billable calls in the selected period/);
+    assert.equal(s.activeCampaigns, 2, 'monetized or revenue > 0; a null or zero revenue with no monetized call is not active');
+    assert.match(campaigns.subline!, /produced revenue or monetized calls in the selected period/);
     assert.match(campaigns.note!, /CallGrid exposes no roster/);
     assert.equal(campaigns.change, null);
     assert.match(campaigns.noChangeReason!, /not compared/i);

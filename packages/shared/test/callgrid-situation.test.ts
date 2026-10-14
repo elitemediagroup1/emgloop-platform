@@ -100,8 +100,8 @@ test('two UNRELATED problems stay two situations — co-occurrence is not a merg
     id: 'a', affectedEntities: [entity('markytek')], ruleId: 'revenue-change',
   });
   const unrelated = finding({
-    id: 'b', findingType: 'QUALITY', title: 'Billable rate fell',
-    plainLanguageSummary: 'Billable rate fell 22%.',
+    id: 'b', findingType: 'QUALITY', title: 'Monetized rate fell',
+    plainLanguageSummary: 'Monetized rate fell 22%.',
     primaryMetric: 'billableRate', currentValue: 0.4, comparisonValue: 0.52,
     absoluteChange: null, percentageChange: -0.22,
     affectedEntities: [entity('other-vendor', { entityType: 'vendor' })],
@@ -477,7 +477,7 @@ test('REGRESSION (PR #300 review): "Total calls decreased 17%" never carries the
   assert.doesNotMatch(calls!.decision ?? '', /improved/i);
   assert.match(calls!.decision!, /^Compare total calls by source and campaign .* where the decline came from\.$/);
   assert.match(calls!.whatHappened, /calls|Total calls/i);
-  assert.doesNotMatch(calls!.whatHappened, /billable ?rate/i);
+  assert.doesNotMatch(calls!.whatHappened, /monetized ?rate/i);
 });
 
 test('no Situation ever mixes findings: title, what happened, why it matters and advice share one voice', () => {
