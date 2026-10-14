@@ -19,7 +19,7 @@ import { MAIL_CONTENT_TRIAGE_SCHEMA_ID } from '@emgloop/shared';
 import { conversationTriageSchema } from './telegram-content-triage';
 
 export const MAIL_CONTENT_TRIAGE_TEMPLATE_ID = 'mail-content-triage';
-export const MAIL_CONTENT_TRIAGE_TEMPLATE_VERSION = '1';
+export const MAIL_CONTENT_TRIAGE_TEMPLATE_VERSION = '2';
 export { MAIL_CONTENT_TRIAGE_SCHEMA_ID };
 export const MAIL_CONTENT_TRIAGE_SCHEMA: Record<string, unknown> = Object.freeze(conversationTriageSchema(MAIL_CONTENT_TRIAGE_SCHEMA_ID));
 
@@ -36,12 +36,17 @@ export function renderMailContentTriageInstructions(opts: { readonly truncated: 
     'Ignore quoted earlier mail, signatures, disclaimers and tracking text.',
     '',
     'ITEMS: only what is STILL UNRESOLVED -- an ask, commitment, decision, deadline or problem a later message',
-    "has not answered or closed (including the person's own reply). At most 8. Each a MINIMIZED PARAPHRASE:",
+    "has not answered or closed (including the person's own reply). Usually 0 to 3; hard limit 8. When unsure, leave it out. Each a MINIMIZED PARAPHRASE:",
     '  oneLineMeaning (<=140), topic (<=60 or ""), nextStep (<=120), deadline (<=40, only words the thread used,',
     '  else null), category (REQUEST, DECISION_NEEDED, COMMITMENT, DEADLINE, BUSINESS_CHANGE, PROBLEM, FOLLOW_UP,',
     '  OTHER), anchorOrdinal (the ORIGINATING message), owedBy (VIEWER / OTHER / UNKNOWN), who (for OTHER: the',
     '  name EXACTLY as a [from <name>] tag shows it, else null). Never decide anyone is on the person\'s team.',
     '',
+    'A conditional offer (I can send materials if interested) is not a request or an unconditional commitment.',
+    'Automatic replies, OOO, acknowledgements and receipts do not create human reply obligations.',
+    'A bounce calls for contact review, not another send to the same address.',
+    'owedBy VIEWER means the person was asked or made an unconditional commitment; OTHER means someone else did.',
+    'Use short fields below the ceilings. One overlong field discards the entire answer. Empty lists are valid.',
     'CONVERSATION (null only if unreadable): relevance, summary (<=200: what is HAPPENING), topics (<=5 of <=40),',
     'stateChange (<=160 or null), signals (<=10, each <=140, anchored, severity LOW/MEDIUM/HIGH, kind CHANGE,',
     'DECIDED, DECISION_PENDING, OBLIGATION, UNRESOLVED, STALLED, OPPORTUNITY, RISK, OPERATIONAL, UPCOMING; owedBy',

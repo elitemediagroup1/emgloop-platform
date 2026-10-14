@@ -433,7 +433,7 @@ export class CrmPeopleCommandService {
       const other = signals.find((s) => s.kind === 'OBLIGATION' && s.owedBy === 'COUNTERPARTY');
       const future = signals.find((s) => s.kind === 'UPCOMING' || s.kind === 'OPPORTUNITY');
       const review = signals.find((s) => s.kind === 'DECISION_PENDING' || s.kind === 'UNRESOLVED' || s.kind === 'RISK');
-      const suggestion: CrmConversationIntelligence['suggestion'] = viewer ? 'REPLY' : other ? 'WAIT' : future ? 'CIRCLE_BACK' : review ? 'REVIEW' : 'NONE';
+      const suggestion: CrmConversationIntelligence['suggestion'] = viewer ? (hasUnansweredHumanReply(evidence.humanReplies, evidence.sends) ? 'REPLY' : 'REVIEW') : other ? 'WAIT' : future ? 'CIRCLE_BACK' : review ? 'REVIEW' : 'NONE';
       const suggestionText = viewer?.statement ?? other?.statement ?? future?.statement ?? review?.statement ?? null;
       out.set(partyId, {
         summary,
@@ -699,4 +699,11 @@ function buildTimeline(
     if (b.at === null) return -1;
     return b.at.getTime() - a.at.getTime() || (a.key < b.key ? -1 : 1);
   });
+}
+
+
+/** A model-owned task is not a reply unless stored human communication supports that action. */
+export function hasUnansweredHumanReply(replies: readonly Date[], sends: readonly Date[]): boolean {
+  const lastSend = Math.max(0, ...sends.map((at) => at.getTime()));
+  return replies.some((at) => at.getTime() > lastSend);
 }

@@ -8,6 +8,8 @@ import { join } from 'node:path';
 import type { PrismaClient } from '@prisma/client';
 
 import { makeCognitivePrisma } from './helpers/cognitive-prisma-fake';
+import { mailAttention } from '@emgloop/shared';
+import { mailThreadFacts } from '../src/services/work-state/mail-attention.service';
 import { WorkGraphRepository, type WorkPrincipal } from '../src/repositories/work-state';
 
 const ALICE: WorkPrincipal = { organizationId: 'org_a', userId: 'alice' };
@@ -56,13 +58,30 @@ test('threadEvidence reads only the threads asked for, only this person’s, old
   assert.deepEqual(await graph.threadEvidence(ALICE, []), []);
 });
 
-test('both reads name their columns: no subject, no address, no body -- and nothing a missing migration could break', () => {
+test('both reads select only operational evidence; thread classification includes stored subject and automation', () => {
   const source = readFileSync(join(__dirname, '..', 'src', 'repositories', 'work-state', 'work-graph.repository.ts'), 'utf8');
   for (const method of ['async messageActivity(', 'async threadEvidence(']) {
     const body = source.slice(source.indexOf(method), source.indexOf('\n  }\n', source.indexOf(method)));
     assert.match(body, /select: \{/, `${method} selects explicit columns`);
-    for (const forbidden of ['subject: true', 'references: true', 'toHashes: true', 'ccHashes: true', 'displayName: true']) {
+    if (method === 'async messageActivity(') assert.equal(body.includes('subject: true'), false);
+    else {
+      assert.match(body, /subject: true/);
+      assert.match(body, /automationClass: true/);
+    }
+    for (const forbidden of ['references: true', 'toHashes: true', 'ccHashes: true', 'displayName: true']) {
       assert.equal(body.includes(forbidden), false, `${method}: ${forbidden}`);
     }
   }
+});
+
+
+test('stored automation flows through attention assembly without suppressing a later human reply', async () => {
+  const { graph } = world();
+  const observedAt = at('2026-10-14T16:00:00Z');
+  await graph.upsertMessage(ALICE, { provider: 'GOOGLE', messageId: 'ooo', threadId: 't-ooo', internalDate: at('2026-10-14T10:00:00Z'), direction: 'INBOUND', observedAt, labels: ['INBOX', 'UNREAD'], subject: 'Automatic reply: Pitch', automationClass: 'AUTO_SUBMITTED' });
+  await graph.upsertThread(ALICE, { provider: 'GOOGLE', threadId: 't-ooo', subject: 'Pitch', firstMessageAt: at('2026-10-14T09:00:00Z'), lastMessageAt: at('2026-10-14T10:00:00Z'), lastDirection: 'INBOUND', messageCount: 2, labels: ['UNREAD'] });
+  assert.equal(mailAttention(await mailThreadFacts(graph, ALICE), observedAt).length, 0);
+  await graph.upsertMessage(ALICE, { provider: 'GOOGLE', messageId: 'human', threadId: 't-ooo', internalDate: at('2026-10-14T11:00:00Z'), direction: 'INBOUND', observedAt, labels: ['INBOX', 'UNREAD'], subject: 'Re: Pitch' });
+  await graph.upsertThread(ALICE, { provider: 'GOOGLE', threadId: 't-ooo', subject: 'Pitch', firstMessageAt: at('2026-10-14T09:00:00Z'), lastMessageAt: at('2026-10-14T11:00:00Z'), lastDirection: 'INBOUND', messageCount: 3, labels: ['UNREAD'] });
+  assert.equal(mailAttention(await mailThreadFacts(graph, ALICE), observedAt)[0]?.class, 'NEEDS_YOU');
 });

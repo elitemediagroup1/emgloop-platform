@@ -241,3 +241,24 @@ test('recent important conversations are people talking, never notification mail
   assert.equal(recent.includes('noise'), false);
   assert.ok(recent.includes('reply') && recent.includes('opp'));
 });
+
+
+test('automatic replies to outreach are evidence, not reply obligations or opportunities', () => {
+  for (const reply of [
+    { automationClass: 'AUTO_SUBMITTED' as const },
+    { subject: 'Automatic reply: Partnership' },
+    { subject: 'Undeliverable: Partnership' },
+    { fromAddress: 'mailer-daemon@example.com' },
+  ]) {
+    const t = thread([outbound(ago(2 * D)), inbound(ago(6 * H), reply)], { unread: true });
+    const result = classify(t);
+    assert.equal(result.lane, null);
+    assert.equal(result.opportunity, null);
+    assert.equal(summarizeMail([result], NOW).needsReply, 0);
+  }
+});
+
+test('a substantive human reply after an automatic reply remains actionable', () => {
+  const result = classify(thread([outbound(ago(2 * D)), inbound(ago(D), { automationClass: 'AUTO_SUBMITTED' }), inbound(ago(6 * H))]));
+  assert.equal(result.lane, 'NEEDS_REPLY');
+});

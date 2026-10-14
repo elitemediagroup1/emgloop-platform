@@ -14,6 +14,7 @@ import 'server-only';
 
 import {
   mailPeriodSummary,
+  mailAttention,
   startOfZonedDay,
   type MailPeriodSummary,
   type MailThreadFacts,
@@ -84,8 +85,9 @@ export async function loadMailAttention(
   const facts = await loadMailThreadFacts(principal);
   if (options.refresh ?? true) await service.refresh(principal, facts);
 
-  const open = await service.open(principal);
   const now = new Date();
+  const valid = new Set(mailAttention(facts, now).map((item) => `${item.threadId}:${item.class}`));
+  const open = (await service.open(principal)).filter((item) => valid.has(`${item.subjectRef}:${item.class}`));
   // "Since yesterday" in the reader's own day, never the server's (Loop Time Authority).
   const since = startOfZonedDay(new Date(now.getTime() - DAY_MS), options.timeZone ?? 'UTC');
 

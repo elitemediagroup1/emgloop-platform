@@ -14,6 +14,7 @@
 // NOTHING HERE IS AN OPAQUE SCORE. A lane is a rule; an opportunity is a named signal; an area is
 // a matched word. When a rule cannot tell, the conversation is simply not raised.
 
+import { qualifyCrmMessage } from './crm-outreach';
 import { MAIL_ATTENTION_POLICY } from './mail-attention';
 
 /** The three places a conversation that needs a person can be. */
@@ -54,6 +55,8 @@ export interface MailMessageEvidence {
   readonly labels: readonly string[];
   /** The RFC 5322 In-Reply-To header. A message that starts a conversation has none. */
   readonly inReplyTo: string | null;
+  readonly automationClass?: 'AUTO_SUBMITTED' | 'MAILING_LIST' | 'BULK' | null;
+  readonly subject?: string | null;
 }
 
 /** One conversation's stored facts. `messages` oldest first, as Loop holds them. */
@@ -148,6 +151,8 @@ export function isAutomatedAddress(address: string | null): boolean {
  * its bulk tabs.
  */
 export function notificationReason(thread: MailThreadEvidence): string | null {
+  const newest = [...thread.messages].sort((a, b) => b.at.getTime() - a.at.getTime())[0];
+  if (newest?.direction === 'INBOUND' && qualifyCrmMessage({ direction: 'INBOUND', labels: newest.labels, subject: newest.subject ?? thread.subject, automationClass: newest.automationClass, senderAddress: newest.fromAddress }) === 'AUTOMATED') return 'Automatic response (not a human reply)';
   if (thread.messages.some((m) => m.direction === 'OUTBOUND')) return null;
   const lastInbound = [...thread.messages].reverse().find((m) => m.direction === 'INBOUND');
   if (!lastInbound) return null;

@@ -32,6 +32,7 @@ import { IntelligenceDigestRepository, type IntelligenceDigestInput } from '../.
 import type { IntelligenceRefreshTarget } from '../../../repositories/intelligence/intelligence-refresh-queue.repository';
 import type { MailContentTriageService } from '../../ai-runtime/mail-content-triage.service';
 import type { MailTriageMessage } from '../../ai-runtime/mail-content-triage-context';
+import { MAIL_CONTENT_TRIAGE_TEMPLATE_VERSION } from '../../ai-runtime/templates/mail-content-triage';
 import { conversationDigestContent } from '../conversation-digest';
 import { domainProducer, type DomainKitPorts, type RuleReading } from '../domain-kit';
 import type { IntelligenceProducer } from '../producer';
@@ -63,6 +64,12 @@ const RECENT_DAYS = 45;
 const GENERAL_THREADS_PER_PERSON = 100;
 const THREADS_PER_PERSON = 150;
 const DAY = 24 * 60 * 60 * 1000;
+// Preserve action meaning when the item list supplements the conversation reading.
+const MAIL_ITEM_SIGNAL_KIND: Readonly<Record<string, string>> = {
+  REQUEST: 'OBLIGATION', COMMITMENT: 'OBLIGATION', DEADLINE: 'OBLIGATION',
+  DECISION_NEEDED: 'DECISION_PENDING', PROBLEM: 'RISK', FOLLOW_UP: 'STALLED',
+  BUSINESS_CHANGE: 'CHANGE', OTHER: 'UNRESOLVED',
+};
 
 interface ThreadContext {
   readonly principal: { readonly organizationId: string; readonly userId: string };
@@ -138,7 +145,7 @@ export function mailThreadProducer(ports: MailProducerPorts): IntelligenceProduc
       const thread = await ports.prisma.workThread.findFirst({ where: { id, ...principal }, select: { id: true, subject: true, lastMessageAt: true, lastMessageId: true, messageCount: true } });
       if (!thread || thread.messageCount === 0) return { status: 'NO_EVIDENCE' };
       // The fingerprint is Loop's stored metadata only: an unchanged thread costs no Gmail read and no call.
-      const fingerprint = `mail:${createHash('sha256').update([MAIL_CONTENT_TRIAGE_SCHEMA_ID, thread.id, thread.lastMessageId ?? '', thread.messageCount].join('\n')).digest('hex')}`;
+      const fingerprint = `mail:${createHash('sha256').update([MAIL_CONTENT_TRIAGE_SCHEMA_ID, MAIL_CONTENT_TRIAGE_TEMPLATE_VERSION, thread.id, thread.lastMessageId ?? '', thread.messageCount].join('\n')).digest('hex')}`;
       return { status: 'READY', fingerprint, context: { principal, threadId: thread.id, subject: thread.subject, lastMessageAt: thread.lastMessageAt } };
     },
     async read(_target, ctx, fingerprint, now) {
@@ -155,8 +162,16 @@ export function mailThreadProducer(ports: MailProducerPorts): IntelligenceProduc
             signals: [
               ...answer.reading.signals,
               ...answer.obligations
-                .filter((o) => !answer.reading!.signals.some((s) => s.kind === 'OBLIGATION' && s.anchorRef === o.anchorRef))
-                .map((o) => ({ kind: 'OBLIGATION', anchorRef: o.anchorRef, statement: o.statement.slice(0, 140), severity: 'MEDIUM' as const, owedBy: o.owedBy, who: o.who })),
+                .filter((o) => !answer.reading!.signals.some((s) => s.kind === 'OBLIGATION' && ['REQUEST', 'COMMITMENT', 'DEADLINE'].includes(o.category) && s.anchorRef === o.anchorRef))
+                .map((o) => {
+                  const kind = MAIL_ITEM_SIGNAL_KIND[o.category] ?? 'UNRESOLVED';
+                  return {
+                    kind, anchorRef: o.anchorRef, statement: o.nextStep.slice(0, 140),
+                    severity: 'MEDIUM' as const,
+                    owedBy: kind === 'OBLIGATION' ? o.owedBy : null,
+                    who: kind === 'OBLIGATION' ? o.who : null,
+                  };
+                }),
             ].slice(0, 12),
           }
         : null;

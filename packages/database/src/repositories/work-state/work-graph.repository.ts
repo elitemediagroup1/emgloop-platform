@@ -329,7 +329,7 @@ export class WorkGraphRepository {
     if (threadIds.length === 0) return [];
     return this.prisma.workMessage.findMany({
       where: { ...workScope(principal), threadId: { in: [...threadIds] } },
-      select: { threadId: true, internalDate: true, direction: true, fromHash: true, labels: true, inReplyTo: true },
+      select: { threadId: true, internalDate: true, direction: true, fromHash: true, labels: true, inReplyTo: true, automationClass: true, subject: true },
       orderBy: { internalDate: 'asc' },
       take: Math.min(Math.max(limit, 1), 4000),
     });

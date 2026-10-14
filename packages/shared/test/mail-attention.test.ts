@@ -114,3 +114,9 @@ test('the rules read no body, and state no conclusion a header cannot support', 
   assert.equal(MAIL_ATTENTION_POLICY.quietAfterMs, 14 * DAY);
   assert.equal(MAIL_ATTENTION_POLICY.horizonMs, 45 * DAY);
 });
+
+
+test('automatic inbound responses do not create attention obligations', () => {
+  const at = new Date('2026-10-14T10:00:00Z');
+  assert.equal(mailAttentionFor({ threadId: 'ooo', subject: 'Automatic reply', lastMessageAt: at, firstMessageAt: at, lastDirection: 'INBOUND', messageCount: 2, unread: true, hasExchange: true, latestInboundAutomated: true }, new Date('2026-10-14T16:00:00Z')), null);
+});

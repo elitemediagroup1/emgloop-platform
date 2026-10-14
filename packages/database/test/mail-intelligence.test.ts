@@ -222,3 +222,20 @@ test('the Mail tasks are defined, routed, budgeted and portable -- and activated
   assert.equal(AI_TASK_MAIL_CONTENT_TRIAGE.sensitivityCeiling, 'COMMUNICATION_CONTENT');
   assert.ok(brainOwnershipRule(AI_TASK_MAIL_CONTENT_TRIAGE.resultType, AI_TASK_MAIL_CONTENT_TRIAGE.resultOwner));
 });
+
+
+test('problems, decisions and follow-ups retain their action meaning instead of becoming obligations', async () => {
+  for (const [category, expected] of [['PROBLEM', 'RISK'], ['DECISION_NEEDED', 'DECISION_PENDING'], ['FOLLOW_UP', 'STALLED'], ['OTHER', 'UNRESOLVED']]) {
+    const w = ports({ triage: { async triage() { return { outcome: 'TRIAGED' as const, reading: { relevance: 'BUSINESS' as const, summary: 'Review delivery evidence', topics: [], stateChange: null, signals: [], attention: { needed: true, reason: 'Contact review' }, confidence: 'MEDIUM' as const }, obligations: [{ category, nextStep: 'Review contact before sending', anchorRef: 'mail_message:th_1:1', statement: 'The pitch was not delivered', owedBy: 'VIEWER' as const, who: null }], limitations: [], provenance: { invocationId: 'test', taskId: 'mail.content.triage', taskVersion: '1.0.0' } as never }; } } });
+    const producer = mailThreadProducer(w.p);
+    const g = await producer.gather(THREAD, NOW);
+    assert.equal(g.status, 'READY');
+    if (g.status !== 'READY') continue;
+    const result = await producer.read(THREAD, g.context, g.fingerprint, NOW);
+    assert.equal(result.status, 'READ');
+    if (result.status !== 'READ') continue;
+    assert.equal(result.digest.content.signals?.[0]?.kind, expected);
+    assert.equal(result.digest.content.signals?.[0]?.owedBy, undefined);
+    assert.equal(result.digest.content.signals?.[0]?.statement, 'Review contact before sending');
+  }
+});
