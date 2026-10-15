@@ -268,6 +268,7 @@ export class LoopQuestionService {
       .sort(
         (a, b) =>
           Number(relevant.includes(b.a.domain)) - Number(relevant.includes(a.a.domain)) ||
+          Number(b.a.ref.startsWith('mail-thread:')) - Number(a.a.ref.startsWith('mail-thread:')) ||
           a.i - b.i,
       )
       .map((x) => x.a);
@@ -303,8 +304,19 @@ export class LoopQuestionService {
         JSON.stringify(LOOP_CHAT_SCHEMA),
         ...context.items.flatMap((i) => [i.sourceRef, i.trust, i.content]),
       ]);
-    while (estimate() > 12000) {
-      if (selected.length > 1) omitted.push(selected.pop()!.title);
+    // Leave room for the bounded repair instructions under the same 12,000-token policy.
+    // Drop an individually oversized artifact first: otherwise one huge overview can
+    // evict every readable message and still prevent the entire question from running.
+    while (estimate() > 11500) {
+      const artifactBudget = 11500 - estimateAiInputTokens([
+        instructions, JSON.stringify(LOOP_CHAT_SCHEMA),
+        ...context.items.slice(selected.length).flatMap((item) => [item.sourceRef, item.trust, item.content]),
+      ]);
+      const oversized = context.items.findIndex((item, i) =>
+        i < selected.length && estimateAiInputTokens([item.sourceRef, item.trust, item.content]) > artifactBudget,
+      );
+      if (oversized >= 0) omitted.push(selected.splice(oversized, 1)[0]!.title);
+      else if (selected.length > 1) omitted.push(selected.pop()!.title);
       else if (messages.length) messages.shift();
       else return { outcome: 'UNAVAILABLE', reason: 'INPUT_LIMIT_ABOVE_POLICY' };
       context = makeContext();

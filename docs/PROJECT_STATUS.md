@@ -1,5 +1,9 @@
 # EMG Loop — Project Status (where we left off)
 
+## Ask Loop evidence packing follow-up — October 15, 2026
+
+PRs #393 and #394 are merged and deployed. A live Mail question returned INPUT_LIMIT_ABOVE_POLICY; the precise production artifact size was not exposed. Local regression reproduces how one oversized Mail overview evicts readable messages and then prevents invocation. Chat now prioritizes bounded Mail conversation evidence, removes individually oversized artifacts before other sources, records omissions, and reserves room for repair instructions under the unchanged 12,000-token cap. This follow-up is not deployed yet. Headlines presentation is live, but Matt’s daily briefing was still absent at verification. CallGrid source financial parity remains unverified.
+
 The living "current state" per workstream, so any session (or Matt) can resume without
 losing the thread. **One current-state block per workstream — overwrite it, don't append.**
 Read this at the start of a session; update it at the end of a work batch. History lives
