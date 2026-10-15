@@ -385,6 +385,17 @@ export class MarketplaceCallRepository {
     });
   }
 
+  /** Server-side historical totals: no raw-call scan or payload sent to an AI provider. */
+  async aggregateHistoryWindow(organizationId: string, since: Date, until: Date): Promise<CallWindowAggregate> {
+    const where = { organizationId, sourceOccurredAt: { gte: since, lt: until } };
+    const [a, monetized, converted] = await Promise.all([
+      this.prisma.marketplaceCall.aggregate({ where, _count: { _all: true, revenueCents: true, payoutCents: true, costCents: true }, _sum: { revenueCents: true, payoutCents: true, costCents: true } }),
+      this.prisma.marketplaceCall.count({ where: { ...where, monetized: true } }),
+      this.prisma.marketplaceCall.count({ where: { ...where, converted: true } }),
+    ]);
+    return { calls: a._count._all, monetized, converted, revenueCents: a._sum.revenueCents ?? 0, payoutCents: a._sum.payoutCents ?? 0, costCents: a._sum.costCents ?? 0, callsWithRevenue: a._count.revenueCents, callsWithPayout: a._count.payoutCents, callsWithCost: a._count.costCents, buyers: [], vendors: [], sources: [], campaigns: [] };
+  }
+
   /** Aggregate a window into per-dimension economics for the Intelligence layer. */
   async aggregateWindow(organizationId: string, since: Date, until: Date): Promise<CallWindowAggregate> {
     const rows = (await this.prisma.marketplaceCall.findMany({

@@ -73,7 +73,7 @@ function partLabel(part: string): string {
  * The stored Loop Briefing (Phase G): its headline and lines, each chip naming the part of Loop it rests on.
  * Says who composed it -- the governed model, or Loop's own deterministic Briefing.
  */
-function StoredBriefingBody({ stored, time, offers }: { stored: StoredBriefing; time: TimeView; offers: (href: string) => boolean }) {
+export function StoredBriefingBody({ stored, time, offers }: { stored: StoredBriefing; time: TimeView; offers: (href: string) => boolean }) {
   return (
     <div className="loop-front__prose" data-briefing-stored={stored.composer}>
       <p className="loop-front__sentence" data-briefing-headline>

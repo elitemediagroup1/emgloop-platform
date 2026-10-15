@@ -45,7 +45,8 @@ test('the Mail pass route fails closed and takes no tenant from the request', ()
   const code = src('app', 'api', 'internal', 'intelligence', 'mail', 'route.ts');
   assert.match(code, /if \(!expected \|\| !provided \|\| !secretMatches\(provided, expected\)\)/);
   assert.match(code, /timingSafeEqual/);
-  assert.doesNotMatch(code, /request\.json\(|searchParams|formData/);
+  assert.doesNotMatch(code, /request\.json\(|formData|searchParams\.get\(['"](?:organizationId|userId)['"]/);
+  assert.match(code, /searchParams\.get\('stage'\)/, 'only the bounded processing stage comes from the request');
   assert.match(code, /MAIL_PRODUCERS\.has\(id\)/, 'only Mail producers are hosted here');
   assert.match(code, /LOOP_MAIL_CONTENT_GOVERNANCE_DECISION/);
 });

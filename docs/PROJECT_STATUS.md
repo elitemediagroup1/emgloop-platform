@@ -9,6 +9,14 @@ _Last updated: 2026-10-08 (CRM People command center built, PRs open, nothing co
 
 ---
 
+## Proactive intelligence, Ask Loop and historical retrieval — BUILT, NOT COMMISSIONED (2026-10-15)
+
+Branch `feat/proactive-intelligence-chat`, based on main `85178e1`, extends the existing gateway: Anthropic handles proactive readings/briefings and situation synthesis; OpenAI handles the new read-only `loop.question.answer` task and independently verifies Anthropic-authored situations. Floating Ask Loop lives in the shared shell, answers with citations/gaps, takes identity only from the session and has no write tools or persistent raw conversation store. Domain explanations now allow 900 characters while signals remain bounded and grounded.
+
+The existing Mail schedule gains an independently drained overview stage and bounded web synthesis/briefing continuation. Exact producer-target queue claims prevent overview/thread mismatch; thread-derived overview keys no longer collide; reply counts use the same corrected dashboard classifier. Source/queue freshness prevents old homepage readings from overriding live counts. Headlines adds the person's stored briefing without changing objective measurement authority. Daily stored-call snapshots, named campaign economics, net-cost coverage and a prior-month historical baseline supply useful context. Historical question totals are aggregated inside the existing Neon database; no new financial store, schema, raw-message retention or model-training path was introduced.
+
+NOT LIVE: no merge, configuration mutation, OpenAI policy record or production backfill in this work batch. Production audit before this change showed no situation/briefing runs in seven days and no active OpenAI provider policy. Required after merge: preserve and extend web task/provider allowlists, enable `LOOP_INTELLIGENCE_WEB_SYNTHESIS`, preserve named acting users, record actual reviewed OpenAI terms through the manual policy workflow, redeploy and run the existing Mail workflow. A successful call and visible MODEL briefing are acceptance evidence, not a key or green workflow alone. See `docs/validation/proactive-intelligence-chat.md` for the exact commissioning and verification sequence, known scope limits and existing historical backfill path. Every arbitrary record/filter still needs a scoped interpretation before claiming per-page completeness; no all-history coverage is claimed.
+
 ## CallGrid reconciliation — next repair prepared (2026-10-15)
 
 PRs #383–#385 are merged. October 13's read-only audit returned all 492 identities on both sides and source costs for every call. A routine reread filled the missing $2.44: on October 15 the UI shows October 13 telco $65.28 and net $456.99. Its revenue/payout penny differences are raw sub-cent aggregate rounding versus per-call cents, not missing calls.

@@ -85,6 +85,8 @@ import {
 import { requireWorkspace } from '../../../../workspaces/guard';
 import { viewerTime } from '../../../../time/viewer-time';
 import { loadSituations } from '../../../../intelligence/situations';
+import { loadStoredBriefing } from '../../../../intelligence/briefing';
+import { StoredBriefingBody } from '../../_home/briefing-view';
 import { SituationsPanel } from '../../../../intelligence/situations-view';
 
 export const dynamic = 'force-dynamic';
@@ -127,6 +129,7 @@ export default async function HeadlinesPage({
   const cases = feed?.ok ? await loadCasesForHeadlines(session.organizationId, feed.value.map((h) => h.id)) : null;
   const sections = feed?.ok && cases?.ok ? sectionHeadlines(feed.value, cases.value) : null;
   const open = expandedSections(show);
+  const briefing = await loadStoredBriefing(session, time.timeZone, time.now).catch(() => null);
   const situations = await loadSituations(session).catch(() => null);
 
   return (
@@ -148,6 +151,10 @@ export default async function HeadlinesPage({
         <p className="hl-flash hl-flash--error" role="alert">{searchParams.error}</p>
       ) : null}
 
+      <section className="loop-panel" aria-label="Your business briefing">
+        <h2 className="loop-panel__title">Your business briefing</h2>
+        {briefing ? <StoredBriefingBody stored={briefing} time={time} offers={() => false} /> : <p>Loop has not composed your briefing for today yet. The measured objective coverage below is separate from your business briefing.</p>}
+      </section>
       {!result.ok ? (
         <ReadError what={result.what} retryHref="/app/admin/headlines" />
       ) : (

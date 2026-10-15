@@ -2,8 +2,9 @@
 // the deployment ACTIVATES it (LOOP_AI_TASKS), a provider policy admits its data class, and a producer or
 // action that calls it is itself activated. Merging this commissions nothing.
 //
-// Every task is READ_ONLY and publishes no tool. Each lands in exactly one governed store (the ownership
-// rule it names): a digest, a Case's evidence, a person's work_briefs. None creates work; none sends.
+// Every task is READ_ONLY and publishes no tool. Background results land in their governed store:
+// a digest, a Case's evidence, or a person's work_briefs. Question answers are transient and private.
+// None creates work; none sends.
 //
 // DATA CLASSES FOLLOW THE CONTEXT, NOT THE AMBITION. A person's own mail, calendar or briefing context can
 // carry communication content: COMMUNICATION_CONTENT, readable only by that person (employeeIntelligence).
@@ -162,6 +163,14 @@ export const AI_TASK_LOOP_BRIEFING = Object.freeze({
   tools: Object.freeze([]),
 }) as AiTaskDefinition;
 
+/** On-demand, read-only questions over the invoking person's authorized Loop evidence. */
+export const AI_TASK_LOOP_QUESTION: AiTaskDefinition = Object.freeze({
+  ...AI_TASK_LOOP_BRIEFING,
+  taskId: 'loop.question.answer',
+  capabilityRoute: 'GENERAL_REASONING',
+  resultOwner: Object.freeze({ authority: 'EMPLOYEE_INTELLIGENCE', subjectType: 'EMPLOYEE_QUESTION' } as const),
+});
+
 /** Every Loop Intelligence task, in phase order. */
 export const AI_INTELLIGENCE_TASKS: readonly AiTaskDefinition[] = Object.freeze([
   AI_TASK_MAIL_CONTENT_TRIAGE,
@@ -179,4 +188,5 @@ export const AI_INTELLIGENCE_TASKS: readonly AiTaskDefinition[] = Object.freeze(
   AI_TASK_SITUATION_VERIFICATION,
   AI_TASK_PRIVATE_SITUATION_VERIFICATION,
   AI_TASK_LOOP_BRIEFING,
+  AI_TASK_LOOP_QUESTION,
 ]);

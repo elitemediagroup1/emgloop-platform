@@ -1,3 +1,4 @@
+import { OrganizationReadingSection } from '../../../../intelligence/domain-reading-section';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import {
@@ -132,6 +133,7 @@ export default async function PeoplePage({ searchParams }: { searchParams?: CrmP
         }
       />
 
+      <OrganizationReadingSection domain="CRM" title="People reading" />
       <Panel title="AI outreach brief">
         {aiRows.length > 0 ? (
           <>

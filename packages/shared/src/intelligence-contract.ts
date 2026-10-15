@@ -72,6 +72,7 @@ export const INTELLIGENCE_METRIC_UNITS = ['count', 'minor_currency', 'percent', 
 export type IntelligenceMetricUnit = (typeof INTELLIGENCE_METRIC_UNITS)[number];
 
 export const SIGNAL_STATEMENT_MAX_CHARS = 280;
+export const DOMAIN_STATEMENT_MAX_CHARS = 900;
 export const SIGNALS_MAX_PER_DIGEST = 12;
 export const SIGNAL_ENTITIES_MAX = 6;
 export const SIGNAL_EVIDENCE_REFS_MAX = 4;
@@ -260,7 +261,7 @@ export function intelligenceReadingRefusals(reading: unknown): IntelligenceContr
   const out: IntelligenceContractRefusal[] = [];
   for (const key of Object.keys(reading)) if (!READING_KEYS.includes(key)) out.push('UNKNOWN_KEY');
   for (const key of READING_KEYS) if (reading[key] === undefined) out.push('MISSING_FIELD');
-  if (reading.statement !== undefined) bounded(reading.statement, SIGNAL_STATEMENT_MAX_CHARS, out);
+  if (reading.statement !== undefined) bounded(reading.statement, DOMAIN_STATEMENT_MAX_CHARS, out);
   if (reading.status !== undefined) oneOf(reading.status, INTELLIGENCE_READING_STATUS, out);
   if (reading.confidence !== undefined) oneOf(reading.confidence, INTELLIGENCE_ORDINAL, out);
   return [...new Set(out)];

@@ -165,3 +165,14 @@ test('a model id is written in the catalog and nowhere else', () => {
     .map((f) => f.slice(REPO.length + 1));
   assert.deepEqual(offenders.filter((f) => !f.endsWith(join('ai', 'policy', 'routing-policy.ts'))), [], 'only the catalog and the routing policy name a model');
 });
+
+
+test('provider responsibilities are explicit: OpenAI answers interactive questions; Anthropic composes proactive briefings; verification excludes the author', () => {
+  const chat = AI_ROUTING_POLICY.tasks['loop.question.answer']!;
+  assert.equal(chat.primary.providerId, 'openai');
+  assert.equal(chat.fallback?.providerId, 'anthropic');
+  assert.equal(chat.lane, 'INTERACTIVE');
+  assert.equal(AI_ROUTING_POLICY.tasks['loop.briefing.compose']!.primary.providerId, 'anthropic');
+  assert.equal(AI_ROUTING_POLICY.tasks['situation.verify']!.strategy, 'OTHER_THAN_SUBJECT');
+  assert.equal(AI_ROUTING_POLICY.tasks['situation.verify']!.fallbackPermitted, false);
+});

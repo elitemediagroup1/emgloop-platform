@@ -11,8 +11,8 @@
 
 import 'server-only';
 
-import { IntelligenceDigestRepository, absentUntilMigrated, prisma, type IntelligenceDigestRecord } from '@emgloop/database';
-import { intelligenceDomainEntry, projectDomainDigest, type DomainProjection, type IntelligenceDomain } from '@emgloop/shared';
+import { DigestSourceStateRepository, IntelligenceDigestRepository, absentUntilMigrated, prisma, type IntelligenceDigestRecord } from '@emgloop/database';
+import { digestSynthesisEligibility, intelligenceDomainEntry, projectDomainDigest, type DomainProjection, type IntelligenceDomain } from '@emgloop/shared';
 
 import type { AuthSession } from '../auth/auth';
 import { hasPermission } from '../auth/guard';
@@ -22,6 +22,13 @@ export interface DomainReadingView {
   readonly projection: DomainProjection;
   /** The stored digest (for the page's depth), or null when none. Never rendered raw. */
   readonly digest: IntelligenceDigestRecord | null;
+}
+
+async function projectReading(digest: IntelligenceDigestRecord, now: Date): Promise<DomainReadingView> {
+  const state = (await new DigestSourceStateRepository(prisma).resolve([digest])).get(digest.id) ?? { connectionLive: false, sourceLastEvidenceAt: null };
+  const eligible = digestSynthesisEligibility(digest, state, now);
+  const projection = projectDomainDigest(digest, { ...state, now });
+  return { digest, projection: eligible.eligible ? projection : { ...projection, state: 'NOT_CURRENT', coverage: eligible.coverage, asCurrent: false, disclose: true } };
 }
 
 const NONE: DomainReadingView = { projection: projectDomainDigest(null, { connectionLive: false, sourceLastEvidenceAt: null, now: new Date(0) }), digest: null };
@@ -35,7 +42,7 @@ export async function loadPrincipalReading(
   const principal = { organizationId: session.organizationId, userId: session.userId };
   const digest = await absentUntilMigrated(new IntelligenceDigestRepository(prisma).current(principal, domain, { now: opts.now }));
   if (!digest) return NONE;
-  return { digest, projection: projectDomainDigest(digest, { connectionLive: opts.connectionLive, sourceLastEvidenceAt: null, now: opts.now }) };
+  return projectReading(digest, opts.now);
 }
 
 /** Whether this session holds a domain's registry read authority (permission and workspace). */
@@ -53,5 +60,5 @@ export async function loadOrganizationReading(session: AuthSession, domain: Inte
   if (!(await mayReadOrganizationReading(session, domain))) return null;
   const digest = await absentUntilMigrated(new IntelligenceDigestRepository(prisma).organizationCurrent(session.organizationId, domain, { now: opts.now }));
   if (!digest) return NONE;
-  return { digest, projection: projectDomainDigest(digest, { connectionLive: true, sourceLastEvidenceAt: null, now: opts.now }) };
+  return projectReading(digest, opts.now);
 }

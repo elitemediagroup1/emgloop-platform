@@ -230,13 +230,14 @@ export class IntelligenceRefreshQueueRepository {
    * compare-and-set, so a request is owned by exactly one claimer. Optionally restricted to domains
    * (the ones a commissioned producer exists for); with an empty list nothing is claimed.
    */
-  async claim(opts: { readonly leaseOwner: string; readonly now: Date; readonly leaseMs: number; readonly limit: number; readonly domains?: readonly string[] }): Promise<IntelligenceRefreshClaim[]> {
+  async claim(opts: { readonly leaseOwner: string; readonly now: Date; readonly leaseMs: number; readonly limit: number; readonly domains?: readonly string[]; readonly targets?: readonly { domain: string; scope: string; subjectKinds: readonly string[] }[] }): Promise<IntelligenceRefreshClaim[]> {
     if (!opts.leaseOwner || opts.leaseOwner.length > 128 || opts.limit < 1) return [];
     if (opts.domains && opts.domains.length === 0) return [];
+    if (opts.targets && opts.targets.length === 0) return [];
     if (!(await refreshQueuePresent(this.db))) return [];
     await this.recoverExpired(opts.now);
     const candidates = await this.db.intelligenceRefreshRequest.findMany({
-      where: { state: 'PENDING', notBefore: { lte: opts.now }, ...(opts.domains ? { domain: { in: [...opts.domains] } } : {}) },
+      where: { state: 'PENDING', notBefore: { lte: opts.now }, ...(opts.domains ? { domain: { in: [...opts.domains] } } : {}), ...(opts.targets ? { OR: opts.targets.map(t => ({ domain: t.domain, scope: t.scope, subjectKind: { in: [...t.subjectKinds] } })) } : {}) },
       orderBy: [{ notBefore: 'asc' }, { id: 'asc' }],
       take: Math.min(opts.limit * 2, 200),
       select: { id: true },

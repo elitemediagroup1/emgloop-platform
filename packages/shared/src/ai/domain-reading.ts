@@ -74,7 +74,7 @@ export const DOMAIN_READING_SCHEMA = Object.freeze({
       additionalProperties: false,
       required: ['statement', 'status', 'confidence'],
       properties: {
-        statement: { type: 'string', description: 'One plain sentence, at most 200 characters: what materially changed or matters in this domain now. No quotes, no advice.' },
+        statement: { type: 'string', description: 'Up to 900 characters: what happened, what the evidence means together, and what needs attention. Distinguish observation from inference. No invented action or assignment.' },
         status: { type: 'string', enum: [...INTELLIGENCE_READING_STATUS] },
         confidence: ordinal,
       },
