@@ -376,6 +376,8 @@ export {
 export {
   CallGridRoutinePollService,
   CALLGRID_POLL_POLICY,
+  CALLGRID_FRONTIER_POLICY,
+  type CallGridPollMode,
   type CallGridRoutinePollDeps,
   type RoutinePollInput,
   type RoutinePollResult,

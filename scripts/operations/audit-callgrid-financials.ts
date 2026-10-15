@@ -122,10 +122,10 @@ export async function runFinancialAudit(
     return { callId: id, campaign: p?.campaign ?? l?.campaignLabel ?? null, identityStatus, providerDecimalDollars: p?.raw ?? null, fields };
   });
   return {
-    schema: 'callgrid-financial-audit.v1', organization: args.organization, businessDate: args.date,
+    schema: 'callgrid-financial-audit.v1', organization: args.organization, organizationId: org.id, businessDate: args.date,
     timezone: 'America/New_York', since: window.start.toISOString(), untilExclusive: window.end.toISOString(), requestedAt: request.now.toISOString(),
     verdict: !readComplete ? 'INCONCLUSIVE' : mismatches > 0 || unmatched > 0 ? 'DIFFERS' : unknownFields > 0 ? 'INCONCLUSIVE' : 'MATCHED_REPORTED_FIELDS',
-    read: { providerOutcome: provider.outcome, providerRecords: provider.records, providerPages: provider.pages, refusedRecords: provider.refused.length, providerDuplicates, localDuplicates, localCapped, unprojectable, outOfWindow },
+    read: { complete: readComplete, providerOutcome: provider.outcome, providerRecords: provider.records, providerPages: provider.pages, refusedRecords: provider.refused.length, providerDuplicates, localDuplicates, localCapped, unprojectable, outOfWindow },
     summary: { mismatchedFields: mismatches, unknownFields, unmatchedCalls: unmatched },
     providerCanonicalTotals: totals([...source.values()].map((row) => row.amounts)), loopTotals: totals(local),
     limitations: [

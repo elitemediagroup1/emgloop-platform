@@ -54,6 +54,8 @@ import {
 } from '@emgloop/shared';
 import {
   CALLGRID_POLL_POLICY,
+  CALLGRID_FRONTIER_POLICY,
+  type CallGridPollMode,
   CALLGRID_POLL_PROVIDER,
   CALLGRID_POLL_STREAM,
   checkpointMayAdvance,
@@ -68,7 +70,7 @@ import {
 
 /** The one operation this runner may perform. */
 export interface RoutinePoller {
-  run(input: { organizationId: string; apiKey: string; now: Date }): Promise<RoutinePollResult>;
+  run(input: { organizationId: string; apiKey: string; now: Date; mode?: CallGridPollMode }): Promise<RoutinePollResult>;
 }
 
 /** Read-only organization lookup. This runner may never provision one. */
@@ -88,6 +90,7 @@ export interface RoutineDeps {
 export interface RoutineRequest {
   organizationSlugs: readonly string[];
   apiKey: string;
+  mode?: CallGridPollMode;
 }
 
 /**
@@ -185,16 +188,21 @@ export function parseOrganizations(raw: string): string[] {
 }
 
 /** Minimal flag parsing. Deliberately not a CLI framework. */
-export function parseArgs(argv: readonly string[]): { organizations: string } {
+export function parseArgs(argv: readonly string[]): { organizations: string; mode?: CallGridPollMode } {
   let organizations = '';
+  let mode: CallGridPollMode | undefined;
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i];
     if (flag === '--organizations' || flag === '--organization' || flag === '--org') {
       organizations = (argv[i + 1] ?? '').trim();
       i += 1;
+    } else if (flag === '--mode') {
+      const value = argv[++i];
+      if (value !== 'deep' && value !== 'frontier') throw new Error('INVALID_POLL_MODE');
+      mode = value;
     }
   }
-  return { organizations };
+  return { organizations, ...(mode ? { mode } : {}) };
 }
 
 // --- Reporting -----------------------------------------------------------------
@@ -230,6 +238,8 @@ export async function runRoutine(
 ): Promise<RoutineRunResult> {
   const startedAt = deps.now().getTime();
   const passes: OrganizationPass[] = [];
+  if (request.mode !== undefined && request.mode !== 'deep' && request.mode !== 'frontier') throw new Error('INVALID_POLL_MODE');
+  const policy = request.mode === 'frontier' ? CALLGRID_FRONTIER_POLICY : CALLGRID_POLL_POLICY;
 
   deps.log(
     line({
@@ -240,9 +250,10 @@ export async function runRoutine(
       count: request.organizationSlugs.length,
       // Stated every run so the policy in force is visible beside its effects,
       // rather than being something a reader has to go and look up.
-      overlapMs: CALLGRID_POLL_POLICY.overlapMs,
-      bootstrapLookbackMs: CALLGRID_POLL_POLICY.bootstrapLookbackMs,
-      safetyLagMs: CALLGRID_POLL_POLICY.safetyLagMs,
+      mode: request.mode ?? 'deep',
+      overlapMs: policy.overlapMs,
+      bootstrapLookbackMs: policy.bootstrapLookbackMs,
+      safetyLagMs: policy.safetyLagMs,
     }),
   );
 
@@ -254,13 +265,13 @@ export async function runRoutine(
   }
 
   for (const slug of request.organizationSlugs) {
-    passes.push(await onePass(slug, request.apiKey, deps));
+    passes.push(await onePass(slug, request.apiKey, deps, request.mode));
   }
 
   return finish(passes, startedAt, deps);
 }
 
-async function onePass(slug: string, apiKey: string, deps: RoutineDeps): Promise<OrganizationPass> {
+async function onePass(slug: string, apiKey: string, deps: RoutineDeps, mode?: CallGridPollMode): Promise<OrganizationPass> {
   const organization = await deps.organizations.findBySlug(slug);
   if (!organization) {
     // NOT-FOUND, not forbidden, and never provisioned.
@@ -275,7 +286,7 @@ async function onePass(slug: string, apiKey: string, deps: RoutineDeps): Promise
   }
 
   const now = deps.now();
-  const outcome = await deps.poller.run({ organizationId: organization.id, apiKey, now });
+  const outcome = await deps.poller.run({ organizationId: organization.id, apiKey, now, ...(mode ? { mode } : {}) });
   const plan = outcome.plan;
   const execution = outcome.execution;
 
@@ -415,7 +426,7 @@ async function main(): Promise<number> {
 
   try {
     const result = await runRoutine(
-      { organizationSlugs, apiKey: env.value.apiKey },
+      { organizationSlugs, apiKey: env.value.apiKey, ...(args.mode ? { mode: args.mode } : {}) },
       {
         // THE SAME COORDINATOR PR #187 SHIPPED. It owns the checkpoint lookup, the
         // planner call and the monotonic advancement; this file supplies an

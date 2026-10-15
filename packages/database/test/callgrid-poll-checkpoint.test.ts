@@ -498,3 +498,24 @@ test('the migration is additive and seeds no coverage', () => {
   // eslint-disable-next-line no-control-regex
   assert.ok(!/[^\x00-\x7F]/.test(sql), 'the migration must be plain ASCII');
 });
+
+test('frontier mode catches the unproven gap without rereading two days; deep mode retains it', async () => {
+  const completedThrough = new Date('2026-08-21T11:00:00Z');
+  const h = harness({ stored: { completedThrough, lastIntervalSince: new Date('2026-08-19T11:00:00Z') } });
+  await run(h, { mode: 'frontier' });
+  assert.equal(h.polls[0]!.since.toISOString(), '2026-08-21T10:45:00.000Z');
+  assert.equal(h.polls[0]!.until.getTime(), SAFE_NOW.getTime());
+  await run(h, { mode: 'deep' });
+  assert.equal(h.polls[1]!.since.getTime(), SAFE_NOW.getTime() - DEFAULT_POLL_OVERLAP_MS);
+});
+
+test('failed frontier reads do not advance; bootstrap still reads a day', async () => {
+  const bootstrap = harness();
+  await run(bootstrap, { mode: 'frontier' });
+  assert.equal(bootstrap.polls[0]!.until.getTime() - bootstrap.polls[0]!.since.getTime(), CALLGRID_POLL_POLICY.bootstrapLookbackMs);
+  const completedThrough = new Date('2026-08-20T11:00:00Z');
+  const h = harness({ stored: { completedThrough, lastIntervalSince: completedThrough }, result: execution({ outcome: 'FETCH_INCOMPLETE' }) });
+  const result = await run(h, { mode: 'frontier' });
+  assert.equal(result.checkpointAfter?.getTime(), completedThrough.getTime());
+  assert.equal(h.polls[0]!.since.getTime(), completedThrough.getTime() - 15 * 60 * 1000, 'a delayed job never skips its unproven gap');
+});

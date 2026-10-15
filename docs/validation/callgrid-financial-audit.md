@@ -80,8 +80,6 @@ These are campaign-level observations, not call-level diagnoses. No historical
 financial correction has been applied, and the cause of the penny differences
 has not been established.
 
-The REST list endpoint has not been observed returning cost. This workflow may
-therefore identify missing Loop cost records while leaving provider costs
-unknown. In that case, a provider call export or verified detail response carrying
-telco cost is still required before a correction can be justified. Do not infer
-individual costs from the campaign difference or divide it across calls.
+The October 14 production audit superseded the earlier assumption that the REST list endpoint lacked costs: it returned explicit costs for all 492 October 13 calls. All identities matched. Loop lacked 122 costs totaling $2.44, which the next routine reread filled. Source raw revenue/payout totals were $2,827.544702/$2,305.274702; the canonical per-call cent totals were $2,827.53/$2,305.26. Do not add an arbitrary cent or treat the report UI's aggregate rounding as a missing call.
+
+On October 15, the October 14 completed-day UI still differed by $7.12 in known costs, while revenue and payout matched. Use **Correct CallGrid Costs** in preview mode to identify exact call-level changes before considering a correction. The audit remains read-only. The separate reviewed correction workflow is described in `callgrid-reconciliation-freshness.md`.

@@ -1,82 +1,12 @@
-# Routine CallGrid completeness polling.
-#
-# Asks the durable checkpoint what has been proven, asks the planner what to read
-# next, runs the canonical bounded poll, and records coverage only if the poll
-# proved it. Every decision named in that sentence lives somewhere else; this file
-# is a trigger and a credential.
-#
-# THIS IS THE FIRST AUTOMATIC CALLGRID REST WRITE PATH IN THE PLATFORM, and it is
-# shipped OFF. The job exits immediately unless the repository variable
-# ROUTINE_POLL_ORGANIZATIONS is set. Merging this changes nothing; enabling it is
-# one deliberate configuration action with no code change, and disabling it again
-# is the same action in reverse.
-#
-# ------------------------------------------------------------------------------
-# CADENCE: HOURLY. OPERATING POLICY, NOT PROVIDER TRUTH.
-# ------------------------------------------------------------------------------
-#
-# Fifteen minutes was the number under discussion. The arithmetic argues against
-# it, because the cost of a routine pass is dominated by the 48-hour overlap and
-# not by the cadence:
-#
-#   busiest day on record         7,298 calls
-#   records read per pass         ~14,600  (48h of overlap, whatever the cadence)
-#   provider pages per pass       ~146     (100 records per page)
-#   re-observations per pass      ~14,600  (each one a lookup, an observation
-#                                           write and a fact-convergence read)
-#
-# At four passes an hour that is roughly 14,000 provider page requests and 1.4
-# million re-observations per day, against an API this repository has already
-# recorded returning 429 in production. At one pass an hour it is roughly 3,500
-# and 350,000. The pass itself is also not short: 146 sequential pages followed by
-# ~14,600 sequential ingestion passes does not reliably finish inside fifteen
-# minutes, so a quarter-hourly schedule would spend much of its life queued behind
-# itself for no gain.
-#
-# What the extra frequency would buy is 45 minutes of latency on the COMPLETENESS
-# path -- and latency is the webhook's job. The longest webhook gap this platform
-# has recorded lasted about three days; hourly polling closes a gap of that shape
-# within the hour. The honest trade is
-# to spend the budget on the overlap, which heals mutated provider facts, rather
-# than on re-reading the same 48 hours four times as often.
-#
-# If a faster heal is wanted later, the change that buys it is a SHORT frontier
-# pass plus an occasional DEEP overlap pass -- not a smaller number here.
-#
-# ------------------------------------------------------------------------------
-# WHY A RED RUN IS NOT AN ALERT, AND WHAT TO WATCH INSTEAD
-# ------------------------------------------------------------------------------
-#
-# drain-outbox.yml is this repository's only other scheduled workflow, and its
-# last hundred runs all failed because two secrets were never set. Nobody noticed
-# for months. Exiting non-zero is necessary and is not sufficient here.
-#
-# So every pass prints COVERAGE_LAG_MS and COVERAGE_STATUS: how far behind the
-# clock proven coverage now sits, read from a durable row rather than inferred
-# from a run's colour.
-#
-# AND THAT IS STILL NOT ENOUGH ON ITS OWN, because those lines only exist while
-# this job runs. A job that FAILS is visible; a job that STOPS RUNNING is silent.
-# The same durable row is therefore served by GET /api/internal/coverage-health,
-# which answers 503 for anything other than HEALTHY — so an uptime checker that
-# knows nothing but status codes can watch a poller that never fired at all.
-# Pointing a monitor at that endpoint is a prerequisite for enabling this
-# workflow, not a follow-up.
-#
-# CREDENTIALS. Two secrets, named here and never printed:
-#   DIRECT_DATABASE_URL   the direct (non-pooled) production endpoint
-#   CALLGRID_API_KEY      the provider credential for Loop calling CallGrid
-# CALLGRID_API_KEY is NOT CALLGRID_WEBHOOK_SECRET. They authenticate different
-# parties in different directions and this job never falls back between them.
-
+# Frequent short frontier reads plus an hourly 48-hour fact reread.
+# GitHub schedules are best-effort; webhooks remain the live path.
 name: Poll CallGrid Routine
 
 on:
   schedule:
-    # Hourly, on the hour. GitHub does not guarantee this cadence under load; a
-    # late pass simply reads a slightly wider interval, because the lower bound
-    # comes from the checkpoint rather than from when the job happened to fire.
-    - cron: '0 * * * *'
+    # Off the top of the hour to reduce peak scheduler contention.
+    - cron: '3,13,23,33,43,53 * * * *'
+    - cron: '7 * * * *'
   workflow_dispatch:
     # Manual retry of the ROUTINE pass, after a failure or a deploy. It takes no
     # inputs, deliberately: there is no since, no until and no date, so there is
@@ -100,9 +30,9 @@ jobs:
   poll:
     name: Routine CallGrid poll
     runs-on: ubuntu-latest
-    # Under the cadence on purpose: a hung pass can never still be running when
-    # the next one fires.
-    timeout-minutes: 50
+    # Bound frontier stalls; deep rereads retain their larger existing budget.
+    # GitHub may coalesce pending runs in this shared concurrency group.
+    timeout-minutes: ${{ github.event.schedule == '3,13,23,33,43,53 * * * *' && 10 || 50 }}
 
     steps:
       - name: Stop unless routine polling has been switched on
@@ -211,10 +141,11 @@ jobs:
           DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
           CALLGRID_API_KEY: ${{ secrets.CALLGRID_API_KEY }}
           ORGANIZATIONS: ${{ vars.ROUTINE_POLL_ORGANIZATIONS }}
+          POLL_MODE: ${{ github.event.schedule == '3,13,23,33,43,53 * * * *' && 'frontier' || 'deep' }}
         run: |
           set -euo pipefail
           # No since, no until, no date. The interval comes from the checkpoint.
-          npm run poll:callgrid-routine -- --organizations "${ORGANIZATIONS}"
+          npm run poll:callgrid-routine -- --organizations "${ORGANIZATIONS}" --mode "${POLL_MODE}"
 
       - name: Note what a red run means
         if: failure()
