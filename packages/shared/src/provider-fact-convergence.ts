@@ -25,7 +25,9 @@
 // THE RULE
 //
 // A later observation may be MORE CURRENT without being MORE AUTHORITATIVE.
-// UNKNOWN never erases KNOWN. AMBIGUOUS never erases KNOWN. A provider POSITIVE
+// UNKNOWN never erases KNOWN. AMBIGUOUS never erases KNOWN. An explicit zero fills
+// an absent amount as an observed value, not a settlement assertion. It remains
+// strengthenable by a later positive, just like a zero on first creation. A POSITIVE
 // may strengthen an unknown or ambiguous value, because a positive is the one
 // thing the provider only says when it means it -- a postback that has not
 // arrived cannot invent $17.
@@ -34,7 +36,7 @@
 // of a call writes what the provider said, including a zero, because at that
 // moment there is nothing to protect and no reason to disbelieve it. This governs
 // only what a LATER observation may do to a fact that already exists -- which is
-// why a genuinely final zero stays perfectly representable.
+// why a zero remains an observed value rather than a final settlement guarantee.
 //
 // PURE. No clock, no I/O, no provider knowledge beyond the classification handed
 // in. Same inputs, same decision, in a test or six months from now.
@@ -69,7 +71,7 @@ export const FACT_KINDS = [
   'MONOTONIC_ASSERTION',
   /**
    * An amount the provider settles upward from an ambiguous zero. A positive is
-   * an assertion; a zero is not evidence of anything.
+   * an assertion; zero is an observed amount, never proof of final settlement.
    */
   'MONOTONIC_AMOUNT',
 ] as const;
@@ -128,7 +130,7 @@ function unknown(value: unknown): boolean {
  *
  *   existing   incoming   decision         why
  *   unknown    positive   UPDATE           the provider only says $17 when it means it
- *   unknown    zero       REMAIN_UNKNOWN   a pending postback looks exactly like this
+ *   unknown    zero       UPDATE           preserve the explicit observed amount; allow later settlement
  *   zero       positive   UPDATE           the postback arrived; the zero was "not yet"
  *   positive   zero       KEEP_EXISTING    a settled amount is not un-earned by silence
  *   positive   same       KEEP_EXISTING    nothing changed
@@ -185,6 +187,9 @@ export function convergeFact<T>(input: {
   const existingNumber = typeof existing === 'number' && Number.isFinite(existing) ? existing : null;
   const incomingNumber = typeof incoming === 'number' && Number.isFinite(incoming) ? incoming : null;
 
+  if (existingNumber === null && incomingNumber === 0) {
+    return { decision: 'UPDATE', value: incomingNumber as T, reason: 'first explicit observed zero; final settlement is not established' };
+  }
   if (incomingNumber === null || incomingNumber === 0) {
     if (existingNumber !== null && existingNumber > 0) {
       return { decision: 'KEEP_EXISTING', reason: 'an ambiguous zero may not erase a settled amount' };
