@@ -176,7 +176,7 @@ export async function AdminHome({
         {!homeResult.ok ? <SourceUnavailable what="Loop work" /> : null}
 
         <BriefingCard narrative={narrative} briefing={briefing} time={time} stored={front.briefing} offers={(href) => navOffers(groups, href)} />
-        {showHeadlines ? <HeadlinesPanel headlines={review?.headlines ?? null} attention={review?.attention ?? null} standings={standings} time={time} href={HOME_PATHS.headlines} /> : null}
+        {showHeadlines ? <HeadlinesPanel headlines={review?.headlines ?? null} attention={review?.attention ?? null} standings={standings} time={time} href={HOME_PATHS.headlines} briefing={front.briefing} /> : null}
         {front.situations ? <SituationsPanel read={front.situations} time={time} caseHref={(id) => `/app/admin/cases/${id}`} /> : null}
 
         {/* Two compact peers: the signed-in person's own day and what needs them, beside the

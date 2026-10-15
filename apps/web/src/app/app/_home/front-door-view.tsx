@@ -10,7 +10,8 @@ import type { HeadlineStanding } from './front-door-data';
 import type { HomeKpiStrip } from './kpis';
 import type { HomeTile } from './tiles';
 import type { Settled } from './settle';
-import { SourceUnavailable } from './briefing-view';
+import { SourceUnavailable, StoredBriefingBody } from './briefing-view';
+import type { StoredBriefing } from '../../../intelligence/briefing';
 
 // Loop Home's front door, drawn (2026-09-24; the composition correction, 2026-09-24): the executive
 // KPI row, the Headlines section, recent activity, and the tools & spaces grid. Server components over the pure projections (kpis.ts,
@@ -88,6 +89,7 @@ export function KpiStrip({ strip }: { strip: Settled<HomeKpiStrip> | null }) {
         ))}
       </div>
       {s.coverageNote ? <p className="loop-brief__foot">{s.coverageNote}</p> : null}
+      {s.kpis.some(k => k.coverageNote) ? <p className="loop-brief__foot">Some stored calls lack required financial fields, so the amounts are partial. This is separate from connection health.</p> : null}
     </section>
   );
 }
@@ -97,6 +99,8 @@ export function KpiStrip({ strip }: { strip: Settled<HomeKpiStrip> | null }) {
 export const HEADLINES_ON_HOME = 4;
 
 /**
+ * The stored business briefing leads this section. Measured objective cards remain their own authority;
+ * a business-summary line is never converted into a measured Headline record.
  * Headlines as cards: what Loop identified, why it matters (the rule and the objective it moved
  * against), the evidence behind it (coverage and sightings), and where it stands -- the situation word
  * `headlineSituation` derives from the Headline and its Case, in the Headline workspace's own
@@ -108,6 +112,7 @@ export function HeadlinesPanel({
   standings,
   time,
   href,
+  briefing = null,
 }: {
   /** The non-dismissed Headlines the review read; null when that read failed. */
   headlines: readonly HeadlineView[] | null;
@@ -115,6 +120,7 @@ export function HeadlinesPanel({
   standings: ReadonlyMap<string, HeadlineStanding>;
   time: TimeView;
   href: string;
+  briefing?: StoredBriefing | null;
 }) {
   const shown = (headlines ?? []).slice(0, HEADLINES_ON_HOME);
   const more = (headlines?.length ?? 0) - shown.length;
@@ -127,6 +133,9 @@ export function HeadlinesPanel({
           View all Headlines →
         </Link>
       </div>
+      {briefing ? <StoredBriefingBody stored={{ ...briefing, lines: briefing.lines.slice(0, 3) }} time={time} offers={() => false} /> : <p>Loop has not composed your business summary for today yet.</p>}
+      <h3 className="loop-panel__title">Measured objective signals</h3>
+      <p className="loop-front__prose-quiet">This coverage applies to configured objectives, not every connected source.</p>
       {headlines === null ? (
         <SourceUnavailable what="Headlines" />
       ) : shown.length === 0 ? (

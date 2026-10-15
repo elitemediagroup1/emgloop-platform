@@ -71,9 +71,9 @@ export class WorkBriefRepository {
   }
 
   /** The newest version of one day's brief, or null when that day has none. */
-  async forDate(principal: WorkPrincipal, localDate: Date) {
+  async forDate(principal: WorkPrincipal, localDate: Date, options: { readonly schema?: string } = {}) {
     const rows = await this.prisma.workBrief.findMany({
-      where: { ...workScope(principal), localDate },
+      where: { ...workScope(principal), localDate, ...(options.schema ? { coverage: { path: ['schema'], equals: options.schema } } : {}) },
       orderBy: { version: 'desc' },
       take: 1,
     });
