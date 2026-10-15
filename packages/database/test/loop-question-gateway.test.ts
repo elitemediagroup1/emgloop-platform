@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { AI_TASK_LOOP_QUESTION, BRIEFING_SCHEMA, type AiModelResult } from '@emgloop/shared';
+import { AI_TASK_LOOP_QUESTION, LOOP_CHAT_SCHEMA, type AiModelResult } from '@emgloop/shared';
 import {
   RecordedModelProvider,
   AI_ROUTING_POLICY,
@@ -31,12 +31,12 @@ async function run(options: { invalid?: boolean; approved?: boolean } = {}) {
   const output: AiModelResult = {
     output: {
       json: {
-        schemaId: 'loop-briefing.v1',
-        headline: 'Stored revenue',
-        lines: [
+        schemaId: 'loop-chat.v1',
+        calculations: [],
+        paragraphs: [
           {
-            kind: 'CHANGED',
-            statement: `Stored revenue is $${options.invalid ? 999 : 100}.`,
+            kind: 'EVIDENCE',
+            text: `Stored revenue is $${options.invalid ? 999 : 100}.`,
             citations: ['snapshot:callgrid'],
           },
         ],
@@ -94,8 +94,8 @@ async function run(options: { invalid?: boolean; approved?: boolean } = {}) {
     context,
     instructions: 'Answer from supplied sources.',
     templateId: 'loop-question',
-    templateVersion: '1',
-    schema: BRIEFING_SCHEMA as unknown as Record<string, unknown>,
+    templateVersion: '2',
+    schema: LOOP_CHAT_SCHEMA as unknown as Record<string, unknown>,
     evidence: { figures: new Map([['snapshot:callgrid', new Set([100])]]), dates: new Set() },
   });
   return { result, ledger };

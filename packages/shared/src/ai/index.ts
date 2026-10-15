@@ -45,3 +45,5 @@ export * from './brain-question';
 // The business day a usage row is budgeted against. The organization's own
 // reporting zone, read in exactly one place and never used for display.
 export * from './budget-day';
+
+export * from './loop-chat-contract';

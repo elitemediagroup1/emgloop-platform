@@ -1,23 +1,24 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { formatInstant } from '@emgloop/shared';
+import { formatInstant, boundedLoopChatMessages, type AiLoopChatAnswer } from '@emgloop/shared';
 import { usePathname } from 'next/navigation';
 
 type Answer = {
   outcome: 'ANSWERED';
-  answer: {
-    headline: string;
-    lines: { statement: string; citations: string[] }[];
-    limitations: string[];
-  };
+  answer: AiLoopChatAnswer;
   sources: { ref: string; domain: string; title: string }[];
   asOf: string;
 };
-type Turn = { question: string; result?: Answer; error?: string };
+type Turn = { question: string; result?: Answer; error?: string; reasonCode?: string };
 const REASONS: Record<string, string> = {
   TASK_NOT_ACTIVATED: 'Loop questions are not enabled for this deployment yet.',
   TASK_NOT_ENABLED: 'Loop questions are not enabled for this deployment yet.',
+  CONTEXT_REFUSED:
+    'Loop could not assemble valid source evidence for this conversation. Please try again shortly.',
+  INPUT_LIMIT_ABOVE_POLICY:
+    'This conversation has more evidence than Loop can read at once. Try narrowing the question or clear the conversation.',
+  NOT_AUTHORIZED: 'Your account does not have permission to use this information.',
   POLICY_DENIED: 'The AI provider has not been approved for this information yet.',
   NO_CURRENT_EVIDENCE:
     'Loop has no current evidence it can use for this question. Your source readings need to refresh.',
@@ -41,6 +42,7 @@ function unavailableReason(reason: unknown): string {
 /** Transient conversation only. Never stores private answers in localStorage or shares across logins. */
 export function LoopAssistant({ timeZone }: { timeZone: string }) {
   const [open, setOpen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const [question, setQuestion] = useState('');
   const [turns, setTurns] = useState<Turn[]>([]);
   const [pending, setPending] = useState(false);
@@ -74,6 +76,19 @@ export function LoopAssistant({ timeZone }: { timeZone: string }) {
         body: JSON.stringify({
           question: q,
           previousQuestions: turns.map((t) => t.question).slice(-4),
+          messages: boundedLoopChatMessages(
+            turns.flatMap((t) => [
+              { role: 'user', content: t.question },
+              ...(t.result
+                ? [
+                    {
+                      role: 'assistant',
+                      content: t.result.answer.paragraphs.map((p) => p.text).join('\n\n'),
+                    },
+                  ]
+                : []),
+            ]),
+          ),
           page: path,
         }),
       });
@@ -82,9 +97,13 @@ export function LoopAssistant({ timeZone }: { timeZone: string }) {
         response.ok && result.outcome === 'ANSWERED'
           ? undefined
           : (result.error ?? unavailableReason(result.reason));
+      const reasonCode =
+        typeof result.reason === 'string' && /^[A-Z_]{1,80}$/.test(result.reason)
+          ? result.reason
+          : undefined;
       setTurns((old) =>
         old.map((t, i) =>
-          i === old.length - 1 ? { ...t, ...(error ? { error } : { result }) } : t,
+          i === old.length - 1 ? { ...t, ...(error ? { error, reasonCode } : { result }) } : t,
         ),
       );
     } catch {
@@ -105,7 +124,7 @@ export function LoopAssistant({ timeZone }: { timeZone: string }) {
     <div className="loop-assistant">
       {open ? (
         <section
-          className="loop-assistant__panel"
+          className={`loop-assistant__panel${expanded ? ' loop-assistant__panel--expanded' : ''}`}
           id="loop-assistant-panel"
           role="dialog"
           aria-modal="false"
@@ -117,8 +136,15 @@ export function LoopAssistant({ timeZone }: { timeZone: string }) {
           <header className="loop-assistant__head">
             <div>
               <h2 id="loop-assistant-title">Ask Loop</h2>
-              <p>Answers from your authorized Loop evidence</p>
+              <p>Your assistant for what’s happening in Loop</p>
             </div>
+            <button
+              type="button"
+              onClick={() => setExpanded(!expanded)}
+              aria-label={expanded ? 'Make chat smaller' : 'Expand chat'}
+            >
+              {expanded ? '↙' : '↗'}
+            </button>
             <button type="button" onClick={close} aria-label="Close Ask Loop">
               ×
             </button>
@@ -136,11 +162,11 @@ export function LoopAssistant({ timeZone }: { timeZone: string }) {
                   Ask about calls, campaigns, your conversations, or what needs attention. Answers
                   include their sources and any gaps.
                 </p>
-                <p>Try “How did our campaigns perform yesterday?” or “What needs my attention?”</p>
                 <p>
-                  For a specific day, use YYYY-MM-DD. CallGrid reporting uses Eastern time. A page’s
-                  filters are not automatically applied to your question.
+                  Say “Hey, how’s it going?”, “How do my emails look today?” or “Give me a general
+                  update.”
                 </p>
+                <p>Ask naturally about today, recent changes, or a stored reporting period.</p>
               </div>
             ) : null}
             {turns.map((turn, i) => (
@@ -148,18 +174,27 @@ export function LoopAssistant({ timeZone }: { timeZone: string }) {
                 <p className="loop-assistant__question">{turn.question}</p>
                 {turn.result ? (
                   <div className="loop-assistant__answer">
-                    <h3>{turn.result.answer.headline}</h3>
-                    {turn.result.answer.lines.map((line, j) => (
-                      <p key={j}>
-                        {line.statement}
-                        <small>
-                          {line.citations
-                            .map((ref) => turn.result!.sources.find((s) => s.ref === ref)?.title)
-                            .filter(Boolean)
-                            .join(' · ')}
-                        </small>
+                    {turn.result.answer.paragraphs.map((paragraph, j) => (
+                      <p key={j} className="loop-assistant__paragraph">
+                        {paragraph.text}
                       </p>
                     ))}
+                    {turn.result.sources.length ? (
+                      <details>
+                        <summary>Sources ({turn.result.sources.length})</summary>
+                        <ul>
+                          {turn.result.sources.map((source) => (
+                            <li key={source.ref}>{source.title}</li>
+                          ))}
+                        </ul>
+                        <small>
+                          Evidence assembled{' '}
+                          {formatInstant(turn.result.asOf, timeZone, 'dateTime', {
+                            withZone: true,
+                          })}
+                        </small>
+                      </details>
+                    ) : null}
                     {turn.result.answer.limitations.length ? (
                       <details>
                         <summary>Evidence gaps</summary>
@@ -170,13 +205,13 @@ export function LoopAssistant({ timeZone }: { timeZone: string }) {
                         </ul>
                       </details>
                     ) : null}
-                    <small>
-                      Evidence assembled{' '}
-                      {formatInstant(turn.result.asOf, timeZone, 'dateTime', { withZone: true })}
-                    </small>
                   </div>
                 ) : turn.error ? (
-                  <p role="status" className="loop-assistant__error">
+                  <p
+                    role="status"
+                    className="loop-assistant__error"
+                    data-reason-code={turn.reasonCode}
+                  >
                     {turn.error}
                   </p>
                 ) : (
@@ -214,9 +249,7 @@ export function LoopAssistant({ timeZone }: { timeZone: string }) {
                 {pending ? 'Reading…' : 'Ask Loop'}
               </button>
             </div>
-            <small>
-              Read-only · answers can be incomplete; check cited evidence before acting.
-            </small>
+            <small>Read-only · Shift+Enter adds a new line.</small>
           </form>
         </section>
       ) : null}

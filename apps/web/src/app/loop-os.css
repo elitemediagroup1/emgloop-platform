@@ -4736,3 +4736,8 @@ a.xb__focuscard:hover { border-color: var(--loop-line-strong); transform: transl
 .loop-assistant__form button[type=submit] { background: var(--loop-accent-soft); color: var(--loop-accent-strong); border-color: var(--loop-accent-soft); }
 .loop-assistant :focus-visible { outline: 3px solid var(--loop-focus); outline-offset: 3px; }
 @media (max-width: 700px) { .loop-assistant { right: 16px; bottom: 80px; } .loop-assistant__panel { right: 16px; bottom: 144px; height: min(620px, calc(100dvh - 180px)); } }
+
+.loop-assistant__panel--expanded { width: min(800px, calc(100vw - 32px)); height: min(820px, calc(100dvh - 128px)); }
+.loop-assistant__paragraph { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+@media (max-width: 700px) { .loop-assistant__panel--expanded { height: min(620px, calc(100dvh - 180px)); } }
