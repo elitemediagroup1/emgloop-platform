@@ -2,6 +2,20 @@
 
 This change extends the existing governed runtime, producers, work_briefs and Neon call projection. It adds no database schema, provider SDK, package, raw-message archive or autonomous write tool. It is not operational merely because the PR merges.
 
+## Shared chat retrieval follow-up — 2026-10-15
+
+Live acceptance after OpenAI billing was configured: a general business update and CallGrid follow-up answered. Mail output was rejected, and the user independently reported a connection interruption. These observations do not establish complete Mail access or proactive MODEL briefing success.
+
+The next patch reads current stored snapshots through the existing domain gather/rule readers, with no discovery, enqueue, digest writes or nested provider calls. Organization source permissions and active membership are resolved before and after gathering. Own calendar requires a connected Google connection; personal work remains self scoped. CallGrid, campaigns, intake, CRM, creators, work and website snapshots are explicitly partial; a fresh database read does not prove a fresh or complete upstream sync. Domain readers retain their individual windows and bounded data shapes. Chat prioritizes the requested domain using the shared registry.
+
+Mail questions can additionally read through up to three recent stored own-Gmail threads within the requested period. Each supplies up to three plain-text messages capped at 1,000 characters, with subject lengths bounded. The existing recorded Mail governance decision and active personal authorization are required and rechecked after retrieval; membership is rechecked before context is released. Nothing stores bodies, searches another user's mailbox or changes Gmail labels. This selection is not an exhaustive inbox review. Chats continue to contribute existing authorized current summaries; full message search is still absent. Broad source coverage is not equivalent to arbitrary record retrieval across every Loop table.
+
+A 45-second shared deadline returns REQUEST_TIMEOUT and propagates cancellation through source iteration and the governed gateway before the host's 60-second limit. An already-started Gmail read-through may finish, but its result is discarded after cancellation and no later provider attempt starts. One rejected answer may be repaired from the same original context through the same policy/budget/validator gates; no raw rejected text is reused and policy/auth failures are not retried by this repair. A second rejection stays unavailable and exposes only bounded rejection codes. Non-JSON 502/504 responses now get a timeout explanation.
+
+Validation for this follow-up: 34 database tests (shared source retrieval, permission/consent revocation, real gateway, answer repair, cancellation, existing domain producers and briefing) and seven HTTP tests pass. Database/web typechecks and production build pass. Lint remains unavailable because this repository has no ESLint configuration; no lint controls or CI assertions were changed. These are local checks, not live acceptance of this patch.
+
+Acceptance after merge/deploy: ask for a general update, then each permitted domain and a Mail question; verify actual successful ledger entries, citation sources, time windows and partial coverage. Exercise an unprivileged user to confirm organization sources are absent. Verify Chats explicitly reports its summary-only coverage and that an unknown/unconnected source never becomes a quiet-state conclusion. Historical backfill and proactive refresh commissioning remain separate outstanding operations.
+
 ## Responsibilities
 
 | Task | Primary | Other provider |

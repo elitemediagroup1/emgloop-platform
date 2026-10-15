@@ -10,7 +10,12 @@ export interface QuestionHandlerPorts {
   answer(
     principal: QuestionPrincipal,
     question: string,
-    options: { previousQuestions: string[]; messages: LoopChatMessage[]; page?: string },
+    options: {
+      previousQuestions: string[];
+      messages: LoopChatMessage[];
+      page?: string;
+      signal?: AbortSignal;
+    },
   ): Promise<unknown>;
 }
 /** Netlify forwards the public host/protocol while Request.url may name its internal origin.
@@ -38,6 +43,35 @@ export function questionSameOrigin(request: Request): boolean {
 
 const json = (body: unknown, status = 200) =>
   Response.json(body, { status, headers: { 'Cache-Control': 'private, no-store' } });
+
+/** Finish before the host's 60-second limit and cancel provider attempts, including repair/fallback. */
+export async function questionWithDeadline<T>(
+  signal: AbortSignal,
+  answer: (signal: AbortSignal) => Promise<T>,
+  ms = 45000,
+): Promise<T | { outcome: 'UNAVAILABLE'; reason: 'REQUEST_TIMEOUT' }> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let cancel: () => void = () => {};
+  const timeout = new Promise<{ outcome: 'UNAVAILABLE'; reason: 'REQUEST_TIMEOUT' }>((resolve) => {
+    cancel = () => {
+      resolve({ outcome: 'UNAVAILABLE', reason: 'REQUEST_TIMEOUT' });
+      controller.abort();
+    };
+    timer = setTimeout(cancel, ms);
+    signal.addEventListener('abort', cancel, { once: true });
+  });
+  try {
+    if (signal.aborted) {
+      cancel();
+      return await timeout;
+    }
+    return await Promise.race([timeout, answer(controller.signal)]);
+  } finally {
+    clearTimeout(timer);
+    signal.removeEventListener('abort', cancel);
+  }
+}
 export async function handleLoopQuestion(
   request: Request,
   ports: QuestionHandlerPorts,
@@ -87,15 +121,18 @@ export async function handleLoopQuestion(
     )
       return json({ error: 'Ask a question of at most 2,000 characters.' }, 400);
     return json(
-      await ports.answer(principal, body.question, {
-        previousQuestions: Array.isArray(body.previousQuestions)
-          ? body.previousQuestions
-              .filter((q): q is string => typeof q === 'string' && q.length <= 2000)
-              .slice(-4)
-          : [],
-        messages: boundedLoopChatMessages(body.messages),
-        page: typeof body.page === 'string' ? body.page.slice(0, 200) : undefined,
-      }),
+      await questionWithDeadline(request.signal, (signal) =>
+        ports.answer(principal, body.question as string, {
+          signal,
+          previousQuestions: Array.isArray(body.previousQuestions)
+            ? body.previousQuestions
+                .filter((q): q is string => typeof q === 'string' && q.length <= 2000)
+                .slice(-4)
+            : [],
+          messages: boundedLoopChatMessages(body.messages),
+          page: typeof body.page === 'string' ? body.page.slice(0, 200) : undefined,
+        }),
+      ),
     );
   } catch {
     return json(

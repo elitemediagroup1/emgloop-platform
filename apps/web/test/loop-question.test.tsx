@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { handleLoopQuestion, type QuestionHandlerPorts } from '../src/ai/loop-question-handler';
+import {
+  handleLoopQuestion,
+  questionWithDeadline,
+  type QuestionHandlerPorts,
+} from '../src/ai/loop-question-handler';
 
 const url = 'https://app.example.com/api/intelligence/question';
 const req = (body: unknown, origin = 'https://app.example.com') =>
@@ -16,7 +20,9 @@ function ports() {
     session: async () => principal,
     mayRead: async () => true,
     answer: async (...args) => {
-      calls.push(args);
+      assert.ok(args[2].signal instanceof AbortSignal);
+      const { signal: _signal, ...options } = args[2];
+      calls.push([args[0], args[1], options]);
       return { outcome: 'ANSWERED' };
     },
   };
@@ -145,4 +151,27 @@ test('Netlify internal URL uses the forwarded public origin without allowing unr
     assert.equal((await handleLoopQuestion(forwarded(headers), denied.p)).status, 403);
     assert.deepEqual(denied.calls, []);
   }
+});
+
+test('the shared deadline aborts provider work and returns a structured result before the host timeout', async () => {
+  let providerSignal: AbortSignal | undefined;
+  const result = await questionWithDeadline(
+    new AbortController().signal,
+    async (signal) => {
+      providerSignal = signal;
+      return new Promise(() => {});
+    },
+    5,
+  );
+  assert.deepEqual(result, { outcome: 'UNAVAILABLE', reason: 'REQUEST_TIMEOUT' });
+  assert.equal(providerSignal?.aborted, true);
+});
+test('an already disconnected request starts no evidence read or provider call', async () => {
+  const controller = new AbortController();
+  controller.abort();
+  let called = false;
+  await questionWithDeadline(controller.signal, async () => {
+    called = true;
+  });
+  assert.equal(called, false);
 });

@@ -10,6 +10,58 @@ import { validateAiContextPackage, estimateAiInputTokens } from '@emgloop/shared
 import type { CallWindowAggregate } from '../src/repositories/marketplace-call.repository';
 const NOW = new Date('2026-10-15T16:00:00Z');
 const ZONE = 'America/New_York';
+test('one rejected answer gets one bounded repair from original evidence; permission failures do not retry', async (t) => {
+  t.mock.method(BriefingComposer.prototype, 'gather', async () => ({ artifacts: [], gaps: [] }));
+  const prisma = {
+    user: { findFirst: async () => null },
+    organizationMembership: { findFirst: async () => null },
+  };
+  const requests: import('../src/services/ai-runtime/gateway').AiRunRequest[] = [];
+  const runtime = {
+    run: async (_: unknown, request: import('../src/services/ai-runtime/gateway').AiRunRequest) => {
+      requests.push(request);
+      return { outcome: 'REJECTED_OUTPUT', rejections: ['UNSUPPORTED_NUMBER_IN_TEXT'] } as never;
+    },
+  };
+  const result = await new LoopQuestionService(prisma as never, runtime, () => NOW).answer(
+    { organizationId: 'our-org', userId: 'our-user' },
+    'Hello',
+    { timeZone: ZONE },
+  );
+  assert.equal(requests.length, 2);
+  assert.equal(requests[1]!.context, requests[0]!.context);
+  assert.equal(requests[1]!.evidence, requests[0]!.evidence);
+  assert.match(requests[1]!.instructions, /Omit unsupported figures/);
+  assert.equal(result.outcome, 'UNAVAILABLE');
+  requests.length = 0;
+  runtime.run = async (_, request) => {
+    requests.push(request);
+    return { outcome: 'REFUSED_BY_LOOP', refusals: ['POLICY_DENIED'] } as never;
+  };
+  await new LoopQuestionService(prisma as never, runtime, () => NOW).answer(
+    { organizationId: 'our-org', userId: 'our-user' },
+    'Hello',
+    { timeZone: ZONE },
+  );
+  assert.equal(requests.length, 1);
+});
+test('a cancelled request starts no retrieval or model invocation', async () => {
+  const controller = new AbortController();
+  controller.abort();
+  const runtime = {
+    run: async () => {
+      throw new Error('must not call');
+    },
+  };
+  assert.deepEqual(
+    await new LoopQuestionService({} as never, runtime).answer(
+      { organizationId: 'our-org', userId: 'our-user' },
+      'Hello',
+      { timeZone: ZONE, signal: controller.signal },
+    ),
+    { outcome: 'UNAVAILABLE', reason: 'REQUEST_TIMEOUT' },
+  );
+});
 test('a greeting can be answered without inventing business evidence when no readings are current', async (t) => {
   t.mock.method(BriefingComposer.prototype, 'gather', async () => ({ artifacts: [], gaps: [] }));
   const prisma = {

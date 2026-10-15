@@ -1,7 +1,8 @@
-import { LoopQuestionService, prisma, repositories } from '@emgloop/database';
+import { LoopQuestionService, gmailMailReadThrough, prisma, repositories } from '@emgloop/database';
 import { getSession } from '../../../../auth/auth';
 import { governedGateway } from '../../../../ai/governed-gateway';
 import { handleLoopQuestion } from '../../../../ai/loop-question-handler';
+import { GMAIL_CONFIG } from '../../../../daily-loop/mail';
 import { BUSINESS_TIME_ZONE } from '@emgloop/shared';
 
 export const dynamic = 'force-dynamic';
@@ -17,7 +18,10 @@ export async function POST(request: Request): Promise<Response> {
     mayRead: (principal) =>
       repositories.iam.can({ ...principal, resource: 'employeeIntelligence', action: 'view' }),
     answer: (principal, question, options) =>
-      new LoopQuestionService(prisma, governedGateway().gateway).answer(principal, question, {
+      new LoopQuestionService(prisma, governedGateway().gateway, () => new Date(), {
+        governanceDecision: process.env.LOOP_MAIL_CONTENT_GOVERNANCE_DECISION,
+        readMailThread: gmailMailReadThrough(prisma, GMAIL_CONFIG()),
+      }).answer(principal, question, {
         ...options,
         timeZone: BUSINESS_TIME_ZONE,
       }),
