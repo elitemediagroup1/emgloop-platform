@@ -55,7 +55,8 @@ function database() {
       workThread: {
         findMany: async (q: any) => {
           scopes.push(q.where);
-          return ['a', 'b', 'c', 'd'].map((id) => ({ id }));
+          // Match the stored WorkProvider vocabulary, independent of the content-authorization provider.
+          return q.where.provider === 'GOOGLE' ? ['a', 'b', 'c', 'd'].map((id) => ({ id })) : [];
         },
       },
     },
@@ -177,7 +178,7 @@ test('Mail retrieval is bounded, scoped, transient, and discarded when content a
       (s) =>
         s.organizationId === principal.organizationId &&
         s.userId === principal.userId &&
-        s.provider === 'GMAIL',
+        (s.lastMessageAt ? s.provider === 'GOOGLE' : s.provider === 'GMAIL'),
     ),
   );
   for (const artifact of result) {
