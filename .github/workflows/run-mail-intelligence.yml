@@ -87,26 +87,33 @@ jobs:
           done
 
       - name: Refresh mailbox overviews independently of thread backlog
-        if: steps.gate.outputs.enabled == 'true'
+        if: ${{ !cancelled() && steps.gate.outputs.enabled == 'true' }}
         env:
           MAIL_URL: ${{ secrets.INTELLIGENCE_MAIL_URL }}
           MAIL_SECRET: ${{ secrets.INTELLIGENCE_MAIL_SECRET }}
         run: |
           set -euo pipefail
+          test -n "${MAIL_URL:-}" && test -n "${MAIL_SECRET:-}"
           for pass in 1 2; do
             curl --silent --show-error --fail-with-body --max-time 60 --request POST "${MAIL_URL}?stage=domain" --header "authorization: Bearer ${MAIL_SECRET}"
           done
 
       - name: Connect evidence and compose proactive briefings
-        if: steps.gate.outputs.enabled == 'true'
+        if: ${{ !cancelled() && steps.gate.outputs.enabled == 'true' }}
         env:
           MAIL_URL: ${{ secrets.INTELLIGENCE_MAIL_URL }}
           MAIL_SECRET: ${{ secrets.INTELLIGENCE_MAIL_SECRET }}
         run: |
           set -euo pipefail
+          test -n "${MAIL_URL:-}" && test -n "${MAIL_SECRET:-}"
           synthesis_url="${MAIL_URL%/mail}/synthesis"
-          for phase in organization private briefing; do
+          failed=0
+          for phase in briefing organization private; do
             for slot in 0 1; do
-              curl --silent --show-error --fail-with-body --max-time 60 --request POST "${synthesis_url}?phase=${phase}&slot=${slot}" --header "authorization: Bearer ${MAIL_SECRET}"
+              if ! curl --silent --show-error --fail-with-body --max-time 60 --request POST "${synthesis_url}?phase=${phase}&slot=${slot}" --header "authorization: Bearer ${MAIL_SECRET}"; then
+                echo "::error::Intelligence phase ${phase}, slot ${slot} failed; continuing independent targets."
+                failed=1
+              fi
             done
           done
+          exit "$failed"

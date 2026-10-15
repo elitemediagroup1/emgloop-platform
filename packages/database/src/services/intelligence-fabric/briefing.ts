@@ -110,6 +110,7 @@ export interface BriefingPorts {
   readonly now: () => Date;
   /** What this deployment observes (its active producers). Absent: the conservative default (see ObservedDomains). */
   readonly observed?: ObservedDomains;
+  readonly signal?: AbortSignal;
 }
 
 export type BriefingOutcome = { readonly outcome: 'REUSED' | 'COMPOSED' | 'RULE' | 'NOTHING_TO_SAY'; readonly version?: number; readonly reason?: string };
@@ -362,32 +363,104 @@ export class BriefingComposer {
     const absenceOk = briefingAbsenceJustified(artifacts, gaps);
     const carried = [...new Set([...artifacts.flatMap((a) => a.limitations), ...gapLimitations(gaps)])];
     const briefs = new WorkBriefRepository(this.ports.prisma);
-    const stored = await briefs.forDate(principal, localDate);
+    const stored = await briefs.forDate(principal, localDate, { schema: BRIEFING_RECORD_SCHEMA });
     const storedCoverage = (stored?.coverage ?? {}) as { schema?: string; fingerprint?: string; composer?: string };
     const modelOn = !!this.ports.runtime && this.ports.modelEnabled(AI_TASK_LOOP_BRIEFING.taskId);
     // Reuse: same inputs, and not a rule Briefing that the now-activated model could improve on.
     if (storedCoverage.schema === BRIEFING_RECORD_SCHEMA && storedCoverage.fingerprint === fingerprint && (storedCoverage.composer === 'MODEL' || !modelOn)) return { outcome: 'REUSED', version: stored!.version };
 
-    let composed: { headline: string; lines: BriefingLine[]; composer: 'MODEL' | 'RULE'; limitations: readonly string[]; invocationId?: string; providerId?: string; reason?: string } | null = null;
+    let composed: {
+      headline: string;
+      lines: BriefingLine[];
+      composer: 'MODEL' | 'RULE';
+      limitations: readonly string[];
+      invocationId?: string;
+      providerId?: string;
+      reason?: string;
+    } | null = null;
     if (modelOn && artifacts.length > 0) {
       const { items, evidence } = briefingContextOf(artifacts, principal.organizationId);
-      const result = await this.ports.runtime!.run(principal, {
+      const request = {
+        signal: this.ports.signal,
         task: AI_TASK_LOOP_BRIEFING,
-        context: { organizationId: principal.organizationId, viewerUserId: principal.userId, taskId: AI_TASK_LOOP_BRIEFING.taskId, items, sensitivityCeiling: AI_TASK_LOOP_BRIEFING.sensitivityCeiling },
-        instructions: renderBriefingInstructions(items.map((i) => i.sourceRef), { absenceJustified: absenceOk, gaps: gapLimitations(gaps) }),
+        context: {
+          organizationId: principal.organizationId,
+          viewerUserId: principal.userId,
+          taskId: AI_TASK_LOOP_BRIEFING.taskId,
+          items,
+          sensitivityCeiling: AI_TASK_LOOP_BRIEFING.sensitivityCeiling,
+        },
+        instructions: renderBriefingInstructions(
+          items.map((i) => i.sourceRef),
+          { absenceJustified: absenceOk, gaps: gapLimitations(gaps) },
+        ),
         templateId: BRIEFING_TEMPLATE_ID,
         templateVersion: BRIEFING_TEMPLATE_VERSION,
         schema: BRIEFING_SCHEMA as unknown as Record<string, unknown>,
         evidence,
-      });
-      const b: AiBriefing | null = result.outcome === 'ANSWERED' ? (result.output.briefing ?? null) : null;
+      };
+      let result = await this.ports.runtime!.run(principal, request);
+      const unjustifiedAbsence = (r: typeof result) =>
+        r.outcome === 'ANSWERED' &&
+        !absenceOk &&
+        !!r.output.briefing &&
+        [r.output.briefing.headline, ...r.output.briefing.lines.map((l) => l.statement)].some((t) =>
+          ABSENCE_CLAIM.test(t),
+        );
+      if (
+        !this.ports.signal?.aborted &&
+        (result.outcome === 'REJECTED_OUTPUT' || unjustifiedAbsence(result))
+      ) {
+        const codes =
+          result.outcome === 'REJECTED_OUTPUT'
+            ? result.rejections.filter((c) => /^[A-Z_]{1,80}$/.test(c)).slice(0, 6)
+            : ['UNJUSTIFIED_ABSENCE'];
+        result = await this.ports.runtime!.run(principal, {
+          ...request,
+          templateVersion: `${BRIEFING_TEMPLATE_VERSION}.repair1`,
+          instructions: `${request.instructions}\nOne bounded repair after validation codes ${codes.join(', ')}. Use only the original supplied artifacts. Return fewer, shorter lines if necessary. Omit unsupported claims or figures. Do not recommend actions or infer that nothing needs attention from incomplete coverage. Return the exact required JSON shape.`,
+        });
+      }
+      const b: AiBriefing | null =
+        result.outcome === 'ANSWERED' ? (result.output.briefing ?? null) : null;
       // An absence the coverage cannot justify is refused here, whatever the model wrote.
-      const overreach = b !== null && !absenceOk && [b.headline, ...b.lines.map((l) => l.statement)].some((t) => ABSENCE_CLAIM.test(t));
+      const overreach =
+        b !== null &&
+        !absenceOk &&
+        [b.headline, ...b.lines.map((l) => l.statement)].some((t) => ABSENCE_CLAIM.test(t));
       if (b && !overreach && result.outcome === 'ANSWERED') {
-        composed = { headline: b.headline, lines: b.lines.map((l) => ({ kind: l.kind, statement: l.statement, citations: l.citations })), composer: 'MODEL', limitations: [...new Set([...b.limitations, ...carried])], invocationId: result.provenance.invocationId, providerId: result.provenance.requestedModel.providerId };
+        composed = {
+          headline: b.headline,
+          lines: b.lines.map((l) => ({
+            kind: l.kind,
+            statement: l.statement,
+            citations: l.citations,
+          })),
+          composer: 'MODEL',
+          limitations: [...new Set([...b.limitations, ...carried])],
+          invocationId: result.provenance.invocationId,
+          providerId: result.provenance.requestedModel.providerId,
+        };
       } else {
         const rule = ruleBriefing(artifacts, gaps);
-        composed = { ...rule, composer: 'RULE', limitations: ['This is Loop’s own Briefing; the composed one was not available this time.', ...rule.limitations], reason: overreach ? 'UNJUSTIFIED_ABSENCE' : result.outcome === 'REFUSED_BY_LOOP' ? `LOOP:${result.refusals[0] ?? 'REFUSED'}` : result.outcome };
+        composed = {
+          ...rule,
+          composer: 'RULE',
+          limitations: [
+            'This is Loop’s own Briefing; the composed one was not available this time.',
+            ...rule.limitations,
+          ],
+          reason: overreach
+            ? 'UNJUSTIFIED_ABSENCE'
+            : result.outcome === 'REJECTED_OUTPUT'
+              ? `REJECTED_OUTPUT:${result.rejections
+                  .filter((c) => /^[A-Z_]{1,80}$/.test(c))
+                  .slice(0, 6)
+                  .join('+')}`
+              : result.outcome === 'REFUSED_BY_LOOP'
+                ? `LOOP:${result.refusals[0] ?? 'REFUSED'}`
+                : result.outcome,
+        };
       }
     }
     if (!composed) composed = { ...ruleBriefing(artifacts, gaps), composer: 'RULE' };
@@ -400,6 +473,7 @@ export class BriefingComposer {
         schema: BRIEFING_RECORD_SCHEMA,
         fingerprint,
         composer: composed.composer,
+        ...(composed.reason ? { modelStage: composed.reason } : {}),
         read: [...new Set(artifacts.map((a) => a.domain))].sort(),
         // What was used, how completely, and what could not be used today.
         coverages: Object.fromEntries(artifacts.map((a) => [a.ref, a.coverage])),
@@ -420,18 +494,34 @@ export class BriefingComposer {
   }
 
   /** The people a scheduled pass composes for: members with a live reading of their own. Ids only. */
-  async people(now: Date, take = 200): Promise<{ organizationId: string; userId: string; timeZone: string }[]> {
+  async people(
+    now: Date,
+    take = 200,
+  ): Promise<{ organizationId: string; userId: string; timeZone: string; hasBriefing: boolean }[]> {
     const rows = await this.ports.prisma.intelligenceDigest.findMany({
-      where: { scope: 'PRINCIPAL', userId: { not: null }, status: { not: 'WITHDRAWN' }, expiresAt: { gt: now } },
+      where: {
+        scope: 'PRINCIPAL',
+        userId: { not: null },
+        status: { not: 'WITHDRAWN' },
+        expiresAt: { gt: now },
+      },
       select: { organizationId: true, userId: true },
       distinct: ['organizationId', 'userId'],
       take,
     });
-    const out = [];
+    const out: { organizationId: string; userId: string; timeZone: string; lastBriefAt: number }[] = [];
     for (const r of rows) {
-      const prefs = await this.ports.prisma.employeeWorkPreferences.findFirst({ where: { organizationId: r.organizationId, userId: r.userId! }, select: { timeZone: true } });
-      out.push({ organizationId: r.organizationId, userId: r.userId!, timeZone: prefs?.timeZone ?? 'UTC' });
+      const principal = { organizationId: r.organizationId, userId: r.userId! };
+      if (!(await membershipAuthority(this.ports.prisma, principal.organizationId, principal.userId, now)).granted) continue;
+      if (!(await new IamRepository(this.ports.prisma).can({ ...principal, resource: 'employeeIntelligence', action: 'view' }))) continue;
+      const prefs = await this.ports.prisma.employeeWorkPreferences.findFirst({ where: principal, select: { timeZone: true } });
+      const timeZone = prefs?.timeZone ?? 'UTC';
+      const localDate = new Date(`${zonedCalendarDay(now, timeZone)}T00:00:00.000Z`);
+      const brief = await new WorkBriefRepository(this.ports.prisma).forDate(principal, localDate, { schema: BRIEFING_RECORD_SCHEMA });
+      out.push({ ...principal, timeZone, lastBriefAt: brief?.generatedAt?.getTime() ?? 0 });
     }
-    return out;
+    // Missing briefs first, then the oldest: a lexical rotation cannot strand an eligible viewer.
+    out.sort((a, b) => a.lastBriefAt - b.lastBriefAt || `${a.organizationId}:${a.userId}`.localeCompare(`${b.organizationId}:${b.userId}`));
+    return out.map(({ lastBriefAt, ...person }) => ({ ...person, hasBriefing: lastBriefAt > 0 }));
   }
 }

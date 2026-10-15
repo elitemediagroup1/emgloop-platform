@@ -618,3 +618,14 @@ describe('Loop Intelligence: a domain reading leads its Home tile -- the same st
     assert.deepEqual(chatsTile.lines, tileByKey(tilesInput(), 'chats')!.lines, 'Chats reads its own composition');
   });
 });
+
+
+it('shows the stored business summary on Home Headlines without converting it into a measured objective Headline', () => {
+  const out = html(<HeadlinesPanel headlines={[]} attention={attention('INSUFFICIENT_COVERAGE')} standings={standings([])} time={time} href="/app/admin/headlines" briefing={{ headline: 'Traffic and follow-ups need attention.', lines: [{ kind: 'WATCH', statement: 'Call volume and pending conversations changed together.', parts: ['CALLGRID', 'MAIL'] }], composer: 'MODEL', limitations: ['Some sources are partial.'], generatedAt: NOW }} />);
+  assert.match(out, /Traffic and follow-ups need attention/);
+  assert.match(out, /Call volume and pending conversations changed together/);
+  assert.match(out, /Measured objective signals/);
+  assert.match(out, /configured objectives, not every connected source/);
+  assert.match(out, /data-briefing-stored="MODEL"/);
+  assert.doesNotMatch(out, /data-home-headline="/);
+});

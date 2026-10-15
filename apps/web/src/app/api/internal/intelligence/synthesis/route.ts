@@ -10,6 +10,7 @@ import {
 } from '@emgloop/database';
 import { AI_TASK_LOOP_BRIEFING } from '@emgloop/shared';
 import { governedGateway } from '../../../../../ai/governed-gateway';
+import { synthesisRecipient } from '../../../../../intelligence/synthesis-recipient';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -36,22 +37,39 @@ export async function POST(request: Request): Promise<Response> {
   const now = () => new Date();
   const composer = new BriefingComposer({ prisma, runtime: gateway, modelEnabled, now });
   const people = (await composer.people(now(), 200))
-    .filter((p) => env.activation.organizations.includes(p.organizationId))
-    .sort((a, b) =>
-      `${a.organizationId}:${a.userId}`.localeCompare(`${b.organizationId}:${b.userId}`),
-    );
+    .filter((p) => env.activation.organizations.includes(p.organizationId));
   if (!people.length) return NextResponse.json({ ok: true, outcome: 'NO_PRINCIPALS' });
   const rawSlot = Number(new URL(request.url).searchParams.get('slot') ?? '0');
   if (!Number.isInteger(rawSlot) || rawSlot < 0 || rawSlot > 199)
     return NextResponse.json({ error: 'invalid slot' }, { status: 400 });
-  const person = people[(Math.floor(now().getTime() / (15 * 60000)) + rawSlot) % people.length]!;
+  const person = synthesisRecipient(people, phase, now().getTime(), rawSlot)!;
   const principal = { organizationId: person.organizationId, userId: person.userId };
   if (phase === 'briefing') {
     if (!modelEnabled('loop.briefing.compose'))
       return NextResponse.json({ ok: true, outcome: 'TASK_NOT_ACTIVATED' });
     if (!(await authorize(principal, AI_TASK_LOOP_BRIEFING)))
       return NextResponse.json({ ok: true, outcome: 'NOT_AUTHORIZED' });
-    return NextResponse.json({ ok: true, ...(await composer.compose(principal, person.timeZone)) });
+    const controller = new AbortController();
+    const cancel = () => controller.abort();
+    const timer = setTimeout(cancel, 45000);
+    request.signal.addEventListener('abort', cancel, { once: true });
+    try {
+      if (request.signal.aborted) cancel();
+      const bounded = new BriefingComposer({
+        prisma,
+        runtime: gateway,
+        modelEnabled,
+        now,
+        signal: controller.signal,
+      });
+      return NextResponse.json({
+        ok: true,
+        ...(await bounded.compose(principal, person.timeZone)),
+      });
+    } finally {
+      clearTimeout(timer);
+      request.signal.removeEventListener('abort', cancel);
+    }
   }
   if (phase !== 'organization' && phase !== 'private')
     return NextResponse.json({ error: 'invalid phase' }, { status: 400 });

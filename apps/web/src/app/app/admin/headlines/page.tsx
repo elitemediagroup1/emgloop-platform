@@ -152,13 +152,15 @@ export default async function HeadlinesPage({
       ) : null}
 
       <section className="loop-panel" aria-label="Your business briefing">
-        <h2 className="loop-panel__title">Your business briefing</h2>
+        <h2 className="loop-panel__title">Business headlines</h2>
         {briefing ? <StoredBriefingBody stored={briefing} time={time} offers={() => false} /> : <p>Loop has not composed your briefing for today yet. The measured objective coverage below is separate from your business briefing.</p>}
       </section>
       {!result.ok ? (
         <ReadError what={result.what} retryHref="/app/admin/headlines" />
       ) : (
         <>
+          <h2 className="loop-panel__title">Measured objective signals</h2>
+          <p>Coverage below applies to configured objectives, not every connected source or the whole business.</p>
           <AttentionBanner attention={result.value.attention} />
 
           {/* Loop Intelligence Phase F: connected situations are Cases too. The measured Headlines below stay

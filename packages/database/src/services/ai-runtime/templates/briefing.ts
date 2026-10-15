@@ -1,4 +1,4 @@
-// The Loop Briefing template, version 1. Loop Intelligence Phase G, 2026-09-26.
+// The Loop Briefing template, version 4. Loop Intelligence Phase G, 2026-09-26.
 //
 // The rules below are exactly what `validateBriefingOutput` (@emgloop/shared briefing-contract.ts)
 // enforces: every line cites SUPPLIED artifacts, numbers and dates only from what it cites, no causal
@@ -10,7 +10,7 @@
 import { BRIEFING_LIMITS, BRIEFING_LINE_KINDS, BRIEFING_SCHEMA_ID } from '@emgloop/shared';
 
 export const BRIEFING_TEMPLATE_ID = 'loop-briefing';
-export const BRIEFING_TEMPLATE_VERSION = '3';
+export const BRIEFING_TEMPLATE_VERSION = '4';
 
 const clean = (ref: string) => String(ref).replace(/[^A-Za-z0-9_.:@\/-]/g, '');
 
@@ -27,9 +27,11 @@ export function renderBriefingInstructions(sourceRefs: readonly string[], covera
     'Rules, all enforced after you answer; an answer that breaks any of them is discarded whole:',
     `1. Answer with schemaId "${BRIEFING_SCHEMA_ID}": one headline (at most ${BRIEFING_LIMITS.maxHeadlineChars} characters) and up to ${BRIEFING_LIMITS.maxLines} lines,`,
     `   each of kind ${BRIEFING_LINE_KINDS.join(', ')}.`,
+    `   Every line statement is at most ${BRIEFING_LIMITS.maxLineChars} characters; aim below 180. Return at most ${BRIEFING_LIMITS.maxLimitations} limitations; combine related coverage gaps.`,
+    '   Return exactly schemaId, headline, lines, limitations. Each line has exactly kind, statement, citations. Use concise declarative observations, not instructions or recommendations.',
     '2. Every line cites one to four artifacts, copied exactly from this list:',
     ...refs.map((r) => `   - ${r}`),
-    '3. Every number in a line must appear in an artifact it cites; in the headline, in some artifact. Dates only as YYYY-MM-DD.',
+    '3. Every number in a line must appear in an artifact it cites; in the headline, in some artifact. Do not calculate, round, or invent new figures. Dates only as YYYY-MM-DD.',
     '4. Never say one thing caused another. Never quote. Never tell anyone else what to do, and never assign work.',
     '5. If Loop could read little today, say so plainly in `limitations`. An honest short Briefing is the right answer.',
     '6. An artifact whose `coverage` is CONNECTED_PARTIAL was read only in part: say so when you use it, and repeat its',
