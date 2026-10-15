@@ -12,6 +12,26 @@ export interface QuestionHandlerPorts {
     options: { previousQuestions: string[]; page?: string },
   ): Promise<unknown>;
 }
+/** Netlify forwards the public host/protocol while Request.url may name its internal origin.
+ * Match the exact public origin; never allow a missing, opaque or malformed Origin.
+ * Uses the same trusted proxy headers as the existing web runtime.
+ */
+export function questionSameOrigin(request: Request): boolean {
+  const raw = request.headers.get('origin');
+  if (!raw || raw === 'null') return false;
+  try {
+    const origin = new URL(raw);
+    if (origin.origin !== raw || !['http:', 'https:'].includes(origin.protocol)) return false;
+    const internal = new URL(request.url);
+    const host = request.headers.get('x-forwarded-host') || request.headers.get('host') || internal.host;
+    const proto = request.headers.get('x-forwarded-proto') || internal.protocol.slice(0, -1);
+    // Proxy chains/URL components are not a canonical host or protocol.
+    if (!/^[a-zA-Z0-9.:[\]-]+$/.test(host) || !['http', 'https'].includes(proto)) return false;
+    const expected = new URL(`${proto}://${host}`);
+    return origin.origin === expected.origin;
+  } catch { return false; }
+}
+
 const json = (body: unknown, status = 200) =>
   Response.json(body, { status, headers: { 'Cache-Control': 'private, no-store' } });
 export async function handleLoopQuestion(
@@ -23,7 +43,7 @@ export async function handleLoopQuestion(
     if (!principal) return json({ error: 'Sign in to ask Loop.' }, 401);
     if (!(await ports.mayRead(principal)))
       return json({ error: 'You do not have access to Loop questions.' }, 403);
-    if (request.headers.get('origin') !== new URL(request.url).origin)
+    if (!questionSameOrigin(request))
       return json({ error: 'Invalid request origin.' }, 403);
     if (!request.headers.get('content-type')?.startsWith('application/json'))
       return json({ error: 'Expected JSON.' }, 415);
