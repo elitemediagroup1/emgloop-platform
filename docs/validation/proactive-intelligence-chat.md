@@ -2,6 +2,12 @@
 
 This change extends the existing governed runtime, producers, work_briefs and Neon call projection. It adds no database schema, provider SDK, package, raw-message archive or autonomous write tool. It is not operational merely because the PR merges.
 
+## Live acceptance and Mail record-provider correction — 2026-10-15
+
+PR #392 deployed at 20:13:36Z. A live Mail question returned an answer without interruption, but used its overview rather than today's message bodies. A general-update question answered from CallGrid, CRM, calendar and website, explicitly reporting missing Work/Creator readings. The latest proactive briefing invocation was rejected OUTPUT_INVALID; do not claim proactive summaries are fully operational.
+
+The interactive Mail record query mistakenly used GMAIL, which is the content-authorization vocabulary. WorkThread.provider uses the WorkProvider vocabulary GOOGLE. The narrow correction changes only the WorkThread lookup; personal content authorization remains GMAIL, and all governance, user/organization, date, truncation and cancellation gates remain. The test fixture now filters using actual stored provider vocabulary. It reproduces zero message reads before the fix and three bounded reads after it. Validation: 34 focused database tests, database typecheck and production build pass. The provider-vocabulary regression failed before the change and passed afterward. This correction still requires merge/deploy and a live Mail content check.
+
 ## Shared chat retrieval follow-up — 2026-10-15
 
 Live acceptance after OpenAI billing was configured: a general business update and CallGrid follow-up answered. Mail output was rejected, and the user independently reported a connection interruption. These observations do not establish complete Mail access or proactive MODEL briefing success.

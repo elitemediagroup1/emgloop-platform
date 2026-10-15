@@ -153,7 +153,8 @@ export class LoopChatSources {
     const rows = await this.prisma.workThread.findMany({
       where: {
         ...principal,
-        provider: 'GMAIL',
+        // WorkThread stores the connection provider; content authorization above uses GMAIL.
+        provider: 'GOOGLE',
         lastMessageAt: { gte: options.since, lt: options.until },
       },
       orderBy: [{ lastMessageAt: 'desc' }, { id: 'asc' }],
