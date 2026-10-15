@@ -10,7 +10,13 @@ type Answer = {
   sources: { ref: string; domain: string; title: string }[];
   asOf: string;
 };
-type Turn = { question: string; result?: Answer; error?: string; reasonCode?: string };
+type Turn = {
+  question: string;
+  result?: Answer;
+  error?: string;
+  reasonCode?: string;
+  rejectionCodes?: string;
+};
 const REASONS: Record<string, string> = {
   TASK_NOT_ACTIVATED: 'Loop questions are not enabled for this deployment yet.',
   TASK_NOT_ENABLED: 'Loop questions are not enabled for this deployment yet.',
@@ -22,6 +28,8 @@ const REASONS: Record<string, string> = {
   POLICY_DENIED: 'The AI provider has not been approved for this information yet.',
   NO_CURRENT_EVIDENCE:
     'Loop has no current evidence it can use for this question. Your source readings need to refresh.',
+  REQUEST_TIMEOUT:
+    'Loop took too long to read the sources or complete the answer. Please try again; your question is still here.',
   INVALID_DATE: 'Use a valid date in YYYY-MM-DD format.',
   DATE_RANGE_UNSUPPORTED:
     'Use a valid date or date range of up to ten years, or ask about last month or last year.',
@@ -92,18 +100,35 @@ export function LoopAssistant({ timeZone }: { timeZone: string }) {
           page: path,
         }),
       });
-      const result = await response.json();
+      const result = await response.json().catch(() => ({
+        reason:
+          response.status === 504 || response.status === 502
+            ? 'REQUEST_TIMEOUT'
+            : 'SERVICE_UNAVAILABLE',
+        error:
+          response.status === 504 || response.status === 502
+            ? unavailableReason('REQUEST_TIMEOUT')
+            : 'Loop’s answer service is temporarily unavailable. Please try again.',
+      }));
       const error =
         response.ok && result.outcome === 'ANSWERED'
           ? undefined
           : (result.error ?? unavailableReason(result.reason));
+      const rejectionCodes = Array.isArray(result.rejectionCodes)
+        ? result.rejectionCodes
+            .filter((c: unknown) => typeof c === 'string' && /^[A-Z_]{1,80}$/.test(c))
+            .slice(0, 6)
+            .join(',')
+        : undefined;
       const reasonCode =
         typeof result.reason === 'string' && /^[A-Z_]{1,80}$/.test(result.reason)
           ? result.reason
           : undefined;
       setTurns((old) =>
         old.map((t, i) =>
-          i === old.length - 1 ? { ...t, ...(error ? { error, reasonCode } : { result }) } : t,
+          i === old.length - 1
+            ? { ...t, ...(error ? { error, reasonCode, rejectionCodes } : { result }) }
+            : t,
         ),
       );
     } catch {
@@ -211,6 +236,7 @@ export function LoopAssistant({ timeZone }: { timeZone: string }) {
                     role="status"
                     className="loop-assistant__error"
                     data-reason-code={turn.reasonCode}
+                    data-rejection-codes={turn.rejectionCodes}
                   >
                     {turn.error}
                   </p>
