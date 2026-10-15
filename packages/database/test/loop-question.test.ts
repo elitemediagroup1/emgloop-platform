@@ -161,6 +161,30 @@ test('long conversations keep recent assistant context and relevant evidence wit
   );
   assert.ok(invoked);
 });
+test('an oversized Mail overview cannot evict readable message evidence or overflow the repair', async (t) => {
+  const base = callQuestionArtifact(a, new Date('2026-10-15T04:00:00Z'), NOW);
+  t.mock.method(BriefingComposer.prototype, 'gather', async () => ({
+    artifacts: [
+      { ...base, domain: 'MAIL', ref: 'digest:oversized', title: 'Large Mail overview', statement: 'x'.repeat(100000) },
+      { ...base, domain: 'MAIL', ref: 'mail-thread:recent', title: 'Recent message', statement: 'Please review the proposal.' },
+    ], gaps: [],
+  }));
+  const prisma = { user: { findFirst: async () => null }, organizationMembership: { findFirst: async () => null } };
+  let calls = 0;
+  const runtime = { run: async (_: unknown, request: import('../src/services/ai-runtime/gateway').AiRunRequest) => {
+    calls++;
+    assert.ok(estimateAiInputTokens([request.instructions, JSON.stringify(request.schema),
+      ...request.context.items.flatMap((i) => [i.sourceRef, i.trust, i.content])]) <= 12000);
+    assert.ok(request.context.items.some((i) => i.sourceRef === 'mail-thread:recent'));
+    assert.ok(!request.context.items.some((i) => i.sourceRef === 'digest:oversized'));
+    const question = JSON.parse(request.context.items.find((i) => i.sourceRef === 'user-request:question')!.content);
+    assert.ok(question.omittedSources.includes('Large Mail overview'));
+    return { outcome: 'REJECTED_OUTPUT', rejections: ['ANSWER_TOO_LONG'] } as never;
+  } };
+  await new LoopQuestionService(prisma as never, runtime, () => NOW).answer(
+    { organizationId: 'our-org', userId: 'our-user' }, 'How do my emails look today?', { timeZone: ZONE });
+  assert.equal(calls, 2);
+});
 test('the full question context passes gateway validation and user instructions remain outside cited evidence', async (t) => {
   const artifact = callQuestionArtifact(a, new Date('2026-10-15T04:00:00Z'), NOW);
   t.mock.method(BriefingComposer.prototype, 'gather', async () => ({
