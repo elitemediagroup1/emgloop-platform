@@ -112,7 +112,7 @@ function target(
 // was not Claude; no fallback to the subject's own provider -- with OpenAI uncommissioned a Claude-written
 // situation is simply not independently verified, and says so), and the Briefing (SYNTHESIS lane). One model
 // per call: no task calls both providers for the same answer. Existing entries are UNCHANGED.
-export const AI_ROUTING_POLICY_VERSION = 'routing.2026-10-15.13';
+export const AI_ROUTING_POLICY_VERSION = 'routing.2026-10-15.14';
 
 function situationRoute(taskId: string) {
   return Object.freeze({
@@ -232,9 +232,9 @@ export const AI_ROUTING_POLICY: AiRoutingPolicy = Object.freeze({
     'situation.verify': verificationRoute('situation.verify'),
     'situation.verify.private': verificationRoute('situation.verify.private'),
     'loop.question.answer': Object.freeze({
-      taskId: 'loop.question.answer', taskVersion: '1.0.0',
-      primary: target('openai', 'gpt-6-astra', { reasoningEffort: 'low', timeoutMs: 20_000, maxOutputTokens: 2_000 }),
-      fallback: target('anthropic', 'claude-opus-5', { reasoningEffort: 'low', timeoutMs: 25_000, maxOutputTokens: 2_000 }),
+      taskId: 'loop.question.answer', taskVersion: '1.1.0',
+      primary: target('openai', 'gpt-6-astra', { reasoningEffort: 'low', timeoutMs: 20_000, maxOutputTokens: 4_000 }),
+      fallback: target('anthropic', 'claude-opus-5', { reasoningEffort: 'low', timeoutMs: 25_000, maxOutputTokens: 4_000 }),
       fallbackPermitted: true, budgetClass: 'loop-question', lane: 'INTERACTIVE',
       providerChoiceReason: 'OpenAI handles on-demand cited questions; Anthropic owns proactive interpretation and is the availability fallback. Neither may bypass evidence or policy.',
     }),
@@ -273,7 +273,7 @@ export const AI_ROUTING_POLICY: AiRoutingPolicy = Object.freeze({
 // .6 (2026-09-26, Loop Intelligence Phases F-G): adds situation-synthesis, situation-verification and
 // loop-briefing, again WITHOUT raising the organization or global ceilings. A synthesis runs only for a
 // CHANGED cluster; a Briefing only when its inputs changed (else the stored one is reused).
-export const AI_BUDGET_POLICY_VERSION = 'budget.2026-10-15.7';
+export const AI_BUDGET_POLICY_VERSION = 'budget.2026-10-15.8';
 
 export const AI_BUDGET_POLICY: AiBudgetPolicy = Object.freeze({
   version: AI_BUDGET_POLICY_VERSION,
@@ -329,7 +329,7 @@ export const AI_BUDGET_POLICY: AiBudgetPolicy = Object.freeze({
     }),
     // Phase G: one person's Briefing, at most a few times a day and only when its inputs changed.
     'loop-question': Object.freeze({
-      maxInputTokensPerCall: 12_000, maxOutputTokensPerCall: 2_000,
+      maxInputTokensPerCall: 12_000, maxOutputTokensPerCall: 4_000,
       taskDaily: Object.freeze({ maxInvocations: 30, maxInputTokens: 360_000, maxOutputTokens: 60_000 }),
     }),
     'loop-briefing': Object.freeze({

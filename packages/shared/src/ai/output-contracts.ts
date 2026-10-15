@@ -1,3 +1,4 @@
+import { LOOP_CHAT_SCHEMA_ID, parseLoopChatOutput, validateLoopChatOutput } from './loop-chat-contract';
 // The output-contract registry: how the gateway parses and validates an answer. PR 1 (AI runtime).
 //
 // ONE LOOKUP, NO BRANCH. A task declares `outputSchemaId`; the gateway finds that schema's contract
@@ -32,6 +33,7 @@ function existingRules(schemaId: string): AiOutputContract {
 }
 
 export const AI_OUTPUT_CONTRACTS: Readonly<Record<string, AiOutputContract>> = Object.freeze({
+  [LOOP_CHAT_SCHEMA_ID]: Object.freeze({ schemaId: LOOP_CHAT_SCHEMA_ID, parse: parseLoopChatOutput, validate: validateLoopChatOutput }),
   'case-explanation.v2': existingRules('case-explanation.v2'),
   'mail-reply-draft.v2': existingRules('mail-reply-draft.v2'),
   // PR 2 (Loop Intelligence fabric, 2026-09-26): the ONE generic domain reading. Its own parser and

@@ -26,6 +26,18 @@ The gateway retains activation, permissions, provider data policies, kill switch
 - Headlines displays the same person's stored business briefing in addition to the objective/Case feed. These are different evidence authorities; a briefing does not turn an unmeasurable objective into a measured one.
 - The existing Run Mail Intelligence workflow runs every 15 minutes, draining threads and mailbox overviews separately, then bounded organization/private situation passes and briefings. Synthesis uses the existing services/stores, at most one changed cluster per HTTP pass, and reports diagnosis codes. GitHub cron remains best effort.
 
+## Conversational Ask Loop follow-up (2026-10-15)
+
+The chat task now uses its own `loop-chat.v1` output contract and task version 1.1.0, rather than the proactive briefing's six-line card. It supports greetings without current readings, conversational paragraphs, clearly identified reasoning/recommendations, and recent user **and assistant** turns. The UI can expand, preserves line breaks, and places source metadata in a disclosure. It does not stream tokens, persist conversation history across reloads, execute writes, search arbitrary records, or automatically apply a page's filters. Business knowledge comes from authorized stored artifacts and the existing historical CallGrid retrieval, not model training or perfect knowledge of EMG.
+
+The request allows up to 96 KB with a 2,000-character current question. History accepts only user/assistant messages, at most twelve, bounded to 8,000 characters. The service treats history as untrusted and non-citable, resolves follow-up reporting periods from prior user questions, prioritizes relevant domain evidence and uses the gateway's actual estimator to fit within the existing 12,000-token input cap. Omitted evidence is named in limitations. Output permits up to sixteen paragraphs and 4,000 tokens per provider call; the existing task daily, lane and organization caps remain unchanged.
+
+Arithmetic is a small declared vocabulary, not executable expressions: cited source operands are independently recomputed for add/subtract/multiply/divide/percentage, with finite results and zero-division checks. Invented operands/results, unsupported figures/dates and citations to the question are rejected. This verifies arithmetic and source membership; the model must still use compatible reporting periods/units and qualify business interpretations. General conversational text has no business-evidence authority.
+
+Acceptance after deployment: say “Hey, how’s it going?”, ask for a general update, ask how today's emails look, ask “What should I focus on?” without repeating the prior question, and ask about today's CallGrid financials and a historical comparison. Verify sources/gaps and actual ANSWERED provider ledger entries. Proactive briefings remain an independent pipeline and require their own successful run.
+
+Validation for this follow-up: 32 focused contract/service/gateway/request tests pass; shared 1,598 pass; providers 266 pass; database 1,808 pass with 215 PostgreSQL opt-ins skipped. Web 966 pass and the same five previously identified failures remain. Production build and database/web typechecks pass. No successful live provider answer is claimed by these fixtures.
+
 ## Historical data and business memory
 
 Neon is already the durable store for Loop's source observations, canonical call projection, provider-fact revisions, relationships, work, briefings and governed knowledge. Do not introduce a second financial truth store or assume calling an API trains a model on EMG.

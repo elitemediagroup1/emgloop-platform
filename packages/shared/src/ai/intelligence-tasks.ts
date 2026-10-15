@@ -167,6 +167,9 @@ export const AI_TASK_LOOP_BRIEFING = Object.freeze({
 export const AI_TASK_LOOP_QUESTION: AiTaskDefinition = Object.freeze({
   ...AI_TASK_LOOP_BRIEFING,
   taskId: 'loop.question.answer',
+  version: '1.1.0',
+  outputSchemaId: 'loop-chat.v1',
+  maxOutputTokens: 4000,
   capabilityRoute: 'GENERAL_REASONING',
   resultOwner: Object.freeze({ authority: 'EMPLOYEE_INTELLIGENCE', subjectType: 'EMPLOYEE_QUESTION' } as const),
 });

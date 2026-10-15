@@ -34,6 +34,7 @@ import type { AiDomainReading } from './domain-reading';
 import type { AiChatsTriage } from './telegram-triage-v5';
 import type { AiSituationSynthesis, AiSituationVerification } from './situation-contracts';
 import type { AiBriefing } from './briefing-contract';
+import type { AiLoopChatAnswer } from './loop-chat-contract';
 import { AI_INTELLIGENCE_TASKS } from './intelligence-tasks';
 
 export const AI_TASK_CONSEQUENCES = ['READ_ONLY', 'PROPOSES_FOR_APPROVAL'] as const;
@@ -319,6 +320,7 @@ export interface AiTaskOutput {
   readonly situationVerification?: AiSituationVerification;
   /** Phase G: the composed Briefing (briefing-contract.ts). */
   readonly briefing?: AiBriefing;
+  readonly chatAnswer?: AiLoopChatAnswer;
 }
 
 export interface AiDraftText {
