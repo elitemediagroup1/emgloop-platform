@@ -178,3 +178,20 @@ test('an explicit later cost fills a missing projection amount and can be replay
   assert.equal(changed.decisions.find((d) => d.fact === 'cost')?.converged.decision, 'CONFLICT');
   assert.equal(fake.marketplaceCall.__rows[0].costCents, 12);
 });
+
+// A completed call can arrive before its amounts, so creation/re-observation
+// order must not change coverage for the same explicit source values.
+test('explicit zero revenue and payout fill earlier omissions, survive replay, and remain strengthenable', async () => {
+  const { fake, repo } = repository();
+  await repo.observe(observation({}));
+  const result = await repo.observe(observation({ revenue: 0, payout: 0 }));
+  assert.equal(result.outcome, 'MERGED');
+  assert.equal(fake.marketplaceCall.__rows[0].revenueCents, 0);
+  assert.equal(fake.marketplaceCall.__rows[0].payoutCents, 0);
+  assert.equal((await repo.observe(observation({ revenue: 0, payout: 0 }))).outcome, 'UNCHANGED');
+  await repo.observe(observation({ revenue: 25, payout: 20, billable: true }));
+  await repo.observe(observation({ revenue: 0, payout: 0 }));
+  assert.equal(fake.marketplaceCall.__rows[0].revenueCents, 2500);
+  assert.equal(fake.marketplaceCall.__rows[0].payoutCents, 2000);
+  assert.equal(fake.marketplaceCall.__rows.length, 1);
+});

@@ -170,11 +170,12 @@ test('2. A SETTLED $17 SURVIVES A LATER POSTBACK-PENDING ZERO', async () => {
   assert.equal(state.revisions.length, 0, 'and nothing happened, so nothing is recorded');
 });
 
-test('3/4. an unknown fact does not become a decided NO from postback ambiguity', async () => {
+test('3/4. an explicit observed zero fills an absent amount and records a revision without asserting false flags', async () => {
   const { prisma, state } = harness({ ...UNKNOWN_FACTS });
   await observe(prisma, { id: CALL_ID, revenue: 0, billable: false, converted: false });
-  assert.equal(state.callUpdates.length, 0);
-  assert.equal((state.call as Record<string, unknown>).revenueCents, null, 'still unknown, not zero');
+  assert.deepEqual(state.callUpdates, [{ revenueCents: 0 }]);
+  assert.equal((state.call as Record<string, unknown>).revenueCents, 0, 'explicit source zero is preserved');
+  assert.equal(revisionFor(state, 'revenue')!.decision, 'UPDATE');
   assert.equal((state.call as Record<string, unknown>).billable, null, 'still unknown, not false');
 });
 

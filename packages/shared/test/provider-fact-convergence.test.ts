@@ -84,10 +84,11 @@ test('CASE B2. an asserted TRUE survives a later ambiguous false', () => {
 
 // --- CASE C: ambiguity never manufactures a negative --------------------------------
 
-test('CASE C. unknown + ambiguous zero/false stays UNKNOWN, never becomes a decided no', () => {
+test('CASE C. explicit zero fills an absent amount without asserting a false outcome', () => {
   const money = amount(null, 0);
-  assert.equal(money.decision, 'REMAIN_UNKNOWN');
-  assert.equal(money.value, undefined);
+  assert.equal(money.decision, 'UPDATE');
+  assert.equal(money.value, 0);
+  assert.match(money.reason, /settlement is not established/);
 
   const flag = assertion(null, false);
   assert.equal(flag.decision, 'REMAIN_UNKNOWN');
@@ -100,8 +101,8 @@ test('CASE C. unknown + ambiguous zero/false stays UNKNOWN, never becomes a deci
 test('CASE D/F. a genuine final zero and false remain representable', () => {
   // This rule governs RE-OBSERVATION only. The first observation writes what the
   // provider said, zero included — there is nothing to protect and no reason to
-  // disbelieve it. So a settled zero lives in the column perfectly well; what
-  // this rule refuses is MANUFACTURING one from a later ambiguous look.
+  // disbelieve it. So a settled zero lives in the column perfectly well; the
+  // same explicit observation can also fill a previously absent amount.
   assert.equal(amount(0, 0).decision, 'KEEP_EXISTING', 'a stored zero is left alone');
   assert.equal(assertion(false, false).decision, 'KEEP_EXISTING', 'a stored false is left alone');
   // And a stored zero is still strengthenable when the postback lands.
@@ -171,7 +172,11 @@ test('NO DECISION EVER LOWERS A KNOWN VALUE', () => {
       if (existing !== null && existing > 0) {
         assert.fail(`a known ${existing} must never be updated (to ${r.value})`);
       }
-      assert.ok(r.value! > 0, 'an UPDATE never writes a zero');
+      assert.ok(r.value! >= 0, 'an UPDATE never invents a negative amount');
+      if (r.value === 0) {
+        assert.equal(existing, null, 'zero can only fill an absent amount');
+        assert.equal(incoming, 0, 'zero must be explicit in the source');
+      }
     }
   }
 });
