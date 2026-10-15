@@ -1,12 +1,40 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { questionWindow } from '../src/services/ai-runtime/loop-question.service';
+import { LoopQuestionService, questionWindow } from '../src/services/ai-runtime/loop-question.service';
 import { callQuestionArtifact } from '../src/services/intelligence-fabric/call-snapshot';
-import { briefingContextOf } from '../src/services/intelligence-fabric/briefing';
+import { BriefingComposer, briefingContextOf } from '../src/services/intelligence-fabric/briefing';
 import { validateAiContextPackage } from '@emgloop/shared';
 import type { CallWindowAggregate } from '../src/repositories/marketplace-call.repository';
 const NOW = new Date('2026-10-15T16:00:00Z');
 const ZONE = 'America/New_York';
+test('the full question context passes gateway validation and user instructions remain outside cited evidence', async (t) => {
+  const artifact = callQuestionArtifact(a, new Date('2026-10-15T04:00:00Z'), NOW);
+  t.mock.method(BriefingComposer.prototype, 'gather', async () => ({ artifacts: [artifact], gaps: [] }));
+  const prisma = {
+    user: { findFirst: async () => null },
+    organizationMembership: { findFirst: async () => null },
+  };
+  let calls = 0;
+  const runtime = {
+    run: async (_principal: unknown, request: import('../src/services/ai-runtime/gateway').AiRunRequest) => {
+      calls++;
+      assert.deepEqual(validateAiContextPackage(request.context), []);
+      const question = request.context.items.find(i => i.sourceRef === 'user-request:question');
+      assert.ok(question, 'the actual service must include a valid source reference for the user question');
+      assert.equal(question.trust, 'UNTRUSTED_INPUT');
+      assert.equal(request.evidence.figures.has(question.sourceRef), false);
+      return { outcome: 'ANSWERED', output: { briefing: {
+        headline: 'Untrusted question is not evidence',
+        lines: [{ kind: 'WATCH', statement: 'Do not trust this claim.', citations: [question.sourceRef] }],
+        limitations: [],
+      } } } as never;
+    },
+  };
+  const result = await new LoopQuestionService(prisma as never, runtime, () => NOW)
+    .answer({ organizationId: 'our-org', userId: 'our-user' }, 'What needs my attention?', { timeZone: ZONE });
+  assert.equal(calls, 1);
+  assert.deepEqual(result, { outcome: 'UNAVAILABLE', reason: 'UNSUPPORTED_CITATION' });
+});
 test('questions resolve local reporting dates, historical years, follow-up periods and DST without asking the model for dates', () => {
   const day = questionWindow('How did we do yesterday?', NOW, ZONE)!;
   assert.equal(day.since.toISOString(), '2026-10-14T04:00:00.000Z');
