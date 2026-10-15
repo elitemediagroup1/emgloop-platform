@@ -81,3 +81,18 @@ test('malformed, oversized and empty requests fail before the answer service, an
   assert.equal(response.status, 503);
   assert.doesNotMatch(await response.text(), /secret credential/);
 });
+
+
+test('Netlify internal URL uses the forwarded public origin without allowing unrelated origins or malformed proxy headers', async () => {
+  const forwarded = (over: Record<string, string> = {}) => new Request('http://localhost:3000/api/intelligence/question', {
+    method: 'POST', headers: { 'content-type': 'application/json', origin: 'https://app.example.com', 'x-forwarded-host': 'app.example.com', 'x-forwarded-proto': 'https', ...over }, body: JSON.stringify({ question: 'What needs me?' }),
+  });
+  const { p, calls } = ports();
+  assert.equal((await handleLoopQuestion(forwarded(), p)).status, 200);
+  assert.equal(calls.length, 1);
+  for (const headers of [{ origin: 'https://evil.example' }, { origin: 'null' }, { origin: 'https://app.example.com/extra' }, { 'x-forwarded-host': 'app.example.com,evil.example' }, { 'x-forwarded-host': 'app.example.com@evil.example' }, { 'x-forwarded-proto': 'https,http' }, { origin: 'http://app.example.com' }]) {
+    const denied = ports();
+    assert.equal((await handleLoopQuestion(forwarded(headers), denied.p)).status, 403);
+    assert.deepEqual(denied.calls, []);
+  }
+});
