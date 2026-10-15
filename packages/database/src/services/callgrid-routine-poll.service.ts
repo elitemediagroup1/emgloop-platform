@@ -12,10 +12,8 @@
 // starts touching records is how a platform ends up with two ingestion engines.
 //
 // IT IS NOT A SCHEDULER. Nothing here has a timer, a cron expression or a
-// concept of "every fifteen minutes". `run()` happens when something calls it,
-// and today the only thing that calls it is a person. What this PR establishes is
-// that when a scheduler does exist, the question "which interval?" already has a
-// durable, provable answer instead of a guess.
+// concept of a cron cadence. GitHub Actions calls it with one named policy mode;
+// the interval still comes from durable coverage rather than a guessed start.
 //
 // THE INVARIANT THAT SHAPES IT
 //
@@ -66,6 +64,14 @@ export const CALLGRID_POLL_POLICY: PollIntervalPolicy = {
   maxSpanMs: INTERVAL_MAX_SPAN_DAYS * 24 * 60 * 60 * 1000,
 };
 
+// Frequent catch-up reads keep their overlap short. The hourly deep pass still
+// re-observes 48 hours for delayed facts; both advance the same proven frontier.
+export const CALLGRID_FRONTIER_POLICY: PollIntervalPolicy = {
+  ...CALLGRID_POLL_POLICY,
+  overlapMs: 15 * 60 * 1000,
+};
+export type CallGridPollMode = 'deep' | 'frontier';
+
 export interface RoutinePollInput {
   organizationId: string;
   apiKey: string;
@@ -78,6 +84,7 @@ export interface RoutinePollInput {
    * Describing what a poll WOULD cover is not covering it.
    */
   dryRun?: boolean;
+  mode?: CallGridPollMode;
   /** Overridable so a test can state a policy explicitly. Production passes none. */
   policy?: PollIntervalPolicy;
 }
@@ -127,7 +134,8 @@ export class CallGridRoutinePollService {
    * rather than duplicating them. Idempotent replay is the cheaper correctness.
    */
   async run(input: RoutinePollInput, observer?: CallGridPollObserver): Promise<RoutinePollResult> {
-    const policy = input.policy ?? CALLGRID_POLL_POLICY;
+    if (input.mode !== undefined && input.mode !== 'deep' && input.mode !== 'frontier') throw new Error('INVALID_POLL_MODE');
+    const policy = input.policy ?? (input.mode === 'frontier' ? CALLGRID_FRONTIER_POLICY : CALLGRID_POLL_POLICY);
     const stored = await this.checkpoints.find(
       input.organizationId,
       CALLGRID_POLL_PROVIDER,

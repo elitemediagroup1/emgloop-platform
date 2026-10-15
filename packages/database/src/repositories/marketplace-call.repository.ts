@@ -3,7 +3,8 @@
 //
 // Write path (idempotent): a projection of one observation → `observe`, which
 // creates the one row on (provider, externalId) or MERGES into it by the shared
-// convergence rule. It never duplicates a call and never overwrites one.
+// convergence rule. Explicit reviewed cost corrections append superseding facts
+// and update only the cost projection in the same transaction.
 //
 // Read path: aggregateWindow returns per-window, per-dimension economics the
 // Intelligence module consumes — reading first-class, indexed columns instead of
@@ -241,6 +242,44 @@ export interface RecentCallView {
 
 export class MarketplaceCallRepository {
   constructor(private readonly prisma: PrismaClient) {}
+
+  /** An explicitly reviewed completed-day cost correction, never ordinary ingestion.
+   * Append the superseding fact and change its projection atomically. A stale plan,
+   * foreign call, or failed evidence write rolls back the entire bounded batch. */
+  async applyReviewedCosts(organizationId: string, input: {
+    organizationSlug: string; since: Date; until: Date; observedAt: Date;
+    digest: string; reviewedBy: string;
+    changes: readonly { externalId: string; fromCents: number | null; toCents: number }[];
+  }): Promise<number> {
+    if (!/^[a-f0-9]{64}$/.test(input.digest) || !/^[a-zA-Z0-9-]{1,100}$/.test(input.reviewedBy) ||
+      !Number.isFinite(input.since.getTime()) || !Number.isFinite(input.until.getTime()) ||
+      !Number.isFinite(input.observedAt.getTime()) || input.since >= input.until || input.until > input.observedAt ||
+      input.changes.length > 500 || new Set(input.changes.map(c => c.externalId)).size !== input.changes.length ||
+      input.changes.some(c => !c.externalId || !Number.isSafeInteger(c.toCents) || c.toCents < 0 ||
+        (c.fromCents !== null && (!Number.isSafeInteger(c.fromCents) || c.fromCents < 0)) || c.fromCents === c.toCents)) {
+      throw new Error('INVALID_COST_CORRECTION');
+    }
+    return this.prisma.$transaction(async tx => {
+      const org = await tx.organization.findFirst({ where: { id: organizationId, slug: input.organizationSlug, status: 'ACTIVE' }, select: { id: true } });
+      if (!org) throw new Error('ACTIVE_ORGANIZATION_REQUIRED');
+      for (const change of input.changes) {
+        const moved = await tx.marketplaceCall.updateMany({
+          where: { organizationId, provider: 'callgrid', externalId: change.externalId,
+            sourceOccurredAt: { gte: input.since, lt: input.until }, costCents: change.fromCents },
+          data: { costCents: change.toCents },
+        });
+        if (moved.count !== 1) throw new Error('COST_PLAN_STALE');
+        await tx.providerFactRevision.create({ data: {
+          organizationId, provider: 'callgrid', externalId: change.externalId, fact: 'cost', decision: 'UPDATE',
+          fromValue: change.fromCents === null ? null : String(change.fromCents), toValue: String(change.toCents),
+          observationSource: 'API_RECOVERY', observedAt: input.observedAt, appliedAt: input.observedAt,
+          integrationEventId: null,
+          reason: `Reviewed completed-day CallGrid cost snapshot; plan=${input.digest}; reviewer=${input.reviewedBy}`,
+        } });
+      }
+      return input.changes.length;
+    }, { timeout: 30_000 });
+  }
 
   /**
    * Bring the one stored call up to date with ONE observation of it -- and never

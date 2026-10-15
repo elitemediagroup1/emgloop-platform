@@ -611,15 +611,14 @@ test('importing the module does not start a pass or set an exit code', () => {
 
 // --- The workflow ------------------------------------------------------------------------
 
-test('17. the workflow schedules hourly and serialises against itself', () => {
-  assert.ok(WORKFLOW_STEPS.includes("- cron: '0 * * * *'"), 'hourly, on the hour');
-  assert.equal((WORKFLOW_STEPS.match(/cron:/g) ?? []).length, 1, 'exactly one schedule');
+test('the workflow serializes short frontier passes and an hourly deep reread', () => {
+  assert.ok(WORKFLOW_STEPS.includes("- cron: '3,13,23,33,43,53 * * * *'"));
+  assert.ok(WORKFLOW_STEPS.includes("- cron: '7 * * * *'"));
+  assert.equal((WORKFLOW_STEPS.match(/cron:/g) ?? []).length, 2);
   assert.ok(/concurrency:\s*\n\s*group: poll-callgrid-routine/.test(WORKFLOW_STEPS));
-  assert.ok(WORKFLOW_STEPS.includes('cancel-in-progress: false'), 'a late run waits, it does not kill');
-  // The timeout is under the cadence, so a hung pass cannot still be running when
-  // the next one fires.
-  const timeout = Number(WORKFLOW_STEPS.match(/timeout-minutes:\s*(\d+)/)![1]);
-  assert.ok(timeout > 0 && timeout < 60, `timeout ${timeout} must be under the hourly cadence`);
+  assert.ok(WORKFLOW_STEPS.includes('cancel-in-progress: false'));
+  assert.ok(WORKFLOW_STEPS.includes("&& 'frontier' || 'deep'"), 'manual dispatch defaults to deep');
+  assert.ok(WORKFLOW_STEPS.includes('&& 10 || 50'), 'a stuck frontier run cannot occupy fifty minutes');
 });
 
 test('the workflow is off until somebody switches it on', () => {
@@ -696,4 +695,13 @@ test('a poller that STOPS RUNNING is visible without any run printing anything',
   assert.ok(route.includes('timingSafeEqual'), 'constant-time comparison, like the outbox trigger');
   assert.ok(!route.includes('searchParams'), 'no caller-supplied parameter at all');
   assert.ok(!route.includes('organizationId'), 'and never a tenant id');
+});
+
+test('frontier mode delegates the policy choice without supplying an interval', async () => {
+  const h = harness();
+  await runRoutine({ organizationSlugs: [ORG.slug], apiKey: KEY, mode: 'frontier' }, h.deps);
+  assert.equal((h.runs[0] as { mode?: string }).mode, 'frontier');
+  assert.ok(h.lines.some(l => l.includes('mode=frontier') && l.includes('overlapMs=900000')));
+  assert.deepEqual(parseArgs(['--organizations', 'a', '--mode', 'frontier']), { organizations: 'a', mode: 'frontier' });
+  assert.throws(() => parseArgs(['--mode', 'arbitrary']), /INVALID_POLL_MODE/);
 });

@@ -1,0 +1,112 @@
+name: Correct CallGrid Costs
+
+# Manual preview/apply. A reviewed digest and typed confirmation are required for writes.
+on:
+  workflow_dispatch:
+    inputs:
+      organization_slug:
+        description: 'Organization slug'
+        required: true
+        type: string
+      business_date:
+        description: 'Completed Eastern business date (YYYY-MM-DD)'
+        required: true
+        type: string
+
+      mode:
+        description: 'Preview first; apply only the reviewed plan'
+        required: true
+        type: choice
+        default: preview
+        options:
+          - preview
+          - apply
+      expected_digest:
+        description: 'SHA-256 digest from the preview artifact (apply only)'
+        type: string
+      confirmation:
+        description: 'Apply: CORRECT COSTS <organization slug> <YYYY-MM-DD>'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: correct-callgrid-costs
+  cancel-in-progress: false
+
+jobs:
+  correction:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Test correction safety before credentials are available
+        run: node --import tsx --test scripts/operations/audit-callgrid-financials.test.ts scripts/operations/correct-callgrid-costs.test.ts packages/database/test/callgrid-cost-correction.test.ts
+      - name: Restrict the shared provider credential to configured organizations
+        env:
+          ORG_SLUG: ${{ inputs.organization_slug }}
+          CONFIGURED_ORGANIZATIONS: ${{ vars.ROUTINE_POLL_ORGANIZATIONS }}
+        run: |
+          set -euo pipefail
+          allowed=false
+          IFS=',' read -ra PARTS <<< "${CONFIGURED_ORGANIZATIONS:-}"
+          for raw in "${PARTS[@]}"; do
+            slug="$(printf '%s' "${raw}" | tr -d '[:space:]')"
+            if [ -n "${slug}" ] && [ "${slug}" = "${ORG_SLUG}" ]; then allowed=true; fi
+          done
+          if [ "${allowed}" != true ]; then
+            echo "::error::Requested organization is not in ROUTINE_POLL_ORGANIZATIONS. No provider or database read was made."
+            exit 1
+          fi
+      - name: Preview or apply reviewed costs
+        env:
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+          CALLGRID_API_KEY: ${{ secrets.CALLGRID_API_KEY }}
+          LOOP_PRISMA_LOG: none
+          ORG_SLUG: ${{ inputs.organization_slug }}
+          BUSINESS_DATE: ${{ inputs.business_date }}
+          COST_MODE: ${{ inputs.mode }}
+          EXPECTED_DIGEST: ${{ inputs.expected_digest }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+          REVIEWED_BY: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DATABASE_URL:-}" ] || [ -z "${CALLGRID_API_KEY:-}" ]; then
+            echo "::error::DIRECT_DATABASE_URL and CALLGRID_API_KEY must both be configured."
+            exit 1
+          fi
+          node --import tsx scripts/operations/correct-callgrid-costs.ts > callgrid-cost-correction.json
+      - name: Summarize the result
+        if: always()
+        run: |
+          python3 - <<'PYCODE'
+          import json, os, pathlib
+          report = pathlib.Path('callgrid-cost-correction.json')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as out:
+              out.write('### CallGrid cost correction\n\n')
+              if report.exists():
+                  data = json.loads(report.read_text())
+                  out.write('Outcome: **' + data['outcome'] + '**\n\n')
+                  out.write('Applied: ' + str(data.get('applied', 0)) + '\n\n')
+                  plan = data.get('plan', {})
+                  out.write('Proposed changes: ' + str(len(plan.get('changes', []))) + '\n\n')
+                  out.write('Digest: `' + plan.get('digest', 'unavailable') + '`\n\n')
+                  out.write('Review the JSON artifact before applying. A preview writes nothing; apply re-reads and refuses changed evidence.\n')
+              else:
+                  out.write('No report. Inspect the failed step; no successful correction is claimed.\n')
+          PYCODE
+      - name: Save the evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: callgrid-cost-correction
+          path: callgrid-cost-correction.json
+          if-no-files-found: ignore
+          retention-days: 7
