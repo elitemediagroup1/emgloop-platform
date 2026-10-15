@@ -110,7 +110,7 @@ export async function runIntelligenceProducerCycle(deps: ProducerLoopDeps, optio
   const domains = deps.registry.activeDomains();
   if (domains.length === 0) return { ...tally, outcomes, modelStages };
 
-  const claims = await deps.queue.claim({ leaseOwner: deps.leaseOwner, now: deps.now(), leaseMs: options.leaseMs, limit: options.limit, domains });
+  const claims = await deps.queue.claim({ leaseOwner: deps.leaseOwner, now: deps.now(), leaseMs: options.leaseMs, limit: options.limit, domains, targets: deps.registry.knownProducers().filter(p => deps.registry.isActive(p.id)).map(p => ({ domain: p.domain, scope: p.scope, subjectKinds: p.subjectKinds })) });
   tally.claimed = claims.length;
   const backoff = options.backoffMs ?? defaultBackoff;
 

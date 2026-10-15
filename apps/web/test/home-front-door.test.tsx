@@ -611,7 +611,7 @@ describe('Loop Intelligence: a domain reading leads its Home tile -- the same st
 
   it('a reading that is not current says so; a tile that cannot read its domain keeps saying so; Chats keeps its own composition', () => {
     const stale = tileByKey(tilesInput({ readings: { mail: reading({ state: 'NOT_CURRENT', asCurrent: false }) } }), 'mail')!;
-    assert.match(stale.lines[0]!, /\(not current\)$/);
+    assert.deepEqual(stale.lines, tileByKey(tilesInput(), 'mail')!.lines, 'an old summary does not override current counters');
     const none = tileByKey(tilesInput({ readings: { mail: reading({ state: 'NONE', statement: null }) } }), 'mail')!;
     assert.deepEqual(none.lines, tileByKey(tilesInput(), 'mail')!.lines, 'no reading: the tile is as it was');
     const chatsTile = tileByKey(tilesInput({ readings: { chats: reading() } }), 'chats')!;

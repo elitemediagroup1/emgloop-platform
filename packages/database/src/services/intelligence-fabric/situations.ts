@@ -501,7 +501,7 @@ export class SituationService {
     return all.flat();
   }
 
-  async pass(owner: SituationOwner): Promise<SituationPassReport> {
+  async pass(owner: SituationOwner, clusterLimit = 12): Promise<SituationPassReport> {
     const situations = new SituationRepository(this.ports.prisma);
     const report = { candidates: 0, sameSourceOnly: 0, unchanged: 0, notAsked: 0, decisions: {} as Record<string, number>, verification: {} as Record<string, number>, refused: {} as Record<string, number> };
     const tally = (m: Record<string, number>, k: string) => (m[k] = (m[k] ?? 0) + 1);
@@ -518,6 +518,7 @@ export class SituationService {
     const synthTask = owner.scope === 'ORGANIZATION' ? AI_TASK_SITUATION_SYNTHESIS : AI_TASK_PRIVATE_SITUATION_SYNTHESIS;
     const verifyTask = owner.scope === 'ORGANIZATION' ? AI_TASK_SITUATION_VERIFICATION : AI_TASK_PRIVATE_SITUATION_VERIFICATION;
     const open = await situations.open(owner, 20);
+    let attempts = 0;
     for (const cluster of independent) {
       const clusterKey = `sc_${sha(cluster.clusterBasis).slice(0, 32)}`;
       const fingerprint = `situation:${sha(cluster.fingerprintBasis)}`;
@@ -535,6 +536,8 @@ export class SituationService {
         report.notAsked += 1;
         continue;
       }
+      if (attempts >= clusterLimit) break;
+      attempts += 1;
       const { items, evidence, offered } = situationContext(cluster, open, owner.scope, synthTask.requires[0]!, owner.organizationId);
       const context = { organizationId: owner.organizationId, viewerUserId: principal.userId, taskId: synthTask.taskId, items, sensitivityCeiling: synthTask.sensitivityCeiling };
       const synth = await this.ports.runtime.run(principal, {

@@ -52,6 +52,8 @@ export interface MailProducerPorts {
   readonly triage: Pick<MailContentTriageService, 'triage'> | null;
   /** CRM-owned priority projection: opaque provider thread ids only; no Contact Point data crosses here. */
   readonly prioritizedThreadIds?: (principal: { organizationId: string; userId: string }, since: Date, limit: number) => Promise<readonly string[]>;
+  /** The same bounded, corrected classifier as the visible Mail dashboard. */
+  readonly laneCounts?: (principal: { organizationId: string; userId: string }) => Promise<{ needsYou: number; waiting: number; quiet: number } | null>;
   readonly modelEnabled: (taskId: string) => boolean;
   readonly now: () => Date;
 }
@@ -239,7 +241,7 @@ export function mailDomainProducer(ports: MailProducerPorts, kit: DomainKitPorts
       id: 'mail.domain@1',
       domain: 'MAIL',
       scope: 'PRINCIPAL',
-      version: '1',
+      version: '2',
       provider: 'GMAIL',
       consentBasis: 'CONTENT_AUTHORIZATION',
       async discover() {
@@ -259,7 +261,8 @@ export function mailDomainProducer(ports: MailProducerPorts, kit: DomainKitPorts
         const threads = digests
           .filter((d) => d.subjectKind === 'THREAD' && d.status === 'CURRENT')
           .map((d) => ({ ref: d.subjectRef, label: d.content.label ?? null, statement: d.content.reading?.statement ?? d.content.synthesis ?? null, signals: d.content.signals ?? [], lastEvidenceAt: d.lastEvidenceAt, fp: d.fingerprint }));
-        const lanes = { needsYou: count(LANE_CLASSES.needsYou), waiting: count(LANE_CLASSES.waiting), quiet: count(LANE_CLASSES.quiet) };
+        const lanes = ports.laneCounts ? await ports.laneCounts(principal) : { needsYou: count(LANE_CLASSES.needsYou), waiting: count(LANE_CLASSES.waiting), quiet: count(LANE_CLASSES.quiet) };
+        if (!lanes) return { status: 'UNAVAILABLE', reason: 'MAIL_DASHBOARD_UNAVAILABLE' };
         if (threads.length === 0 && lanes.needsYou + lanes.waiting + lanes.quiet === 0) return { status: 'NO_EVIDENCE' };
         const fingerprint = `mail-domain:${createHash('sha256').update(JSON.stringify([lanes, threads.map((t) => t.fp)])).digest('hex')}`;
         const instants = threads.map((t) => t.lastEvidenceAt?.getTime() ?? now.getTime());
@@ -291,7 +294,7 @@ export function mailDomainProducer(ports: MailProducerPorts, kit: DomainKitPorts
         if (ctx.lanes.waiting > 0) signals.push(measured('waiting-on-others', 'OBLIGATION', `${ctx.lanes.waiting} ${ctx.lanes.waiting === 1 ? 'thread is' : 'threads are'} waiting on others.`, ctx.lanes.waiting));
         if (ctx.lanes.quiet > 0) signals.push(measured('gone-quiet', 'STALLED', `${ctx.lanes.quiet} ${ctx.lanes.quiet === 1 ? 'thread has' : 'threads have'} gone quiet.`, ctx.lanes.quiet));
         // The most pressing thread readings, their knowledge kept as it was read.
-        const pressing = ctx.threads.flatMap((t) => t.signals.filter((s) => s.kind === 'OBLIGATION' || s.kind === 'DECISION_PENDING' || s.kind === 'RISK' || s.severity === 'HIGH').map((s) => ({ ...s, key: `t.${s.key}`.slice(0, 64) })));
+        const pressing = ctx.threads.flatMap((t) => t.signals.filter((s) => s.kind === 'OBLIGATION' || s.kind === 'DECISION_PENDING' || s.kind === 'RISK' || s.severity === 'HIGH').map((s) => ({ ...s, key: `t.${createHash('sha256').update(t.ref).digest('hex').slice(0, 10)}.${s.key}`.slice(0, 64) })));
         signals.push(...pressing.slice(0, 12 - signals.length));
         // The waiting-on-others count is an obligation someone ELSE holds: no owedBy is claimed for it.
         const fixed = signals.map((s) => (s.key === 'waiting-on-others' ? { ...s, kind: 'UNRESOLVED' as const } : s));
@@ -300,21 +303,21 @@ export function mailDomainProducer(ports: MailProducerPorts, kit: DomainKitPorts
           needs > 0
             ? `${needs} ${needs === 1 ? 'thread needs' : 'threads need'} your reply${ctx.lanes.waiting > 0 ? `, and ${ctx.lanes.waiting} ${ctx.lanes.waiting === 1 ? 'is' : 'are'} waiting on others` : ''}.`
             : ctx.threads.length > 0
-              ? `Loop has a reading of ${ctx.threads.length} recent ${ctx.threads.length === 1 ? 'thread' : 'threads'}; none is waiting on you.`
-              : 'Nothing in your mail is waiting on you.';
+              ? `Loop has a reading of ${ctx.threads.length} recent conversations; the reviewed reply lanes contain no reply obligation.`
+              : 'The reviewed reply lanes contain no reply obligation; the mailbox is only partly read.';
         return {
           statement,
           status: needs > 0 ? 'ATTENTION' : pressing.length > 0 ? 'WATCH' : 'CALM',
           confidence: 'HIGH',
           signals: fixed,
-          limitations: [],
+          limitations: ['This overview uses a bounded set of recent conversations and current reply lanes, not the entire mailbox history.'],
           entityRefs: ctx.threads.map((t) => t.ref).filter((r) => entityRefRefusal(r, 'PRINCIPAL') === null).slice(0, 32),
-          coverage: 'CONNECTED_SUFFICIENT',
+          coverage: 'CONNECTED_PARTIAL',
           windowStart: ctx.windowStart,
           windowEnd: ctx.windowEnd,
           evidenceCount: ctx.threads.length + ctx.lanes.needsYou + ctx.lanes.waiting + ctx.lanes.quiet,
           lastEvidenceAt: ctx.windowEnd,
-          sources: [{ sourceId: 'GMAIL', asOf: ctx.windowEnd.toISOString(), coverage: 'CONNECTED_SUFFICIENT' }],
+          sources: [{ sourceId: 'GMAIL', asOf: ctx.windowEnd.toISOString(), coverage: 'CONNECTED_PARTIAL' }],
           sourceRefs: ['work_items:mail-lanes', ...ctx.threads.map((t) => t.ref)].slice(0, 64),
         };
       },

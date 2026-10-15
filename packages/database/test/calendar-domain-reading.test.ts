@@ -138,7 +138,7 @@ test('root cause, pinned: an answer written as template v1 instructed (dueAt as 
 });
 
 test('the template (v2 on, now v3) asks for the shape the contract accepts: occurredAt/dueAt copied as instants, never a date alone; no clock times; no quotes', () => {
-  assert.equal(DOMAIN_READING_TEMPLATE_VERSION, '3', 'a changed prompt is a new version (and a new reading identity)');
+  assert.equal(DOMAIN_READING_TEMPLATE_VERSION, '4', 'a changed prompt is a new version (and a new reading identity)');
   const text = renderDomainReadingInstructions({ domainDescription: 'x', audience: 'PRINCIPAL', lookFor: [] }, ['work_event:ev1'], []);
   assert.match(text, /`occurredAt` and `dueAt` are instants: copy one exactly as a source writes it \(YYYY-MM-DDTHH:MM:SS\.sssZ\)/);
   assert.match(text, /Never a date alone/);

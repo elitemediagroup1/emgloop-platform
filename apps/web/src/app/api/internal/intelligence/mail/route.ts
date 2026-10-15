@@ -33,6 +33,7 @@ import {
 } from '@emgloop/database';
 
 import { governedGateway } from '../../../../../ai/governed-gateway';
+import { loadMailDashboard } from '../../../../../daily-loop/mail-dashboard';
 import { GMAIL_CONFIG } from '../../../../../daily-loop/mail';
 
 export const dynamic = 'force-dynamic';
@@ -129,7 +130,8 @@ export async function POST(request: Request): Promise<Response> {
   if (!expected || !provided || !secretMatches(provided, expected)) return NextResponse.json({ ok: false, error: 'unauthorized' }, { status: 401 });
 
   // Only Mail producers are hosted here; anything else named is ignored (the worker hosts the rest).
-  const active = parseProducerActivation(process.env.LOOP_INTELLIGENCE_MAIL_PRODUCERS).filter((id) => MAIL_PRODUCERS.has(id));
+  const domainOnly = new URL(request.url).searchParams.get('stage') === 'domain';
+  const active = parseProducerActivation(process.env.LOOP_INTELLIGENCE_MAIL_PRODUCERS).filter((id) => MAIL_PRODUCERS.has(id) && (domainOnly ? id === 'mail.domain@1' : id === 'mail.thread@1'));
   if (active.length === 0) return NextResponse.json({ ok: true, active: 0 });
 
   const { env, gateway } = governedGateway();
@@ -151,6 +153,10 @@ export async function POST(request: Request): Promise<Response> {
     now,
     mail: {
       governanceDecision: process.env.LOOP_MAIL_CONTENT_GOVERNANCE_DECISION ?? null,
+      laneCounts: async principal => {
+        const dashboard = await loadMailDashboard(principal, { allowRefresh: false });
+        return dashboard?.concludable && dashboard.current ? { needsYou: dashboard.summary.needsReply, waiting: dashboard.summary.waiting, quiet: dashboard.summary.followUps } : null;
+      },
       readThread: gmailMailReadThrough(prisma, GMAIL_CONFIG()),
       triage: new MailContentTriageService(gateway),
       prioritizedThreadIds: (principal, since, limit) => crmMailPriority.recentThreadIds(principal, { since, limit }),
@@ -166,7 +172,7 @@ export async function POST(request: Request): Promise<Response> {
     },
     // Keep the model-backed Mail pass comfortably inside the production request window.
     // What does not fit remains queued for the next scheduled pass.
-    { limit: 2, leaseMs: 2 * 60 * 1000, maxAttempts: 4, discoverLimit: 200 },
+    { limit: domainOnly ? 1 : 2, leaseMs: 2 * 60 * 1000, maxAttempts: 4, discoverLimit: 200 },
   );
   return NextResponse.json({ ok: true, active: report.activeProducers, promoted, discovered: report.discovered, enqueued: report.enqueued, refused: report.refused, cycle: report.cycle });
 }

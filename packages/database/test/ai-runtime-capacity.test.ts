@@ -191,7 +191,7 @@ test('the recorded controls and the BACKGROUND lane change what is RECORDED, nev
   assert.deepEqual(forward.ledger.calls.map((c) => c.lane), ['FORWARD', 'FORWARD', 'FORWARD'], 'live triage runs in FORWARD');
   for (const call of forward.ledger.calls) {
     assert.equal(call.specializationPolicyVersion, AI_ROUTING_POLICY.specializationPolicyVersion, 'every call records the specialization version');
-    assert.equal(call.routingPolicyVersion, 'routing.2026-09-26.12');
+    assert.equal(call.routingPolicyVersion, 'routing.2026-10-15.13');
   }
 });
 

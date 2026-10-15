@@ -142,7 +142,7 @@ test('ADVERSARIAL: every answer the audit found the prompt could provoke is refu
     ['a date no source has', answer('Work has been steady since 2026-01-01.'), /UNSUPPORTED_DATE_IN_TEXT/],
     ['a date alone as an instant', answer('Work is steady.', [signal('work_stages:open', { occurredAt: '2026-09-29' })]), /UNSUPPORTED_DATE_IN_TEXT/],
     ['a MEASURED claim by a model', answer('Work is steady.', [signal('work_stages:open', { knowledge: 'MEASURED' })]), /WRONG_SCHEMA/],
-    ['a sentence past 280 characters', answer('Work is steady. '.repeat(20)), /ANSWER_TOO_LONG/],
+    ['an explanation past 900 characters', answer('Work is steady. '.repeat(70)), /ANSWER_TOO_LONG/],
     ['more than eight limitations', answer('Work is steady.', [], Array.from({ length: 9 }, () => 'A gap.')), /ANSWER_TOO_LONG/],
     ['advice', answer('You should call the buyer this week.'), /RECOMMENDS_AN_ACTION/],
     ['a numeric self-confidence', answer('Work is steady, 90% likely.'), /NUMERIC_CONFIDENCE_PRESENT/],
@@ -234,21 +234,21 @@ test('MERGE: model keys stay inside the key grammar and never collide; a merge t
   assert.ok(refused.refusals.length > 0);
 });
 
-test('TEMPLATE v3: the prompt says what the contract enforces, asks for one concise sentence, and makes silence a correct answer', () => {
-  assert.equal(DOMAIN_READING_TEMPLATE_VERSION, '3');
+test('TEMPLATE v4: the prompt says what the contract enforces, asks for a self-contained explanation, and makes silence a correct answer', () => {
+  assert.equal(DOMAIN_READING_TEMPLATE_VERSION, '4');
   const text = renderDomainReadingInstructions({ domainDescription: 'the organization calls', audience: 'ORGANIZATION', lookFor: ['what moved'] }, ['marketplace_calls:7d'], ['provider_member:callgrid:campaign:c1']);
   assert.match(text, /On every other kind of signal `owedBy` must be null/);
   assert.equal(/otherwise UNKNOWN\./.test(text), false, 'the v2 contradiction is gone');
   assert.match(text, /exactly as written/);
   assert.match(text, /Do not round, abbreviate/);
   assert.match(text, /never write 7-day or 24 hours unless a source states 7 or 24/);
-  assert.match(text, /at most 200 characters/);
+  assert.match(text, /at most 900 characters/);
   assert.match(text, /at most 280 characters/);
   assert.match(text, /at most 6 of these references/);
   assert.match(text, /`limitations`: at most 8/);
   assert.match(text, /unique within your answer/);
   assert.match(text, /If nothing material changed, say exactly that/);
   assert.match(text, /Never fill/);
-  assert.match(text, /Stay inside this one domain/);
+  assert.match(text, /Stay inside this domain/);
   assert.match(text, /Zero signals is a good answer/);
 });

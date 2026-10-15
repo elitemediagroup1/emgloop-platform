@@ -1,7 +1,7 @@
 // Shared pieces of the ORGANIZATION domain producers. Loop Intelligence Phase E, 2026-09-26.
 //
 // An organization reading is built from Loop's own records as AGGREGATES and CANONICAL REFERENCES --
-// never a person's name, never free text a customer wrote. The model (when its task is activated) is
+// operational business labels only, never contact addresses or free text a customer wrote. The model (when its task is activated) is
 // handed exactly the rule reading's signals: each one a structured block whose figures are the only
 // numbers the answer may use, whose source ref is the only thing it may cite. It can say what the facts
 // mean; it cannot add a fact.
@@ -59,7 +59,7 @@ export function organizationModelStage<C>(task: AiTaskDefinition, framing: Domai
     framing,
     context(_ctx: C, rule: RuleReading) {
       const figures = new Map<string, Set<number>>();
-      const dates = new Set<string>();
+      const dates = new Set<string>([rule.windowStart.toISOString().slice(0, 10), rule.windowEnd.toISOString().slice(0, 10)]);
       const entityRefs = new Set<string>(rule.entityRefs);
       const items: AiContextItem[] = [];
       const add = (ref: string, numbers: Iterable<number>) => {
@@ -79,7 +79,7 @@ export function organizationModelStage<C>(task: AiTaskDefinition, framing: Domai
           kind: 'STRUCTURED',
           trust: 'GOVERNED_FACT',
           sourceRef: ref,
-          content: JSON.stringify({ kind: s.kind, knowledge: s.knowledge, statement: s.statement, metric: s.metric ?? null, entities: s.entities ?? [], severity: s.severity ?? null }),
+          content: JSON.stringify({ kind: s.kind, knowledge: s.knowledge, statement: s.statement, metric: s.metric ?? null, entities: s.entities ?? [], severity: s.severity ?? null, windowStart: rule.windowStart.toISOString(), windowEnd: rule.windowEnd.toISOString(), coverage: rule.coverage, limitations: rule.limitations }),
           sensitivity: 'OPERATIONAL',
           readUnder: { resource, action: 'view' },
         });

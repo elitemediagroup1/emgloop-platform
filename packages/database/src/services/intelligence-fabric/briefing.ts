@@ -19,6 +19,7 @@ import { createHash } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
 import {
   AI_TASK_LOOP_BRIEFING,
+  BUSINESS_TIME_ZONE,
   BRIEFING_SCHEMA,
   INTELLIGENCE_DOMAIN_REGISTRY,
   PARTIAL_COVERAGE_LIMITATION,
@@ -27,6 +28,9 @@ import {
   digestSynthesisEligibility,
   startOfZonedDay,
   zonedCalendarDay,
+  zonedParts,
+  zonedWallTimeToUtc,
+  rankDomainSignals,
   type AiBriefing,
   type AiContextItem,
   type AiSupportedEvidence,
@@ -36,6 +40,8 @@ import {
   type SynthesisEligibility,
 } from '@emgloop/shared';
 
+import { MarketplaceCallRepository } from '../../repositories/marketplace-call.repository';
+import { callQuestionArtifact } from './call-snapshot';
 import { IamRepository } from '../../repositories/iam.repository';
 import { membershipAuthority } from '../../repositories/membership.repository';
 import { DigestSourceStateRepository } from '../../repositories/intelligence/digest-source-state.repository';
@@ -56,8 +62,11 @@ export interface BriefingArtifact {
   readonly title: string;
   readonly statement: string;
   readonly status: 'CALM' | 'WATCH' | 'ATTENTION';
-  readonly signals: readonly { readonly kind: string; readonly statement: string; readonly severity?: string; readonly metric?: { readonly value: number } }[];
+  readonly signals: readonly { readonly kind: string; readonly statement: string; readonly severity?: string; readonly entities?: readonly string[]; readonly owedBy?: string; readonly dueAt?: string; readonly metric?: { readonly value: number } }[];
   readonly basis: string;
+  readonly windowStart?: string;
+  readonly windowEnd?: string;
+  readonly generatedAt?: string;
   /**
    * The artifact's coverage NOW (synthesis eligibility): only SUFFICIENT or PARTIAL artifacts exist. A
    * PARTIAL one is true of what was read, and its limitations travel with it into the Briefing.
@@ -76,7 +85,7 @@ export interface BriefingGap {
    * this domain for the person and holds no reading at all. NOT_CONNECTED: the source it would come from is
    * not connected (or needs reconnecting). None of them is quiet.
    */
-  readonly reason?: 'NOT_CURRENT' | 'NO_CURRENT_READING' | 'NOT_CONNECTED';
+  readonly reason?: 'NOT_CURRENT' | 'NO_CURRENT_READING' | 'NOT_CONNECTED' | 'CONTEXT_LIMIT';
 }
 
 /**
@@ -138,8 +147,9 @@ function artifactOfDigest(d: IntelligenceDigestRecord, eligibility: Extract<Synt
     title: d.scope === 'PRINCIPAL' ? `Your ${label.toLowerCase()}` : label,
     statement,
     status: (d.content.reading?.status ?? 'CALM') as BriefingArtifact['status'],
-    signals: (d.content.signals ?? []).slice(0, 4).map((s) => ({ kind: s.kind, statement: s.statement, ...(s.severity ? { severity: s.severity } : {}), ...(s.metric ? { metric: { value: s.metric.value } } : {}) })),
+    signals: rankDomainSignals(d.content.signals ?? []).slice(0, 6).map((s) => ({ kind: s.kind, statement: s.statement, ...(s.entities ? { entities: s.entities } : {}), ...(s.owedBy ? { owedBy: s.owedBy } : {}), ...(s.dueAt ? { dueAt: s.dueAt } : {}), ...(s.severity ? { severity: s.severity } : {}), ...(s.metric ? { metric: { value: s.metric.value } } : {}) })),
     basis: `${d.fingerprint}:${eligibility.coverage}`,
+    windowStart: d.windowStart.toISOString(), windowEnd: d.windowEnd.toISOString(), generatedAt: d.generatedAt.toISOString(),
     coverage: eligibility.coverage,
     limitations: eligibility.limitations,
   };
@@ -174,6 +184,7 @@ export function gapLimitations(gaps: readonly BriefingGap[]): string[] {
     ...new Set(
       gaps.map((g) => {
         const label = g.domain === 'SITUATION' ? 'A situation' : (INTELLIGENCE_DOMAIN_REGISTRY.find((r) => r.domain === g.domain)?.label ?? g.domain);
+        if (g.reason === 'CONTEXT_LIMIT') return `${label} was omitted from this bounded reading; Loop cannot conclude that it is quiet.`;
         if (g.reason === 'NOT_CONNECTED') return `${label} is not connected, so Loop cannot see it and cannot say it is quiet.`;
         if (g.reason === 'NO_CURRENT_READING') return `Loop has no current reading of ${label}, so it cannot say ${label} is quiet.`;
         return `${label} ${GAP_WORDS[g.coverage] ?? 'is not current'}, so it is not in today’s Briefing.`;
@@ -253,7 +264,7 @@ export function ruleBriefing(artifacts: readonly BriefingArtifact[], gaps: reado
 /** An absence conclusion in composed prose, refused unless the coverage justifies it. */
 const ABSENCE_CLAIM = /\b(nothing (is |needs? |to )?(pressing|urgent|needs you|to do|waiting)|all clear|no (open |pressing )?(issues|action needed)|you('| a)re (all )?caught up|quiet day)\b/i;
 
-function contextOf(artifacts: readonly BriefingArtifact[], organizationId: string) {
+export function briefingContextOf(artifacts: readonly BriefingArtifact[], organizationId: string) {
   const read = AI_TASK_LOOP_BRIEFING.requires[0]!;
   const items: AiContextItem[] = artifacts.map((a, i) => ({
     // Minted inside the organization (`<org>::`): the gateway refuses any other block before reserving.
@@ -262,7 +273,7 @@ function contextOf(artifacts: readonly BriefingArtifact[], organizationId: strin
     trust: 'UNTRUSTED_INPUT',
     sourceRef: a.ref,
     // The coverage and limitations go to the model with the reading: a partial reading is never presented as whole.
-    content: JSON.stringify({ part: a.title, status: a.status, reading: a.statement, signals: a.signals, coverage: a.coverage, limitations: a.limitations }),
+    content: JSON.stringify({ part: a.title, status: a.status, reading: a.statement, signals: a.signals, coverage: a.coverage, limitations: a.limitations, windowStart: a.windowStart ?? null, windowEnd: a.windowEnd ?? null, generatedAt: a.generatedAt ?? null }),
     sensitivity: 'COMMUNICATION_CONTENT',
     readUnder: read,
   }));
@@ -275,7 +286,8 @@ function contextOf(artifacts: readonly BriefingArtifact[], organizationId: strin
     }
     figures.set(a.ref, set);
   }
-  const evidence: AiSupportedEvidence = { figures, dates: new Set() };
+  const dates = new Set(artifacts.flatMap((a) => [...JSON.stringify(a).matchAll(/\b\d{4}-\d{2}-\d{2}(?!\d)/g)].map((m) => m[0])));
+  const evidence: AiSupportedEvidence = { figures, dates };
   return { items, evidence };
 }
 
@@ -286,7 +298,7 @@ export class BriefingComposer {
    * The person's artifacts for today, and the readings Loop holds but may not use as current (gaps). A
    * digest contributes only when the synthesis-eligibility decision says it is legitimately current.
    */
-  async gather(principal: AiPrincipal, now: Date): Promise<{ artifacts: BriefingArtifact[]; gaps: BriefingGap[] }> {
+  async gather(principal: AiPrincipal, now: Date, includeCallSnapshot = true): Promise<{ artifacts: BriefingArtifact[]; gaps: BriefingGap[] }> {
     const digests = new IntelligenceDigestRepository(this.ports.prisma);
     const own = await Promise.all(PERSONAL.map((d) => digests.current(principal, d, { now })));
     const chats = await digests.forDomain(principal, 'CHATS', { now, limit: 3 });
@@ -305,6 +317,20 @@ export class BriefingComposer {
       const a = artifactOfDigest(d, eligibility);
       if (a) artifacts.push(a);
     }
+    if (includeCallSnapshot && orgDomains.includes('CALLGRID')) {
+      const since = startOfZonedDay(now, BUSINESS_TIME_ZONE);
+      const calls = await new MarketplaceCallRepository(this.ports.prisma).aggregateWindow(principal.organizationId, since, now);
+      artifacts.unshift(callQuestionArtifact(calls, since, now));
+      const { year, month } = zonedParts(now, BUSINESS_TIME_ZONE);
+      const baselineStart = zonedWallTimeToUtc(BUSINESS_TIME_ZONE, year, month - 1, 1);
+      const baselineEnd = zonedWallTimeToUtc(BUSINESS_TIME_ZONE, year, month, 1);
+      const baselineCalls = await new MarketplaceCallRepository(this.ports.prisma).aggregateHistoryWindow(principal.organizationId, baselineStart, baselineEnd);
+      const baseline = callQuestionArtifact(baselineCalls, baselineStart, baselineEnd);
+      artifacts.push({ ...baseline, ref: 'snapshot:callgrid:baseline', title: 'Historical baseline: last completed month', status: 'CALM', limitations: [...baseline.limitations, 'This historical baseline is stored totals only, not proof of complete source history; campaign detail is not supplied.'] });
+
+      // A fresh, explicitly partial snapshot can stand for today's stored calls; do not describe it as a missing source.
+      for (let i = gaps.length - 1; i >= 0; i--) if (gaps[i]!.domain === 'CALLGRID') gaps.splice(i, 1);
+    }
     const situations = new SituationRepository(this.ports.prisma);
     const mine = await situations.open({ scope: 'PRINCIPAL', ...principal }, 3);
     const shared = (await situations.open({ scope: 'ORGANIZATION', organizationId: principal.organizationId }, 5)).filter((s) => (s.record?.domains ?? []).length > 0 && s.record!.domains.every((d) => orgDomains.includes(d as IntelligenceDomain)));
@@ -313,7 +339,16 @@ export class BriefingComposer {
       if (artifacts.some((a) => a.domain === e.domain) || gaps.some((g) => g.domain === e.domain)) continue;
       gaps.push(e.live ? { domain: e.domain, coverage: 'CONNECTED_INSUFFICIENT', reason: 'NO_CURRENT_READING' } : { domain: e.domain, coverage: 'DISCONNECTED', reason: 'NOT_CONNECTED' });
     }
-    return { artifacts: [...artifacts, ...[...mine, ...shared].slice(0, 5).map(artifactOfSituation)].slice(0, 24), gaps };
+    const candidates = [...artifacts, ...[...mine, ...shared].slice(0, 5).map(artifactOfSituation)];
+    const selected: BriefingArtifact[] = [];
+    let chars = 0;
+    for (const a of candidates) {
+      const length = JSON.stringify({ part: a.title, reading: a.statement, signals: a.signals, coverage: a.coverage, limitations: a.limitations }).length;
+      if (selected.length >= 24 || chars + length > 24000) { gaps.push({ domain: a.domain, coverage: 'CONNECTED_PARTIAL', reason: 'CONTEXT_LIMIT' }); continue; }
+      chars += length;
+      selected.push(a);
+    }
+    return { artifacts: selected, gaps };
   }
 
   /** Compose (or reuse) today's Briefing for one person, in their own zone. */
@@ -323,7 +358,7 @@ export class BriefingComposer {
     const localDate = new Date(`${localDay}T00:00:00.000Z`);
     const dayStart = startOfZonedDay(now, timeZone);
     const { artifacts, gaps } = await this.gather(principal, now);
-    const fingerprint = `briefing:${createHash('sha256').update(JSON.stringify([localDay, artifacts.map((a) => [a.ref, a.basis]), gaps.map((g) => [g.domain, g.coverage, g.reason ?? null])])).digest('hex')}`;
+    const fingerprint = `briefing:${createHash('sha256').update(JSON.stringify([BRIEFING_TEMPLATE_VERSION, localDay, artifacts.map((a) => [a.ref, a.basis]), gaps.map((g) => [g.domain, g.coverage, g.reason ?? null])])).digest('hex')}`;
     const absenceOk = briefingAbsenceJustified(artifacts, gaps);
     const carried = [...new Set([...artifacts.flatMap((a) => a.limitations), ...gapLimitations(gaps)])];
     const briefs = new WorkBriefRepository(this.ports.prisma);
@@ -335,7 +370,7 @@ export class BriefingComposer {
 
     let composed: { headline: string; lines: BriefingLine[]; composer: 'MODEL' | 'RULE'; limitations: readonly string[]; invocationId?: string; providerId?: string; reason?: string } | null = null;
     if (modelOn && artifacts.length > 0) {
-      const { items, evidence } = contextOf(artifacts, principal.organizationId);
+      const { items, evidence } = briefingContextOf(artifacts, principal.organizationId);
       const result = await this.ports.runtime!.run(principal, {
         task: AI_TASK_LOOP_BRIEFING,
         context: { organizationId: principal.organizationId, viewerUserId: principal.userId, taskId: AI_TASK_LOOP_BRIEFING.taskId, items, sensitivityCeiling: AI_TASK_LOOP_BRIEFING.sensitivityCeiling },

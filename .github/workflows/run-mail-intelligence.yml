@@ -20,7 +20,7 @@ name: Run Mail Intelligence
 
 on:
   schedule:
-    - cron: '23 * * * *'
+    - cron: '8,23,38,53 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -33,7 +33,7 @@ concurrency:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     steps:
       - name: Stop unless the Mail intelligence pass has been switched on
         id: gate
@@ -84,4 +84,29 @@ jobs:
               echo "$response"
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
+          done
+
+      - name: Refresh mailbox overviews independently of thread backlog
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          MAIL_URL: ${{ secrets.INTELLIGENCE_MAIL_URL }}
+          MAIL_SECRET: ${{ secrets.INTELLIGENCE_MAIL_SECRET }}
+        run: |
+          set -euo pipefail
+          for pass in 1 2; do
+            curl --silent --show-error --fail-with-body --max-time 60 --request POST "${MAIL_URL}?stage=domain" --header "authorization: Bearer ${MAIL_SECRET}"
+          done
+
+      - name: Connect evidence and compose proactive briefings
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          MAIL_URL: ${{ secrets.INTELLIGENCE_MAIL_URL }}
+          MAIL_SECRET: ${{ secrets.INTELLIGENCE_MAIL_SECRET }}
+        run: |
+          set -euo pipefail
+          synthesis_url="${MAIL_URL%/mail}/synthesis"
+          for phase in organization private briefing; do
+            for slot in 0 1; do
+              curl --silent --show-error --fail-with-body --max-time 60 --request POST "${synthesis_url}?phase=${phase}&slot=${slot}" --header "authorization: Bearer ${MAIL_SECRET}"
+            done
           done

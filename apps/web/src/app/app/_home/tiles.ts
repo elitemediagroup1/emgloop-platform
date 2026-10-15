@@ -415,7 +415,7 @@ export function projectTiles(input: TilesInput): HomeTile[] {
  * so. A reading that is not current says so beside it; the tile's own figures stay as supporting lines.
  */
 function withReading(tile: HomeTile, reading: DomainProjection | undefined): HomeTile {
-  if (!reading || reading.state === 'NONE' || !reading.statement || tile.key === 'chats') return tile;
+  if (!reading || !reading.asCurrent || reading.state === 'NONE' || !reading.statement || tile.key === 'chats') return tile;
   if (tile.state !== 'OK' && tile.state !== 'EMPTY') return tile;
   const lead = reading.asCurrent ? reading.statement : `${reading.statement} (not current)`;
   const top = reading.topSignal && reading.topSignal.statement !== reading.statement ? [reading.topSignal.statement] : [];

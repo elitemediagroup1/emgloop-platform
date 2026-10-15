@@ -1015,3 +1015,8 @@ export type { CrmDiscoveryAddResult } from './crm-outreach/crm-people-discovery.
 export { linkCorrespondents, qualifyPartyMail } from './crm-outreach/crm-outreach-mail-link';
 export { CrmContextBackfillService, CRM_CONTEXT_BACKFILL_VERSION } from './crm-outreach/crm-context-backfill.service';
 export type { CrmContextBackfillPlan, CrmContextBackfillResult, CrmContextBackfillSkip, CrmContextBackfillTarget } from './crm-outreach/crm-context-backfill.service';
+export { DigestSourceStateRepository } from './repositories/intelligence/digest-source-state.repository';
+export { LoopQuestionService } from './services/ai-runtime/loop-question.service';
+export type { LoopQuestionResult } from './services/ai-runtime/loop-question.service';
+
+export { callQuestionArtifact } from './services/intelligence-fabric/call-snapshot';

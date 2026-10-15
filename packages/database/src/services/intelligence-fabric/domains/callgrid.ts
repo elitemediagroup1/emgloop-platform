@@ -21,8 +21,11 @@ import { AI_TASK_CALLGRID_DOMAIN_READING, AI_TASK_CAMPAIGNS_DOMAIN_READING, type
 
 import type { IntelligenceProducer } from '../producer';
 import { domainProducer, type DomainKitPorts, type RuleReading } from '../domain-kit';
-import { comparableChange, DAY_MS, fingerprintOf, money, organizationModelStage, organizationTarget, plural, safeRef } from './organization-kit';
+import { comparableChange, DAY_MS, fingerprintOf, organizationModelStage, organizationTarget, plural, safeRef } from './organization-kit';
 
+const money = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+// Campaign/buyer business labels are operational data, never contact addresses or message content.
+const label = (name: string) => name.replace(/[\r\n\t]/g, ' ').slice(0, 60);
 const WINDOW_DAYS = 7;
 const CHANGE_THRESHOLD = 20;
 
@@ -70,6 +73,10 @@ export function callgridRule(ctx: CallsContext, now: Date): RuleReading {
   } else if (c.calls > 0) {
     limitations.push('No call in the window reported revenue, so revenue is unknown, not zero.');
   }
+  if (c.calls > 0 && c.callsWithRevenue === c.calls && c.callsWithPayout === c.calls && c.callsWithCost === c.calls) {
+    const net = c.revenueCents - c.payoutCents - c.costCents;
+    signals.push({ key: 'net-profit', kind: net < 0 ? 'RISK' : 'OPERATIONAL', knowledge: 'MEASURED', statement: `${money(c.costCents)} telco costs; ${money(net)} net after payouts and telco costs.`, evidenceRefs: [WINDOW_REF], metric: { name: 'net_profit', value: net, unit: 'minor_currency' }, severity: net < 0 ? 'HIGH' : 'LOW', asOf });
+  } else if (c.calls > 0) limitations.push('Net profit is unknown where revenue, payouts or telco costs are missing.');
   if (!ctx.prior) {
     limitations.push(`Loop’s call record does not cover the ${WINDOW_DAYS} days before, so there is no comparison yet.`);
   } else {
@@ -93,7 +100,7 @@ export function callgridRule(ctx: CallsContext, now: Date): RuleReading {
     const ref = memberRef('buyer', topBuyer.key);
     if (share >= 60 && c.buyers.length > 1 && ref) {
       entityRefs.push(ref);
-      signals.push({ key: 'buyer-concentration', kind: 'RISK', knowledge: 'OBSERVED', statement: `One buyer carries ${share}% of reported revenue.`, entities: [ref], evidenceRefs: [WINDOW_REF], severity: share >= 80 ? 'HIGH' : 'MEDIUM', asOf });
+      signals.push({ key: 'buyer-concentration', kind: 'RISK', knowledge: 'OBSERVED', statement: `${label(topBuyer.label)} carries ${share}% of reported revenue.`, entities: [ref], evidenceRefs: [WINDOW_REF], severity: share >= 80 ? 'HIGH' : 'MEDIUM', asOf });
     }
   }
   const attention = signals.some((s) => s.severity === 'HIGH');
@@ -166,7 +173,7 @@ export function campaignsRule(ctx: CallsContext, now: Date): RuleReading {
       key: campaignSignalKey('campaign', m.ref.slice(-40), m.ref, m.ref.length - m.ref.lastIndexOf(':') - 1 > 40),
       kind: m.change === -100 ? 'QUIET' : m.change < 0 ? 'RISK' : 'CHANGE',
       knowledge: 'OBSERVED',
-      statement: m.change === -100 ? `A campaign that carried ${m.before} calls the week before carried none this week.` : `A campaign’s calls are ${m.change < 0 ? 'down' : 'up'} ${Math.abs(m.change)}% (${m.before} to ${m.row.calls}).`,
+      statement: m.change === -100 ? `${label(m.row.label)} carried ${m.before} calls the week before and none this week.` : `${label(m.row.label)} calls are ${m.change < 0 ? 'down' : 'up'} ${Math.abs(m.change)}% (${m.before} to ${m.row.calls}).`,
       entities: [m.ref],
       evidenceRefs: [WINDOW_REF, PRIOR_REF],
       severity: Math.abs(m.change) >= 50 ? 'HIGH' : 'MEDIUM',
@@ -178,7 +185,15 @@ export function campaignsRule(ctx: CallsContext, now: Date): RuleReading {
     const ref = memberRef('campaign', r.key);
     if (!ref) continue;
     name(ref);
-    signals.push({ key: campaignSignalKey('unsold', r.key, ref, false), kind: 'RISK', knowledge: 'OBSERVED', statement: `A campaign carried ${r.calls} calls and none were monetized.`, entities: [ref], evidenceRefs: [WINDOW_REF], severity: 'HIGH', asOf });
+    signals.push({ key: campaignSignalKey('unsold', r.key, ref, false), kind: 'RISK', knowledge: 'OBSERVED', statement: `${label(r.label)} carried ${r.calls} calls and none were monetized.`, entities: [ref], evidenceRefs: [WINDOW_REF], severity: 'HIGH', asOf });
+  }
+  for (const r of [...current].sort((a,b) => b.calls - a.calls).slice(0, Math.min(2, 12 - signals.length))) {
+    if (r.calls === 0 || r.callsWithRevenue !== r.calls || r.callsWithPayout !== r.calls || r.callsWithCost !== r.calls) continue;
+    const ref = memberRef('campaign', r.key);
+    if (!ref) continue;
+    name(ref);
+    const net = r.revenueCents - r.payoutCents - r.costCents;
+    signals.push({ key: campaignSignalKey('economics', r.key, ref, false), kind: net < 0 ? 'RISK' : 'OPERATIONAL', knowledge: 'MEASURED', statement: `${label(r.label)}: ${r.calls} calls, ${r.monetized} monetized, ${money(r.revenueCents)} revenue, ${money(r.payoutCents)} payout, ${money(r.costCents)} telco, ${money(net)} net.`, entities: [ref], evidenceRefs: [WINDOW_REF], severity: net < 0 ? 'HIGH' : 'LOW', asOf });
   }
   const high = signals.filter((s) => s.severity === 'HIGH').length;
   return {
@@ -199,7 +214,7 @@ export function campaignsRule(ctx: CallsContext, now: Date): RuleReading {
 }
 
 function callsFingerprint(domain: string, ctx: CallsContext, dayKey: string): string {
-  const slim = (a: CallWindowAggregate | null) => a && [a.calls, a.monetized, a.revenueCents, a.payoutCents, a.callsWithRevenue, a.campaigns.map((r) => [r.key, r.calls, r.monetized]).sort(), a.buyers.map((r) => [r.key, r.revenueCents]).sort()];
+  const slim = (a: CallWindowAggregate | null) => a && [a.calls, a.monetized, a.revenueCents, a.payoutCents, a.callsWithRevenue, a.callsWithPayout, a.costCents, a.callsWithCost, a.campaigns.map((r) => [r.key, r.label, r.calls, r.monetized, r.revenueCents, r.payoutCents, r.costCents, r.callsWithRevenue, r.callsWithPayout, r.callsWithCost]).sort(), a.buyers.map((r) => [r.key, r.label, r.revenueCents]).sort()];
   return fingerprintOf(domain, [dayKey, slim(ctx.current), slim(ctx.prior), ctx.lastDayCalls]);
 }
 
@@ -207,7 +222,7 @@ function callsSpec(calls: CallsPort, domain: 'CALLGRID' | 'CAMPAIGNS') {
   return {
     domain,
     scope: 'ORGANIZATION' as const,
-    version: '2',
+    version: '3',
     provider: null,
     consentBasis: 'LOOP_RECORDS' as const,
     async discover(now: Date) {

@@ -254,7 +254,7 @@ export function domainProducer<C>(spec: DomainProducerSpec<C>, ports: DomainKitP
         provider: spec.provider,
         consentBasis: spec.consentBasis,
         content: {
-          synthesis: statement,
+          synthesis: statement.slice(0, 280),
           confidence,
           limitations: limitations.map((l) => l.trim()).filter(Boolean).slice(0, 8),
           reading: { statement, status, confidence },

@@ -7,6 +7,7 @@ import { LOOP_NAV, myWorkHref } from './config';
 import { navFor } from './nav-access';
 import { AreaBar, ShellCrumb, ShellNav } from './ShellNav';
 import { viewerTime } from '../time/viewer-time';
+import { LoopAssistant } from '../intelligence/LoopAssistant';
 import { TimeZoneSync } from '../time/TimeZoneSync';
 
 // Loop OS — the application shell.
@@ -111,6 +112,7 @@ export default async function WorkspaceShell({
           <AreaBar groups={groups} />
         </div>
       </div>
+      <LoopAssistant timeZone={time.timeZone} />
     </div>
   );
 }
