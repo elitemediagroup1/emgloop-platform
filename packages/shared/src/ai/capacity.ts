@@ -349,3 +349,15 @@ export const AI_OPERATING_BUDGET_INITIAL: AiOperatingBudget = Object.freeze({
   globalDailyInvocations: 360,
   circuitBreaker: Object.freeze({ failures: 10, windowMinutes: 60 }),
 });
+
+
+/** Opt-in allocation for a business using proactive readings throughout the day. Never auto-applied. */
+export const AI_OPERATING_BUDGET_SYNTHESIS: AiOperatingBudget = Object.freeze({
+  ...AI_OPERATING_BUDGET_INITIAL,
+  label: 'operating.synthesis.1',
+  lanes: Object.freeze({
+    ...AI_OPERATING_BUDGET_INITIAL.lanes,
+    FORWARD: Object.freeze({ dailyCostMicros: 4 * AI_MICROS_PER_DOLLAR }),
+    SYNTHESIS: Object.freeze({ dailyCostMicros: 10 * AI_MICROS_PER_DOLLAR }),
+  }),
+});

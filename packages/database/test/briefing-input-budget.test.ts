@@ -35,3 +35,17 @@ test('one oversized artifact cannot evict all readable evidence; current call ev
   assert.ok(estimate(fitted.artifacts, fitted.gaps) <= 9500);
   assert.deepEqual(fitBriefingArtifacts(fitted.artifacts, fitted.gaps, 'our-org'), fitted);
 });
+
+test('numeric grounding uses the exact supplied artifact, including titles and limitations, but not hidden metadata', () => {
+  const source: BriefingArtifact = { ...artifact('digest:campaign', 0, 'CAMPAIGNS'),
+    title: 'SSDI - 1696', statement: 'Volume increased.', basis: 'private-basis-987654 2031-01-02',
+    limitations: ['Revenue is reported on 22 calls.'], signals: [{ kind: 'CHANGE', statement: 'A measured signal.', metric: { value: 35 } }] };
+  const other = { ...artifact('digest:other', 0), statement: '77 calls.' };
+  const { items, evidence } = briefingContextOf([source, other], 'our-org');
+  const figures = evidence.figures.get(source.ref)!;
+  assert.ok(items[0]!.content.includes('1696'));
+  assert.ok(figures.has(1696) && figures.has(22) && figures.has(35));
+  assert.ok(!figures.has(77), 'another artifact cannot support an uncited figure');
+  assert.ok(!figures.has(987654), 'internal basis was never supplied');
+  assert.ok(!evidence.dates.has('2031-01-02'), 'hidden metadata is not date evidence either');
+});

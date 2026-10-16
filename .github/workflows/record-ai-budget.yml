@@ -16,6 +16,9 @@
 # always-on $25 emergency ceiling (every organization, trailing 24 hours) -- exactly today's behaviour.
 # Recording a budget is an explicit commissioning act; nothing records one on deploy.
 #
+# `synthesis` reallocates the same $20 day: FORWARD $4, SYNTHESIS $10; all other controls and
+# the $1.50 live reserve stay unchanged. This reduces live processing headroom; it never borrows
+# automatically or records a budget on deployment.
 # PRESETS. `initial` is AI_OPERATING_BUDGET_INITIAL, the approved initial budget: $20/day per
 # organization, $25 emergency; lanes FORWARD $8, SYNTHESIS $6, INTERACTIVE $2.50, BACKGROUND $2 (and
 # at most 60 calls); FORWARD reserve $1.50; BACKGROUND defers at $12 of organization spend or 75% of
@@ -63,14 +66,15 @@ on:
           - staging
           - production
       preset:
-        description: 'initial = the approved initial budget ($20/day per organization); custom = settings_json'
+        description: 'initial = original allocation; synthesis = $10 analysis/$4 live, same $20 total; custom = settings_json'
         required: true
         type: choice
         options:
           - initial
+          - synthesis
           - custom
       settings_json:
-        description: 'Only with preset=custom: ONE LINE, a JSON object in the operating-budget shape (micro-dollars). Leave empty for initial.'
+        description: 'Only with preset=custom: ONE LINE, a JSON object in the operating-budget shape (micro-dollars). Leave empty for initial or synthesis.'
         required: false
         type: string
       reason:
@@ -202,8 +206,8 @@ jobs:
           case "${reason}" in *$'\n'*) echo "::error::reason must be one line."; exit 1 ;; esac
           if [ -z "${reason}" ] || [ "${#reason}" -gt 500 ]; then echo "::error::reason is required, at most 500 characters."; exit 1; fi
           case "${preset}" in
-            initial)
-              if [ -n "${settings}" ]; then echo "::error::settings_json is only used with preset=custom; leave it empty for initial."; exit 1; fi
+            initial|synthesis)
+              if [ -n "${settings}" ]; then echo "::error::settings_json is only used with preset=custom; leave it empty for initial or synthesis."; exit 1; fi
               ;;
             custom)
               if [ -z "${settings}" ]; then echo "::error::preset=custom needs settings_json: one line, a JSON object."; exit 1; fi
@@ -217,7 +221,7 @@ jobs:
                 echo "::error::settings_json must be a valid JSON object."; exit 1
               fi
               ;;
-            *) echo "::error::preset must be initial or custom."; exit 1 ;;
+            *) echo "::error::preset must be initial, synthesis or custom."; exit 1 ;;
           esac
           # The reason travels to the script through a file too (see above).
           printf '%s' "${reason}" > "${RUNNER_TEMP}/budget-reason.txt"
@@ -277,14 +281,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ "${BUDGET_PRESET}" = "custom" ]; then from=(--settings-file "${RUNNER_TEMP}/budget-settings.json"); else from=(--preset initial); fi
+          if [ "${BUDGET_PRESET}" = "custom" ]; then from=(--settings-file "${RUNNER_TEMP}/budget-settings.json"); else from=(--preset "${BUDGET_PRESET}"); fi
           npm run record:ai-budget -- "${from[@]}" --reason "$(cat "${RUNNER_TEMP}/budget-reason.txt")"
 
       - name: Record
         shell: bash
         run: |
           set -euo pipefail
-          if [ "${BUDGET_PRESET}" = "custom" ]; then from=(--settings-file "${RUNNER_TEMP}/budget-settings.json"); else from=(--preset initial); fi
+          if [ "${BUDGET_PRESET}" = "custom" ]; then from=(--settings-file "${RUNNER_TEMP}/budget-settings.json"); else from=(--preset "${BUDGET_PRESET}"); fi
           npm run record:ai-budget -- "${from[@]}" --reason "$(cat "${RUNNER_TEMP}/budget-reason.txt")" --reference "github:record-ai-budget:run-${GITHUB_RUN_ID}:${GITHUB_ACTOR}" --write
 
       - name: Controls after

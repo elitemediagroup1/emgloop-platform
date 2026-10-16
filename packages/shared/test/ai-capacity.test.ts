@@ -27,6 +27,7 @@ import {
   AI_NO_COST,
   AI_NO_SPEND,
   AI_OPERATING_BUDGET_INITIAL,
+  AI_OPERATING_BUDGET_SYNTHESIS,
   AI_OPERATING_BUDGET_MAXIMUMS,
   AI_OUTPUT_CONTRACTS,
   AI_PORTABLE_SCHEMA_EXEMPTIONS,
@@ -421,3 +422,23 @@ test('lanes are a closed vocabulary', () => {
   assert.equal(isAiLane('forward'), false);
 });
 
+
+
+test('the opt-in synthesis allocation admits analysis after the old lane fills without increasing total or emergency exposure', () => {
+  const budget = AI_OPERATING_BUDGET_SYNTHESIS;
+  assert.deepEqual(aiOperatingBudgetRefusals(budget, CLASSES), []);
+  assert.equal(budget.organizationDailyCostMicros, OPERATING.organizationDailyCostMicros);
+  assert.equal(budget.emergencyCostMicros, OPERATING.emergencyCostMicros);
+  assert.equal(budget.lanes.SYNTHESIS.dailyCostMicros, $(10));
+  assert.equal(budget.lanes.FORWARD.dailyCostMicros + budget.forwardReserveCostMicros, $(5.5));
+  assert.equal(AI_LANES.reduce((n, l) => n + budget.lanes[l].dailyCostMicros, 0) + budget.forwardReserveCostMicros, $(20));
+  assert.deepEqual(budget.circuitBreaker, OPERATING.circuitBreaker);
+  assert.deepEqual(budget.classInvocations, OPERATING.classInvocations);
+  assert.equal(budget.organizationDailyInvocations, OPERATING.organizationDailyInvocations);
+  assert.equal(budget.globalDailyInvocations, OPERATING.globalDailyInvocations);
+  const used = cost({ organizationMicros: $(10.56), globalMicros: $(12.85), laneMicros: lanes({ SYNTHESIS: $(5.96) }) });
+  assert.deepEqual(aiCapacityRefusals({ operating: OPERATING, lane: 'SYNTHESIS', estimateMicros: $(0.10), cost: used }), ['BUDGET_LANE_EXHAUSTED']);
+  assert.deepEqual(aiCapacityRefusals({ operating: budget, lane: 'SYNTHESIS', estimateMicros: $(0.10), cost: used }), []);
+  assert.ok(aiCapacityRefusals({ operating: budget, lane: 'SYNTHESIS', estimateMicros: $(0.10), cost: cost({ organizationMicros: $(19.95) }) }).includes('BUDGET_ORGANIZATION_COST_EXHAUSTED'));
+  assert.ok(aiCapacityRefusals({ operating: budget, lane: 'SYNTHESIS', estimateMicros: $(0.10), cost: cost({ globalMicros: $(24.95) }) }).includes('BUDGET_EMERGENCY_CEILING'));
+});

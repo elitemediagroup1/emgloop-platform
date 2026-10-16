@@ -110,7 +110,6 @@ export function BusinessHeadlinesCard({ stored, situations, time, offers, compac
 }) {
   const candidate = stored?.composer === 'MODEL' ? stored : stored?.asOfSummary;
   const model = candidate?.composer === 'MODEL' ? candidate : null;
-  const hasDevelopments = model?.lines.some((l) => l.kind === 'CHANGED' || l.kind === 'WATCH') === true;
   const hasConnections = !!situations && situations.personal.length + (situations.organization?.length ?? 0) > 0;
   return (
     <section className="loop-panel loop-front__business-headlines" aria-label="Headlines" id="headlines">
@@ -120,11 +119,11 @@ export function BusinessHeadlinesCard({ stored, situations, time, offers, compac
       </div>
       <p className="loop-front__prose-quiet">What Loop connects across your business, and what those signals may mean.</p>
       {hasConnections && situations ? <div className="loop-front__connections"><h3>Connected signals</h3><SituationEntries read={situations} time={time} caseHref={(id) => `/app/admin/cases/${id}`} /></div> : null}
-      {hasDevelopments && model ? (
+      {model ? (
         <>
           <p className="loop-front__prose-quiet">AI reading as of <time dateTime={time.iso(model.generatedAt)}>{time.time(model.generatedAt)}</time>. Live metrics may be newer.</p>
           {hasConnections ? <h3 className="loop-brief__subhead">Other developments</h3> : null}
-          <StoredBriefingBody stored={model} time={time} offers={offers} compact={compact} purpose="business" showHeadline={false} />
+          <StoredBriefingBody stored={model} time={time} offers={offers} compact={compact} purpose="business" />
         </>
       ) : !hasConnections ? <p className="loop-front__prose-quiet" data-headlines-ai-pending>Loop has not published a current AI headline reading. Your recorded daily priorities and live metrics remain available.</p> : null}
     </section>

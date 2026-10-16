@@ -134,3 +134,16 @@ test('Headlines never presents rule fallback facts as model insights, but retain
   assert.match(shown, /AI reading as of/);
   assert.doesNotMatch(shown, /data-headlines-ai-pending/);
 });
+
+
+test('Headlines renders the actual model headline even when its lines are daily priorities', () => {
+  const time = createTimeView(resolveDisplayTimeZone({ preference: 'America/New_York', device: null }), now);
+  const stored = { headline: 'The capacity conversation overlaps with rising call volume.', composer: 'MODEL' as const,
+    generatedAt: now, limitations: ['The relationship is unconfirmed.'],
+    lines: [{ kind: 'NEEDS_YOU' as const, statement: 'The buyer is waiting on your reply.', parts: ['CHATS'] }] };
+  const html = renderToStaticMarkup(<BusinessHeadlinesCard stored={stored} situations={null} time={time} offers={() => false} />);
+  assert.match(html, /data-briefing-headline/);
+  assert.match(html, /The capacity conversation overlaps with rising call volume/);
+  assert.match(html, /The relationship is unconfirmed/);
+  assert.doesNotMatch(html, /data-headlines-ai-pending|The buyer is waiting/);
+});

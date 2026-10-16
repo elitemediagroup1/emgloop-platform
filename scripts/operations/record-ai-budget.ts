@@ -9,6 +9,7 @@
 // WHERE THE FIGURES COME FROM. Exactly one of:
 //   --preset initial         AI_OPERATING_BUDGET_INITIAL, the approved initial budget ($20/day per
 //                            organization, $25 emergency, four lanes);
+//   --preset synthesis       same $20/day and $25 emergency; FORWARD $4 + $1.50 reserve, SYNTHESIS $10;
 //   --settings-file <path>   a JSON object in the same shape, for raising (or lowering) limits from
 //                            observed usage without a deploy.
 // Either way the figures are validated TOTALLY (`aiOperatingBudgetRefusals`) against the reviewed
@@ -42,7 +43,7 @@
 // (NOT_MIGRATED otherwise).
 
 import { readFile } from 'node:fs/promises';
-import { AI_DEFAULT_EMERGENCY_CEILING_MICROS, AI_OPERATING_BUDGET_INITIAL, aiOperatingBudgetOf, aiOperatingBudgetRefusals, type AiControlActor } from '@emgloop/shared';
+import { AI_DEFAULT_EMERGENCY_CEILING_MICROS, AI_OPERATING_BUDGET_INITIAL, AI_OPERATING_BUDGET_SYNTHESIS, aiOperatingBudgetOf, aiOperatingBudgetRefusals, type AiControlActor } from '@emgloop/shared';
 import type { AiOperatingBudgetRead } from '@emgloop/database';
 import { KNOWN_BUDGET_CLASSES, operatingBudgetLines, usd } from './read-ai-provider-policy';
 
@@ -76,7 +77,7 @@ export type RecordBudgetResult = 'DRY_RUN' | 'RECORDED' | 'UNCHANGED' | 'INVALID
 
 const REFERENCE = /^[A-Za-z0-9][A-Za-z0-9._:@\/-]{0,199}$/;
 export const REASON_MAX_CHARS = 500;
-export const BUDGET_PRESETS = ['initial'] as const;
+export const BUDGET_PRESETS = ['initial', 'synthesis'] as const;
 
 const VALUE_FLAGS = ['--preset', '--settings-file', '--reason', '--reference'] as const;
 
@@ -130,6 +131,7 @@ function canonical(value: unknown): string {
 
 async function requestedSettings(args: RecordBudgetArgs, deps: RecordBudgetDeps): Promise<{ ok: true; settings: unknown } | { ok: false; refusal: string }> {
   // A plain JSON copy either way: what is stored is data, never a frozen code object.
+  if (args.preset === 'synthesis') return { ok: true, settings: JSON.parse(JSON.stringify(AI_OPERATING_BUDGET_SYNTHESIS)) };
   if (args.preset === 'initial') return { ok: true, settings: JSON.parse(JSON.stringify(AI_OPERATING_BUDGET_INITIAL)) };
   let text: string;
   try {

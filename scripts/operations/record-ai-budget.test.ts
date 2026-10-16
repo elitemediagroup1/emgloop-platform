@@ -364,6 +364,10 @@ test('the Validate step, executed: custom JSON reaches a file and must be one JS
     };
     return { status: r.status, env: readFileSync(genv, 'utf8'), settings: read('budget-settings.json'), reason: read('budget-reason.txt') };
   };
+  const synthesis = run({ preset: 'synthesis', settings_json: '', reason: REASON });
+  assert.equal(synthesis.status, 0);
+  assert.match(synthesis.env, /BUDGET_PRESET=synthesis/);
+  assert.equal(run({ preset: 'synthesis', settings_json: '{}', reason: REASON }).status, 1);
   const ok = run({ preset: 'initial', settings_json: '', reason: REASON });
   assert.equal(ok.status, 0);
   assert.equal(ok.env, 'BUDGET_PRESET=initial\n');
@@ -383,4 +387,18 @@ test('the Validate step, executed: custom JSON reaches a file and must be one JS
   assert.equal(run({ preset: 'custom', settings_json: '{"a":1}\n{"b":2}', reason: REASON }).status, 1, 'one line only');
   assert.equal(run({ preset: 'generous', settings_json: '', reason: REASON }).status, 1);
   assert.equal(run({ preset: 'initial', settings_json: '', reason: '' }).status, 1);
+});
+
+
+test('synthesis is opt-in, dry-run by default, and records through the same versioned control', async () => {
+  const w = world();
+  const args = parseArgs(['--preset', 'synthesis', '--reason', 'Observed synthesis lane exhaustion.']);
+  assert.deepEqual(requestRefusals(args), []);
+  assert.equal(await runRecordAiBudget(args, w.deps), 'DRY_RUN');
+  assert.equal(w.recorded.length, 0);
+  assert.ok(w.lines.includes('event=REQUESTED_LANE lane=SYNTHESIS dailyUsd=10.00 maxInvocations=-'));
+  assert.ok(w.lines.includes('event=REQUESTED_LANE lane=FORWARD dailyUsd=4.00 maxInvocations=-'));
+  assert.equal(await runRecordAiBudget({ ...args, write: true, reference: REFERENCE }, w.deps), 'RECORDED');
+  const read = await w.controls.operatingBudget(KNOWN_BUDGET_CLASSES);
+  assert.ok(read.state === 'RECORDED' && read.budget.label === 'operating.synthesis.1');
 });
