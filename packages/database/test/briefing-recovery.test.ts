@@ -43,7 +43,8 @@ function database() {
                 r.organizationId === q.where.organizationId &&
                 r.userId === q.where.userId &&
                 r.localDate.getTime() === q.where.localDate.getTime() &&
-                (!q.where.coverage || r.coverage?.schema === q.where.coverage.equals),
+                (!q.where.coverage || r.coverage?.schema === q.where.coverage.equals) &&
+                (!q.where.AND || r.coverage?.composer === q.where.AND[0].coverage.equals),
             )
             .sort((a, b) => b.version - a.version)
             .slice(0, q.take);
@@ -342,4 +343,18 @@ test('continuous polling for three viewers produces at most four model attempts 
   }
   assert.equal(calls, 12, '360 changing source observations must not become 360 model calls');
   assert.equal(db.rows.length, 12);
+});
+
+
+test('latest model lookup stays person/date/schema scoped and survives a newer rule version', async () => {
+  const db = database(), localDate = new Date('2026-10-15T00:00:00Z');
+  db.rows.push(
+    { ...principal, id: 'model', localDate, version: 1, coverage: { schema: BRIEFING_RECORD_SCHEMA, composer: 'MODEL' } },
+    { ...principal, id: 'rule', localDate, version: 2, coverage: { schema: BRIEFING_RECORD_SCHEMA, composer: 'RULE' } },
+    { ...principal, userId: 'other', id: 'foreign-model', localDate, version: 3, coverage: { schema: BRIEFING_RECORD_SCHEMA, composer: 'MODEL' } },
+  );
+  const row = await new WorkBriefRepository(db.prisma as never).forDate(principal, localDate, { schema: BRIEFING_RECORD_SCHEMA, composer: 'MODEL' });
+  assert.equal(row!.id, 'model');
+  assert.deepEqual(db.queries[0].where, { ...principal, localDate,
+    coverage: { path: ['schema'], equals: BRIEFING_RECORD_SCHEMA }, AND: [{ coverage: { path: ['composer'], equals: 'MODEL' } }] });
 });

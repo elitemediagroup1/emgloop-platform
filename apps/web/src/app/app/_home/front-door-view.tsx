@@ -133,7 +133,7 @@ export function HeadlinesPanel({
           View all Headlines →
         </Link>
       </div>
-      {briefing ? <StoredBriefingBody stored={{ ...briefing, lines: briefing.lines.slice(0, 3) }} time={time} offers={() => false} /> : <p>Loop has not composed your business summary for today yet.</p>}
+      {briefing ? <StoredBriefingBody stored={{ ...briefing, lines: briefing.lines.slice(0, 3), asOfSummary: briefing.asOfSummary ? { ...briefing.asOfSummary, lines: briefing.asOfSummary.lines.slice(0, 3) } : undefined }} time={time} offers={() => false} /> : <p>Loop has not composed your business summary for today yet.</p>}
       <h3 className="loop-panel__title">Measured objective signals</h3>
       <p className="loop-front__prose-quiet">This coverage applies to configured objectives, not every connected source.</p>
       {headlines === null ? (
