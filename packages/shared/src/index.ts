@@ -603,3 +603,5 @@ export * from './connection-worker-auth';
 export * from './crm-outreach';
 export * from './crm-people-command-center';
 export * from './crm-people-discovery';
+
+export * from './public-news';

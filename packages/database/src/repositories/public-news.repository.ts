@@ -1,5 +1,5 @@
 import type { PrismaClient } from '@prisma/client';
-import type { PublicNewsArticle } from '@emgloop/providers';
+import type { PublicNewsArticle } from '@emgloop/shared';
 
 /** Public metadata is still tenant scoped. A successful empty fetch and a failed fetch differ. */
 export class PublicNewsRepository {

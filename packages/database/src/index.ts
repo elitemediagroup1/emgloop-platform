@@ -1021,4 +1021,4 @@ export type { LoopQuestionResult } from './services/ai-runtime/loop-question.ser
 
 export { callQuestionArtifact } from './services/intelligence-fabric/call-snapshot';
 
-export { refreshPublicNews } from './services/intelligence-fabric/public-news';
+export { refreshPublicNews } from './services/public-news-sync';
