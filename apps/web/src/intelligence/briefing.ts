@@ -6,7 +6,7 @@
 
 import 'server-only';
 
-import { BRIEFING_RECORD_SCHEMA, WorkBriefRepository, absentUntilMigrated, prisma } from '@emgloop/database';
+import { BriefingComposer, BRIEFING_MAX_AGE_MS, briefingFingerprint, ruleBriefing, BRIEFING_RECORD_SCHEMA, WorkBriefRepository, absentUntilMigrated, prisma, type BriefingArtifact, type BriefingGap } from '@emgloop/database';
 import { zonedCalendarDay, type BriefingLineKind } from '@emgloop/shared';
 
 export interface StoredBriefingLine {
@@ -22,9 +22,30 @@ export interface StoredBriefing {
   readonly composer: 'MODEL' | 'RULE';
   readonly limitations: readonly string[];
   readonly generatedAt: Date;
+  readonly refreshPending?: boolean;
 }
 
 const KINDS: readonly string[] = ['NEEDS_YOU', 'CHANGED', 'WATCH', 'AHEAD'];
+
+type BriefingRow = { headline: string | null; items: unknown; coverage: unknown; generatedAt: Date };
+
+/** No model calls or writes: stale conclusions yield current, explicitly rule-based recorded facts. */
+export function currentBriefingOf(row: BriefingRow | null, localDay: string, artifacts: readonly BriefingArtifact[], gaps: readonly BriefingGap[], now: Date): StoredBriefing | null {
+  const stored = storedBriefingOf(row);
+  const fingerprint = (row?.coverage as { fingerprint?: unknown } | null)?.fingerprint;
+  if (stored && fingerprint === briefingFingerprint(localDay, artifacts, gaps) && now.getTime() >= stored.generatedAt.getTime() && now.getTime() - stored.generatedAt.getTime() < BRIEFING_MAX_AGE_MS) return stored;
+  if (!artifacts.length && !gaps.length) return null;
+  const rule = ruleBriefing(artifacts, gaps);
+  const domains = new Map(artifacts.map((a) => [a.ref, a.domain]));
+  return {
+    ...rule,
+    lines: rule.lines.map((l) => ({ kind: l.kind, statement: l.statement, parts: [...new Set(l.citations.map((c) => domains.get(c)).filter((d): d is string => !!d))] })),
+    composer: 'RULE',
+    refreshPending: true,
+    generatedAt: now,
+    limitations: ['The AI briefing is awaiting a current reading. These are recorded facts, not an AI-composed summary.', ...rule.limitations],
+  };
+}
 
 export function storedBriefingOf(row: { headline: string | null; items: unknown; coverage: unknown; generatedAt: Date } | null): StoredBriefing | null {
   if (!row || !row.headline) return null;
@@ -50,5 +71,7 @@ export function storedBriefingOf(row: { headline: string | null; items: unknown;
 export async function loadStoredBriefing(principal: { readonly organizationId: string; readonly userId: string }, timeZone: string, now: Date): Promise<StoredBriefing | null> {
   const localDate = new Date(`${zonedCalendarDay(now, timeZone)}T00:00:00.000Z`);
   const row = await absentUntilMigrated(new WorkBriefRepository(prisma).forDate(principal, localDate, { schema: BRIEFING_RECORD_SCHEMA }));
-  return storedBriefingOf(row ?? null);
+  const composer = new BriefingComposer({ prisma, runtime: null, modelEnabled: () => false, now: () => now });
+  const { artifacts, gaps } = await composer.gather(principal, now);
+  return currentBriefingOf(row ?? null, zonedCalendarDay(now, timeZone), artifacts, gaps, now);
 }

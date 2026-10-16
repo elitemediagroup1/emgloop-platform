@@ -10,7 +10,7 @@
 import { BRIEFING_LIMITS, BRIEFING_LINE_KINDS, BRIEFING_SCHEMA_ID } from '@emgloop/shared';
 
 export const BRIEFING_TEMPLATE_ID = 'loop-briefing';
-export const BRIEFING_TEMPLATE_VERSION = '4';
+export const BRIEFING_TEMPLATE_VERSION = '5';
 
 const clean = (ref: string) => String(ref).replace(/[^A-Za-z0-9_.:@\/-]/g, '');
 
@@ -23,6 +23,9 @@ export function renderBriefingInstructions(sourceRefs: readonly string[], covera
     'Do not infer record identity from similar names. Use supplied canonical references for record-level connections. Mere timing is an association, not a cause.',
     'Explain the operational meaning of related artifacts together, rather than reciting each separately. State supported connections and cautious implications; do not invent causal explanations.',
     'Lead with what needs them, then what changed, then what to watch, then what is ahead. Leave out what does not matter today.',
+    'The supplied windowStart/windowEnd and generatedAt belong to each artifact. Distinguish today from rolling-week or historical figures explicitly; never present them as the same period.',
+    'Prefer the current stored-call snapshot for today\'s totals. Historical or rolling-week missing fields do not imply today\'s fields are missing. Stored financial amounts are not proof of source reconciliation.',
+    'Never echo JSON, truncate a sentence, or list technical disclaimers as the business update. Give complete, short sentences; put coverage caveats in limitations. Do not speculate about buyer capacity or routing without supporting evidence.',
     '',
     'Rules, all enforced after you answer; an answer that breaks any of them is discarded whole:',
     `1. Answer with schemaId "${BRIEFING_SCHEMA_ID}": one headline (at most ${BRIEFING_LIMITS.maxHeadlineChars} characters) and up to ${BRIEFING_LIMITS.maxLines} lines,`,

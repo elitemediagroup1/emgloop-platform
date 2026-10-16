@@ -76,6 +76,7 @@ function partLabel(part: string): string {
 export function StoredBriefingBody({ stored, time, offers }: { stored: StoredBriefing; time: TimeView; offers: (href: string) => boolean }) {
   return (
     <div className="loop-front__prose" data-briefing-stored={stored.composer}>
+      {stored.refreshPending ? <p className="loop-front__prose-quiet">The AI summary is awaiting refresh. These are the current recorded facts.</p> : null}
       <p className="loop-front__sentence" data-briefing-headline>
         <span>{stored.headline}</span>
       </p>
@@ -103,8 +104,13 @@ export function StoredBriefingBody({ stored, time, offers }: { stored: StoredBri
       <p className="loop-front__prose-quiet">
         {stored.composer === 'MODEL' ? 'Composed by Loop from what it read for you' : 'Loop’s own Briefing from what it read for you'} ·{' '}
         <time dateTime={time.iso(stored.generatedAt)}>{time.relative(stored.generatedAt)}</time>
-        {stored.limitations.length > 0 ? ` · ${stored.limitations.join('; ')}` : ''}
       </p>
+      {stored.limitations.length > 0 ? (
+        <details className="loop-front__evidence" data-briefing-limitations>
+          <summary>Coverage and limitations ({stored.limitations.length})</summary>
+          <ul>{stored.limitations.map((limitation, i) => <li key={i}>{limitation}</li>)}</ul>
+        </details>
+      ) : null}
     </div>
   );
 }

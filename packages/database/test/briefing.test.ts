@@ -46,3 +46,13 @@ test('gap words are Loop’s own and name the part, never a source’s text', ()
   assert.equal(briefingAbsenceJustified([a('d', 'CALM')], []), true);
   assert.equal(briefingAbsenceJustified([a('d', 'CALM')], [{ domain: 'MAIL', coverage: 'STALE' }]), false);
 });
+
+test('fallback preserves complete sentences and decimal amounts and never exposes structured JSON', () => {
+  const source = { ...a('snapshot:callgrid', 'WATCH', 'CALLGRID', 'CONNECTED_PARTIAL'), title: 'CallGrid', statement: '{"calls":475,"reportedRevenue":"2965.91"}', displayStatement: '475 stored calls, 148 monetized. Reported revenue is $2965.91.' };
+  const line = ruleBriefing([source]).lines[0]!;
+  assert.equal(line.statement, 'CallGrid: 475 stored calls, 148 monetized. Reported revenue is $2965.91. (from a partial reading)');
+  assert.doesNotMatch(ruleBriefing([{ ...source, displayStatement: undefined }]).lines[0]!.statement, /\{|reportedRevenue/);
+  const long = ruleBriefing([{ ...source, displayStatement: 'One complete sentence. ' + 'x'.repeat(400) + '.' }]).lines[0]!.statement;
+  assert.equal(long, 'CallGrid: One complete sentence. (from a partial reading)');
+  assert.ok(long.length <= 240);
+});

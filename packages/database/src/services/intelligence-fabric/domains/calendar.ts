@@ -37,6 +37,7 @@ interface CalendarEvent {
 }
 
 interface CalendarContext {
+  readonly asOf: Date;
   readonly events: readonly CalendarEvent[];
   readonly conflicts: readonly [string, string][];
   readonly prep: readonly { readonly eventId: string; readonly threads: number }[];
@@ -64,7 +65,7 @@ export function calendarDomainProducer(facts: DomainFactsRepository, kit: Domain
       id: 'calendar.domain@1',
       domain: 'CALENDAR',
       scope: 'PRINCIPAL',
-      version: '1',
+      version: '2',
       provider: 'GOOGLE_CALENDAR',
       consentBasis: 'SOURCE_CONNECTION_GRANT',
       async discover() {
@@ -98,17 +99,19 @@ export function calendarDomainProducer(facts: DomainFactsRepository, kit: Domain
         for (const e of ended) {
           if (!(await facts.sentMailTo(organizationId, userId, e.endsAt, e.attendees))) noFollowUp.push(e.id);
         }
-        const fingerprint = `calendar:${createHash('sha256').update(JSON.stringify([dayStart.toISOString(), events.map((e) => [e.id, e.startsAt.toISOString(), e.endsAt.toISOString(), e.external, e.declined]), conflicts, prep, noFollowUp])).digest('hex')}`;
-        return { status: 'READY', fingerprint, context: { events, conflicts, prep, noFollowUp, windowStart: dayStart, windowEnd } };
+        const fingerprint = `calendar:${createHash('sha256').update(JSON.stringify([dayStart.toISOString(), events.map((e) => [e.id, e.startsAt.toISOString(), e.endsAt.toISOString(), e.external, e.declined, e.endsAt <= now ? 'ENDED' : e.startsAt <= now ? 'IN_PROGRESS' : 'AHEAD']), conflicts, prep, noFollowUp])).digest('hex')}`;
+        return { status: 'READY', fingerprint, context: { asOf: now, events, conflicts, prep, noFollowUp, windowStart: dayStart, windowEnd } };
       },
       rule(ctx, now): RuleReading {
         const today = ctx.events.filter((e) => e.startsAt >= ctx.windowStart && !e.declined);
         const external = today.filter((e) => e.external > 0).length;
+        const remaining = today.filter((e) => e.endsAt > now).length;
         const ref = (id: string) => entityRef('work_event', id);
         const signals: IntelligenceSignal[] = [
-          { key: 'meetings-today', kind: 'UPCOMING', knowledge: 'MEASURED', statement: `${today.length} ${today.length === 1 ? 'meeting' : 'meetings'} in your day.`, evidenceRefs: ['work_events:day'], metric: { name: 'meetings_today', value: today.length, unit: 'count' }, asOf: now.toISOString(), severity: 'LOW' },
+          { key: 'meetings-today', kind: 'OPERATIONAL', knowledge: 'MEASURED', statement: `${today.length} ${today.length === 1 ? 'meeting' : 'meetings'} in your day.`, evidenceRefs: ['work_events:day'], metric: { name: 'meetings_today', value: today.length, unit: 'count' }, asOf: now.toISOString(), severity: 'LOW' },
+          { key: 'meetings-remaining', kind: remaining > 0 ? 'UPCOMING' : 'OPERATIONAL', knowledge: 'MEASURED', statement: `${remaining} meetings remain in progress or ahead today.`, evidenceRefs: ['work_events:day'], metric: { name: 'meetings_remaining', value: remaining, unit: 'count' }, asOf: now.toISOString(), severity: 'LOW' },
         ];
-        if (external > 0) signals.push({ key: 'external-meetings', kind: 'UPCOMING', knowledge: 'MEASURED', statement: `${external} with people outside the organization.`, evidenceRefs: ['work_events:day'], metric: { name: 'external_meetings', value: external, unit: 'count' }, asOf: now.toISOString(), severity: 'MEDIUM' });
+        if (external > 0) signals.push({ key: 'external-meetings', kind: 'OPERATIONAL', knowledge: 'MEASURED', statement: `${external} with people outside the organization.`, evidenceRefs: ['work_events:day'], metric: { name: 'external_meetings', value: external, unit: 'count' }, asOf: now.toISOString(), severity: 'MEDIUM' });
         for (const [a, b] of ctx.conflicts.slice(0, 3)) {
           const first = ctx.events.find((e) => e.id === a)!;
           signals.push({ key: `conflict.${a.slice(-8)}.${b.slice(-8)}`, kind: 'RISK', knowledge: 'OBSERVED', statement: 'Two of your meetings overlap.', entities: [ref(a), ref(b)], evidenceRefs: [`work_event:${a}`, `work_event:${b}`], occurredAt: first.startsAt.toISOString(), severity: 'HIGH' });
@@ -155,12 +158,13 @@ export function calendarDomainProducer(facts: DomainFactsRepository, kit: Domain
           const today = ctx.events.filter((e) => e.startsAt >= ctx.windowStart && !e.declined);
           const day = {
             meetingsToday: today.length,
+            meetingsRemaining: today.filter((e) => e.endsAt > ctx.asOf).length,
             withOutsideAttendees: today.filter((e) => e.external > 0).length,
             overlappingPairs: ctx.conflicts.length,
             meetingsWithMailWaitingOnYou: ctx.prep.length,
             meetingsWithNoFollowUpSent: ctx.noFollowUp.length,
           };
-          const dayItem: AiContextItem = { blockId: 'work_events:day', kind: 'STRUCTURED', trust: 'GOVERNED_FACT', sourceRef: 'work_events:day', content: JSON.stringify(day), sensitivity: 'COMMUNICATION_CONTENT', readUnder: read };
+          const dayItem: AiContextItem = { blockId: 'work_events:day', kind: 'STRUCTURED', trust: 'GOVERNED_FACT', sourceRef: 'work_events:day', content: JSON.stringify({ ...day, asOf: ctx.asOf.toISOString(), dayStart: ctx.windowStart.toISOString(), dayEndExclusive: ctx.windowEnd.toISOString() }), sensitivity: 'COMMUNICATION_CONTENT', readUnder: read };
           const eventItems: AiContextItem[] = ctx.events.slice(0, 20).map((e) => ({
             blockId: `work_event:${e.id}`,
             kind: 'STRUCTURED',
@@ -172,6 +176,8 @@ export function calendarDomainProducer(facts: DomainFactsRepository, kit: Domain
               // the reading places meetings relative to each other rather than naming a clock time.
               starts: e.startsAt.toISOString(),
               ends: e.endsAt.toISOString(),
+              phase: e.endsAt <= ctx.asOf ? 'ENDED' : e.startsAt <= ctx.asOf ? 'IN_PROGRESS' : 'AHEAD',
+              inToday: e.startsAt >= ctx.windowStart && !e.declined,
               minutes: Math.round((e.endsAt.getTime() - e.startsAt.getTime()) / 60_000),
               outsideAttendees: e.external,
               overlaps: ctx.conflicts.some((c) => c.includes(e.id)),
@@ -189,7 +195,7 @@ export function calendarDomainProducer(facts: DomainFactsRepository, kit: Domain
                 ['work_events:day', new Set(Object.values(day))],
                 ...ctx.events.map((e) => [`work_event:${e.id}`, new Set([Math.round((e.endsAt.getTime() - e.startsAt.getTime()) / 60_000), e.external])] as const),
               ]),
-              dates: new Set(ctx.events.flatMap((e) => [e.startsAt.toISOString().slice(0, 10), e.endsAt.toISOString().slice(0, 10)])),
+              dates: new Set([ctx.asOf.toISOString().slice(0, 10), ...ctx.events.flatMap((e) => [e.startsAt.toISOString().slice(0, 10), e.endsAt.toISOString().slice(0, 10)])]),
               entityRefs: new Set(ctx.events.map((e) => entityRef('work_event', e.id))),
             },
           };

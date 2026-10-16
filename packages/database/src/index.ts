@@ -479,7 +479,7 @@ export { SituationConnectivityRepository, CONNECTIVITY_MEMBER_WINDOW_DAYS, type 
 export { GovernedEntityLinkProjector, GOVERNED_LINK_CLASSES, type GovernedLinkClassCount, type ProjectedLink } from './repositories/intelligence/governed-entity-links.repository';
 export type { SituationPorts, SituationPassReport } from './services/intelligence-fabric/situations';
 // Loop Intelligence Phase G: the Loop Briefing, stored in the person's own work_briefs.
-export { BriefingComposer, BRIEFING_RECORD_SCHEMA, BRIEFING_RULE_VERSION, readableOrganizationDomains, ruleBriefing } from './services/intelligence-fabric/briefing';
+export { BriefingComposer, BRIEFING_RECORD_SCHEMA, BRIEFING_RULE_VERSION, BRIEFING_MAX_AGE_MS, briefingFingerprint, readableOrganizationDomains, ruleBriefing } from './services/intelligence-fabric/briefing';
 export { expectedBriefingCoverage } from './services/intelligence-fabric/briefing';
 export type { BriefingArtifact, BriefingGap, BriefingLine, BriefingOutcome, BriefingPorts, ObservedDomains } from './services/intelligence-fabric/briefing';
 export type { IntelligencePassDeps, IntelligencePassReport } from './services/intelligence-fabric/intelligence-pass';

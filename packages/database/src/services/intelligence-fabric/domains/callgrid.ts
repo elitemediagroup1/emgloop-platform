@@ -65,6 +65,15 @@ export function callgridRule(ctx: CallsContext, now: Date): RuleReading {
   const limitations: string[] = [];
   signals.push({ key: 'calls', kind: 'OPERATIONAL', knowledge: 'MEASURED', statement: `${plural(c.calls, 'call')} in the last ${WINDOW_DAYS} days.`, evidenceRefs: [WINDOW_REF], metric: { name: 'calls', value: c.calls, unit: 'count' }, asOf });
   signals.push({ key: 'billable', kind: 'OPERATIONAL', knowledge: 'MEASURED', statement: `${plural(c.monetized, 'monetized call')}.`, evidenceRefs: [WINDOW_REF], metric: { name: 'monetized_calls', value: c.monetized, unit: 'count' }, asOf });
+  if (c.calls > 0) {
+    for (const [key, name, cents, covered] of [
+      ['payout', 'payouts', c.payoutCents, c.callsWithPayout],
+      ['telco', 'telco costs', c.costCents, c.callsWithCost],
+    ] as const) {
+      signals.push({ key: `reported-${key}`, kind: 'OPERATIONAL', knowledge: 'MEASURED', statement: covered > 0 ? `${money(cents)} reported ${name}; ${covered} of ${c.calls} calls have this field.` : `${name} are unknown: no calls have this field.`, evidenceRefs: [WINDOW_REF], metric: { name: `${key}_covered_calls`, value: covered, unit: 'count' }, asOf });
+    }
+    limitations.push('These are stored call amounts, not certification that source financial totals are reconciled.');
+  }
   if (c.callsWithRevenue > 0) {
     const partial = c.callsWithRevenue < c.calls;
     signals.push({ key: 'revenue', kind: 'OPERATIONAL', knowledge: 'MEASURED', statement: `${money(c.revenueCents)} reported revenue${partial ? ` on ${plural(c.callsWithRevenue, 'call')} that reported it (a lower bound)` : ''}.`, evidenceRefs: [WINDOW_REF], metric: { name: 'revenue', value: c.revenueCents, unit: 'minor_currency' }, asOf, confidence: partial ? 'MEDIUM' : 'HIGH' });
@@ -222,7 +231,7 @@ function callsSpec(calls: CallsPort, domain: 'CALLGRID' | 'CAMPAIGNS') {
   return {
     domain,
     scope: 'ORGANIZATION' as const,
-    version: '3',
+    version: '4',
     provider: null,
     consentBasis: 'LOOP_RECORDS' as const,
     async discover(now: Date) {

@@ -53,6 +53,7 @@ import { BRIEFING_TEMPLATE_ID, BRIEFING_TEMPLATE_VERSION, renderBriefingInstruct
 
 export const BRIEFING_RECORD_SCHEMA = 'loop-briefing.v1';
 export const BRIEFING_RULE_VERSION = 'loop-briefing-rule#1';
+export const BRIEFING_MAX_AGE_MS = 15 * 60 * 1000;
 const PERSONAL: readonly IntelligenceDomain[] = ['MAIL', 'CALENDAR', 'WORK'];
 const ADMIN_WORKSPACE_ROLES = ['OWNER', 'ADMIN', 'MANAGER'];
 
@@ -61,6 +62,8 @@ export interface BriefingArtifact {
   readonly domain: string;
   readonly title: string;
   readonly statement: string;
+  /** Human-readable fallback for structured model evidence. Never render a JSON evidence block. */
+  readonly displayStatement?: string;
   readonly status: 'CALM' | 'WATCH' | 'ATTENTION';
   readonly signals: readonly { readonly kind: string; readonly statement: string; readonly severity?: string; readonly entities?: readonly string[]; readonly owedBy?: string; readonly dueAt?: string; readonly metric?: { readonly value: number } }[];
   readonly basis: string;
@@ -145,7 +148,7 @@ function artifactOfDigest(d: IntelligenceDigestRecord, eligibility: Extract<Synt
   return {
     ref: `digest:${d.id}`,
     domain: d.domain,
-    title: d.scope === 'PRINCIPAL' ? `Your ${label.toLowerCase()}` : label,
+    title: d.scope === 'PRINCIPAL' ? `Your ${label.toLowerCase()}` : ['CALLGRID', 'CAMPAIGNS'].includes(d.domain) ? `${label} · rolling week` : label,
     statement,
     status: (d.content.reading?.status ?? 'CALM') as BriefingArtifact['status'],
     signals: rankDomainSignals(d.content.signals ?? []).slice(0, 6).map((s) => ({ kind: s.kind, statement: s.statement, ...(s.entities ? { entities: s.entities } : {}), ...(s.owedBy ? { owedBy: s.owedBy } : {}), ...(s.dueAt ? { dueAt: s.dueAt } : {}), ...(s.severity ? { severity: s.severity } : {}), ...(s.metric ? { metric: { value: s.metric.value } } : {}) })),
@@ -240,13 +243,13 @@ export function briefingAbsenceJustified(artifacts: readonly BriefingArtifact[],
  */
 export function ruleBriefing(artifacts: readonly BriefingArtifact[], gaps: readonly BriefingGap[] = []): { headline: string; lines: BriefingLine[]; limitations: string[] } {
   const rank = { ATTENTION: 0, WATCH: 1, CALM: 2 } as const;
-  const ordered = [...artifacts].sort((a, b) => rank[a.status] - rank[b.status] || a.ref.localeCompare(b.ref));
+  const ordered = [...artifacts].sort((a, b) => rank[a.status] - rank[b.status] || Number(b.ref === 'snapshot:callgrid') - Number(a.ref === 'snapshot:callgrid') || a.ref.localeCompare(b.ref));
   const lines: BriefingLine[] = ordered
     .filter((a) => a.status !== 'CALM')
     .slice(0, 6)
     .map((a) => ({
       kind: a.domain === 'SITUATION' ? 'WATCH' : a.status === 'ATTENTION' ? 'NEEDS_YOU' : 'WATCH',
-      statement: `${a.title}: ${a.statement}${a.coverage === 'CONNECTED_PARTIAL' ? ' (from a partial reading)' : ''}`.slice(0, 240),
+      statement: ruleBriefingStatement(a),
       citations: [a.ref],
     }));
   const attention = ordered.filter((a) => a.status === 'ATTENTION').length;
@@ -260,6 +263,30 @@ export function ruleBriefing(artifacts: readonly BriefingArtifact[], gaps: reado
           : 'Loop cannot say nothing is pressing today: part of what it reads for you is incomplete or not current.';
   const limitations = [...new Set([...artifacts.flatMap((a) => a.limitations), ...gapLimitations(gaps)])];
   return { headline, lines, limitations };
+}
+
+/** Select complete supplied sentences rather than cutting a claim or financial evidence mid-field. */
+function ruleBriefingStatement(a: BriefingArtifact): string {
+  const suffix = a.coverage === 'CONNECTED_PARTIAL' ? ' (from a partial reading)' : '';
+  const prefix = `${a.title}: `;
+  const budget = 240 - prefix.length - suffix.length;
+  let selected = '';
+  for (const text of [a.displayStatement ?? a.statement, ...a.signals.map((s) => s.statement)]) {
+    if (/^\s*[\[{]/.test(text)) continue;
+    const sentences = text.trim().split(/(?<=[.!?])\s+/).filter((s) => /[.!?]$/.test(s));
+    for (const sentence of sentences) {
+      const next = [selected, sentence.trim()].filter(Boolean).join(' ');
+      if (next.length > budget) break;
+      selected = next;
+    }
+    if (selected) break;
+  }
+  return `${prefix}${selected || 'See the source for detail.'}${suffix}`;
+}
+
+/** Shared by background composition and read-only surfaces: a stored conclusion must match its evidence. */
+export function briefingFingerprint(localDay: string, artifacts: readonly BriefingArtifact[], gaps: readonly BriefingGap[]): string {
+  return `briefing:${createHash('sha256').update(JSON.stringify([BRIEFING_TEMPLATE_VERSION, localDay, artifacts.map((a) => [a.ref, a.basis]), gaps.map((g) => [g.domain, g.coverage, g.reason ?? null])])).digest('hex')}`;
 }
 
 /** An absence conclusion in composed prose, refused unless the coverage justifies it. */
@@ -359,7 +386,7 @@ export class BriefingComposer {
     const localDate = new Date(`${localDay}T00:00:00.000Z`);
     const dayStart = startOfZonedDay(now, timeZone);
     const { artifacts, gaps } = await this.gather(principal, now);
-    const fingerprint = `briefing:${createHash('sha256').update(JSON.stringify([BRIEFING_TEMPLATE_VERSION, localDay, artifacts.map((a) => [a.ref, a.basis]), gaps.map((g) => [g.domain, g.coverage, g.reason ?? null])])).digest('hex')}`;
+    const fingerprint = briefingFingerprint(localDay, artifacts, gaps);
     const absenceOk = briefingAbsenceJustified(artifacts, gaps);
     const carried = [...new Set([...artifacts.flatMap((a) => a.limitations), ...gapLimitations(gaps)])];
     const briefs = new WorkBriefRepository(this.ports.prisma);
@@ -367,7 +394,7 @@ export class BriefingComposer {
     const storedCoverage = (stored?.coverage ?? {}) as { schema?: string; fingerprint?: string; composer?: string };
     const modelOn = !!this.ports.runtime && this.ports.modelEnabled(AI_TASK_LOOP_BRIEFING.taskId);
     // Reuse: same inputs, and not a rule Briefing that the now-activated model could improve on.
-    if (storedCoverage.schema === BRIEFING_RECORD_SCHEMA && storedCoverage.fingerprint === fingerprint && (storedCoverage.composer === 'MODEL' || !modelOn)) return { outcome: 'REUSED', version: stored!.version };
+    if (storedCoverage.schema === BRIEFING_RECORD_SCHEMA && storedCoverage.fingerprint === fingerprint && now.getTime() - stored!.generatedAt.getTime() < BRIEFING_MAX_AGE_MS && (storedCoverage.composer === 'MODEL' || !modelOn)) return { outcome: 'REUSED', version: stored!.version };
 
     let composed: {
       headline: string;
@@ -463,7 +490,7 @@ export class BriefingComposer {
         };
       }
     }
-    if (!composed) composed = { ...ruleBriefing(artifacts, gaps), composer: 'RULE' };
+    if (!composed) composed = { ...ruleBriefing(artifacts, gaps), composer: 'RULE', reason: modelOn ? 'NO_CURRENT_EVIDENCE' : 'MODEL_NOT_ACTIVATED' };
     if (artifacts.length === 0 && gaps.length === 0 && stored) return { outcome: 'NOTHING_TO_SAY' };
     const written = await briefs.write(principal, {
       localDate,

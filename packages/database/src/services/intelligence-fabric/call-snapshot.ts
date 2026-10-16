@@ -39,6 +39,9 @@ export function callQuestionArtifact(
     ref: 'snapshot:callgrid',
     domain: 'CALLGRID',
     title: 'CallGrid stored-call snapshot',
+    displayStatement: a.calls === 0
+      ? 'No calls are stored for this period; source completeness is unverified.'
+      : `${a.calls} stored calls, ${a.monetized} monetized.${a.callsWithRevenue > 0 ? ` Reported revenue is $${(a.revenueCents / 100).toFixed(2)}${a.callsWithRevenue < a.calls ? ' with incomplete revenue fields' : ''}.` : ' Revenue is unknown.'}`,
     statement: JSON.stringify({
       windowStart: since.toISOString(),
       windowEndExclusive: until.toISOString(),

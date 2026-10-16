@@ -151,6 +151,7 @@ test('Calendar context: every event carries the instants a signal may copy, and 
   const h = harness([]);
   const g = await h.producer.gather(TARGET, T0);
   // Reach the model stage's context the way the kit does.
+  assert.ok(g.status === 'READY');
   let seen: { items: { sourceRef: string; content: string }[]; evidence: { figures: Map<string, Set<number>>; dates: Set<string> } } | null = null;
   const probe = calendarDomainProducer(calendarFacts(() => EVENTS), {
     modelEnabled: () => true,
@@ -160,7 +161,7 @@ test('Calendar context: every event carries the instants a signal may copy, and 
   await probe.read(TARGET, (g as { context: never }).context, 'calendar:fp', T0);
   assert.ok(seen);
   const s = seen as NonNullable<typeof seen>;
-  assert.deepEqual(JSON.parse(s.items[0]!.content), { meetingsToday: 2, withOutsideAttendees: 1, overlappingPairs: 1, meetingsWithMailWaitingOnYou: 1, meetingsWithNoFollowUpSent: 0 });
+  assert.deepEqual(JSON.parse(s.items[0]!.content), { meetingsToday: 2, meetingsRemaining: 2, withOutsideAttendees: 1, overlappingPairs: 1, meetingsWithMailWaitingOnYou: 1, meetingsWithNoFollowUpSent: 0, asOf: T0.toISOString(), dayStart: g.context.windowStart.toISOString(), dayEndExclusive: g.context.windowEnd.toISOString() });
   assert.equal(s.items[0]!.sourceRef, 'work_events:day');
   const ev1 = JSON.parse(s.items.find((i) => i.sourceRef === 'work_event:ev1')!.content);
   assert.equal(ev1.starts, REVIEW_STARTS);
