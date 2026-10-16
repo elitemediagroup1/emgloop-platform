@@ -48,6 +48,7 @@ import { membershipAuthority } from '../../repositories/membership.repository';
 import { DigestSourceStateRepository } from '../../repositories/intelligence/digest-source-state.repository';
 import { IntelligenceDigestRepository, type IntelligenceDigestRecord } from '../../repositories/intelligence/intelligence-digest.repository';
 import { SituationRepository, type SituationView } from '../../repositories/intelligence/situation.repository';
+import { SourceContentAuthorizationRepository } from '../../repositories/source-content-authorization.repository';
 import { WorkBriefRepository } from '../../repositories/work-state/work-brief.repository';
 import type { AiPrincipal, AiRuntimeGateway } from '../ai-runtime/gateway';
 import { BRIEFING_TEMPLATE_ID, BRIEFING_TEMPLATE_VERSION, renderBriefingInstructions } from '../ai-runtime/templates/briefing';
@@ -348,6 +349,19 @@ export function fitBriefingArtifacts(artifacts: readonly BriefingArtifact[], gap
   return { artifacts: selected, gaps: omitted };
 }
 
+/** History permission is independent of freshness; references never become current model evidence. */
+export function historicalBriefingReferences(
+  candidates: readonly BriefingArtifact[],
+  rows: readonly Pick<IntelligenceDigestRecord, 'id' | 'provider' | 'status' | 'expiresAt'>[],
+  sources: ReadonlyMap<string, { readonly connectionLive: boolean }>,
+  now: Date,
+  mailAuthorized: boolean,
+): string[] {
+  return [...new Set([...candidates.filter((a) => !a.ref.startsWith('digest:')).map((a) => a.ref), ...rows
+    .filter((d) => d.status !== 'WITHDRAWN' && d.expiresAt > now && sources.get(d.id)?.connectionLive && (d.provider !== 'GMAIL' || mailAuthorized))
+    .map((d) => `digest:${d.id}`)])];
+}
+
 export class BriefingComposer {
   constructor(private readonly ports: BriefingPorts) {}
 
@@ -355,7 +369,7 @@ export class BriefingComposer {
    * The person's artifacts for today, and the readings Loop holds but may not use as current (gaps). A
    * digest contributes only when the synthesis-eligibility decision says it is legitimately current.
    */
-  async gather(principal: AiPrincipal, now: Date, includeCallSnapshot = true): Promise<{ artifacts: BriefingArtifact[]; gaps: BriefingGap[] }> {
+  async gather(principal: AiPrincipal, now: Date, includeCallSnapshot = true): Promise<{ artifacts: BriefingArtifact[]; gaps: BriefingGap[]; historicalRefs?: readonly string[] }> {
     const digests = new IntelligenceDigestRepository(this.ports.prisma);
     const own = await Promise.all(PERSONAL.map((d) => digests.current(principal, d, { now })));
     const chats = await digests.forDomain(principal, 'CHATS', { now, limit: 3 });
@@ -402,7 +416,14 @@ export class BriefingComposer {
       if (selected.length >= 24) { gaps.push({ domain: a.domain, coverage: 'CONNECTED_PARTIAL', reason: 'CONTEXT_LIMIT' }); continue; }
       selected.push(a);
     }
-    return fitBriefingArtifacts(selected, gaps, principal.organizationId);
+    // Historical display is a different decision from CURRENT synthesis. These rows remain in
+    // this viewer's scope, unwithdrawn and unexpired; source live state rechecks the connection
+    // (and Telegram content authorization). Revocation erases the provider digests. A pending
+    // refresh or newer evidence can make a reading stale without revoking access to its history.
+    const mailAuthorization = rows.some((d) => d.provider === 'GMAIL')
+      ? await new SourceContentAuthorizationRepository(this.ports.prisma).get(principal.organizationId, principal.userId, 'GMAIL') : null;
+    const historicalRefs = historicalBriefingReferences(candidates, rows, sources, now, mailAuthorization?.authorized === true);
+    return { ...fitBriefingArtifacts(selected, gaps, principal.organizationId), historicalRefs };
   }
 
   /** Compose (or reuse) today's Briefing for one person, in their own zone. */

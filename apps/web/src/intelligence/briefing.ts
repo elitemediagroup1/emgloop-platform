@@ -23,17 +23,38 @@ export interface StoredBriefing {
   readonly limitations: readonly string[];
   readonly generatedAt: Date;
   readonly refreshPending?: boolean;
+  /** Historical AI analysis, separately labelled; never substituted for current facts. */
+  readonly asOfSummary?: StoredBriefing;
 }
 
 const KINDS: readonly string[] = ['NEEDS_YOU', 'CHANGED', 'WATCH', 'AHEAD'];
 
-type BriefingRow = { headline: string | null; items: unknown; coverage: unknown; generatedAt: Date };
+type BriefingRow = { headline: string | null; items: unknown; coverage: unknown; generatedAt: Date; localDate?: Date };
 
-/** No model calls or writes: stale conclusions yield current, explicitly rule-based recorded facts. */
-export function currentBriefingOf(row: BriefingRow | null, localDay: string, artifacts: readonly BriefingArtifact[], gaps: readonly BriefingGap[], now: Date): StoredBriefing | null {
+/** A short historical view, only while every citation it displays remains in the authorized gather. */
+function recentModelOf(row: BriefingRow | null, localDay: string, artifacts: readonly BriefingArtifact[], now: Date, historicalRefs?: readonly string[]): StoredBriefing | undefined {
+  const model = storedBriefingOf(row);
+  if (!model || model.composer !== 'MODEL' || row?.localDate?.toISOString().slice(0, 10) !== localDay) return undefined;
+  const age = now.getTime() - model.generatedAt.getTime();
+  if (age < 0 || age >= 2 * BRIEFING_MAX_AGE_MS) return undefined;
+  const refs = new Set(historicalRefs ?? artifacts.map((a) => a.ref));
+  const items = Array.isArray(row.items) ? row.items : [];
+  const allowed = (value: unknown) => {
+    const citations = (value as { citations?: unknown } | null)?.citations;
+    return Array.isArray(citations) && citations.length > 0 && citations.every((c) => typeof c === 'string' && refs.has(c));
+  };
+  // Validation does not establish line-by-line information flow. If ANY original context has
+  // disappeared, hide the whole historical answer, including its headline and limitations.
+  const originalRefs = Object.keys((row.coverage as { refs?: Record<string, unknown> }).refs ?? {});
+  if (!originalRefs.length || !originalRefs.every((r) => refs.has(r)) || !items.length || !items.every(allowed)) return undefined;
+  return model;
+}
+
+/** No model calls or writes: current facts and timestamped earlier analysis remain distinct. */
+export function currentBriefingOf(row: BriefingRow | null, localDay: string, artifacts: readonly BriefingArtifact[], gaps: readonly BriefingGap[], now: Date, previousModel: BriefingRow | null = null, historicalRefs?: readonly string[]): StoredBriefing | null {
   const stored = storedBriefingOf(row);
   const fingerprint = (row?.coverage as { fingerprint?: unknown } | null)?.fingerprint;
-  if (stored && fingerprint === briefingFingerprint(localDay, artifacts, gaps) && now.getTime() >= stored.generatedAt.getTime() && now.getTime() - stored.generatedAt.getTime() < BRIEFING_MAX_AGE_MS) return stored;
+  if (stored && fingerprint === briefingFingerprint(localDay, artifacts, gaps) && now.getTime() >= stored.generatedAt.getTime() && now.getTime() - stored.generatedAt.getTime() < BRIEFING_MAX_AGE_MS) return stored.composer === 'MODEL' ? stored : { ...stored, asOfSummary: recentModelOf(previousModel, localDay, artifacts, now, historicalRefs) };
   if (!artifacts.length && !gaps.length) return null;
   const rule = ruleBriefing(artifacts, gaps);
   const domains = new Map(artifacts.map((a) => [a.ref, a.domain]));
@@ -41,6 +62,7 @@ export function currentBriefingOf(row: BriefingRow | null, localDay: string, art
     ...rule,
     lines: rule.lines.map((l) => ({ kind: l.kind, statement: l.statement, parts: [...new Set(l.citations.map((c) => domains.get(c)).filter((d): d is string => !!d))] })),
     composer: 'RULE',
+    asOfSummary: recentModelOf(stored?.composer === 'MODEL' ? row : previousModel, localDay, artifacts, now, historicalRefs),
     refreshPending: true,
     generatedAt: now,
     limitations: ['The AI briefing is awaiting a current reading. These are recorded facts, not an AI-composed summary.', ...rule.limitations],
@@ -72,6 +94,8 @@ export async function loadStoredBriefing(principal: { readonly organizationId: s
   const localDate = new Date(`${zonedCalendarDay(now, timeZone)}T00:00:00.000Z`);
   const row = await absentUntilMigrated(new WorkBriefRepository(prisma).forDate(principal, localDate, { schema: BRIEFING_RECORD_SCHEMA }));
   const composer = new BriefingComposer({ prisma, runtime: null, modelEnabled: () => false, now: () => now });
-  const { artifacts, gaps } = await composer.gather(principal, now);
-  return currentBriefingOf(row ?? null, zonedCalendarDay(now, timeZone), artifacts, gaps, now);
+  const { artifacts, gaps, historicalRefs } = await composer.gather(principal, now);
+  const previousModel = (row?.coverage as { composer?: unknown } | null)?.composer === 'MODEL' ? null :
+    await absentUntilMigrated(new WorkBriefRepository(prisma).forDate(principal, localDate, { schema: BRIEFING_RECORD_SCHEMA, composer: 'MODEL' }));
+  return currentBriefingOf(row ?? null, zonedCalendarDay(now, timeZone), artifacts, gaps, now, previousModel ?? null, historicalRefs);
 }

@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PARTIAL_COVERAGE_LIMITATION } from '@emgloop/shared';
 
-import { briefingAbsenceJustified, gapLimitations, ruleBriefing, type BriefingArtifact } from '../src/services/intelligence-fabric/briefing';
+import { briefingAbsenceJustified, gapLimitations, ruleBriefing, historicalBriefingReferences, type BriefingArtifact } from '../src/services/intelligence-fabric/briefing';
 
 const a = (ref: string, status: BriefingArtifact['status'], domain = 'WORK', coverage: BriefingArtifact['coverage'] = 'CONNECTED_SUFFICIENT'): BriefingArtifact => ({
   ref, domain, title: 'Your work', statement: `${ref} statement.`, status, signals: [], basis: ref, coverage,
@@ -55,4 +55,20 @@ test('fallback preserves complete sentences and decimal amounts and never expose
   const long = ruleBriefing([{ ...source, displayStatement: 'One complete sentence. ' + 'x'.repeat(400) + '.' }]).lines[0]!.statement;
   assert.equal(long, 'CallGrid: One complete sentence. (from a partial reading)');
   assert.ok(long.length <= 240);
+});
+
+
+test('historical references distinguish authorized stale sources from revoked, withdrawn and expired evidence', () => {
+  const now = new Date('2026-10-16T14:00:00Z');
+  const rows = [
+    { id: 'mail', provider: 'GMAIL' as const, status: 'STALE' as const, expiresAt: new Date('2026-11-01') },
+    { id: 'withdrawn', provider: null, status: 'WITHDRAWN' as const, expiresAt: new Date('2026-11-01') },
+    { id: 'expired', provider: null, status: 'CURRENT' as const, expiresAt: now },
+    { id: 'disconnected', provider: 'TELEGRAM' as const, status: 'CURRENT' as const, expiresAt: new Date('2026-11-01') },
+  ];
+  const sources = new Map(rows.map((r) => [r.id, { connectionLive: r.id !== 'disconnected' }]));
+  const candidates = [a('snapshot:callgrid', 'WATCH', 'CALLGRID'), a('digest:mail', 'ATTENTION', 'MAIL')];
+  assert.deepEqual(historicalBriefingReferences(candidates, rows, sources, now, true), ['snapshot:callgrid', 'digest:mail']);
+  assert.deepEqual(historicalBriefingReferences(candidates, rows, sources, now, false), ['snapshot:callgrid'], 'a candidate digest cannot bypass revoked Mail authorization');
+  assert.deepEqual(historicalBriefingReferences(candidates, rows, new Map(), now, true), ['snapshot:callgrid'], 'unknown source permission fails closed');
 });

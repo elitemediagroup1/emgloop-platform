@@ -74,6 +74,16 @@ function partLabel(part: string): string {
  * Says who composed it -- the governed model, or Loop's own deterministic Briefing.
  */
 export function StoredBriefingBody({ stored, time, offers }: { stored: StoredBriefing; time: TimeView; offers: (href: string) => boolean }) {
+  if (stored.asOfSummary) return (
+    <div data-briefing-as-of>
+      <p className="loop-front__prose-quiet">AI briefing as of <time dateTime={time.iso(stored.asOfSummary.generatedAt)}>{time.time(stored.asOfSummary.generatedAt)}</time>. New activity is reflected in the live metrics; this analysis is awaiting its next refresh.</p>
+      <StoredBriefingBody stored={stored.asOfSummary} time={time} offers={offers} />
+      <details className="loop-front__evidence" data-briefing-current-facts>
+        <summary>Current recorded facts</summary>
+        <StoredBriefingBody stored={{ ...stored, asOfSummary: undefined }} time={time} offers={offers} />
+      </details>
+    </div>
+  );
   return (
     <div className="loop-front__prose" data-briefing-stored={stored.composer}>
       {stored.refreshPending ? <p className="loop-front__prose-quiet">The AI summary is awaiting refresh. These are the current recorded facts.</p> : null}
