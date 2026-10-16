@@ -26,6 +26,7 @@ import {
   absenceJustified,
   aiNumbersInText,
   digestSynthesisEligibility,
+  estimateAiInputTokens,
   startOfZonedDay,
   zonedCalendarDay,
   zonedParts,
@@ -319,6 +320,34 @@ export function briefingContextOf(artifacts: readonly BriefingArtifact[], organi
   return { items, evidence };
 }
 
+/** Fit the exact gateway input, including instructions/schema and room for the one bounded repair. */
+export function fitBriefingArtifacts(artifacts: readonly BriefingArtifact[], gaps: readonly BriefingGap[], organizationId: string): { artifacts: BriefingArtifact[]; gaps: BriefingGap[] } {
+  const selected = [...artifacts];
+  const omitted = [...gaps];
+  const estimate = () => {
+    const { items } = briefingContextOf(selected, organizationId);
+    return estimateAiInputTokens([
+      renderBriefingInstructions(items.map((i) => i.sourceRef), { absenceJustified: briefingAbsenceJustified(selected, omitted), gaps: gapLimitations(omitted) }),
+      JSON.stringify(BRIEFING_SCHEMA),
+      ...items.flatMap((i) => [i.sourceRef, i.trust, i.content]),
+    ]);
+  };
+  // The reviewed loop-briefing cap is 10,000. Keep 500 tokens for validation-repair instructions.
+  while (selected.length && estimate() > 9500) {
+    const fixed = estimateAiInputTokens([
+      renderBriefingInstructions([], { absenceJustified: false, gaps: gapLimitations(omitted) }),
+      JSON.stringify(BRIEFING_SCHEMA),
+    ]);
+    const { items } = briefingContextOf(selected, organizationId);
+    const oversized = items.findIndex((i) => estimateAiInputTokens([i.sourceRef, i.trust, i.content]) > 9500 - fixed);
+    const baseline = selected.findIndex((a) => a.ref === 'snapshot:callgrid:baseline');
+    const index = oversized >= 0 ? oversized : baseline >= 0 ? baseline : selected.length - 1;
+    const removed = selected.splice(index, 1)[0]!;
+    if (!omitted.some((g) => g.domain === removed.domain && g.reason === 'CONTEXT_LIMIT')) omitted.push({ domain: removed.domain, coverage: 'CONNECTED_PARTIAL', reason: 'CONTEXT_LIMIT' });
+  }
+  return { artifacts: selected, gaps: omitted };
+}
+
 export class BriefingComposer {
   constructor(private readonly ports: BriefingPorts) {}
 
@@ -369,14 +398,11 @@ export class BriefingComposer {
     }
     const candidates = [...artifacts, ...[...mine, ...shared].slice(0, 5).map(artifactOfSituation)];
     const selected: BriefingArtifact[] = [];
-    let chars = 0;
     for (const a of candidates) {
-      const length = JSON.stringify({ part: a.title, reading: a.statement, signals: a.signals, coverage: a.coverage, limitations: a.limitations }).length;
-      if (selected.length >= 24 || chars + length > 24000) { gaps.push({ domain: a.domain, coverage: 'CONNECTED_PARTIAL', reason: 'CONTEXT_LIMIT' }); continue; }
-      chars += length;
+      if (selected.length >= 24) { gaps.push({ domain: a.domain, coverage: 'CONNECTED_PARTIAL', reason: 'CONTEXT_LIMIT' }); continue; }
       selected.push(a);
     }
-    return { artifacts: selected, gaps };
+    return fitBriefingArtifacts(selected, gaps, principal.organizationId);
   }
 
   /** Compose (or reuse) today's Briefing for one person, in their own zone. */
