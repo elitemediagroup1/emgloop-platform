@@ -74,6 +74,7 @@ jobs:
       STAGING_AI_ORG_ID: ${{ vars.CONNECTIONS_STAGING_AI_ORG_ID }}
       STAGING_AI_PROVIDERS: ${{ vars.CONNECTIONS_STAGING_AI_PROVIDERS }}
       STAGING_AI_TASKS: ${{ vars.CONNECTIONS_STAGING_AI_TASKS }}
+      STAGING_CALLGRID_ORGANIZATION: ${{ vars.CONNECTIONS_STAGING_CALLGRID_ORGANIZATION }}
       STAGING_INTELLIGENCE_PRODUCERS: ${{ vars.CONNECTIONS_STAGING_INTELLIGENCE_PRODUCERS }}
       STAGING_INTELLIGENCE_SITUATIONS: ${{ vars.CONNECTIONS_STAGING_INTELLIGENCE_SITUATIONS }}
       STAGING_INTELLIGENCE_BRIEFINGS: ${{ vars.CONNECTIONS_STAGING_INTELLIGENCE_BRIEFINGS }}
@@ -84,6 +85,7 @@ jobs:
       PRODUCTION_AI_ORG_ID: ${{ vars.CONNECTIONS_PRODUCTION_AI_ORG_ID }}
       PRODUCTION_AI_PROVIDERS: ${{ vars.CONNECTIONS_PRODUCTION_AI_PROVIDERS }}
       PRODUCTION_AI_TASKS: ${{ vars.CONNECTIONS_PRODUCTION_AI_TASKS }}
+      PRODUCTION_CALLGRID_ORGANIZATION: ${{ vars.CONNECTIONS_PRODUCTION_CALLGRID_ORGANIZATION }}
       PRODUCTION_INTELLIGENCE_PRODUCERS: ${{ vars.CONNECTIONS_PRODUCTION_INTELLIGENCE_PRODUCERS }}
       PRODUCTION_INTELLIGENCE_SITUATIONS: ${{ vars.CONNECTIONS_PRODUCTION_INTELLIGENCE_SITUATIONS }}
       PRODUCTION_INTELLIGENCE_BRIEFINGS: ${{ vars.CONNECTIONS_PRODUCTION_INTELLIGENCE_BRIEFINGS }}
@@ -160,6 +162,7 @@ jobs:
               ai_org_id="$(trim "$STAGING_AI_ORG_ID")"
               ai_providers="$(trim "$STAGING_AI_PROVIDERS")"
               ai_tasks="$(trim "$STAGING_AI_TASKS")"
+              callgrid_org="$(trim "$STAGING_CALLGRID_ORGANIZATION")"
               intel_producers="$(trim "$STAGING_INTELLIGENCE_PRODUCERS")"
               intel_situations="$(trim "$STAGING_INTELLIGENCE_SITUATIONS")"
               intel_briefings="$(trim "$STAGING_INTELLIGENCE_BRIEFINGS")"
@@ -173,6 +176,7 @@ jobs:
               ai_org_id="$(trim "$PRODUCTION_AI_ORG_ID")"
               ai_providers="$(trim "$PRODUCTION_AI_PROVIDERS")"
               ai_tasks="$(trim "$PRODUCTION_AI_TASKS")"
+              callgrid_org="$(trim "$PRODUCTION_CALLGRID_ORGANIZATION")"
               intel_producers="$(trim "$PRODUCTION_INTELLIGENCE_PRODUCERS")"
               intel_situations="$(trim "$PRODUCTION_INTELLIGENCE_SITUATIONS")"
               intel_briefings="$(trim "$PRODUCTION_INTELLIGENCE_BRIEFINGS")"
@@ -195,7 +199,7 @@ jobs:
               exit 1
             fi
           fi
-          for v in "$role" "$alert_email" "$ai_org_id" "$ai_providers" "$ai_tasks" "$intel_producers" "$intel_situations" "$intel_briefings" "$intel_acting"; do
+          for v in "$role" "$alert_email" "$ai_org_id" "$ai_providers" "$ai_tasks" "$intel_producers" "$intel_situations" "$intel_briefings" "$intel_acting" "$callgrid_org"; do
             if [[ "$v" =~ [[:space:]] ]]; then echo "Refusing: a ${STAGE} variable contains whitespace"; exit 1; fi
           done
           {
@@ -210,6 +214,7 @@ jobs:
             echo "INTEL_SITUATIONS=${intel_situations}"
             echo "INTEL_BRIEFINGS=${intel_briefings}"
             echo "INTEL_ACTING_USERS=${intel_acting}"
+            echo "CALLGRID_ORGANIZATION=${callgrid_org}"
           } >> "$GITHUB_ENV"
           # The same two values as step outputs, for the credentials action's inputs.
           {
@@ -252,13 +257,13 @@ jobs:
       # an empty aiProviders/aiTasks means the app's default (anthropic / telegram.content.triage).
       - name: Synthesize (creates nothing)
         working-directory: infra/connections
-        run: npx cdk synth --no-notices "$STACK_NAME" -c "stage=$STAGE" -c "productionAccount=$PRODUCTION_ACCOUNT" -c "alertEmail=$ALERT_EMAIL" -c "aiOrganizationId=$AI_ORG_ID" -c "aiProviders=$AI_PROVIDERS" -c "aiTasks=$AI_TASKS" -c "intelligenceProducers=$INTEL_PRODUCERS" -c "intelligenceSituations=$INTEL_SITUATIONS" -c "intelligenceBriefings=$INTEL_BRIEFINGS" -c "intelligenceActingUsers=$INTEL_ACTING_USERS"
+        run: npx cdk synth --no-notices "$STACK_NAME" -c "stage=$STAGE" -c "productionAccount=$PRODUCTION_ACCOUNT" -c "alertEmail=$ALERT_EMAIL" -c "aiOrganizationId=$AI_ORG_ID" -c "aiProviders=$AI_PROVIDERS" -c "aiTasks=$AI_TASKS" -c "intelligenceProducers=$INTEL_PRODUCERS" -c "intelligenceSituations=$INTEL_SITUATIONS" -c "intelligenceBriefings=$INTEL_BRIEFINGS" -c "intelligenceActingUsers=$INTEL_ACTING_USERS" -c "callgridOrganization=$CALLGRID_ORGANIZATION"
 
       - name: Diff
         working-directory: infra/connections
-        run: npx cdk diff --no-notices "$STACK_NAME" -c "stage=$STAGE" -c "productionAccount=$PRODUCTION_ACCOUNT" -c "alertEmail=$ALERT_EMAIL" -c "aiOrganizationId=$AI_ORG_ID" -c "aiProviders=$AI_PROVIDERS" -c "aiTasks=$AI_TASKS" -c "intelligenceProducers=$INTEL_PRODUCERS" -c "intelligenceSituations=$INTEL_SITUATIONS" -c "intelligenceBriefings=$INTEL_BRIEFINGS" -c "intelligenceActingUsers=$INTEL_ACTING_USERS"
+        run: npx cdk diff --no-notices "$STACK_NAME" -c "stage=$STAGE" -c "productionAccount=$PRODUCTION_ACCOUNT" -c "alertEmail=$ALERT_EMAIL" -c "aiOrganizationId=$AI_ORG_ID" -c "aiProviders=$AI_PROVIDERS" -c "aiTasks=$AI_TASKS" -c "intelligenceProducers=$INTEL_PRODUCERS" -c "intelligenceSituations=$INTEL_SITUATIONS" -c "intelligenceBriefings=$INTEL_BRIEFINGS" -c "intelligenceActingUsers=$INTEL_ACTING_USERS" -c "callgridOrganization=$CALLGRID_ORGANIZATION"
 
       - name: Deploy
         if: ${{ inputs.action == 'deploy' }}
         working-directory: infra/connections
-        run: npx cdk deploy --no-notices --require-approval never "$STACK_NAME" -c "stage=$STAGE" -c "productionAccount=$PRODUCTION_ACCOUNT" -c "alertEmail=$ALERT_EMAIL" -c "aiOrganizationId=$AI_ORG_ID" -c "aiProviders=$AI_PROVIDERS" -c "aiTasks=$AI_TASKS" -c "intelligenceProducers=$INTEL_PRODUCERS" -c "intelligenceSituations=$INTEL_SITUATIONS" -c "intelligenceBriefings=$INTEL_BRIEFINGS" -c "intelligenceActingUsers=$INTEL_ACTING_USERS"
+        run: npx cdk deploy --no-notices --require-approval never "$STACK_NAME" -c "stage=$STAGE" -c "productionAccount=$PRODUCTION_ACCOUNT" -c "alertEmail=$ALERT_EMAIL" -c "aiOrganizationId=$AI_ORG_ID" -c "aiProviders=$AI_PROVIDERS" -c "aiTasks=$AI_TASKS" -c "intelligenceProducers=$INTEL_PRODUCERS" -c "intelligenceSituations=$INTEL_SITUATIONS" -c "intelligenceBriefings=$INTEL_BRIEFINGS" -c "intelligenceActingUsers=$INTEL_ACTING_USERS" -c "callgridOrganization=$CALLGRID_ORGANIZATION"

@@ -1,3 +1,4 @@
+import { StoredDataRefresh } from '../../../../time/StoredDataRefresh';
 import { CallGridCoverage } from '../../../../crm/CallGridCoverage';
 // The CallGrid command center's chrome and charts — one shell for every section.
 //
@@ -8,7 +9,7 @@ import { CallGridCoverage } from '../../../../crm/CallGridCoverage';
 // compress (loop-os.css) so the health line and the first priority are on the
 // first screen; the KPIs are never dropped.
 //
-// Server components only. The period controls are links and a GET form, so they
+// Server-rendered views with a small stored-data refresh leaf. The period controls are links and a GET form, so they
 // work without JavaScript and keep every section on the same period. Charts are
 // plain SVG drawn from the measured series, with a null point left as a gap —
 // never drawn as zero.
@@ -359,6 +360,7 @@ export function CommandShell({
   const coverageNote = executive ? null : ctx.coverage.note;
   return (
     <div className="loop-os">
+      {active !== 'overview' && active !== 'intelligence' ? <StoredDataRefresh /> : null}
       <div className="cmd cg-page cgx">
         <header className="cgx-head">
           <div className="cgx-head__main">

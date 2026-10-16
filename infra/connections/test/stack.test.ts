@@ -15,7 +15,7 @@ import * as ecs from 'aws-cdk-lib/aws-ecs';
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { aiProvidersFromContext, aiTasksFromContext, buildConnectionsApp, DEFAULT_MEDIA_ORIGINS, intelligenceFromContext, mediaOriginsFromContext } from '../lib/app';
+import { aiProvidersFromContext, aiTasksFromContext, buildConnectionsApp, callgridOrganizationFromContext, DEFAULT_MEDIA_ORIGINS, intelligenceFromContext, mediaOriginsFromContext } from '../lib/app';
 import { connectionSecretNames, MEDIA_KEY_PREFIX, MEDIA_SIGN_PATH } from '../lib/connections-stack';
 import { assertTargetCredentials, CONNECTIONS_STAGING_TARGET, WrongTargetError } from '../lib/target';
 import { stubAssets } from './assets';
@@ -635,4 +635,22 @@ test('Loop Intelligence: a malformed setting fails synth rather than half-config
   assert.throws(() => intelligenceFromContext({ briefings: 'true' }), /exactly "on"/);
   assert.throws(() => intelligenceFromContext({ actingUsers: 'org_1' }), /orgId=userId/);
   assert.deepEqual(intelligenceFromContext({}), {});
+});
+
+
+test('CallGrid is inert by default; explicit activation injects one stage-scoped secret into the existing worker', () => {
+  const off = Template.fromStack(synthStack().stack).toJSON();
+  assert.ok(!JSON.stringify(off).includes('CALLGRID_API_KEY'));
+  assert.equal(callgridOrganizationFromContext(undefined), undefined);
+  assert.throws(() => callgridOrganizationFromContext('org,other'), /Invalid callgridOrganization/);
+  const on = Template.fromStack(synthStack({ callgridOrganization: 'our-org' }).stack);
+  on.hasResourceProperties('AWS::ECS::TaskDefinition', {
+    ContainerDefinitions: Match.arrayWith([Match.objectLike({
+      Environment: Match.arrayWith([{ Name: 'LOOP_CALLGRID_ORGANIZATION', Value: 'our-org' }]),
+      Secrets: Match.arrayWith([Match.objectLike({ Name: 'CALLGRID_API_KEY' })]),
+    })]),
+  });
+  assert.match(JSON.stringify(on.toJSON()), /loop\/connections\/staging\/callgrid/);
+  assert.match(JSON.stringify(on.toJSON()), /api_key/);
+  on.resourceCountIs('AWS::ECS::Service', 1);
 });

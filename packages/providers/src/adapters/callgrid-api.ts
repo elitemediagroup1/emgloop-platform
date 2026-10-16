@@ -498,6 +498,7 @@ export async function fetchCallGridCallsPage(
                             Authorization: 'Bearer ' + options.apiKey,
                             Accept: 'application/json',
                   },
+                  signal: AbortSignal.timeout(20_000),
           });
     } catch (err) {
           throw new CallGridApiError(
@@ -514,7 +515,7 @@ export async function fetchCallGridCallsPage(
                   'CallGrid API returned ' + res.status,
                   res.status,
                   'http-status',
-                  res.headers?.get?.('retry-after') ?? null,
+                  res.headers?.get?.('retry-after') ?? (res.status === 429 ? res.headers?.get?.('ratelimit-reset') : null) ?? null,
                 );
     }
     let body: unknown;
