@@ -770,8 +770,8 @@ describe('both Homes compose the same briefing from the page’s reads, and load
     for (const forbidden of ['loadNeedsYou', 'loadYourDay', 'loadMailDashboard', 'prisma', 'repositories', 'loadDashboard', 'PulsePanel']) assert.equal(home.includes(forbidden), false, forbidden);
     assert.match(body, /composeBriefing\(\{[\s\S]*?headlines: review\?\.headlines \?\? null,[\s\S]*?needsYou,/);
     assert.match(body, /callgrid,[\s\S]*?headlinesPanel: showHeadlines,/, 'the projected command context in, the aggregate Headlines row out');
-    // One briefing beside priorities; calendar and objectives next; tools before expandable activity.
-    assert.match(body, /<KpiStrip[\s\S]*<div className="loop-front__focus">[\s\S]*<BriefingCard[\s\S]*<NeedsAttention[\s\S]*<div className="loop-front__pair">[\s\S]*<YourDayCard[\s\S]*showAttention=\{false\}[\s\S]*<HeadlinesPanel[\s\S]*<ToolsGrid[\s\S]*<RecentActivityPanel/, 'the visual priority order');
+    // One briefing containing priorities; business Headlines before calendar and objectives.
+    assert.match(body, /<KpiStrip[\s\S]*<BriefingCard[\s\S]*<NeedsAttention[\s\S]*<\/BriefingCard>[\s\S]*<BusinessHeadlinesCard[\s\S]*<div className="loop-front__pair">[\s\S]*<YourDayCard[\s\S]*showAttention=\{false\}[\s\S]*<HeadlinesPanel[\s\S]*<ToolsGrid[\s\S]*<RecentActivityPanel/, 'the visual priority order');
     assert.equal((body.match(/<NeedsAttention /g) ?? []).length, 1, 'one priority list');
     assert.match(body, /const narrative = briefingNarrative\(\{/, 'the briefing is the narrative, a distinct synthesis');
     assert.match(body, /const auditHref = navOffers\(groups, AUDIT_PATH\) \? AUDIT_PATH : null;/, 'Home links to the audit log only where the rail would');

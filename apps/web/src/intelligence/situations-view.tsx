@@ -64,6 +64,15 @@ export function SituationsPanel({ read, time, caseHref }: { read: SituationsRead
     <section className="loop-panel" aria-label="Situations" data-situations>
       <h2 className="loop-panel__title">Situations</h2>
       <p className="loop-panel__lead">Where Loop found signals from different parts of the business about the same records at the same time.</p>
+      <SituationEntries read={read} time={time} caseHref={caseHref} />
+    </section>
+  );
+}
+
+/** Reuse the same authorized situation entries inside the business Headlines tile. */
+export function SituationEntries({ read, time, caseHref }: { read: SituationsRead; time: TimeView; caseHref: ((id: string) => string) | null }) {
+  const org = read.organization ?? [];
+  return (
       <ul className="loop-chats__list">
         {read.personal.map((s) => (
           <SituationEntry key={s.id} s={s} time={time} href={null} />
@@ -72,7 +81,6 @@ export function SituationsPanel({ read, time, caseHref }: { read: SituationsRead
           <SituationEntry key={s.id} s={s} time={time} href={caseHref ? caseHref(s.id) : null} />
         ))}
       </ul>
-    </section>
   );
 }
 

@@ -65,7 +65,7 @@ test('reads are scoped by the session: private as the viewer, organization only 
 
 test('both Home seats and the Headlines workspace render situations from the one loader', () => {
   assert.match(src('app', 'app', '_home', 'front-door-data.ts'), /loadSituations\(session\)/);
-  assert.match(src('app', 'app', '_home', 'admin-home.tsx'), /<SituationsPanel read=\{front\.situations\}/);
+  assert.match(src('app', 'app', '_home', 'admin-home.tsx'), /<BusinessHeadlinesCard[^>]*situations=\{front\.situations\}/);
   assert.match(src('app', 'app', '_home', 'module-home.tsx'), /<SituationsPanel read=\{front\.situations\} time=\{time\} caseHref=\{null\}/);
   assert.match(src('app', 'app', 'admin', 'headlines', 'page.tsx'), /loadSituations\(session\)/);
 });

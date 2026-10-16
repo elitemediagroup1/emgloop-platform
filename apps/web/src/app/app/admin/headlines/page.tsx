@@ -1,5 +1,6 @@
-// Headlines — the canonical Headline workspace, and the one screen that must
-// never lie.
+// Headlines leads with the viewer’s authorized model business readings and connected situations.
+// Measured objective signals follow with their existing lifecycle and coverage authority.
+// The objective workspace below must never imply organization-wide coverage.
 //
 // EVERY HEADLINE LIVES HERE, current and historical, and becomes actionable
 // here. One list, three sections, sorted by a PROJECTION over two authorities
@@ -86,8 +87,7 @@ import { requireWorkspace } from '../../../../workspaces/guard';
 import { viewerTime } from '../../../../time/viewer-time';
 import { loadSituations } from '../../../../intelligence/situations';
 import { loadStoredBriefing } from '../../../../intelligence/briefing';
-import { StoredBriefingBody } from '../../_home/briefing-view';
-import { SituationsPanel } from '../../../../intelligence/situations-view';
+import { BusinessHeadlinesCard } from '../../_home/front-door-view';
 
 export const dynamic = 'force-dynamic';
 
@@ -151,10 +151,7 @@ export default async function HeadlinesPage({
         <p className="hl-flash hl-flash--error" role="alert">{searchParams.error}</p>
       ) : null}
 
-      <section className="loop-panel" aria-label="Your business briefing">
-        <h2 className="loop-panel__title">Business headlines</h2>
-        {briefing ? <StoredBriefingBody stored={briefing} time={time} offers={() => false} /> : <p>Loop has not composed your briefing for today yet. The measured objective coverage below is separate from your business briefing.</p>}
-      </section>
+      <BusinessHeadlinesCard stored={briefing} situations={situations} time={time} offers={() => false} />
       {!result.ok ? (
         <ReadError what={result.what} retryHref="/app/admin/headlines" />
       ) : (
@@ -162,13 +159,6 @@ export default async function HeadlinesPage({
           <h2 className="loop-panel__title">Measured objective signals</h2>
           <p>Coverage below applies to configured objectives, not every connected source or the whole business.</p>
           <AttentionBanner attention={result.value.attention} />
-
-          {/* Loop Intelligence Phase F: connected situations are Cases too. The measured Headlines below stay
-              the evidence of measured movement; situations are read only by those who may read every
-              domain each one cites. */}
-          {situations?.organization && situations.organization.length > 0 ? (
-            <SituationsPanel read={{ personal: [], organization: situations.organization }} time={time} caseHref={(id) => `/app/admin/cases/${id}`} />
-          ) : null}
 
           {objectiveId ? <ObjectiveScope objective={objective} show={show} /> : null}
 

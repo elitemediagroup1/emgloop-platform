@@ -10,7 +10,10 @@ import type { HeadlineStanding } from './front-door-data';
 import type { HomeKpiStrip } from './kpis';
 import type { HomeTile } from './tiles';
 import type { Settled } from './settle';
-import { SourceUnavailable } from './briefing-view';
+import { SourceUnavailable, StoredBriefingBody } from './briefing-view';
+import type { StoredBriefing } from '../../../intelligence/briefing';
+import type { SituationsRead } from '../../../intelligence/situations';
+import { SituationEntries } from '../../../intelligence/situations-view';
 
 // Loop Home's front door, drawn (2026-09-24; the composition correction, 2026-09-24): the executive
 // KPI row, the Headlines section, recent activity, and the tools & spaces grid. Server components over the pure projections (kpis.ts,
@@ -100,6 +103,34 @@ export function KpiStrip({ strip }: { strip: Settled<HomeKpiStrip> | null }) {
 
 // --- Headlines -----------------------------------------------------------------------------------------
 
+/** Business Headlines are existing model readings, never objective alerts or new UI inferences. */
+export function BusinessHeadlinesCard({ stored, situations, time, offers, compact = false, href = null }: {
+  stored: StoredBriefing | null; situations: SituationsRead | null; time: TimeView;
+  offers: (href: string) => boolean; compact?: boolean; href?: string | null;
+}) {
+  const candidate = stored?.composer === 'MODEL' ? stored : stored?.asOfSummary;
+  const model = candidate?.composer === 'MODEL' ? candidate : null;
+  const hasDevelopments = model?.lines.some((l) => l.kind === 'CHANGED' || l.kind === 'WATCH') === true;
+  const hasConnections = !!situations && situations.personal.length + (situations.organization?.length ?? 0) > 0;
+  return (
+    <section className="loop-panel loop-front__business-headlines" aria-label="Headlines" id="headlines">
+      <div className="loop-brief__head">
+        <h2 className="loop-panel__title">Headlines</h2>
+        {href ? <Link className="loop-link loop-brief__more" href={href}>View all Headlines →</Link> : null}
+      </div>
+      <p className="loop-front__prose-quiet">What Loop connects across your business, and what those signals may mean.</p>
+      {hasConnections && situations ? <div className="loop-front__connections"><h3>Connected signals</h3><SituationEntries read={situations} time={time} caseHref={(id) => `/app/admin/cases/${id}`} /></div> : null}
+      {hasDevelopments && model ? (
+        <>
+          <p className="loop-front__prose-quiet">AI reading as of <time dateTime={time.iso(model.generatedAt)}>{time.time(model.generatedAt)}</time>. Live metrics may be newer.</p>
+          {hasConnections ? <h3 className="loop-brief__subhead">Other developments</h3> : null}
+          <StoredBriefingBody stored={model} time={time} offers={offers} compact={compact} purpose="business" showHeadline={false} />
+        </>
+      ) : !hasConnections ? <p className="loop-front__prose-quiet" data-headlines-ai-pending>Loop has not published a current AI headline reading. Your recorded daily priorities and live metrics remain available.</p> : null}
+    </section>
+  );
+}
+
 export const HEADLINES_ON_HOME = 4;
 
 /**
@@ -127,7 +158,7 @@ export function HeadlinesPanel({
   const shown = (headlines ?? []).slice(0, HEADLINES_ON_HOME);
   const more = (headlines?.length ?? 0) - shown.length;
   return (
-    <section className="loop-front__headlines" aria-label="Headlines" id="headlines">
+    <section className="loop-front__headlines" aria-label="Objective signals" id="objective-signals">
       <div className="loop-brief__head">
         <h2 className="loop-panel__title">Objective signals</h2>
         {headlines && headlines.length > 0 ? <span className="loop-brief__sub">{counted(headlines.length, 'open Headline', 'open Headlines')}</span> : null}

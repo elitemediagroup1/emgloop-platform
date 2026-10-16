@@ -317,7 +317,7 @@ describe('Headlines on Home are the Headline authority’s own rows, drawn as ca
   it('each card: what Loop identified, why it matters, the evidence, where it stands, and the Headline’s own link; capped at four', () => {
     const rows = [headline(), headline({ id: 'h2', statement: 'Solar leads in Arizona: 40 this week vs 22 last week (+82%)', measurement: { ...headline().measurement, againstObjective: false, currentCoverage: null }, detectionCount: 1 })];
     const out = html(<HeadlinesPanel headlines={rows} attention={attention('NEEDS_ATTENTION')} standings={standings([['h1', { situation: 'UNDER_INVESTIGATION', caseId: 'c1' }], ['h2', { situation: 'NEW', caseId: null }]])} time={time} href="/app/admin/headlines" />);
-    assert.match(out, /<section class="loop-front__headlines" aria-label="Headlines" id="headlines">/);
+    assert.match(out, /<section class="loop-front__headlines" aria-label="Objective signals" id="objective-signals">/);
     assert.match(out, /href="\/app\/admin\/headlines"[^>]*>View all Headlines →/);
     assert.match(out, /<ul class="loop-front__hlgrid"><li class="loop-front__hl" data-home-headline="h1" data-home-headline-situation="UNDER_INVESTIGATION">/);
     assert.match(out, /href="\/app\/admin\/headlines\/h1">Roofing lead revenue in Texas: \$4,180 this week vs \$6,940 last week \(−40%\)</);
