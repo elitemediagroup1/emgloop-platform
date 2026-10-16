@@ -308,15 +308,10 @@ export function briefingContextOf(artifacts: readonly BriefingArtifact[], organi
     readUnder: read,
   }));
   const figures = new Map<string, Set<number>>();
-  for (const a of artifacts) {
-    const set = new Set<number>(aiNumbersInText(a.statement));
-    for (const s of a.signals) {
-      for (const n of aiNumbersInText(s.statement)) set.add(n);
-      if (s.metric) set.add(s.metric.value);
-    }
-    figures.set(a.ref, set);
-  }
-  const dates = new Set(artifacts.flatMap((a) => [...JSON.stringify(a).matchAll(/\b\d{4}-\d{2}-\d{2}(?!\d)/g)].map((m) => m[0])));
+  // Ground against exactly the minimized artifact sent to the provider, including its title,
+  // limitations and metrics. Internal basis/identity metadata is not model evidence.
+  for (const item of items) figures.set(item.sourceRef, new Set(aiNumbersInText(item.content)));
+  const dates = new Set(items.flatMap((item) => [...item.content.matchAll(/\b\d{4}-\d{2}-\d{2}(?!\d)/g)].map((m) => m[0])));
   const evidence: AiSupportedEvidence = { figures, dates };
   return { items, evidence };
 }

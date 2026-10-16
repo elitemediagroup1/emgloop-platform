@@ -87,7 +87,7 @@ test('the prompt supplies every size limit enforced by the briefing contract', (
   assert.match(prompt, new RegExp(`${BRIEFING_LIMITS.maxLineChars} characters`));
   assert.match(prompt, new RegExp(`at most ${BRIEFING_LIMITS.maxLimitations} limitations`));
   assert.match(prompt, /Do not calculate/);
-  assert.equal(BRIEFING_TEMPLATE_VERSION, '5');
+  assert.equal(BRIEFING_TEMPLATE_VERSION, '6');
 });
 
 test('unchanged evidence is reusable briefly but a new scheduled reading is required after fifteen minutes', async (t) => {
