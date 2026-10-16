@@ -1,5 +1,7 @@
 # Headlines publication repair
 
+Current scope note: draft #405 has been expanded beyond the original web-only reader fix below. It now includes connected business insights and tenant-scoped public-news metadata storage. Its current deployment requires a reviewed migration plus web and worker deployments. Follow [Business Headlines](../runbooks/business-headlines.md) for current activation and limitations; the web-only instructions below document the earlier isolated reader correction.
+
 ## Verified failure
 
 Matt's Oct 16 screenshot shows the pending state, not a business headline. Main a35f346 is #403. The Headlines component explicitly passed showHeadline=false and refused the entire model reading when its lines contained only NEEDS_YOU/AHEAD. This could hide a real model headline independently of generation.
