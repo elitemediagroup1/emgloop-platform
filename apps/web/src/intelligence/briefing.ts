@@ -90,7 +90,9 @@ export function storedBriefingOf(row: { headline: string | null; items: unknown;
 }
 
 /** Today's stored Briefing for this person, in their own zone, or null. */
-export async function loadStoredBriefing(principal: { readonly organizationId: string; readonly userId: string }, timeZone: string, now: Date): Promise<StoredBriefing | null> {
+export async function loadStoredBriefing({ organizationId, userId }: { readonly organizationId: string; readonly userId: string }, timeZone: string, now: Date): Promise<StoredBriefing | null> {
+  // Callers may pass an AuthSession structurally. Only identity belongs in repository filters.
+  const principal = { organizationId, userId };
   const localDate = new Date(`${zonedCalendarDay(now, timeZone)}T00:00:00.000Z`);
   const row = await absentUntilMigrated(new WorkBriefRepository(prisma).forDate(principal, localDate, { schema: BRIEFING_RECORD_SCHEMA }));
   const composer = new BriefingComposer({ prisma, runtime: null, modelEnabled: () => false, now: () => now });

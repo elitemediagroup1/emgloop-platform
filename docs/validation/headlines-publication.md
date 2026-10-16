@@ -29,3 +29,12 @@ Rollback budget allocation by recording preset initial through the same workflow
 ## Validation
 
 168 focused Home, Headlines, briefing recovery/input/scheduler, contract, capacity and operation-workflow tests pass. Web app/test, database and shared typechecks pass. Production build passes (96 pages); diff check passes. Lint exits at the pre-existing missing ESLint configuration prompt. No migration or dependency change. Corrected deployed generation and mobile visual verification remain pending.
+
+
+## Production recovery and full-page reader follow-up
+
+After #404 merged, the budget read directly showed operating.synthesis.1 version 2, recorded at 18:14 Eastern. CloudWatch at 22:17:19 UTC recorded COMPOSED:3. Home showed the 18:17 model headline and its original weekly/daily periods. The full Headlines page still displayed pending at the same verification stage.
+
+Source review identifies a reader-boundary defect: Headlines passes AuthSession structurally, then expectedBriefingCoverage uses principal directly/spread in Prisma where filters. Email/name/role fields survive into those filters. The page catches the reader error as null. Narrow loadStoredBriefing at entry to precisely the signed organization/user pair. Test the full-session call, strict arguments to both repository and gather, and successful model rendering data. This preserves all existing permission, revocation, historical citation and freshness gates. No worker redeploy or new budget record is necessary for this follow-up. Netlify web deploy and direct full-page verification are required after review/merge.
+
+Follow-up validation: 58 focused current-briefing/source-guard/Headlines tests, web app/test typechecks, production build (96 pages) and diff check pass. Lint exits at the existing missing ESLint configuration prompt. Production ledger subsequently showed 117 runs/68 answered/49 invalid in 24h, exactly three additional answered runs over the previous 114/65/49 reading; latest route Anthropic / claude-opus-5. This confirms generation recovery independently of green infrastructure actions. Full-page deployed verification still awaits the reader fix.

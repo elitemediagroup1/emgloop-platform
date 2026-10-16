@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { briefingFingerprint, BRIEFING_MAX_AGE_MS, type BriefingArtifact } from '@emgloop/database';
+import { BriefingComposer, WorkBriefRepository, briefingFingerprint, BRIEFING_MAX_AGE_MS, type BriefingArtifact } from '@emgloop/database';
 import { createTimeView, resolveDisplayTimeZone } from '@emgloop/shared';
-import { currentBriefingOf } from '../src/intelligence/briefing';
+import { currentBriefingOf, loadStoredBriefing } from '../src/intelligence/briefing';
 import { BusinessHeadlinesCard } from '../src/app/app/_home/front-door-view';
 import { StoredBriefingBody } from '../src/app/app/_home/briefing-view';
 
@@ -146,4 +146,24 @@ test('Headlines renders the actual model headline even when its lines are daily 
   assert.match(html, /The capacity conversation overlaps with rising call volume/);
   assert.match(html, /The relationship is unconfirmed/);
   assert.doesNotMatch(html, /data-headlines-ai-pending|The buyer is waiting/);
+});
+
+
+test('a full login session is narrowed to the signed principal before any briefing query or gather', async (t) => {
+  const expected = { organizationId: 'signed-org', userId: 'signed-user' };
+  const session = { ...expected, email: 'viewer@example.test', name: 'Viewer', systemRole: 'OWNER', roleLabel: 'Owner' };
+  let reads = 0;
+  t.mock.method(WorkBriefRepository.prototype, 'forDate', async (principal: typeof expected) => {
+    assert.deepEqual(principal, expected);
+    reads += 1;
+    return row as never;
+  });
+  t.mock.method(BriefingComposer.prototype, 'gather', async (principal: typeof expected) => {
+    assert.deepEqual(principal, expected);
+    return { artifacts: [a], gaps: [] };
+  });
+  const reading = await loadStoredBriefing(session, 'America/New_York', now);
+  assert.equal(reads, 1);
+  assert.equal(reading?.composer, 'MODEL');
+  assert.equal(reading?.headline, row.headline);
 });
