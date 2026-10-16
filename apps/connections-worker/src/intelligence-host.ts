@@ -93,6 +93,7 @@ export async function createIntelligenceHost(
     organization: [...new Set(active.filter((p) => p.scope === 'ORGANIZATION').map((p) => p.domain))],
   };
   const briefings = new db.BriefingComposer({ prisma, runtime: ai.runtime ? (ai.runtime as ConstructorParameters<typeof db.DomainReadingService>[0]) : null, modelEnabled, now, observed });
+  log('intelligence_briefing_config', { enabled: config.briefings, modelTaskEnabled: modelEnabled('loop.briefing.compose') });
   const queue = new db.IntelligenceRefreshQueueRepository(prisma);
   const digests = new db.IntelligenceDigestRepository(prisma);
   let running = false;
@@ -107,11 +108,11 @@ export async function createIntelligenceHost(
         const report = await db.runIntelligencePass(
           { registry, queue, digests, leaseOwner: `connections-worker:${process.pid}`, now },
           { limit: 25, leaseMs: 5 * 60 * 1000, maxAttempts: 4, discoverLimit: 200 },
-        );
+        ).catch(() => { log('intelligence_producer_error', { stage: 'PRODUCERS' }); return null; });
         const situationTally: Record<string, number> = {};
-        if (config.situations.length > 0) await situationOwners.purgeStaleCandidates(now());
+        if (config.situations.length > 0) await situationOwners.purgeStaleCandidates(now()).catch(() => { situationTally.ERROR = (situationTally.ERROR ?? 0) + 1; });
         for (const scope of config.situations) {
-          for (const owner of await situationOwners.owners(scope, now(), 100)) {
+          for (const owner of await situationOwners.owners(scope, now(), 100).catch(() => { situationTally[`${scope}:ERROR`] = (situationTally[`${scope}:ERROR`] ?? 0) + 1; return []; })) {
             const r = await situations.pass(owner).catch(() => null);
             const k = r ? `${scope}:${r.state}` : `${scope}:ERROR`;
             situationTally[k] = (situationTally[k] ?? 0) + 1;
@@ -123,11 +124,17 @@ export async function createIntelligenceHost(
         const briefingTally: Record<string, number> = {};
         if (config.briefings) {
           for (const p of await briefings.people(now(), 200)) {
-            const r = await briefings.compose({ organizationId: p.organizationId, userId: p.userId }, p.timeZone).catch(() => ({ outcome: 'ERROR' }));
-            briefingTally[r.outcome] = (briefingTally[r.outcome] ?? 0) + 1;
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 45_000);
+            try {
+              const bounded = new db.BriefingComposer({ prisma, runtime: ai.runtime ? (ai.runtime as ConstructorParameters<typeof db.DomainReadingService>[0]) : null, modelEnabled, now, observed, signal: controller.signal });
+              const r = await bounded.compose({ organizationId: p.organizationId, userId: p.userId }, p.timeZone).catch(() => ({ outcome: 'ERROR' as const }));
+              briefingTally[r.outcome] = (briefingTally[r.outcome] ?? 0) + 1;
+              if ('reason' in r && r.reason) log('intelligence_briefing_stage', { outcome: r.outcome, reason: r.reason });
+            } finally { clearTimeout(timer); }
           }
         }
-        log('intelligence_pass', { situations: situationTally, briefings: briefingTally, active: report.activeProducers, discovered: report.discovered, enqueued: report.enqueued, refused: report.refused, discoveryFailures: report.discoveryFailures, ...(report.cycle ? { claimed: report.cycle.claimed, written: report.cycle.written, unchanged: report.cycle.unchanged, skipped: report.cycle.skippedUnchangedBeforeRead, retried: report.cycle.retried, held: report.cycle.held, modelStages: report.cycle.modelStages } : {}) });
+        log('intelligence_pass', { situations: situationTally, briefings: briefingTally, active: report?.activeProducers ?? 0, discovered: report?.discovered ?? 0, enqueued: report?.enqueued ?? 0, refused: report?.refused ?? {}, discoveryFailures: report?.discoveryFailures ?? 0, ...(report?.cycle ? { claimed: report.cycle.claimed, written: report.cycle.written, unchanged: report.cycle.unchanged, skipped: report.cycle.skippedUnchangedBeforeRead, retried: report.cycle.retried, held: report.cycle.held, modelStages: report.cycle.modelStages } : {}) });
       } catch (err) {
         log('intelligence_pass_error', { name: (err as Error)?.name ?? 'error' });
       } finally {

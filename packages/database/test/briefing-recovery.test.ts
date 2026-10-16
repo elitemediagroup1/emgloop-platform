@@ -86,7 +86,19 @@ test('the prompt supplies every size limit enforced by the briefing contract', (
   assert.match(prompt, new RegExp(`${BRIEFING_LIMITS.maxLineChars} characters`));
   assert.match(prompt, new RegExp(`at most ${BRIEFING_LIMITS.maxLimitations} limitations`));
   assert.match(prompt, /Do not calculate/);
-  assert.equal(BRIEFING_TEMPLATE_VERSION, '4');
+  assert.equal(BRIEFING_TEMPLATE_VERSION, '5');
+});
+
+test('unchanged evidence is reusable briefly but a new scheduled reading is required after fifteen minutes', async (t) => {
+  const db = database();
+  let clock = now;
+  const composer = new BriefingComposer({ prisma: db.prisma as never, runtime: null, modelEnabled: () => false, now: () => clock });
+  t.mock.method(composer, 'gather', async () => ({ artifacts: [artifact], gaps: [] }));
+  assert.equal((await composer.compose(principal, 'America/New_York')).outcome, 'RULE');
+  assert.equal((await composer.compose(principal, 'America/New_York')).outcome, 'REUSED');
+  clock = new Date(now.getTime() + 15 * 60000);
+  assert.equal((await composer.compose(principal, 'America/New_York')).outcome, 'RULE');
+  assert.equal(db.rows.length, 2);
 });
 test('an unrelated daily brief cannot shadow a stored Loop briefing, and schema filtering remains person scoped', async () => {
   const db = database(),
