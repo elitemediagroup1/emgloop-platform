@@ -250,7 +250,7 @@ test('telegram content triage: task 3.0.0 and its routing entry move in lockstep
   assert.equal(cls.taskDaily.maxInvocations, 50, 'the daily invocation cap was NOT raised');
   assert.equal(cls.taskDaily.maxOutputTokens, 100_000, 'daily output tokens keep 50 calls at the new ceiling');
   // .5 (Loop Intelligence) added two classes; the triage class and the shared ceilings did not move.
-  assert.equal(AI_BUDGET_POLICY_VERSION, 'budget.2026-10-15.8');
+  assert.equal(AI_BUDGET_POLICY_VERSION, 'budget.2026-10-16.9');
 });
 
 test('telegram content triage: the whole-context input cap sits INSIDE the budget class per-call cap (the budget class was NOT raised)', () => {

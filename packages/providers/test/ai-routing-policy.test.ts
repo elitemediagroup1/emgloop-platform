@@ -18,7 +18,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { AI_PROVIDER_IDS, AI_REASONING_EFFORTS, AI_TASK_CASE_EXPLANATION, admitAiInvocation, AI_NO_SPEND } from '@emgloop/shared';
+import { AI_PROVIDER_IDS, AI_REASONING_EFFORTS, AI_TASK_CASE_EXPLANATION, AI_TASK_LOOP_BRIEFING, admitAiInvocation, AI_NO_SPEND } from '@emgloop/shared';
 
 import { AI_MODEL_CATALOG, aiCatalogCapabilities, aiCatalogModel } from '../src/ai/policy/model-catalog';
 import {
@@ -175,4 +175,25 @@ test('provider responsibilities are explicit: OpenAI answers interactive questio
   assert.equal(AI_ROUTING_POLICY.tasks['loop.briefing.compose']!.primary.providerId, 'anthropic');
   assert.equal(AI_ROUTING_POLICY.tasks['situation.verify']!.strategy, 'OTHER_THAN_SUBJECT');
   assert.equal(AI_ROUTING_POLICY.tasks['situation.verify']!.fallbackPermitted, false);
+});
+
+
+test('briefings can pass the old 30-call task limit while organization guards remain binding', () => {
+  const request = {
+    taskId: AI_TASK_LOOP_BRIEFING.taskId, taskVersion: AI_TASK_LOOP_BRIEFING.version,
+    organizationId: 'org_a', authorized: true,
+    activation: { enabled: true, organizations: ['org_a'], tasks: [AI_TASK_LOOP_BRIEFING.taskId], providers: ['anthropic', 'openai'] },
+    policy: AI_ROUTING_POLICY, killSwitches: [], budget: AI_BUDGET_POLICY,
+    spend: { organization: { ...AI_NO_SPEND, invocations: 30 }, task: { ...AI_NO_SPEND, invocations: 30 }, global: { ...AI_NO_SPEND, invocations: 30 } },
+    estimatedInputTokens: 9_500, registeredProviders: ['anthropic', 'openai'], contextRefusals: [], tools: [],
+    providerPolicies: [{ providerId: 'anthropic', state: 'ACTIVE' as const, ceiling: AI_TASK_LOOP_BRIEFING.sensitivityCeiling, version: 1, recordedAtMs: 0 }],
+    sensitivityCeiling: AI_TASK_LOOP_BRIEFING.sensitivityCeiling,
+  };
+  assert.equal(admitAiInvocation(request).ok, true);
+  const exhausted = admitAiInvocation({ ...request, spend: { ...request.spend,
+    organization: { ...AI_NO_SPEND, invocations: AI_BUDGET_POLICY.organizationDaily.maxInvocations } } });
+  assert.equal(exhausted.ok, false, 'task allowance does not bypass the shared cap');
+  assert.equal(AI_BUDGET_POLICY.organizationDaily.maxInvocations, 60);
+  assert.equal(AI_BUDGET_POLICY.globalDaily.maxInvocations, 70);
+  assert.equal(AI_BUDGET_POLICY.classes['loop-briefing']!.maxInputTokensPerCall, 10_000);
 });

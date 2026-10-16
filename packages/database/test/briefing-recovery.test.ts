@@ -286,3 +286,60 @@ test('scheduled delivery prioritizes an eligible person missing a briefing over 
     ['z-missing', 'a-served'],
   );
 });
+
+
+test('changed evidence waits for the persisted cadence across composer restarts and retries at the boundary', async (t) => {
+  const db = database();
+  let clock = now, calls = 0, basis = 'first';
+  function worker() {
+    const composer = new BriefingComposer({ prisma: db.prisma as never, modelEnabled: () => true,
+      now: () => clock, runtime: { run: async (_, req) => { calls++; return validated(artifact.statement, req); } } });
+    t.mock.method(composer, 'gather', async () => ({ artifacts: [{ ...artifact, basis }], gaps: [] }));
+    return composer;
+  }
+  assert.equal((await worker().compose(principal, 'America/New_York')).outcome, 'COMPOSED');
+  basis = 'changed';
+  clock = new Date(now.getTime() + 30_000);
+  assert.equal((await worker().compose(principal, 'America/New_York')).outcome, 'DEFERRED');
+  assert.equal(calls, 1);
+  assert.equal(db.rows.length, 1, 'deferral cannot relabel old evidence as current');
+  clock = new Date(now.getTime() + 15 * 60_000);
+  assert.equal((await worker().compose(principal, 'America/New_York')).outcome, 'COMPOSED');
+  assert.equal(calls, 2);
+});
+
+test('budget refusals are paced even when inputs change, without blocking another viewer', async (t) => {
+  const db = database();
+  let clock = now, calls = 0;
+  function worker() {
+    const composer = new BriefingComposer({ prisma: db.prisma as never, modelEnabled: () => true,
+      now: () => clock, runtime: { run: async () => { calls++; return { outcome: 'REFUSED_BY_LOOP', refusals: ['BUDGET_TASK_EXHAUSTED'] } as never; } } });
+    t.mock.method(composer, 'gather', async () => ({ artifacts: [{ ...artifact, basis: clock.toISOString() }], gaps: [] }));
+    return composer;
+  }
+  assert.equal((await worker().compose(principal, 'America/New_York')).outcome, 'RULE');
+  assert.equal(db.rows[0].coverage.modelAttemptedAt, now.toISOString());
+  clock = new Date(now.getTime() + 60_000);
+  assert.equal((await worker().compose(principal, 'America/New_York')).outcome, 'DEFERRED');
+  assert.equal(calls, 1);
+  assert.equal((await worker().compose({ ...principal, userId: 'other-viewer' }, 'America/New_York')).outcome, 'RULE');
+  assert.equal(calls, 2);
+  clock = new Date(now.getTime() + 15 * 60_000);
+  assert.equal((await worker().compose(principal, 'America/New_York')).outcome, 'RULE');
+  assert.equal(calls, 3);
+});
+
+
+test('continuous polling for three viewers produces at most four model attempts per hour each', async (t) => {
+  const db = database();
+  let clock = now, calls = 0;
+  const composer = new BriefingComposer({ prisma: db.prisma as never, modelEnabled: () => true,
+    now: () => clock, runtime: { run: async (_, req) => { calls++; return validated(artifact.statement, req); } } });
+  t.mock.method(composer, 'gather', async () => ({ artifacts: [{ ...artifact, basis: clock.toISOString() }], gaps: [] }));
+  for (let seconds = 0; seconds < 3600; seconds += 30) {
+    clock = new Date(now.getTime() + seconds * 1000);
+    for (const userId of ['viewer-a', 'viewer-b', 'viewer-c']) await composer.compose({ ...principal, userId }, 'America/New_York');
+  }
+  assert.equal(calls, 12, '360 changing source observations must not become 360 model calls');
+  assert.equal(db.rows.length, 12);
+});

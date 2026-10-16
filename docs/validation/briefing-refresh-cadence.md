@@ -1,0 +1,21 @@
+# Briefing refresh cadence and task budget
+
+Production AWS Core was verified against account 080891698678. At 09:30 Eastern on October 16 the worker repeatedly recorded `RULE` with `LOOP:BUDGET_TASK_EXHAUSTED`. The prior 30-call daily task allowance did not match changing source data and several viewers. The composer could request a model again immediately after a refusal or changed fingerprint.
+
+## Behavior
+
+The composer stores `modelAttemptedAt` in the existing immutable work brief coverage. Each viewer gets at most one refresh attempt per fifteen minutes, with the existing single validation repair and gateway availability fallback still bounded inside it. New composer instances use the persisted marker; no in-memory timer is the authority. Legacy MODEL records use their generatedAt as the initial marker. RULE records from before this change are immediately eligible, allowing recovery after deployment. A future/invalid marker cannot suppress valid work indefinitely. Deferrals do not rewrite the old summary, fingerprint or timestamp. Home/Headlines's existing current-evidence check continues to show current recorded facts when the model conclusion no longer matches. CallGrid still polls every thirty seconds; this change only paces summary generation.
+
+The task policy is versioned and changes only loop-briefing daily caps to 600 invocations, 2,000,000 input tokens and 300,000 output tokens. This accommodates three viewers at four refreshes/hour with one repair (576 primary-path calls/day before availability fallbacks), subject to all existing tighter controls. Per-call limits remain 10,000 input / 2,000 output. Organization/global invocation and token limits, dollar limits, provider policies, consent and authorization remain binding. Recorded class invocation overrides still replace the reviewed task cap. No operating-budget record is created/updated by deploying this code. More than three viewers may need a separately reviewed allocation.
+
+## Deployment and verification
+
+Merge the draft PR, run the existing connections infrastructure diff, review it and deploy. No new variables, secrets, schema migration or packages are needed. Verify `DEFERRED / REFRESH_INTERVAL` between attempts and a `COMPOSED` result with successful model provenance at an eligible attempt. Check Home and Headlines for current source totals and coherent prose. If budget refusals persist, inspect actual token/invocation usage and recorded AI budget controls via Intelligence status and the existing `record:ai-budget` CLI dry run (without `--write`). A recorded lower class allowance requires an operator-reviewed Record AI Budget run preserving the other settings. Do not reset ledgers or bypass cost safeguards. No production success is claimed until verified after deployment.
+
+Calendar timezone contradictions, source cost reconciliation, spam eligibility, historical backfill and MCP installation are outside this fix.
+
+## Validation
+
+The database full run passed 1,832 tests and skipped 204; one PostgreSQL test file failed to load its generated Prisma client during concurrent generation. Rerunning that file after generation completed produced its expected 11 integration skips and no failure. The final focused suite passed all 30 tests, including the additional continuous-poll regression. The provider full suite passed 268 tests before the final added admission regression; that new regression passed in the focused run. The three current Home/Headlines tests passed.
+
+Database, provider and worker typechecks passed. Initial parallel web typecheck raced generated Next files; the standalone rerun passed both the app and test configurations. The first production build compiled, passed app type validation and generated all 96 static pages, then failed on generated-directory cleanup (ENOTEMPTY). The leftover export directory was moved outside the app; the ordinary build retry again compiled, passed app type validation and generated all 96 pages, but failed with the same cleanup error. The remaining generated directory contains `404.html` and an empty `_next` directory. Local packaging is NOT certified; require a green deployment preview/CI build before merge. Lint remains blocked by the existing missing ESLint configuration. No production model or database writes were performed by tests.
