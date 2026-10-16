@@ -1020,3 +1020,5 @@ export { LoopQuestionService } from './services/ai-runtime/loop-question.service
 export type { LoopQuestionResult } from './services/ai-runtime/loop-question.service';
 
 export { callQuestionArtifact } from './services/intelligence-fabric/call-snapshot';
+
+export { refreshPublicNews } from './services/intelligence-fabric/public-news';

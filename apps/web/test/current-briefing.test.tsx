@@ -106,7 +106,7 @@ test('Headlines keeps business readings separate from daily priorities without m
   const stored = { headline: 'Shared summary.', composer: 'MODEL' as const, generatedAt: now,
     limitations: ['Mail is partial.'], lines: [
       { kind: 'NEEDS_YOU' as const, statement: 'Reply to the buyer.', parts: ['MAIL'] },
-      { kind: 'WATCH' as const, statement: 'Volume rose while capacity was constrained; review the overlap.', parts: ['CALLGRID', 'CHATS'] },
+      { kind: 'INSIGHT' as const, statement: 'Volume rose while the buyer reported constrained capacity; this could limit monetization, but the cause is unconfirmed.', parts: ['CALLGRID', 'CHATS'] },
     ] };
   const time = createTimeView(resolveDisplayTimeZone({ preference: 'America/New_York', device: null }), now);
   const daily = renderToStaticMarkup(<StoredBriefingBody stored={stored} time={time} offers={() => false} purpose="daily" />);
@@ -122,7 +122,7 @@ test('Headlines keeps business readings separate from daily priorities without m
   assert.doesNotMatch(headlines, /href="\/app/);
 });
 
-test('Headlines never presents rule fallback facts as model insights, but retains authorized as-of readings', () => {
+test('Headlines never presents rule fallback or historical KPI recaps as connected insights', () => {
   const time = createTimeView(resolveDisplayTimeZone({ preference: 'America/New_York', device: null }), now);
   const rule = currentBriefingOf(null, day, [a], [], now)!;
   const pending = renderToStaticMarkup(<BusinessHeadlinesCard stored={rule} situations={null} time={time} offers={() => false} />);
@@ -130,22 +130,29 @@ test('Headlines never presents rule fallback facts as model insights, but retain
   assert.doesNotMatch(pending, /475 stored calls/);
   const historical = currentBriefingOf(null, day, [{ ...a, basis: 'changed' }], [], now, row)!;
   const shown = renderToStaticMarkup(<BusinessHeadlinesCard stored={historical} situations={null} time={time} offers={() => false} />);
-  assert.match(shown, /475 stored calls/);
-  assert.match(shown, /AI reading as of/);
-  assert.doesNotMatch(shown, /data-headlines-ai-pending/);
+  assert.match(shown, /data-headlines-ai-pending/);
+  assert.doesNotMatch(shown, /475 stored calls/, 'an old KPI recap is not a connected insight');
 });
 
 
-test('Headlines renders the actual model headline even when its lines are daily priorities', () => {
+test('Headlines does not relabel an ordinary briefing as a connected insight', () => {
   const time = createTimeView(resolveDisplayTimeZone({ preference: 'America/New_York', device: null }), now);
   const stored = { headline: 'The capacity conversation overlaps with rising call volume.', composer: 'MODEL' as const,
     generatedAt: now, limitations: ['The relationship is unconfirmed.'],
     lines: [{ kind: 'NEEDS_YOU' as const, statement: 'The buyer is waiting on your reply.', parts: ['CHATS'] }] };
   const html = renderToStaticMarkup(<BusinessHeadlinesCard stored={stored} situations={null} time={time} offers={() => false} />);
-  assert.match(html, /data-briefing-headline/);
-  assert.match(html, /The capacity conversation overlaps with rising call volume/);
-  assert.match(html, /The relationship is unconfirmed/);
-  assert.doesNotMatch(html, /data-headlines-ai-pending|The buyer is waiting/);
+  assert.match(html, /data-headlines-ai-pending/);
+  assert.doesNotMatch(html, /The buyer is waiting|data-briefing-headline/);
+});
+
+test('a connected business insight retains publication dates and clickable attribution', () => {
+  const stored = { headline: 'Search changes could affect the observed traffic mix.', composer: 'MODEL' as const, generatedAt: now, limitations: ['Article body not verified.'], lines: [{ kind: 'INSIGHT' as const, statement: 'Search traffic and a published platform change could overlap; its effect on EMG is unconfirmed.', parts: ['WEBSITE', 'EXTERNAL_NEWS'], publications: [{ title: 'Google Ads · publication 2026-10-15', url: 'https://blog.google/products/ads-commerce/example' }] }] };
+  const time = createTimeView(resolveDisplayTimeZone({ preference: 'America/New_York', device: null }), now);
+  const html = renderToStaticMarkup(<BusinessHeadlinesCard stored={stored} situations={null} time={time} offers={() => false} />);
+  assert.match(html, /What this could mean/);
+  assert.match(html, /publication 2026-10-15/);
+  assert.match(html, /href="https:\/\/blog.google/);
+  assert.match(html, /rel="noopener noreferrer"/);
 });
 
 

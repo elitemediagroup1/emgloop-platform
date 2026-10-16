@@ -109,7 +109,7 @@ export function BusinessHeadlinesCard({ stored, situations, time, offers, compac
   offers: (href: string) => boolean; compact?: boolean; href?: string | null;
 }) {
   const candidate = stored?.composer === 'MODEL' ? stored : stored?.asOfSummary;
-  const model = candidate?.composer === 'MODEL' ? candidate : null;
+  const model = candidate?.composer === 'MODEL' && candidate.lines.some((line) => line.kind === 'INSIGHT') ? candidate : null;
   const hasConnections = !!situations && situations.personal.length + (situations.organization?.length ?? 0) > 0;
   return (
     <section className="loop-panel loop-front__business-headlines" aria-label="Headlines" id="headlines">
@@ -125,7 +125,7 @@ export function BusinessHeadlinesCard({ stored, situations, time, offers, compac
           {hasConnections ? <h3 className="loop-brief__subhead">Other developments</h3> : null}
           <StoredBriefingBody stored={model} time={time} offers={offers} compact={compact} purpose="business" />
         </>
-      ) : !hasConnections ? <p className="loop-front__prose-quiet" data-headlines-ai-pending>Loop has not published a current AI headline reading. Your recorded daily priorities and live metrics remain available.</p> : null}
+      ) : !hasConnections ? <p className="loop-front__prose-quiet" data-headlines-ai-pending>{candidate ? 'The latest reading did not establish a supported connection across business signals.' : 'Loop has not published a current headline reading. Your recorded daily priorities and live metrics remain available.'}</p> : null}
     </section>
   );
 }

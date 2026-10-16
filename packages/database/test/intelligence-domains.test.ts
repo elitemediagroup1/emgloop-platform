@@ -242,3 +242,20 @@ test('Calendar: the person’s own day -- overlaps, a meeting with someone whose
   assert.ok(signals.some((s) => s.key.startsWith('follow-up.')));
   assert.equal((await p.gather({ scope: 'ORGANIZATION', organizationId: 'o1', domain: 'CALENDAR', subjectKind: 'DOMAIN', subjectRef: 'domain' } as never, NOW)).status, 'NOT_PERMITTED');
 });
+
+test('campaign priorities exclude old no-route bursts and preserve dates for recent attempts', () => {
+  const historical = { ...dim('old-ssdi', 32, 0, 0), lastCallAt: '2026-09-22T20:56:00.000Z', noRoute: 32, callsWithNoRoute: 32, completed: 0, callsWithCompleted: 32 };
+  const recent = { ...dim('recent-unrouted', 20, 0, 0), lastCallAt: NOW.toISOString(), noRoute: 20, callsWithNoRoute: 20 };
+  const r = campaignsRule({ current: agg([historical, recent]), prior: agg([dim('old-ssdi', 16, 0, 0), dim('recent-unrouted', 10, 0, 0)]), lastDayCalls: 20, windowStart: new Date('2026-09-19'), windowEnd: NOW }, NOW);
+  assertWritable(r);
+  assert.ok(!r.signals.some((s) => s.entities?.includes('provider_member:callgrid:campaign:old-ssdi')));
+  assert.ok(!r.signals.some((s) => s.key.startsWith('unsold.') || s.kind === 'CHANGE'));
+  assert.ok(r.signals.some((s) => s.key.startsWith('unrouted.') && s.statement.includes('2026-09-26') && s.statement.includes('not connected calls')));
+});
+
+test('native NO_ROUTE statuses cannot become connected growth when API boolean flags are absent', () => {
+  const row = { ...dim('native-status', 32, 0, 0), lastCallAt: NOW.toISOString(), noRoute: 0, callsWithNoRoute: 0, noRouteStatuses: 32, callsWithRawStatus: 32 };
+  const r = campaignsRule({ current: agg([row]), prior: agg([dim('native-status', 16, 0, 0)]), lastDayCalls: 32, windowStart: new Date('2026-09-19'), windowEnd: NOW }, NOW);
+  assert.ok(r.signals.some((s) => s.key.startsWith('unrouted.')));
+  assert.ok(!r.signals.some((s) => s.kind === 'CHANGE' || s.key.startsWith('unsold.')));
+});

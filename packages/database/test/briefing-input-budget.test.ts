@@ -49,3 +49,14 @@ test('numeric grounding uses the exact supplied artifact, including titles and l
   assert.ok(!figures.has(987654), 'internal basis was never supplied');
   assert.ok(!evidence.dates.has('2031-01-02'), 'hidden metadata is not date evidence either');
 });
+
+test('fitting preserves domain breadth before additional chat detail', () => {
+  const chats = Array.from({ length: 8 }, (_, i) => artifact(`chat:${i}`, 3000, 'CHATS'));
+  const creators = artifact('digest:creators', 800, 'CREATORS');
+  const website = artifact('digest:website', 800, 'WEBSITE');
+  const fitted = fitBriefingArtifacts([...chats, creators, website], [], 'our-org');
+  assert.ok(fitted.artifacts.includes(creators));
+  assert.ok(fitted.artifacts.includes(website));
+  assert.ok(fitted.artifacts.some((a) => a.domain === 'CHATS'));
+  assert.ok(fitted.gaps.some((g) => g.domain === 'CHATS' && g.reason === 'CONTEXT_LIMIT'));
+});
