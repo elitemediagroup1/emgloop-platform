@@ -1,5 +1,5 @@
 // Loop Home as the front door (Matt, 2026-09-24; the composition correction, the same day):
-// Header → Executive KPIs → Your briefing → Headlines → (Your day | Recent activity) → Your tools &
+// Header → Executive KPIs → (Your briefing | Priorities) → (Your day | Objectives) → Your tools &
 // spaces, in sequential full-width sections with no side rail.
 //
 // Home COMPOSES existing authorities and never becomes one. These tests hand the pure projections
@@ -350,7 +350,7 @@ describe('Headlines on Home are the Headline authority’s own rows, drawn as ca
 
   it('empty is a quiet knowledge-state card: all clear names what it checked, a coverage gap says so, an unreadable read is a failure -- never a fake Headline', () => {
     const clear = html(<HeadlinesPanel headlines={[]} attention={attention('ALL_CLEAR')} standings={standings([])} time={time} href="/app/admin/headlines" />);
-    assert.match(clear, /<div class="loop-front__knowledge" data-home-headlines-empty="ALL_CLEAR">/);
+    assert.match(clear, /<details class="loop-front__knowledge" data-home-headlines-empty="ALL_CLEAR">/);
     assert.match(clear, new RegExp(productLabel('ALL_CLEAR')!.label));
     assert.match(clear, /No qualifying Headlines right now\. No material changes require your attention\. Loop checked 3 active objectives/);
     assert.equal(clear.includes('data-home-headline="'), false, 'no card dressed as a Headline');
@@ -503,16 +503,18 @@ describe('Your tools & spaces: a tile only where the rail leads, each its domain
     assert.doesNotMatch(src, /[Hh]eadline/, 'a tile never reaches the Headline authority');
   });
 
-  it('drawn: the whole tile is the link, with icon, title, one signal, its lines and a status; nothing a tile says is the briefing’s or a Headline’s', () => {
+  it('drawn: module cards have explicit links, visible state and expandable summaries; nothing a tile says is the briefing’s or a Headline’s', () => {
     const tiles = projectTiles(tilesInput({ chats: { ok: false }, creators: { ok: true, value: null } }));
     const out = html(<ToolsGrid tiles={tiles} />);
     assert.match(out, /<section class="loop-front__tools" aria-label="Your tools &amp; spaces" id="tools">/);
-    assert.match(out, /<a class="loop-front__tile" data-home-tile="mail" data-home-tile-state="OK" href="\/app\/mail">/, 'the whole tile is the link');
-    assert.match(out, /data-home-tile="mail"[\s\S]*?<svg[\s\S]*?loop-front__tile-title">Mail<\/span>[\s\S]*?<b>3<\/b> <span>need your reply<\/span>[\s\S]*?including 1 opportunity[\s\S]*?loop-front__tile-status">Read 4m ago[\s\S]*?Open Mail →/);
+    assert.match(out, /<article class="loop-front__tile" data-home-tile="mail" data-home-tile-state="OK">/, 'details are not nested inside a link');
+    assert.match(out, /data-home-tile="mail"[\s\S]*?<svg[\s\S]*?loop-front__tile-title"[^>]*href="\/app\/mail">Mail<\/a>[\s\S]*?<b>3<\/b> <span>need your reply<\/span>[\s\S]*?including 1 opportunity[\s\S]*?loop-front__tile-status">Read 4m ago[\s\S]*?Open Mail →/);
     assert.match(out, /data-home-tile="chats" data-home-tile-state="UNAVAILABLE"[\s\S]*?data-home-tile-stateline[^>]*>Could not be read</);
     assert.match(out, /data-home-tile="creators" data-home-tile-state="NOT_AVAILABLE"[\s\S]*?Not available on this deployment yet\./);
-    assert.match(out, /data-home-tile="campaigns"[^>]*title="Counts entities OBSERVED/);
-    const chatsTile = out.slice(out.indexOf('data-home-tile="chats"'), out.indexOf('</a>', out.indexOf('data-home-tile="chats"')));
+    assert.match(out, /data-home-tile="campaigns"[\s\S]*?Counts entities OBSERVED/);
+    assert.doesNotMatch(out, /<details class="loop-front__tile-details" open/);
+    assert.match(out, /<summary>Read summary<\/summary>/);
+    const chatsTile = out.slice(out.indexOf('data-home-tile="chats"'), out.indexOf('</article>', out.indexOf('data-home-tile="chats"')));
     assert.equal(/<b>0<\/b>/.test(chatsTile), false, 'an unreadable domain shows no figure');
     for (const t of tiles) assert.equal([...t.lines, t.stateLine ?? ''].join(' ').includes('Roofing lead revenue'), false, t.key);
     assert.equal(html(<ToolsGrid tiles={[]} />), '', 'nothing offered, nothing drawn');
@@ -571,7 +573,7 @@ describe('the front door’s reads are gated by the rail and scoped by the sessi
     assert.match(css, /\.loop-front__tilegrid \{ display: grid; grid-template-columns: repeat\(4, minmax\(0, 1fr\)\);/);
     assert.match(css, /@media \(max-width: 1240px\) \{ \.loop-front__kpigrid \{ grid-template-columns: repeat\(3, minmax\(0, 1fr\)\); \} \.loop-front__tilegrid \{ grid-template-columns: repeat\(3, minmax\(0, 1fr\)\); \} \}/);
     assert.match(css, /@media \(max-width: 820px\) \{ \.loop-front__kpigrid \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \} \.loop-front__tilegrid \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}/);
-    assert.match(css, /@media \(max-width: 520px\) \{ \.loop-front__kpigrid \{ grid-template-columns: 1fr; \} \.loop-front__tilegrid \{ grid-template-columns: 1fr; \}/);
+    assert.match(css, /@media \(max-width: 520px\) \{ \.loop-front__kpigrid \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}/);
     // Everything is minmax(0, ...) and min-width: 0, so nothing overflows a 360px canvas; no layout hacks.
     assert.match(css, /\.loop-front \{ display: flex; flex-direction: column; gap: 22px; min-width: 0; \}/);
     for (const cls of ['.loop-front__tile', '.loop-front__kpi', '.loop-front__hl', '.loop-front__day']) assert.match(css, new RegExp(`\\${cls} \\{[^}]*min-width: 0;`), cls);
@@ -620,12 +622,12 @@ describe('Loop Intelligence: a domain reading leads its Home tile -- the same st
 });
 
 
-it('shows the stored business summary on Home Headlines without converting it into a measured objective Headline', () => {
-  const out = html(<HeadlinesPanel headlines={[]} attention={attention('INSUFFICIENT_COVERAGE')} standings={standings([])} time={time} href="/app/admin/headlines" briefing={{ headline: 'Traffic and follow-ups need attention.', lines: [{ kind: 'WATCH', statement: 'Call volume and pending conversations changed together.', parts: ['CALLGRID', 'MAIL'] }], composer: 'MODEL', limitations: ['Some sources are partial.'], generatedAt: NOW }} />);
-  assert.match(out, /Traffic and follow-ups need attention/);
-  assert.match(out, /Call volume and pending conversations changed together/);
-  assert.match(out, /Measured objective signals/);
-  assert.match(out, /configured objectives, not every connected source/);
-  assert.match(out, /data-briefing-stored="MODEL"/);
-  assert.doesNotMatch(out, /data-home-headline="/);
+it('objective signals do not repeat the business briefing, and unknown coverage stays visible while details are folded', () => {
+  const out = html(<HeadlinesPanel headlines={[]} attention={attention('INSUFFICIENT_COVERAGE')} standings={standings([])} time={time} href="/app/admin/headlines" />);
+  assert.match(out, /Objective signals/);
+  assert.match(out, /Signals from your configured objectives/);
+  assert.doesNotMatch(out, /data-briefing-stored|not composed your business summary/);
+  assert.match(out, /<summary>Objective coverage[\s\S]*?Can&#x27;t tell[\s\S]*?<\/summary>/);
+  assert.doesNotMatch(out, /<details[^>]*data-home-headlines-empty[^>]* open/);
+  assert.match(out, /Grow roofing lead revenue in Texas/);
 });

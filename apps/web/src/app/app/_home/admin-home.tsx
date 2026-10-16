@@ -12,7 +12,7 @@ import type { NavGroup } from '../../../workspaces/config';
 import { loadHome } from '../admin/home-data';
 import { LoopPage, PageHead } from '../_loop-os/record';
 import { HOME_PATHS, composeBriefing, dueTodayFromWork, workPostureFromSummary } from './briefing';
-import { BriefingCard, SourceUnavailable, YourDayCard } from './briefing-view';
+import { BriefingCard, NeedsAttention, SourceUnavailable, YourDayCard } from './briefing-view';
 import { loadFrontDoor, loadHeadlineStandings, navOffers, type HeadlineStanding } from './front-door-data';
 import { HeadlinesPanel, KpiStrip, RecentActivityPanel, ToolsGrid } from './front-door-view';
 import { briefingNarrative } from './narrative';
@@ -23,17 +23,9 @@ import { settle } from './settle';
 import { TILE_PATHS, projectTiles } from './tiles';
 import { SituationsPanel } from '../../../intelligence/situations-view';
 
-// The executive Home, as the front door to the operating system (Matt, 2026-09-24; the composition
-// correction, the same day). It COMPOSES existing authorities and never becomes one. Top to bottom,
-// in full-width sections with no side rail: the executive KPI row (the Command Center's own figures
-// and its own comparison); YOUR BRIEFING, the synthesis in prose (narrative.ts), with what Loop read
-// folded beneath it; HEADLINES, the Headline authority's open records as cards; then two compact
-// peers -- YOUR DAY (the viewer's own calendar, work due today, and a constrained "needs you") and
-// RECENT ACTIVITY (the organization's Universal Activity feed: channel facts, CallGrid calls, the
-// audit log and Brain work, each only as the service authorizes this viewer; never an employee's
-// private source); and last the tools & spaces this person can open, each tile its domain's own
-// interpretation. Three intelligence levels, kept distinct: the briefing is
-// company-wide synthesis, Headlines are connective records, a tile is one domain's reading.
+// The executive Home: compact KPIs, one business briefing beside the viewer's priority list,
+// then their calendar and measured objective signals. Tools and an expandable activity feed follow.
+// Read authorities and source permissions are unchanged; this is presentation, never a new authority.
 //
 // THE READS. The operational home (work, attention), the organization activity feed (read once,
 // shared by its card and the review's work changes) and the executive review (mail,
@@ -165,7 +157,7 @@ export async function AdminHome({
             subtitle={[time.date(time.now), header?.organizationName].filter((s): s is string => Boolean(s)).join(' · ')}
             actions={
               <form className="loop-searchform" method="get" action="/crm/search" role="search">
-                <input type="search" name="q" className="loop-input" placeholder="Search intake records and conversations" aria-label="Search the CRM" />
+                <input type="search" name="q" className="loop-input" placeholder="Search Loop…" aria-label="Search the CRM" />
               </form>
             }
           />
@@ -175,18 +167,21 @@ export async function AdminHome({
         {!reviewResult.ok ? <SourceUnavailable what="today’s review" /> : null}
         {!homeResult.ok ? <SourceUnavailable what="Loop work" /> : null}
 
-        <BriefingCard narrative={narrative} briefing={briefing} time={time} stored={front.briefing} offers={(href) => navOffers(groups, href)} />
-        {showHeadlines ? <HeadlinesPanel headlines={review?.headlines ?? null} attention={review?.attention ?? null} standings={standings} time={time} href={HOME_PATHS.headlines} briefing={front.briefing} /> : null}
+        <div className="loop-front__focus">
+          <BriefingCard narrative={narrative} briefing={briefing} time={time} stored={front.briefing} offers={(href) => navOffers(groups, href)} />
+          <div className="loop-panel loop-front__priority">
+            <NeedsAttention briefing={briefing} time={time} standalone />
+          </div>
+        </div>
         {front.situations ? <SituationsPanel read={front.situations} time={time} caseHref={(id) => `/app/admin/cases/${id}`} /> : null}
 
-        {/* Two compact peers: the signed-in person's own day and what needs them, beside the
-            organization's recent business events. Each card's height is its own content's. */}
         <div className="loop-front__pair">
-          <YourDayCard today={briefing.today} briefing={briefing} time={time} refresh={<RefreshCalendar />} calendarHref={offer(TILE_PATHS.calendar)} />
-          <RecentActivityPanel activity={activity} time={time} auditHref={auditHref} />
+          <YourDayCard today={briefing.today} briefing={briefing} time={time} refresh={<RefreshCalendar />} calendarHref={offer(TILE_PATHS.calendar)} showAttention={false} />
+          {showHeadlines ? <HeadlinesPanel headlines={review?.headlines ?? null} attention={review?.attention ?? null} standings={standings} time={time} href={HOME_PATHS.headlines} /> : null}
         </div>
 
         <ToolsGrid tiles={tiles} />
+        <RecentActivityPanel activity={activity} time={time} auditHref={auditHref} />
       </div>
     </LoopPage>
   );

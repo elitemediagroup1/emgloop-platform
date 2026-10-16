@@ -85,3 +85,17 @@ test('stale but still-authorized source history remains explicitly historical, w
   assert.equal(old.asOfSummary!.headline, row.headline);
   assert.equal(currentBriefingOf(null, day, [], stale, now, row, [])!.asOfSummary, undefined);
 });
+
+
+test('compact Home briefings preserve the complete answer behind an accessible disclosure', () => {
+  const stored = { headline: 'Current business summary.', composer: 'MODEL' as const, generatedAt: now,
+    limitations: ['Mail is partial.'], lines: Array.from({ length: 6 }, (_, i) => ({kind: 'WATCH' as const, statement: `Observation ${i + 1}.`, parts: ['CALLGRID']})) };
+  const time = createTimeView(resolveDisplayTimeZone({ preference: 'America/New_York', device: null }), now);
+  const html = renderToStaticMarkup(<StoredBriefingBody stored={stored} time={time} offers={() => false} compact />);
+  const beforeMore = html.slice(0, html.indexOf('data-briefing-more'));
+  assert.equal((beforeMore.match(/data-briefing-line=/g) ?? []).length, 3);
+  assert.equal((html.match(/data-briefing-line=/g) ?? []).length, 6, 'no observation is dropped');
+  assert.match(html, /More from this briefing \(3\)/);
+  assert.doesNotMatch(html, /<details[^>]*data-briefing-more[^>]* open/);
+  assert.match(html, /Mail is partial/);
+});

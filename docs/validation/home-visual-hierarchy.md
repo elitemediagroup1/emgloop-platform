@@ -1,0 +1,11 @@
+# Home visual hierarchy
+
+The signed-in production homepage was visually inspected at desktop width on October 16. The previous screen repeated the complete AI heading and observations in Your briefing and Headlines, used tall KPI cards dominated by one definition, and placed the viewer's action list far down the page.
+
+The executive Home now presents compact KPIs, one briefing beside the existing ranked priority list, then calendar and measured objective signals. Tools keep metrics and source states visible, with long summaries in native details. Recent events are expandable below the tools. Source failures and unavailable states remain visible. Measured objective coverage never becomes a business-wide all-clear. Every stored observation and limitation remains available; only the first three observations lead Home, with the remaining observations behind a labelled native disclosure. The full Headlines workspace still shows all briefing observations. As-of timestamps and newer-metrics disclosure are preserved.
+
+The existing CSS token palette and shared stylesheet supply the presentation. No new package, migration, client component, data query, provider call or production write is introduced. The employee Home retains its own-source boundary and combined calendar/attention card; shared typography and compact tools also apply there.
+
+Validation: 86 focused web tests pass, web app and test typechecks pass, production build passes (all 96 pages), and diff check passes. Lint exits at the existing missing-configuration prompt. The npm test wrapper was blocked by a tsx IPC socket permission error; the same tests were run with Node --import tsx and the web test tsconfig. Checks include one executive priority list without a duplicate inside Calendar; full briefing retention behind closed details; objective knowledge states; explicit module links outside summary controls; permission-scoped source chips; unknown/unavailable KPIs; and existing source authority regressions. Desktop/mobile visual verification of the deploy preview remains required before marking this draft ready.
+
+Deploy through Netlify after review. No connections worker deployment or environment change is needed. Mail backlog, AI output rejection, source freshness and financial reconciliation remain separate open work.
