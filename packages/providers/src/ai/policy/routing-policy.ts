@@ -272,8 +272,8 @@ export const AI_ROUTING_POLICY: AiRoutingPolicy = Object.freeze({
 // 60 calls) binds first and is not touched; these classes only bound one task's day inside it.
 // .6 (2026-09-26, Loop Intelligence Phases F-G): adds situation-synthesis, situation-verification and
 // loop-briefing, again WITHOUT raising the organization or global ceilings. A synthesis runs only for a
-// CHANGED cluster; a Briefing only when its inputs changed (else the stored one is reused).
-export const AI_BUDGET_POLICY_VERSION = 'budget.2026-10-15.8';
+// CHANGED cluster. Briefings reuse matching fresh evidence and pace model refreshes per viewer.
+export const AI_BUDGET_POLICY_VERSION = 'budget.2026-10-16.9';
 
 export const AI_BUDGET_POLICY: AiBudgetPolicy = Object.freeze({
   version: AI_BUDGET_POLICY_VERSION,
@@ -327,7 +327,7 @@ export const AI_BUDGET_POLICY: AiBudgetPolicy = Object.freeze({
       maxOutputTokensPerCall: 1_500,
       taskDaily: Object.freeze({ maxInvocations: 12, maxInputTokens: 144_000, maxOutputTokens: 18_000 }),
     }),
-    // Phase G: one person's Briefing, at most a few times a day and only when its inputs changed.
+    // Interactive questions retain their own allowance; proactive briefings are paced per viewer.
     'loop-question': Object.freeze({
       maxInputTokensPerCall: 12_000, maxOutputTokensPerCall: 4_000,
       taskDaily: Object.freeze({ maxInvocations: 30, maxInputTokens: 360_000, maxOutputTokens: 60_000 }),
@@ -335,7 +335,11 @@ export const AI_BUDGET_POLICY: AiBudgetPolicy = Object.freeze({
     'loop-briefing': Object.freeze({
       maxInputTokensPerCall: 10_000,
       maxOutputTokensPerCall: 2_000,
-      taskDaily: Object.freeze({ maxInvocations: 30, maxInputTokens: 300_000, maxOutputTokens: 60_000 }),
+      // Three viewers at four refreshes/hour, with room for one bounded repair per refresh
+      // on the primary path. Availability fallback also consumes this finite allowance.
+      // This is a task ceiling, not spending authorization: organization/global token and invocation
+      // limits, recorded lane/dollar budgets and the emergency ceiling still admit every call.
+      taskDaily: Object.freeze({ maxInvocations: 600, maxInputTokens: 2_000_000, maxOutputTokens: 300_000 }),
     }),
   }),
   // The ceilings still bound the WORST case, which is every call being the dearest class at its

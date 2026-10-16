@@ -117,7 +117,7 @@ export interface BriefingPorts {
   readonly signal?: AbortSignal;
 }
 
-export type BriefingOutcome = { readonly outcome: 'REUSED' | 'COMPOSED' | 'RULE' | 'NOTHING_TO_SAY'; readonly version?: number; readonly reason?: string };
+export type BriefingOutcome = { readonly outcome: 'REUSED' | 'DEFERRED' | 'COMPOSED' | 'RULE' | 'NOTHING_TO_SAY'; readonly version?: number; readonly reason?: string };
 
 /**
  * Which ORGANIZATION domains this member may read, from the registry's authority: the workspace (the ADMIN
@@ -417,10 +417,20 @@ export class BriefingComposer {
     const carried = [...new Set([...artifacts.flatMap((a) => a.limitations), ...gapLimitations(gaps)])];
     const briefs = new WorkBriefRepository(this.ports.prisma);
     const stored = await briefs.forDate(principal, localDate, { schema: BRIEFING_RECORD_SCHEMA });
-    const storedCoverage = (stored?.coverage ?? {}) as { schema?: string; fingerprint?: string; composer?: string };
+    const storedCoverage = (stored?.coverage ?? {}) as { schema?: string; fingerprint?: string; composer?: string; modelAttemptedAt?: string };
+    // Persist the attempt time with the immutable brief, including refusals. Changed evidence and
+    // worker restarts must not turn a 30-second source poll into another paid model attempt.
+    const priorAttempt = storedCoverage.modelAttemptedAt ? Date.parse(storedCoverage.modelAttemptedAt) :
+      storedCoverage.composer === 'MODEL' ? stored?.generatedAt.getTime() : undefined;
     const modelOn = !!this.ports.runtime && this.ports.modelEnabled(AI_TASK_LOOP_BRIEFING.taskId);
     // Reuse: same inputs, and not a rule Briefing that the now-activated model could improve on.
     if (storedCoverage.schema === BRIEFING_RECORD_SCHEMA && storedCoverage.fingerprint === fingerprint && now.getTime() - stored!.generatedAt.getTime() < BRIEFING_MAX_AGE_MS && (storedCoverage.composer === 'MODEL' || !modelOn)) return { outcome: 'REUSED', version: stored!.version };
+
+    if (modelOn && priorAttempt !== undefined && Number.isFinite(priorAttempt) && now.getTime() >= priorAttempt && now.getTime() - priorAttempt < BRIEFING_MAX_AGE_MS) {
+      // Keep the old record intact. The web's fingerprint check projects current facts when its
+      // evidence changed; it never presents the older model conclusion as current.
+      return { outcome: 'DEFERRED', reason: 'REFRESH_INTERVAL', version: stored!.version };
+    }
 
     let composed: {
       headline: string;
@@ -431,7 +441,9 @@ export class BriefingComposer {
       providerId?: string;
       reason?: string;
     } | null = null;
+    let modelAttemptedAt: string | undefined;
     if (modelOn && artifacts.length > 0) {
+      modelAttemptedAt = now.toISOString();
       const { items, evidence } = briefingContextOf(artifacts, principal.organizationId);
       const request = {
         signal: this.ports.signal,
@@ -526,6 +538,7 @@ export class BriefingComposer {
         schema: BRIEFING_RECORD_SCHEMA,
         fingerprint,
         composer: composed.composer,
+        ...(modelAttemptedAt ? { modelAttemptedAt } : {}),
         ...(composed.reason ? { modelStage: composed.reason } : {}),
         read: [...new Set(artifacts.map((a) => a.domain))].sort(),
         // What was used, how completely, and what could not be used today.
