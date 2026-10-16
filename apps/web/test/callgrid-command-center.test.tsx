@@ -12,6 +12,13 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { AppRouterContext } from 'next/dist/shared/lib/app-router-context.shared-runtime';
+import type { ReactNode } from 'react';
+const renderWithRouter = (node: ReactNode) => renderToStaticMarkup(
+  <AppRouterContext.Provider value={{ back() {}, forward() {}, refresh() {}, push() {}, replace() {}, prefetch: async () => undefined }}>
+    {node}
+  </AppRouterContext.Provider>,
+);
 
 import {
   analyzeCallGrid,
@@ -182,10 +189,10 @@ describe('the executive layer', () => {
     const ctx = context({ period: 'monthly', date: '2026-09-18' }, {
       coverage: { recordStartsAt: new Date('2026-08-14T13:00:00Z'), comparison: 'BEFORE_RECORD', currentPartial: false, note },
     });
-    const section = renderToStaticMarkup(<CommandShell ctx={ctx} active="money" path="/m"><p>w</p></CommandShell>);
+    const section = renderWithRouter(<CommandShell ctx={ctx} active="money" path="/m"><p>w</p></CommandShell>);
     assert.match(section, /class="cgx-period-line cgx-period-line--cov"/);
     assert.ok(section.includes(`<span class="cgx-period-line__cov">${note}</span>`));
-    const overview = renderToStaticMarkup(<CommandShell ctx={ctx} active="overview" path="/m" executive={<p>brief</p>}><p>w</p></CommandShell>);
+    const overview = renderWithRouter(<CommandShell ctx={ctx} active="overview" path="/m" executive={<p>brief</p>}><p>w</p></CommandShell>);
     assert.equal(overview.includes(note), false, 'on the Overview the brief says it');
   });
 

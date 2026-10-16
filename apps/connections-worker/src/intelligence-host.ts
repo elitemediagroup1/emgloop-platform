@@ -96,11 +96,12 @@ export async function createIntelligenceHost(
   const queue = new db.IntelligenceRefreshQueueRepository(prisma);
   const digests = new db.IntelligenceDigestRepository(prisma);
   let running = false;
-  return {
+  let pending = false;
+  const host: IntelligenceHost = {
     scheduled: true,
     unknownProducers: registry.unknownActive,
     async pass() {
-      if (running) return;
+      if (running) { pending = true; return; }
       running = true;
       try {
         const report = await db.runIntelligencePass(
@@ -131,7 +132,9 @@ export async function createIntelligenceHost(
         log('intelligence_pass_error', { name: (err as Error)?.name ?? 'error' });
       } finally {
         running = false;
+        if (pending) { pending = false; queueMicrotask(() => void host.pass()); }
       }
     },
   };
+  return host;
 }

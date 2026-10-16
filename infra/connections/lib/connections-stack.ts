@@ -85,6 +85,8 @@ export interface ConnectionsStackProps extends StackProps {
    * (intelligenceFromContext). Absent: none is set and the worker schedules no intelligence pass.
    */
   readonly intelligence?: Readonly<Record<string, string>>;
+  /** Explicit operator allowlist: one API account bound to one organization. */
+  readonly callgridOrganization?: string;
 }
 
 /** The Secrets Manager names a stage's stack references or creates: `loop/connections/<stage>/…`. */
@@ -97,6 +99,7 @@ export function connectionSecretNames(stage: ConnectionsStage) {
     workerControl: `${prefix}/worker-control`,
     databaseUrl: `${prefix}/database-url`,
     ai: `${prefix}/ai`,
+    callgrid: `${prefix}/callgrid`,
   } as const);
 }
 
@@ -197,6 +200,11 @@ export class ConnectionsStack extends Stack {
     const logGroup = new logs.LogGroup(this, 'WorkerLogs', { retention: logs.RetentionDays.ONE_MONTH, removalPolicy: RemovalPolicy.RETAIN });
 
     const taskDefinition = new ecs.FargateTaskDefinition(this, 'TaskDef', { cpu: 256, memoryLimitMiB: 512 });
+    const callgridSecrets: Record<string, ecs.Secret> = {};
+    if (props.callgridOrganization) {
+      const callgrid = secretsmanager.Secret.fromSecretNameV2(this, 'CallGridSecret', names.callgrid);
+      callgridSecrets.CALLGRID_API_KEY = ecs.Secret.fromSecretsManager(callgrid, 'api_key');
+    }
     taskDefinition.addContainer('worker', {
       image: props.image,
       logging: ecs.LogDrivers.awsLogs({ streamPrefix: 'connections-worker', logGroup }),
@@ -207,6 +215,7 @@ export class ConnectionsStack extends Stack {
         LOOP_CONNECTION_SWEEP_INTERVAL_MS: '60000',
         ...aiEnvironment,
         ...(props.intelligence ?? {}),
+        ...(props.callgridOrganization ? { LOOP_CALLGRID_ORGANIZATION: props.callgridOrganization } : {}),
       },
       secrets: {
         TELEGRAM_API_ID: ecs.Secret.fromSecretsManager(telegram, 'api_id'),
@@ -216,6 +225,7 @@ export class ConnectionsStack extends Stack {
         LOOP_CONNECTIONS_WORKER_SECRET: ecs.Secret.fromSecretsManager(workerControl),
         DATABASE_URL: ecs.Secret.fromSecretsManager(databaseUrl),
         ...aiSecrets,
+        ...callgridSecrets,
       },
       portMappings: [{ containerPort: CONTAINER_PORT }],
     });

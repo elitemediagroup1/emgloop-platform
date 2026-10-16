@@ -19,6 +19,7 @@ import { CreatorHome } from '../../creator/creator-home';
 import { promoteOriginFrom } from '../../work/promote-origin';
 import { loadPromoteView } from '../../work/promote';
 import { PromotePanel, promoteRefusalWords } from '../../work/promote-panel';
+import { StoredDataRefresh } from '../../time/StoredDataRefresh';
 import { StateBlock } from './_loop-os/record';
 
 // Loop Home — the first destination after sign-in, for every role.
@@ -95,6 +96,7 @@ export default async function LoopHome({ searchParams }: { searchParams?: Record
 
   return (
     <WorkspaceShell session={session}>
+      <StoredDataRefresh />
       {promoteRefused ? <StateBlock kind="attention" compact title="Promote to Work" body={promoteRefused} /> : null}
       {promoteView ? <PromotePanel view={promoteView} returnTo="/app" /> : null}
       {creatorSeat ? (

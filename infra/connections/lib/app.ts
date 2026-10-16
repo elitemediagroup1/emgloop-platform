@@ -180,6 +180,14 @@ export function intelligenceFromContext(ctx: { producers?: unknown; situations?:
   return env;
 }
 
+
+/** Optional API reader; no organization means no credential access and no polling. */
+export function callgridOrganizationFromContext(value: unknown): string | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (typeof value !== 'string' || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(value.trim())) throw new Error('Invalid callgridOrganization');
+  return value.trim();
+}
+
 export function buildConnectionsApp(options: ConnectionsAppOptions): { app: App; stack: ConnectionsStack } {
   // `-c key=value` from the CLI reaches the App through its environment, not through this props
   // object, so the stage and its account are read from the App after construction. Nothing is
@@ -216,6 +224,7 @@ export function buildConnectionsApp(options: ConnectionsAppOptions): { app: App;
     image: options.image,
     assetsDir: options.assetsDir,
     mediaOrigins,
+    callgridOrganization: callgridOrganizationFromContext(app.node.tryGetContext('callgridOrganization')),
     terminationProtection: true,
     // A stack-level tag as well as the per-resource one the stack applies: CloudFormation
     // propagates this to what the CDK tag aspect cannot reach (CDK's own custom-resource provider).

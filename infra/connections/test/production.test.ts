@@ -115,6 +115,7 @@ test('secrets are named loop/connections/production/*: the two HMAC secrets crea
     workerControl: 'loop/connections/production/worker-control',
     databaseUrl: 'loop/connections/production/database-url',
     ai: 'loop/connections/production/ai',
+    callgrid: 'loop/connections/production/callgrid',
   });
   const created = Object.values(resources).filter((r) => r.Type === 'AWS::SecretsManager::Secret').map((r) => r.Properties?.Name);
   assert.deepEqual(created.sort(), [names.conversationSecret, names.workerControl].sort());

@@ -39,6 +39,7 @@ import {
 import type { CapabilityStatus, ConnectionState } from '@emgloop/shared';
 
 import { fatalLogFields, readWorkerConfig } from './config';
+import { CALLGRID_TICK_MS, createCallGridHost, readCallGridHostConfig } from './callgrid-host';
 import { createDbObservationSink } from './observation-sink';
 import { runObservationSweep, type SweepPorts } from './orchestrator';
 import { runBaselineSweep, type BaselinePorts } from './baseline-orchestrator';
@@ -66,6 +67,7 @@ function log(event: string, fields: Record<string, unknown> = {}): void {
 
 async function main(): Promise<void> {
   const config = readWorkerConfig();
+  const callgridConfig = readCallGridHostConfig(process.env);
   const connections = new SourceConnectionRepository(prisma);
   const baselines = new SourceBaselineCheckpointRepository(prisma);
   const contentAuthorizations = new SourceContentAuthorizationRepository(prisma);
@@ -512,6 +514,11 @@ async function main(): Promise<void> {
   const intelligenceTimer = intelligence.scheduled ? setInterval(() => void intelligence.pass(), intelligenceConfig.intervalMs) : null;
   log('intelligence_producers', { scheduled: intelligence.scheduled, active: intelligenceConfig.producers.length - intelligence.unknownProducers.length, unknown: intelligence.unknownProducers.length });
   if (intelligence.scheduled) void intelligence.pass();
+  const callgrid = createCallGridHost(prisma, callgridConfig,
+    () => { if (intelligence.scheduled) void intelligence.pass(); }, log);
+  const callgridTimer = callgrid.scheduled ? setInterval(() => void callgrid.pass(), CALLGRID_TICK_MS) : null;
+  if (callgrid.scheduled) void callgrid.pass();
+  log('callgrid_api_host', { scheduled: callgrid.scheduled, intervalMs: CALLGRID_TICK_MS });
   void sweep();
   void purge();
   void baseline();
@@ -527,8 +534,9 @@ async function main(): Promise<void> {
     if (historicalContentTimer) clearInterval(historicalContentTimer);
     if (hydrationTimer) clearInterval(hydrationTimer);
     if (intelligenceTimer) clearInterval(intelligenceTimer);
+    if (callgridTimer) clearInterval(callgridTimer);
     server.close();
-    void prisma.$disconnect();
+    void callgrid.stop().finally(() => prisma.$disconnect());
     log('worker_stopping');
   };
   process.on('SIGTERM', shutdown);
