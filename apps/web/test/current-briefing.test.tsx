@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { briefingFingerprint, BRIEFING_MAX_AGE_MS, type BriefingArtifact } from '@emgloop/database';
 import { createTimeView, resolveDisplayTimeZone } from '@emgloop/shared';
 import { currentBriefingOf } from '../src/intelligence/briefing';
+import { BusinessHeadlinesCard } from '../src/app/app/_home/front-door-view';
 import { StoredBriefingBody } from '../src/app/app/_home/briefing-view';
 
 const now = new Date('2026-10-16T01:30:00Z');
@@ -98,4 +99,38 @@ test('compact Home briefings preserve the complete answer behind an accessible d
   assert.match(html, /More from this briefing \(3\)/);
   assert.doesNotMatch(html, /<details[^>]*data-briefing-more[^>]* open/);
   assert.match(html, /Mail is partial/);
+});
+
+
+test('Headlines keeps business readings separate from daily priorities without manufacturing connections', () => {
+  const stored = { headline: 'Shared summary.', composer: 'MODEL' as const, generatedAt: now,
+    limitations: ['Mail is partial.'], lines: [
+      { kind: 'NEEDS_YOU' as const, statement: 'Reply to the buyer.', parts: ['MAIL'] },
+      { kind: 'WATCH' as const, statement: 'Volume rose while capacity was constrained; review the overlap.', parts: ['CALLGRID', 'CHATS'] },
+    ] };
+  const time = createTimeView(resolveDisplayTimeZone({ preference: 'America/New_York', device: null }), now);
+  const daily = renderToStaticMarkup(<StoredBriefingBody stored={stored} time={time} offers={() => false} purpose="daily" />);
+  assert.match(daily, /Reply to the buyer/);
+  assert.doesNotMatch(daily, /Volume rose/);
+  const headlines = renderToStaticMarkup(<BusinessHeadlinesCard stored={stored} situations={null} time={time} offers={() => false} />);
+  assert.match(headlines, /aria-label="Headlines"/);
+  assert.doesNotMatch(headlines, /AI Headlines|Reply to the buyer|Connected signals/);
+  assert.match(headlines, /Volume rose/);
+  assert.match(headlines, /Mail is partial/);
+  assert.match(headlines, /AI reading as of/);
+  assert.match(headlines, /data-briefing-chip="CALLGRID"/);
+  assert.doesNotMatch(headlines, /href="\/app/);
+});
+
+test('Headlines never presents rule fallback facts as model insights, but retains authorized as-of readings', () => {
+  const time = createTimeView(resolveDisplayTimeZone({ preference: 'America/New_York', device: null }), now);
+  const rule = currentBriefingOf(null, day, [a], [], now)!;
+  const pending = renderToStaticMarkup(<BusinessHeadlinesCard stored={rule} situations={null} time={time} offers={() => false} />);
+  assert.match(pending, /data-headlines-ai-pending/);
+  assert.doesNotMatch(pending, /475 stored calls/);
+  const historical = currentBriefingOf(null, day, [{ ...a, basis: 'changed' }], [], now, row)!;
+  const shown = renderToStaticMarkup(<BusinessHeadlinesCard stored={historical} situations={null} time={time} offers={() => false} />);
+  assert.match(shown, /475 stored calls/);
+  assert.match(shown, /AI reading as of/);
+  assert.doesNotMatch(shown, /data-headlines-ai-pending/);
 });

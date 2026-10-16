@@ -14,17 +14,16 @@ import { LoopPage, PageHead } from '../_loop-os/record';
 import { HOME_PATHS, composeBriefing, dueTodayFromWork, workPostureFromSummary } from './briefing';
 import { BriefingCard, NeedsAttention, SourceUnavailable, YourDayCard } from './briefing-view';
 import { loadFrontDoor, loadHeadlineStandings, navOffers, type HeadlineStanding } from './front-door-data';
-import { HeadlinesPanel, KpiStrip, RecentActivityPanel, ToolsGrid } from './front-door-view';
+import { BusinessHeadlinesCard, HeadlinesPanel, KpiStrip, RecentActivityPanel, ToolsGrid } from './front-door-view';
 import { briefingNarrative } from './narrative';
 import { RefreshCalendar } from './refresh-calendar';
 import { loadOrganizationActivity } from './org-activity-data';
 import { loadExecutiveReview } from './review-data';
 import { settle } from './settle';
 import { TILE_PATHS, projectTiles } from './tiles';
-import { SituationsPanel } from '../../../intelligence/situations-view';
 
-// The executive Home: compact KPIs, one business briefing beside the viewer's priority list,
-// then their calendar and measured objective signals. Tools and an expandable activity feed follow.
+// The executive Home: compact KPIs, one daily briefing containing the viewer's priority list,
+// then AI business Headlines, their calendar and measured objective signals. Tools and an expandable activity feed follow.
 // Read authorities and source permissions are unchanged; this is presentation, never a new authority.
 //
 // THE READS. The operational home (work, attention), the organization activity feed (read once,
@@ -167,13 +166,10 @@ export async function AdminHome({
         {!reviewResult.ok ? <SourceUnavailable what="today’s review" /> : null}
         {!homeResult.ok ? <SourceUnavailable what="Loop work" /> : null}
 
-        <div className="loop-front__focus">
-          <BriefingCard narrative={narrative} briefing={briefing} time={time} stored={front.briefing} offers={(href) => navOffers(groups, href)} />
-          <div className="loop-panel loop-front__priority">
-            <NeedsAttention briefing={briefing} time={time} standalone />
-          </div>
-        </div>
-        {front.situations ? <SituationsPanel read={front.situations} time={time} caseHref={(id) => `/app/admin/cases/${id}`} /> : null}
+        <BriefingCard narrative={narrative} briefing={briefing} time={time} stored={front.briefing} offers={(href) => navOffers(groups, href)} dailyOnly>
+          <NeedsAttention briefing={briefing} time={time} />
+        </BriefingCard>
+        {showHeadlines || (front.situations && (front.situations.personal.length > 0 || (front.situations.organization?.length ?? 0) > 0)) ? <BusinessHeadlinesCard stored={front.briefing} situations={front.situations} time={time} offers={(href) => navOffers(groups, href)} compact href={showHeadlines ? HOME_PATHS.headlines : null} /> : null}
 
         <div className="loop-front__pair">
           <YourDayCard today={briefing.today} briefing={briefing} time={time} refresh={<RefreshCalendar />} calendarHref={offer(TILE_PATHS.calendar)} showAttention={false} />

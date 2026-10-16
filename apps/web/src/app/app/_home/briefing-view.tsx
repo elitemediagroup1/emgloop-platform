@@ -73,17 +73,18 @@ function partLabel(part: string): string {
  * The stored Loop Briefing (Phase G): its headline and lines, each chip naming the part of Loop it rests on.
  * Says who composed it -- the governed model, or Loop's own deterministic Briefing.
  */
-export function StoredBriefingBody({ stored, time, offers, compact = false }: { stored: StoredBriefing; time: TimeView; offers: (href: string) => boolean; compact?: boolean }) {
+export function StoredBriefingBody({ stored, time, offers, compact = false, purpose = 'all', showHeadline = true }: { stored: StoredBriefing; time: TimeView; offers: (href: string) => boolean; compact?: boolean; purpose?: 'all' | 'daily' | 'business'; showHeadline?: boolean }) {
   if (stored.asOfSummary) return (
     <div data-briefing-as-of>
       <p className="loop-front__prose-quiet">AI briefing as of <time dateTime={time.iso(stored.asOfSummary.generatedAt)}>{time.time(stored.asOfSummary.generatedAt)}</time>. Live metrics may be newer; the next summary is pending.</p>
-      <StoredBriefingBody stored={stored.asOfSummary} time={time} offers={offers} compact={compact} />
+      <StoredBriefingBody stored={stored.asOfSummary} time={time} offers={offers} compact={compact} purpose={purpose} showHeadline={showHeadline} />
       <details className="loop-front__evidence" data-briefing-current-facts>
         <summary>Current recorded facts</summary>
-        <StoredBriefingBody stored={{ ...stored, asOfSummary: undefined }} time={time} offers={offers} compact={compact} />
+        <StoredBriefingBody stored={{ ...stored, asOfSummary: undefined }} time={time} offers={offers} compact={compact} purpose={purpose} showHeadline={showHeadline} />
       </details>
     </div>
   );
+  const lines = stored.lines.filter((l) => purpose === 'all' || (purpose === 'daily' ? l.kind === 'NEEDS_YOU' || l.kind === 'AHEAD' : l.kind === 'CHANGED' || l.kind === 'WATCH'));
   const line = (l: StoredBriefing['lines'][number], i: number) => (
         <p className="loop-front__sentence" key={i} data-briefing-line={l.kind}>
           <span>
@@ -109,14 +110,14 @@ export function StoredBriefingBody({ stored, time, offers, compact = false }: { 
   return (
     <div className="loop-front__prose" data-briefing-stored={stored.composer}>
       {stored.refreshPending ? <p className="loop-front__prose-quiet">The AI summary is awaiting refresh. These are the current recorded facts.</p> : null}
-      <p className="loop-front__headline" data-briefing-headline>
+      {showHeadline ? <p className="loop-front__headline" data-briefing-headline>
         <span>{stored.headline}</span>
-      </p>
-      {(compact ? stored.lines.slice(0, 3) : stored.lines).map(line)}
-      {compact && stored.lines.length > 3 ? (
+      </p> : null}
+      {(compact ? lines.slice(0, 3) : lines).map(line)}
+      {compact && lines.length > 3 ? (
         <details className="loop-front__evidence" data-briefing-more>
-          <summary>More from this briefing ({stored.lines.length - 3})</summary>
-          {stored.lines.slice(3).map((l, i) => line(l, i + 3))}
+          <summary>More from this briefing ({lines.length - 3})</summary>
+          {lines.slice(3).map((l, i) => line(l, i + 3))}
         </details>
       ) : null}
       <p className="loop-front__prose-quiet">
@@ -133,7 +134,7 @@ export function StoredBriefingBody({ stored, time, offers, compact = false }: { 
   );
 }
 
-export function BriefingCard({ narrative, briefing, time, stored = null, offers = () => false }: { narrative: readonly NarrativeSentence[]; briefing: Briefing; time: TimeView; stored?: StoredBriefing | null; offers?: (href: string) => boolean }) {
+export function BriefingCard({ narrative, briefing, time, stored = null, offers = () => false, children, dailyOnly = false }: { narrative: readonly NarrativeSentence[]; briefing: Briefing; time: TimeView; stored?: StoredBriefing | null; offers?: (href: string) => boolean; children?: ReactNode; dailyOnly?: boolean }) {
   return (
     <section className="loop-panel loop-front__briefing" aria-label="Your briefing" id="your-briefing">
       <div className="loop-brief__head">
@@ -141,7 +142,7 @@ export function BriefingCard({ narrative, briefing, time, stored = null, offers 
         <span className="loop-brief__sub">{time.date(time.now)}</span>
       </div>
       {stored ? (
-        <StoredBriefingBody stored={stored} time={time} offers={offers} compact />
+        <StoredBriefingBody stored={stored} time={time} offers={offers} compact purpose={dailyOnly ? 'daily' : 'all'} />
       ) : narrative.length === 0 ? (
         <p className="loop-front__prose-quiet" data-briefing-narrative-empty>
           Loop has no source it can read for you yet. Connect one in Connections and your briefing starts here.
@@ -166,6 +167,7 @@ export function BriefingCard({ narrative, briefing, time, stored = null, offers 
           ))}
         </div>
       )}
+      {children}
       <WhatLoopRead briefing={briefing} time={time} />
     </section>
   );
