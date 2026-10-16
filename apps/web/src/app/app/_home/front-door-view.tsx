@@ -10,8 +10,7 @@ import type { HeadlineStanding } from './front-door-data';
 import type { HomeKpiStrip } from './kpis';
 import type { HomeTile } from './tiles';
 import type { Settled } from './settle';
-import { SourceUnavailable, StoredBriefingBody } from './briefing-view';
-import type { StoredBriefing } from '../../../intelligence/briefing';
+import { SourceUnavailable } from './briefing-view';
 
 // Loop Home's front door, drawn (2026-09-24; the composition correction, 2026-09-24): the executive
 // KPI row, the Headlines section, recent activity, and the tools & spaces grid. Server components over the pure projections (kpis.ts,
@@ -69,7 +68,7 @@ export function KpiStrip({ strip }: { strip: Settled<HomeKpiStrip> | null }) {
           <Link key={k.key} href={k.href} className="loop-front__kpi" data-home-kpi={k.key} data-home-kpi-state={k.state} title={k.note ?? undefined}>
             <span className="loop-front__kpi-l">{k.label}</span>
             <span className={`loop-front__kpi-v${k.state !== 'VALUE' ? ' is-word' : ''}`}>{k.value}</span>
-            {k.subline ? <span className="loop-front__kpi-s">{k.subline}</span> : null}
+            {k.subline ? <span className={k.key === 'activeCampaigns' ? 'loop-sr-only' : 'loop-front__kpi-s'}>{k.subline}</span> : null}
             {k.change ? (
               <span className={`loop-front__kpi-d is-${k.change.favorable === null ? 'flat' : k.change.favorable ? 'good' : 'bad'}`} data-home-kpi-change={k.change.direction}>
                 <span aria-hidden="true">{CHANGE_ARROW[k.change.direction]}</span> {k.change.text}
@@ -77,7 +76,7 @@ export function KpiStrip({ strip }: { strip: Settled<HomeKpiStrip> | null }) {
               </span>
             ) : (
               <span className="loop-front__kpi-d is-none" data-home-kpi-nochange>
-                {k.noChangeReason}
+                {k.key === 'activeCampaigns' && k.state === 'VALUE' ? <><span aria-hidden="true">In this period</span><span className="loop-sr-only">{k.noChangeReason}</span></> : k.noChangeReason}
               </span>
             )}
             {k.coverageNote ? (
@@ -88,6 +87,11 @@ export function KpiStrip({ strip }: { strip: Settled<HomeKpiStrip> | null }) {
           </Link>
         ))}
       </div>
+      <details className="loop-front__metric-notes">
+        <summary>About these metrics</summary>
+        <p>{s.comparisonLabel ? `Comparison: ${s.comparisonLabel}. ` : 'No comparison is available. '}Active campaigns are observed in calls, not a roster of configured campaigns.</p>
+        {s.kpis.filter((k) => k.key === 'activeCampaigns').map((k) => <p key={k.key}>{k.subline} {k.noChangeReason} {k.note}</p>)}
+      </details>
       {s.coverageNote ? <p className="loop-brief__foot">{s.coverageNote}</p> : null}
       {s.kpis.some(k => k.coverageNote) ? <p className="loop-brief__foot">Some stored calls lack required financial fields, so the amounts are partial. This is separate from connection health.</p> : null}
     </section>
@@ -99,7 +103,7 @@ export function KpiStrip({ strip }: { strip: Settled<HomeKpiStrip> | null }) {
 export const HEADLINES_ON_HOME = 4;
 
 /**
- * The stored business briefing leads this section. Measured objective cards remain their own authority;
+ * Home shows the business briefing once, separately. Measured objective cards remain their own authority;
  * a business-summary line is never converted into a measured Headline record.
  * Headlines as cards: what Loop identified, why it matters (the rule and the objective it moved
  * against), the evidence behind it (coverage and sightings), and where it stands -- the situation word
@@ -112,7 +116,6 @@ export function HeadlinesPanel({
   standings,
   time,
   href,
-  briefing = null,
 }: {
   /** The non-dismissed Headlines the review read; null when that read failed. */
   headlines: readonly HeadlineView[] | null;
@@ -120,29 +123,26 @@ export function HeadlinesPanel({
   standings: ReadonlyMap<string, HeadlineStanding>;
   time: TimeView;
   href: string;
-  briefing?: StoredBriefing | null;
 }) {
   const shown = (headlines ?? []).slice(0, HEADLINES_ON_HOME);
   const more = (headlines?.length ?? 0) - shown.length;
   return (
     <section className="loop-front__headlines" aria-label="Headlines" id="headlines">
       <div className="loop-brief__head">
-        <h2 className="loop-panel__title">Headlines</h2>
+        <h2 className="loop-panel__title">Objective signals</h2>
         {headlines && headlines.length > 0 ? <span className="loop-brief__sub">{counted(headlines.length, 'open Headline', 'open Headlines')}</span> : null}
         <Link className="loop-link loop-brief__more" href={href}>
           View all Headlines →
         </Link>
       </div>
-      {briefing ? <StoredBriefingBody stored={{ ...briefing, lines: briefing.lines.slice(0, 3), asOfSummary: briefing.asOfSummary ? { ...briefing.asOfSummary, lines: briefing.asOfSummary.lines.slice(0, 3) } : undefined }} time={time} offers={() => false} /> : <p>Loop has not composed your business summary for today yet.</p>}
-      <h3 className="loop-panel__title">Measured objective signals</h3>
-      <p className="loop-front__prose-quiet">This coverage applies to configured objectives, not every connected source.</p>
+      <p className="loop-front__prose-quiet">Signals from your configured objectives.</p>
       {headlines === null ? (
         <SourceUnavailable what="Headlines" />
       ) : shown.length === 0 ? (
-        <div className="loop-front__knowledge" data-home-headlines-empty={attention?.state ?? 'UNKNOWN'}>
+        <details className="loop-front__knowledge" data-home-headlines-empty={attention?.state ?? 'UNKNOWN'}>
+          <summary>Objective coverage {attention ? <StateBadge state={attention.state} /> : null}</summary>
           {attention ? (
             <>
-              <StateBadge state={attention.state} />
               <p className="loop-front__knowledge-text">
                 {attention.state === 'ALL_CLEAR' ? 'No qualifying Headlines right now. ' : ''}
                 {attention.statement}
@@ -158,7 +158,7 @@ export function HeadlinesPanel({
           ) : (
             <p className="loop-front__knowledge-text">No open Headlines.</p>
           )}
-        </div>
+        </details>
       ) : (
         <ul className="loop-front__hlgrid">
           {shown.map((h) => {
@@ -227,7 +227,6 @@ export function RecentActivityPanel({ activity, time, auditHref }: { activity: O
     <section className="loop-panel loop-brief__panel loop-front__activity" aria-label="Recent activity" id="recent-activity" data-home-activity={activity.state}>
       <div className="loop-brief__head">
         <h2 className="loop-panel__title">Recent activity</h2>
-        {sources.length > 0 ? <span className="loop-brief__sub">Organization events from {sources.join(', ')}</span> : null}
         {auditHref ? (
           <Link className="loop-link loop-brief__more" href={auditHref}>
             Audit log →
@@ -241,9 +240,13 @@ export function RecentActivityPanel({ activity, time, auditHref }: { activity: O
       ) : entries.length === 0 ? (
         <p className="loop-brief__quiet">No organization activity recorded yet.</p>
       ) : (
-        <div className="loop-front__activity-list" data-home-activity-categories={[...new Set(entries.map((e) => e.category))].join(',')}>
-          <ActivityList entries={entries} label="Recent organization activity" />
-        </div>
+        <details className="loop-front__activity-details">
+          <summary>View recent events</summary>
+          {sources.length > 0 ? <p className="loop-front__prose-quiet">Organization events from {sources.join(', ')}</p> : null}
+          <div className="loop-front__activity-list" data-home-activity-categories={[...new Set(entries.map((e) => e.category))].join(',')}>
+            <ActivityList entries={entries} label="Recent organization activity" />
+          </div>
+        </details>
       )}
     </section>
   );
@@ -261,12 +264,12 @@ export function ToolsGrid({ tiles }: { tiles: readonly HomeTile[] }) {
       </div>
       <div className="loop-front__tilegrid">
         {tiles.map((t) => (
-          <Link key={t.key} href={t.href} className="loop-front__tile" data-home-tile={t.key} data-home-tile-state={t.state} title={t.note ?? undefined}>
+          <article key={t.key} className="loop-front__tile" data-home-tile={t.key} data-home-tile-state={t.state}>
             <span className="loop-front__tile-head">
               <span className="loop-front__tile-icon" aria-hidden="true">
                 <SidebarIcon name={t.icon} />
               </span>
-              <span className="loop-front__tile-title">{t.label}</span>
+              <Link href={t.href} className="loop-front__tile-title">{t.label}</Link>
             </span>
             {t.metric ? (
               <span className="loop-front__tile-metric">
@@ -278,14 +281,16 @@ export function ToolsGrid({ tiles }: { tiles: readonly HomeTile[] }) {
                 {t.stateLine}
               </span>
             ) : null}
-            {t.lines.map((line) => (
-              <span className="loop-front__tile-line" key={line}>
-                {line}
-              </span>
-            ))}
+            {t.lines.length > 0 || t.note ? (
+              <details className="loop-front__tile-details">
+                <summary>Read summary</summary>
+                {t.lines.map((line) => <p className="loop-front__tile-line" key={line}>{line}</p>)}
+                {t.note ? <p className="loop-front__tile-line">{t.note}</p> : null}
+              </details>
+            ) : null}
             {t.status ? <span className="loop-front__tile-status">{t.status}</span> : null}
-            <span className="loop-front__tile-go">{t.linkLabel} →</span>
-          </Link>
+            <Link href={t.href} className="loop-front__tile-go">{t.linkLabel} →</Link>
+          </article>
         ))}
       </div>
     </section>

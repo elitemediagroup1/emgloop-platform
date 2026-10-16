@@ -583,7 +583,7 @@ describe('the briefing, drawn', () => {
     assert.match(employee, /<span class="loop-front__chip" data-briefing-chip="WORK">Work<\/span>/);
     assert.match(out, /data-briefing-stored="MODEL"/);
     assert.match(out, /data-briefing-headline="true"><span>Your work needs you today\.<\/span>/);
-    assert.match(out, /Needs you: Two of your steps are overdue\./);
+    assert.match(out, /Needs you<\/span> Two of your steps are overdue\./);
     assert.match(out, /data-briefing-chip="WORK" href="\/app\/admin\/work"/);
     assert.match(out, /data-briefing-chip="CALLGRID" href="\/app\/admin\/marketplace"/);
     assert.match(out, /Composed by Loop from what it read for you/);
@@ -685,6 +685,9 @@ describe('the briefing, drawn', () => {
     const out = html(<YourDayCard today={b.today} briefing={b} time={time} calendarHref="/app/calendar" />);
     assert.match(out, /<section class="loop-panel loop-front__day" aria-label="Your day" id="today">/);
     assert.match(out, /3 meetings/);
+    const calendarOnly = html(<YourDayCard today={b.today} briefing={b} time={time} calendarHref="/app/calendar" showAttention={false} />);
+    assert.doesNotMatch(calendarOnly, /id="needs-attention"/);
+    assert.match(calendarOnly, /3 meetings/);
     assert.equal(/>9:30 AM</.test(out), false, 'a meeting that already ended is counted, not listed');
     assert.match(out, /11:00 AM/);
     assert.match(out, /4:00 PM/);
@@ -767,8 +770,9 @@ describe('both Homes compose the same briefing from the page’s reads, and load
     for (const forbidden of ['loadNeedsYou', 'loadYourDay', 'loadMailDashboard', 'prisma', 'repositories', 'loadDashboard', 'PulsePanel']) assert.equal(home.includes(forbidden), false, forbidden);
     assert.match(body, /composeBriefing\(\{[\s\S]*?headlines: review\?\.headlines \?\? null,[\s\S]*?needsYou,/);
     assert.match(body, /callgrid,[\s\S]*?headlinesPanel: showHeadlines,/, 'the projected command context in, the aggregate Headlines row out');
-    // The approved order: KPIs, the briefing, Headlines, then Your day beside Recent activity, then the tools.
-    assert.match(body, /<KpiStrip[\s\S]*<BriefingCard[\s\S]*<HeadlinesPanel[\s\S]*<div className="loop-front__pair">\s*<YourDayCard[\s\S]*<RecentActivityPanel[\s\S]*<\/div>\s*<ToolsGrid/, 'the approved order');
+    // One briefing beside priorities; calendar and objectives next; tools before expandable activity.
+    assert.match(body, /<KpiStrip[\s\S]*<div className="loop-front__focus">[\s\S]*<BriefingCard[\s\S]*<NeedsAttention[\s\S]*<div className="loop-front__pair">[\s\S]*<YourDayCard[\s\S]*showAttention=\{false\}[\s\S]*<HeadlinesPanel[\s\S]*<ToolsGrid[\s\S]*<RecentActivityPanel/, 'the visual priority order');
+    assert.equal((body.match(/<NeedsAttention /g) ?? []).length, 1, 'one priority list');
     assert.match(body, /const narrative = briefingNarrative\(\{/, 'the briefing is the narrative, a distinct synthesis');
     assert.match(body, /const auditHref = navOffers\(groups, AUDIT_PATH\) \? AUDIT_PATH : null;/, 'Home links to the audit log only where the rail would');
     const review = code(read('../src/app/app/_home/review-data.ts'));

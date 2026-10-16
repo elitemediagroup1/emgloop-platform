@@ -73,27 +73,21 @@ function partLabel(part: string): string {
  * The stored Loop Briefing (Phase G): its headline and lines, each chip naming the part of Loop it rests on.
  * Says who composed it -- the governed model, or Loop's own deterministic Briefing.
  */
-export function StoredBriefingBody({ stored, time, offers }: { stored: StoredBriefing; time: TimeView; offers: (href: string) => boolean }) {
+export function StoredBriefingBody({ stored, time, offers, compact = false }: { stored: StoredBriefing; time: TimeView; offers: (href: string) => boolean; compact?: boolean }) {
   if (stored.asOfSummary) return (
     <div data-briefing-as-of>
-      <p className="loop-front__prose-quiet">AI briefing as of <time dateTime={time.iso(stored.asOfSummary.generatedAt)}>{time.time(stored.asOfSummary.generatedAt)}</time>. New activity is reflected in the live metrics; this analysis is awaiting its next refresh.</p>
-      <StoredBriefingBody stored={stored.asOfSummary} time={time} offers={offers} />
+      <p className="loop-front__prose-quiet">AI briefing as of <time dateTime={time.iso(stored.asOfSummary.generatedAt)}>{time.time(stored.asOfSummary.generatedAt)}</time>. Live metrics may be newer; the next summary is pending.</p>
+      <StoredBriefingBody stored={stored.asOfSummary} time={time} offers={offers} compact={compact} />
       <details className="loop-front__evidence" data-briefing-current-facts>
         <summary>Current recorded facts</summary>
-        <StoredBriefingBody stored={{ ...stored, asOfSummary: undefined }} time={time} offers={offers} />
+        <StoredBriefingBody stored={{ ...stored, asOfSummary: undefined }} time={time} offers={offers} compact={compact} />
       </details>
     </div>
   );
-  return (
-    <div className="loop-front__prose" data-briefing-stored={stored.composer}>
-      {stored.refreshPending ? <p className="loop-front__prose-quiet">The AI summary is awaiting refresh. These are the current recorded facts.</p> : null}
-      <p className="loop-front__sentence" data-briefing-headline>
-        <span>{stored.headline}</span>
-      </p>
-      {stored.lines.map((l, i) => (
+  const line = (l: StoredBriefing['lines'][number], i: number) => (
         <p className="loop-front__sentence" key={i} data-briefing-line={l.kind}>
           <span>
-            {LINE_WORDS[l.kind]}: {l.statement}
+            <span className="loop-front__line-kind">{LINE_WORDS[l.kind]}</span> {l.statement}
           </span>
           {l.parts.map((part) => {
             const target = partHref(part);
@@ -110,7 +104,21 @@ export function StoredBriefingBody({ stored, time, offers }: { stored: StoredBri
             );
           })}
         </p>
-      ))}
+  );
+
+  return (
+    <div className="loop-front__prose" data-briefing-stored={stored.composer}>
+      {stored.refreshPending ? <p className="loop-front__prose-quiet">The AI summary is awaiting refresh. These are the current recorded facts.</p> : null}
+      <p className="loop-front__headline" data-briefing-headline>
+        <span>{stored.headline}</span>
+      </p>
+      {(compact ? stored.lines.slice(0, 3) : stored.lines).map(line)}
+      {compact && stored.lines.length > 3 ? (
+        <details className="loop-front__evidence" data-briefing-more>
+          <summary>More from this briefing ({stored.lines.length - 3})</summary>
+          {stored.lines.slice(3).map((l, i) => line(l, i + 3))}
+        </details>
+      ) : null}
       <p className="loop-front__prose-quiet">
         {stored.composer === 'MODEL' ? 'Composed by Loop from what it read for you' : 'Loop’s own Briefing from what it read for you'} ·{' '}
         <time dateTime={time.iso(stored.generatedAt)}>{time.relative(stored.generatedAt)}</time>
@@ -133,7 +141,7 @@ export function BriefingCard({ narrative, briefing, time, stored = null, offers 
         <span className="loop-brief__sub">{time.date(time.now)}</span>
       </div>
       {stored ? (
-        <StoredBriefingBody stored={stored} time={time} offers={offers} />
+        <StoredBriefingBody stored={stored} time={time} offers={offers} compact />
       ) : narrative.length === 0 ? (
         <p className="loop-front__prose-quiet" data-briefing-narrative-empty>
           Loop has no source it can read for you yet. Connect one in Connections and your briefing starts here.
@@ -228,14 +236,15 @@ const ATTENTION_TITLE = productLabel('NEEDS_ATTENTION')?.label ?? 'Needs attenti
  * What needs the viewer, CONSTRAINED: the top three ranked rows, and the rest behind a native
  * "Show all" -- no new page, nothing hidden that the count does not state.
  */
-export function NeedsAttention({ briefing, time }: { briefing: Briefing; time: TimeView }) {
+export function NeedsAttention({ briefing, time, standalone = false }: { briefing: Briefing; time: TimeView; standalone?: boolean }) {
+  const Heading = standalone ? 'h2' : 'h3';
   const { attention, attentionTotal, attentionElsewhere, attentionReadable } = briefing;
   const top = attention.slice(0, BRIEFING_LIMITS.attention);
   const rest = attention.slice(BRIEFING_LIMITS.attention);
   const more = attentionElsewhere.filter((e) => e.count > 0 && e.href);
   return (
     <section className="loop-front__needs" aria-label={ATTENTION_TITLE} id="needs-attention">
-      <h3 className="loop-brief__subhead">{ATTENTION_TITLE}</h3>
+      <Heading className="loop-brief__subhead">{ATTENTION_TITLE}</Heading>
       {attention.length === 0 ? (
         <p className="loop-brief__quiet">
           {attentionReadable ? 'Nothing needs you right now in what Loop can read.' : 'Loop could not read the sources that raise attention items just now.'}
@@ -372,8 +381,10 @@ export function YourDayCard({
   time,
   refresh,
   calendarHref,
+  showAttention = true,
 }: {
   today: BriefingToday;
+  showAttention?: boolean;
   briefing: Briefing;
   time: TimeView;
   refresh?: ReactNode;
@@ -450,7 +461,7 @@ export function YourDayCard({
         </>
       ) : null}
       {(read || today.calendar.state === 'NOT_READ') && refresh ? <div className="loop-brief__refresh">{refresh}</div> : null}
-      <NeedsAttention briefing={briefing} time={time} />
+      {showAttention ? <NeedsAttention briefing={briefing} time={time} /> : null}
     </section>
   );
 }
