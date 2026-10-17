@@ -59,7 +59,7 @@ function Way({ href, label, place }: { href: string | null; label: string | null
  * The briefing card: the synthesis first, in prose, each sentence with its sources as small chips;
  * then, folded, the rows Loop read that changed -- kept for inspection, never the centerpiece.
  */
-const LINE_WORDS: Readonly<Record<string, string>> = Object.freeze({ NEEDS_YOU: 'Needs you', CHANGED: 'Changed', WATCH: 'Watch', AHEAD: 'Ahead' });
+const LINE_WORDS: Readonly<Record<string, string>> = Object.freeze({ NEEDS_YOU: 'Needs you', CHANGED: 'Changed', WATCH: 'Watch', AHEAD: 'Ahead', INSIGHT: 'What this could mean' });
 
 /** Where a Briefing line's part lives in Loop (the domain's first surface), for its chip. */
 function partHref(part: string): string | null {
@@ -84,13 +84,14 @@ export function StoredBriefingBody({ stored, time, offers, compact = false, purp
       </details>
     </div>
   );
-  const lines = stored.lines.filter((l) => purpose === 'all' || (purpose === 'daily' ? l.kind === 'NEEDS_YOU' || l.kind === 'AHEAD' : l.kind === 'CHANGED' || l.kind === 'WATCH'));
+  const lines = stored.lines.filter((l) => purpose === 'all' || (purpose === 'daily' ? l.kind === 'NEEDS_YOU' || l.kind === 'AHEAD' : l.kind === 'INSIGHT'));
   const line = (l: StoredBriefing['lines'][number], i: number) => (
         <p className="loop-front__sentence" key={i} data-briefing-line={l.kind}>
           <span>
             <span className="loop-front__line-kind">{LINE_WORDS[l.kind]}</span> {l.statement}
           </span>
-          {l.parts.map((part) => {
+          {l.publications?.map((publication) => <a key={publication.url} className="loop-front__chip" href={publication.url} target="_blank" rel="noopener noreferrer">{publication.title}</a>)}
+          {l.parts.filter((part) => part !== 'EXTERNAL_NEWS').map((part) => {
             const target = partHref(part);
             // A chip links only where this viewer's navigation offers the destination.
             const href = target && offers(target) ? target : null;

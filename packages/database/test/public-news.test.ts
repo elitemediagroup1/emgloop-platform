@@ -1,0 +1,33 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { publicNewsArtifacts } from '../src/services/intelligence-fabric/public-news';
+import { PUBLIC_NEWS_FEEDS } from '@emgloop/providers';
+import { PublicNewsRepository } from '../src/repositories/public-news.repository';
+const now = new Date('2026-10-16T18:00:00Z');
+const internal = [{ ref: 'digest:website', domain: 'WEBSITE', title: 'Website', statement: 'Advertising traffic from Google search increased.', status: 'WATCH', signals: [], basis: 'LOOP_RECORDS', coverage: 'CONNECTED_SUFFICIENT', limitations: [] }] as const;
+const article = (sourceId: string, title: string) => ({ id: sourceId, organizationId: 'org', sourceId, publisher: sourceId, title, url: `https://www.ftc.gov/${sourceId}`, publishedAt: new Date('2026-10-16T12:00:00Z'), retrievedAt: now, expiresAt: new Date('2026-11-16') });
+const state = (sourceId: string) => ({ id: sourceId, organizationId: 'org', sourceId, checkedAt: now, succeededAt: now, status: 'READY' });
+test('outside stories need internal relevance, source health and an actual publication date', () => {
+  const snap = { articles: [article('ftc', 'Advertising privacy rules'), article('google-ads', 'Google search updates'), article('search-engine-land', 'Unrelated sports results')], feeds: PUBLIC_NEWS_FEEDS.map((f) => state(f.id)) };
+  const result = publicNewsArtifacts(snap, internal, now);
+  assert.equal(result.artifacts.length, 2);
+  assert.equal(result.gaps[0]?.reason, 'SOURCE_LIMIT', 'limited titles cannot establish complete external coverage');
+  assert.ok(result.artifacts.every((a) => a.coverage === 'CONNECTED_PARTIAL' && a.sourceUrl && a.publishedAt && a.limitations.some((l) => l.includes('title only'))));
+  const failed = publicNewsArtifacts({ ...snap, feeds: snap.feeds.map((f) => ({ ...f, status: 'ERROR' })) }, internal, now);
+  assert.equal(failed.artifacts.length, 0); assert.equal(failed.gaps[0]?.coverage, 'DISCONNECTED');
+  assert.equal(publicNewsArtifacts(snap, [], now).artifacts.length, 0);
+  assert.equal(publicNewsArtifacts(snap, internal, new Date('2026-10-16T11:00:00Z')).artifacts.length, 0);
+});
+test('every repository read is explicitly tenant scoped and retention uses publication time', async () => {
+  const reads: unknown[] = [];
+  const writes: any[] = [];
+  const tx = { publicNewsArticle: { upsert: async (q: unknown) => writes.push(q), deleteMany: async (q: unknown) => writes.push(q) }, publicNewsFeedState: { upsert: async (q: unknown) => writes.push(q) } };
+  const prisma = { publicNewsArticle: { findMany: async (q: unknown) => { reads.push(q); return []; } }, publicNewsFeedState: { findMany: async (q: unknown) => { reads.push(q); return []; } }, $transaction: async (fn: any) => fn(tx) };
+  const repo = new PublicNewsRepository(prisma as never);
+  await repo.snapshot('org', now);
+  for (const q of reads) assert.equal((q as any).where.organizationId, 'org');
+  await repo.record('org', 'ftc', now, [article('ftc', 'Advertising privacy')]);
+  assert.equal(writes[0].where.organizationId_url.organizationId, 'org');
+  assert.equal(writes[0].create.expiresAt.toISOString(), '2026-11-15T12:00:00.000Z');
+  await assert.rejects(repo.record('org', 'ftc', now, [article('other', 'bad')]));
+});

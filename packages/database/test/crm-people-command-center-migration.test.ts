@@ -10,9 +10,11 @@ const NAME = '20261013000000_crm_people_command_center';
 const SQL = readFileSync(new URL(`${NAME}/migration.sql`, DIR), 'utf8');
 const code = SQL.replace(/^--.*$/gm, '');
 
-test('the newest migration', () => {
+test('the People migration follows its CRM prerequisites and allows later migrations', () => {
   const dirs = readdirSync(DIR).filter((d) => /^\d{14}_/.test(d)).sort();
-  assert.equal(dirs.at(-1), NAME);
+  assert.ok(dirs.includes(NAME));
+  assert.ok(dirs.indexOf(NAME) > dirs.indexOf('20261012000000_crm_import_provenance'));
+  assert.ok(dirs.includes('20261012000000_crm_import_provenance'));
 });
 
 test('additive only: four new tables, one normalized Gmail metadata column, and one new outbox subject value; nothing destructive or rewritten', () => {

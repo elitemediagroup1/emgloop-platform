@@ -14,6 +14,7 @@ export interface StoredBriefingLine {
   readonly statement: string;
   /** The Loop parts the line's citations come from (domains, or SITUATION). */
   readonly parts: readonly string[];
+  readonly publications?: readonly { readonly url: string; readonly title: string; readonly publishedAt?: string }[];
 }
 
 export interface StoredBriefing {
@@ -27,7 +28,7 @@ export interface StoredBriefing {
   readonly asOfSummary?: StoredBriefing;
 }
 
-const KINDS: readonly string[] = ['NEEDS_YOU', 'CHANGED', 'WATCH', 'AHEAD'];
+const KINDS: readonly string[] = ['NEEDS_YOU', 'CHANGED', 'WATCH', 'AHEAD', 'INSIGHT'];
 
 type BriefingRow = { headline: string | null; items: unknown; coverage: unknown; generatedAt: Date; localDate?: Date };
 
@@ -71,14 +72,21 @@ export function currentBriefingOf(row: BriefingRow | null, localDay: string, art
 
 export function storedBriefingOf(row: { headline: string | null; items: unknown; coverage: unknown; generatedAt: Date } | null): StoredBriefing | null {
   if (!row || !row.headline) return null;
-  const coverage = (row.coverage ?? {}) as { schema?: unknown; composer?: unknown; limitations?: unknown; refs?: unknown };
+  const coverage = (row.coverage ?? {}) as { schema?: unknown; composer?: unknown; limitations?: unknown; refs?: unknown; links?: unknown };
   if (coverage.schema !== BRIEFING_RECORD_SCHEMA) return null;
   const refs = (coverage.refs && typeof coverage.refs === 'object' ? coverage.refs : {}) as Record<string, unknown>;
+  const links = (coverage.links && typeof coverage.links === 'object' ? coverage.links : {}) as Record<string, { url?: unknown; title?: unknown; publishedAt?: unknown }>;
   const lines = (Array.isArray(row.items) ? row.items : []).flatMap((l): StoredBriefingLine[] => {
     const line = l as { kind?: unknown; statement?: unknown; citations?: unknown };
     if (typeof line.statement !== 'string' || !KINDS.includes(String(line.kind))) return [];
     const cites = Array.isArray(line.citations) ? line.citations.filter((c): c is string => typeof c === 'string') : [];
-    return [{ kind: line.kind as BriefingLineKind, statement: line.statement, parts: [...new Set(cites.map((c) => String(refs[c] ?? '')).filter(Boolean))] }];
+    const publications = cites.flatMap((ref) => {
+      const link = links[ref];
+      if (!link || typeof link.url !== 'string' || typeof link.title !== 'string') return [];
+      try { const url = new URL(link.url); if (url.protocol !== 'https:' || url.username || url.password) return []; } catch { return []; }
+      return [{ url: link.url, title: link.title, ...(typeof link.publishedAt === 'string' ? { publishedAt: link.publishedAt } : {}) }];
+    });
+    return [{ publications, kind: line.kind as BriefingLineKind, statement: line.statement, parts: [...new Set(cites.map((c) => String(refs[c] ?? '')).filter(Boolean))] }];
   });
   return {
     headline: row.headline,
@@ -90,7 +98,9 @@ export function storedBriefingOf(row: { headline: string | null; items: unknown;
 }
 
 /** Today's stored Briefing for this person, in their own zone, or null. */
-export async function loadStoredBriefing(principal: { readonly organizationId: string; readonly userId: string }, timeZone: string, now: Date): Promise<StoredBriefing | null> {
+export async function loadStoredBriefing({ organizationId, userId }: { readonly organizationId: string; readonly userId: string }, timeZone: string, now: Date): Promise<StoredBriefing | null> {
+  // Callers may pass an AuthSession structurally. Only identity belongs in repository filters.
+  const principal = { organizationId, userId };
   const localDate = new Date(`${zonedCalendarDay(now, timeZone)}T00:00:00.000Z`);
   const row = await absentUntilMigrated(new WorkBriefRepository(prisma).forDate(principal, localDate, { schema: BRIEFING_RECORD_SCHEMA }));
   const composer = new BriefingComposer({ prisma, runtime: null, modelEnabled: () => false, now: () => now });

@@ -104,6 +104,15 @@ export interface PopulationPartitionFacts {
 /** One participant's aggregated economics for a window (matches the Intelligence
  * CallGridDimensionWindow shape structurally). */
 export interface CallDimensionAggregate {
+  /** Source event time and reported outcomes; absent in legacy callers means unknown. */
+  lastCallAt?: string | null;
+  noRoute?: number;
+  callsWithNoRoute?: number;
+  completed?: number;
+  callsWithCompleted?: number;
+  /** Literal provider NO_ROUTE statuses, separate from the asserted noRoute flag. */
+  noRouteStatuses?: number;
+  callsWithRawStatus?: number;
   key: string;
   label: string;
   calls: number;
@@ -149,6 +158,10 @@ export interface BackfillResult {
 
 // The subset of columns aggregateWindow needs.
 type CallRow = {
+  rawStatus?: string | null;
+  sourceOccurredAt?: Date;
+  noRoute?: boolean | null;
+  completed?: boolean | null;
   buyerExternalId: string | null;
   buyerLabel: string | null;
   vendorExternalId: string | null;
@@ -404,6 +417,7 @@ export class MarketplaceCallRepository {
         buyerExternalId: true, buyerLabel: true, vendorExternalId: true, vendorLabel: true,
         sourceExternalId: true, sourceLabel: true, campaignExternalId: true, campaignLabel: true,
         revenueCents: true, payoutCents: true, costCents: true, monetized: true, converted: true,
+        sourceOccurredAt: true, noRoute: true, completed: true, rawStatus: true,
       },
     })) as CallRow[];
     return aggregateRows(rows);
@@ -1141,6 +1155,7 @@ export class MarketplaceCallRepository {
 // --- Pure aggregation (exported for testing without a database) -------------
 
 interface DimAccum {
+  lastCallAt: string | null; noRoute: number; callsWithNoRoute: number; completed: number; callsWithCompleted: number; noRouteStatuses: number; callsWithRawStatus: number;
   key: string; label: string; calls: number; monetized: number; converted: number;
   revenueCents: number; payoutCents: number; costCents: number;
   callsWithRevenue: number; callsWithPayout: number; callsWithCost: number;
@@ -1150,6 +1165,7 @@ function bump(
   map: Map<string, DimAccum>, key: string | null, label: string | null,
   monetized: boolean | null, converted: boolean | null,
   rev: number | null, pay: number | null, cost: number | null,
+  outcome: Pick<CallRow, 'sourceOccurredAt' | 'noRoute' | 'completed' | 'rawStatus'>,
 ): void {
   // Only real attribution forms a named dimension; unknown-attributed calls
   // still count in window totals but never become an actionable dimension.
@@ -1157,9 +1173,15 @@ function bump(
   const k = (key ?? label).toLowerCase();
   const cur = map.get(k) ?? {
     key: k, label, calls: 0, monetized: 0, converted: 0,
+    lastCallAt: null, noRoute: 0, callsWithNoRoute: 0, completed: 0, callsWithCompleted: 0, noRouteStatuses: 0, callsWithRawStatus: 0,
     revenueCents: 0, payoutCents: 0, costCents: 0,
     callsWithRevenue: 0, callsWithPayout: 0, callsWithCost: 0,
   };
+  const occurred = outcome.sourceOccurredAt?.toISOString();
+  if (occurred && (!cur.lastCallAt || occurred > cur.lastCallAt)) cur.lastCallAt = occurred;
+  if (outcome.rawStatus) { cur.callsWithRawStatus++; if (outcome.rawStatus === 'NO_ROUTE') cur.noRouteStatuses++; }
+  if (typeof outcome.noRoute === 'boolean') { cur.callsWithNoRoute++; if (outcome.noRoute) cur.noRoute++; }
+  if (typeof outcome.completed === 'boolean') { cur.callsWithCompleted++; if (outcome.completed) cur.completed++; }
   cur.calls += 1;
   if (monetized === true) cur.monetized += 1;
   if (converted === true) cur.converted += 1;
@@ -1194,10 +1216,10 @@ export function aggregateRows(rows: CallRow[]): CallWindowAggregate {
     if (r.revenueCents !== null) { revenueCents += r.revenueCents; callsWithRevenue += 1; }
     if (r.payoutCents !== null) { payoutCents += r.payoutCents; callsWithPayout += 1; }
     if (r.costCents !== null) { costCents += r.costCents; callsWithCost += 1; }
-    bump(buyers, r.buyerExternalId, r.buyerLabel, r.monetized, r.converted, r.revenueCents, r.payoutCents, r.costCents);
-    bump(vendors, r.vendorExternalId, r.vendorLabel, r.monetized, r.converted, r.revenueCents, r.payoutCents, r.costCents);
-    bump(sources, r.sourceExternalId, r.sourceLabel, r.monetized, r.converted, r.revenueCents, r.payoutCents, r.costCents);
-    bump(campaigns, r.campaignExternalId, r.campaignLabel, r.monetized, r.converted, r.revenueCents, r.payoutCents, r.costCents);
+    bump(buyers, r.buyerExternalId, r.buyerLabel, r.monetized, r.converted, r.revenueCents, r.payoutCents, r.costCents, r);
+    bump(vendors, r.vendorExternalId, r.vendorLabel, r.monetized, r.converted, r.revenueCents, r.payoutCents, r.costCents, r);
+    bump(sources, r.sourceExternalId, r.sourceLabel, r.monetized, r.converted, r.revenueCents, r.payoutCents, r.costCents, r);
+    bump(campaigns, r.campaignExternalId, r.campaignLabel, r.monetized, r.converted, r.revenueCents, r.payoutCents, r.costCents, r);
   }
 
   return {

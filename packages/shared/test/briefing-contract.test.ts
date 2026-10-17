@@ -45,3 +45,10 @@ test('a Briefing cites only supplied artifacts, states only numbers they hold, n
   assert.ok(check(answer({ lines: [{ kind: 'NEEDS_YOU', statement: 'You should send the quote now.', citations: ['digest:mail'] }] })).length > 0);
   assert.ok(check(answer({ lines: Array.from({ length: 7 }, () => ({ kind: 'WATCH', statement: 'x', citations: ['digest:mail'] })) })).includes('ANSWER_TOO_LONG'));
 });
+
+test('INSIGHT connects two supplied artifacts and labels its implication as conditional', () => {
+  const line = { kind: 'INSIGHT', statement: 'Mail and overdue work may indicate a follow-through bottleneck; its cause is not established.', citations: ['digest:mail', 'digest:work'] };
+  assert.deepEqual(check(answer({ lines: [line] })), []);
+  assert.ok(check(answer({ lines: [{ ...line, citations: ['digest:mail', 'digest:mail'] }] })).includes('UNCITED_CLAIM'));
+  assert.ok(check(answer({ lines: [{ ...line, statement: 'Mail and work establish a follow-through bottleneck.' }] })).includes('CAUSAL_OVERREACH'));
+});

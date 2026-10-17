@@ -42,6 +42,7 @@ import {
 } from '@emgloop/shared';
 
 import { MarketplaceCallRepository } from '../../repositories/marketplace-call.repository';
+import { readPublicNews } from './public-news';
 import { callQuestionArtifact } from './call-snapshot';
 import { IamRepository } from '../../repositories/iam.repository';
 import { membershipAuthority } from '../../repositories/membership.repository';
@@ -72,6 +73,8 @@ export interface BriefingArtifact {
   readonly windowStart?: string;
   readonly windowEnd?: string;
   readonly generatedAt?: string;
+  readonly sourceUrl?: string;
+  readonly publishedAt?: string;
   /**
    * The artifact's coverage NOW (synthesis eligibility): only SUFFICIENT or PARTIAL artifacts exist. A
    * PARTIAL one is true of what was read, and its limitations travel with it into the Briefing.
@@ -90,7 +93,7 @@ export interface BriefingGap {
    * this domain for the person and holds no reading at all. NOT_CONNECTED: the source it would come from is
    * not connected (or needs reconnecting). None of them is quiet.
    */
-  readonly reason?: 'NOT_CURRENT' | 'NO_CURRENT_READING' | 'NOT_CONNECTED' | 'CONTEXT_LIMIT';
+  readonly reason?: 'NOT_CURRENT' | 'NO_CURRENT_READING' | 'NOT_CONNECTED' | 'CONTEXT_LIMIT' | 'SOURCE_LIMIT';
 }
 
 /**
@@ -189,7 +192,8 @@ export function gapLimitations(gaps: readonly BriefingGap[]): string[] {
   return [
     ...new Set(
       gaps.map((g) => {
-        const label = g.domain === 'SITUATION' ? 'A situation' : (INTELLIGENCE_DOMAIN_REGISTRY.find((r) => r.domain === g.domain)?.label ?? g.domain);
+        const label = g.domain === 'SITUATION' ? 'A situation' : g.domain === 'EXTERNAL_NEWS' ? 'External news' : (INTELLIGENCE_DOMAIN_REGISTRY.find((r) => r.domain === g.domain)?.label ?? g.domain);
+        if (g.reason === 'SOURCE_LIMIT') return `${label} covers selected public feed titles only; article bodies, LinkedIn posts and other publications have not been read.`;
         if (g.reason === 'CONTEXT_LIMIT') return `${label} was omitted from this bounded reading; Loop cannot conclude that it is quiet.`;
         if (g.reason === 'NOT_CONNECTED') return `${label} is not connected, so Loop cannot see it and cannot say it is quiet.`;
         if (g.reason === 'NO_CURRENT_READING') return `Loop has no current reading of ${label}, so it cannot say ${label} is quiet.`;
@@ -303,7 +307,7 @@ export function briefingContextOf(artifacts: readonly BriefingArtifact[], organi
     trust: 'UNTRUSTED_INPUT',
     sourceRef: a.ref,
     // The coverage and limitations go to the model with the reading: a partial reading is never presented as whole.
-    content: JSON.stringify({ part: a.title, status: a.status, reading: a.statement, signals: a.signals, coverage: a.coverage, limitations: a.limitations, windowStart: a.windowStart ?? null, windowEnd: a.windowEnd ?? null, generatedAt: a.generatedAt ?? null }),
+    content: JSON.stringify({ part: a.title, status: a.status, reading: a.statement, signals: a.signals, coverage: a.coverage, limitations: a.limitations, windowStart: a.windowStart ?? null, windowEnd: a.windowEnd ?? null, generatedAt: a.generatedAt ?? null, sourceUrl: a.sourceUrl ?? null, publishedAt: a.publishedAt ?? null }),
     sensitivity: 'COMMUNICATION_CONTENT',
     readUnder: read,
   }));
@@ -314,6 +318,17 @@ export function briefingContextOf(artifacts: readonly BriefingArtifact[], organi
   const dates = new Set(items.flatMap((item) => [...item.content.matchAll(/\b\d{4}-\d{2}-\d{2}(?!\d)/g)].map((m) => m[0])));
   const evidence: AiSupportedEvidence = { figures, dates };
   return { items, evidence };
+}
+
+/** Keep one reading from every available domain before deeper conversation/call detail. */
+export function balancedBriefingArtifacts(artifacts: readonly BriefingArtifact[]): BriefingArtifact[] {
+  const rank = { ATTENTION: 0, WATCH: 1, CALM: 2 };
+  const groups = new Map<string, BriefingArtifact[]>();
+  for (const artifact of artifacts) groups.set(artifact.domain, [...(groups.get(artifact.domain) ?? []), artifact]);
+  for (const group of groups.values()) group.sort((a, b) => Number(a.ref === 'snapshot:callgrid:baseline') - Number(b.ref === 'snapshot:callgrid:baseline') || rank[a.status] - rank[b.status]);
+  const out: BriefingArtifact[] = [];
+  while ([...groups.values()].some((g) => g.length)) for (const group of groups.values()) { const next = group.shift(); if (next) out.push(next); }
+  return out;
 }
 
 /** Fit the exact gateway input, including instructions/schema and room for the one bounded repair. */
@@ -337,7 +352,12 @@ export function fitBriefingArtifacts(artifacts: readonly BriefingArtifact[], gap
     const { items } = briefingContextOf(selected, organizationId);
     const oversized = items.findIndex((i) => estimateAiInputTokens([i.sourceRef, i.trust, i.content]) > 9500 - fixed);
     const baseline = selected.findIndex((a) => a.ref === 'snapshot:callgrid:baseline');
-    const index = oversized >= 0 ? oversized : baseline >= 0 ? baseline : selected.length - 1;
+    const counts = new Map<string, number>();
+    for (const a of selected) counts.set(a.domain, (counts.get(a.domain) ?? 0) + 1);
+    // Preserve breadth before depth: repeated call/chat artifacts must not evict
+    // the sole Creator, Website, CRM or public-news reading just because it is last.
+    const duplicate = selected.map((a, i) => ({ a, i })).reverse().find(({ a }) => (counts.get(a.domain) ?? 0) > 1)?.i ?? -1;
+    const index = oversized >= 0 ? oversized : baseline >= 0 ? baseline : duplicate >= 0 ? duplicate : selected.length - 1;
     const removed = selected.splice(index, 1)[0]!;
     if (!omitted.some((g) => g.domain === removed.domain && g.reason === 'CONTEXT_LIMIT')) omitted.push({ domain: removed.domain, coverage: 'CONNECTED_PARTIAL', reason: 'CONTEXT_LIMIT' });
   }
@@ -367,7 +387,7 @@ export class BriefingComposer {
   async gather(principal: AiPrincipal, now: Date, includeCallSnapshot = true): Promise<{ artifacts: BriefingArtifact[]; gaps: BriefingGap[]; historicalRefs?: readonly string[] }> {
     const digests = new IntelligenceDigestRepository(this.ports.prisma);
     const own = await Promise.all(PERSONAL.map((d) => digests.current(principal, d, { now })));
-    const chats = await digests.forDomain(principal, 'CHATS', { now, limit: 3 });
+    const chats = await digests.forDomain(principal, 'CHATS', { now, limit: 100 });
     const orgDomains = await readableOrganizationDomains(this.ports.prisma, principal.organizationId, principal.userId);
     const org = await Promise.all(orgDomains.map((d) => digests.organizationCurrent(principal.organizationId, d, { now })));
     const rows = [...own, ...chats, ...org].filter((d): d is IntelligenceDigestRecord => d !== null);
@@ -405,9 +425,14 @@ export class BriefingComposer {
       if (artifacts.some((a) => a.domain === e.domain) || gaps.some((g) => g.domain === e.domain)) continue;
       gaps.push(e.live ? { domain: e.domain, coverage: 'CONNECTED_INSUFFICIENT', reason: 'NO_CURRENT_READING' } : { domain: e.domain, coverage: 'DISCONNECTED', reason: 'NOT_CONNECTED' });
     }
+    // Public evidence is read from the governed tenant copy, never fetched during a page render.
+    if (orgDomains.length && this.ports.prisma.publicNewsArticle) {
+      const news = await readPublicNews(this.ports.prisma, principal.organizationId, artifacts, now);
+      artifacts.push(...news.artifacts); gaps.push(...news.gaps);
+    }
     const candidates = [...artifacts, ...[...mine, ...shared].slice(0, 5).map(artifactOfSituation)];
     const selected: BriefingArtifact[] = [];
-    for (const a of candidates) {
+    for (const a of balancedBriefingArtifacts(candidates)) {
       if (selected.length >= 24) { gaps.push({ domain: a.domain, coverage: 'CONNECTED_PARTIAL', reason: 'CONTEXT_LIMIT' }); continue; }
       selected.push(a);
     }
@@ -563,6 +588,7 @@ export class BriefingComposer {
         absenceJustified: absenceOk,
         // Which part of Loop each cited artifact is from, so a surface can link a line to where it lives.
         refs: Object.fromEntries(artifacts.map((a) => [a.ref, a.domain])),
+        links: Object.fromEntries(artifacts.filter((a) => a.sourceUrl).map((a) => [a.ref, { url: a.sourceUrl, title: a.title, publishedAt: a.publishedAt }])),
         limitations: composed.limitations,
         ...(composed.invocationId ? { invocationId: composed.invocationId, providerId: composed.providerId, taskId: AI_TASK_LOOP_BRIEFING.taskId, taskVersion: AI_TASK_LOOP_BRIEFING.version } : {}),
       },

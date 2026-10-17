@@ -122,6 +122,12 @@ export async function createIntelligenceHost(
           }
         }
         const briefingTally: Record<string, number> = {};
+        if (config.briefings) for (const [organizationId] of actingUsers) {
+          const operator = await principalFor({ scope: 'ORGANIZATION', organizationId, domain: 'WORK', subjectKind: 'DOMAIN', subjectRef: 'domain' });
+          if (!operator) continue;
+          const news = await db.refreshPublicNews(prisma, organizationId, now()).catch(() => null);
+          log('intelligence_public_news', news ?? { unavailable: true });
+        }
         if (config.briefings) {
           for (const p of await briefings.people(now(), 200)) {
             const controller = new AbortController();

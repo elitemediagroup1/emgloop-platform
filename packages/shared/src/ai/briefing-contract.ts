@@ -11,7 +11,7 @@ import { aiDatesInText, aiHasQuotation, aiNumberSupported, aiNumbersInText, aiPr
 
 export const BRIEFING_SCHEMA_ID = 'loop-briefing.v1';
 
-export const BRIEFING_LINE_KINDS = ['NEEDS_YOU', 'CHANGED', 'WATCH', 'AHEAD'] as const;
+export const BRIEFING_LINE_KINDS = ['NEEDS_YOU', 'CHANGED', 'WATCH', 'AHEAD', 'INSIGHT'] as const;
 export type BriefingLineKind = (typeof BRIEFING_LINE_KINDS)[number];
 
 export const BRIEFING_LIMITS = Object.freeze({ maxHeadlineChars: 160, maxLines: 6, maxLineChars: 240, maxCitations: 4, maxLimitations: 4 });
@@ -82,6 +82,11 @@ export function validateBriefingOutput(output: AiTaskOutput, task: AiTaskDefinit
     if (line.statement.trim() === '') out.push('EMPTY_ANSWER');
     if ([...line.statement].length > L.maxLineChars || line.citations.length > L.maxCitations) out.push('ANSWER_TOO_LONG');
     if (line.citations.length === 0) out.push('UNCITED_CLAIM');
+    // Insights must connect supplied evidence, and remain explicitly conditional.
+    if (line.kind === 'INSIGHT') {
+      if (new Set(line.citations).size < 2 || !line.citations.some((r) => !r.startsWith('news:'))) out.push('UNCITED_CLAIM');
+      if (!/\b(may|might|could|suggests|possible)\b/i.test(line.statement)) out.push('CAUSAL_OVERREACH');
+    }
     const figures = new Set<number>();
     for (const ref of line.citations) {
       if (!suppliedRefs.has(ref)) out.push('CITATION_NOT_SUPPLIED');

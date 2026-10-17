@@ -112,6 +112,7 @@ export function callgridRule(ctx: CallsContext, now: Date): RuleReading {
       signals.push({ key: 'buyer-concentration', kind: 'RISK', knowledge: 'OBSERVED', statement: `${label(topBuyer.label)} carries ${share}% of reported revenue.`, entities: [ref], evidenceRefs: [WINDOW_REF], severity: share >= 80 ? 'HIGH' : 'MEDIUM', asOf });
     }
   }
+  limitations.push('Call counts include attempts, including no-route outcomes; unmonetized calls do not establish incurred cost or a buyer-capacity cause.');
   const attention = signals.some((s) => s.severity === 'HIGH');
   const watch = signals.some((s) => s.kind === 'RISK' || s.kind === 'QUIET');
   const change = signals.find((s) => s.key === 'calls-change');
@@ -153,6 +154,10 @@ function byKey(rows: readonly CallDimensionAggregate[]): Map<string, CallDimensi
 export function campaignsRule(ctx: CallsContext, now: Date): RuleReading {
   const asOf = now.toISOString();
   const current = ctx.current.campaigns;
+  // A weekly failed-attempt burst is not current business growth. Keep the rows in
+  // financial totals, but do not promote dormant campaigns into present priorities.
+  const recent = (row: CallDimensionAggregate) => !row.lastCallAt || Date.parse(row.lastCallAt) >= now.getTime() - DAY_MS;
+  const allUnrouted = (row: CallDimensionAggregate) => row.calls > 0 && ((row.callsWithNoRoute === row.calls && row.noRoute === row.calls) || row.noRouteStatuses === row.calls);
   const prior = byKey(ctx.prior?.campaigns ?? []);
   const signals: IntelligenceSignal[] = [
     { key: 'active-campaigns', kind: 'OPERATIONAL', knowledge: 'MEASURED', statement: `${plural(current.length, 'campaign')} carried calls in the last ${WINDOW_DAYS} days.`, evidenceRefs: [WINDOW_REF], metric: { name: 'active_campaigns', value: current.length, unit: 'count' }, asOf },
@@ -168,7 +173,7 @@ export function campaignsRule(ctx: CallsContext, now: Date): RuleReading {
       const before = prior.get(row.key)?.calls ?? 0;
       const change = comparableChange(row.calls, before);
       const ref = memberRef('campaign', row.key);
-      if (ref && change !== null && Math.abs(change) >= CHANGE_THRESHOLD) moves.push({ ref, change, row, before });
+      if (ref && recent(row) && !allUnrouted(row) && change !== null && Math.abs(change) >= CHANGE_THRESHOLD) moves.push({ ref, change, row, before });
     }
     for (const [key, row] of prior) {
       const ref = memberRef('campaign', key);
@@ -182,21 +187,21 @@ export function campaignsRule(ctx: CallsContext, now: Date): RuleReading {
       key: campaignSignalKey('campaign', m.ref.slice(-40), m.ref, m.ref.length - m.ref.lastIndexOf(':') - 1 > 40),
       kind: m.change === -100 ? 'QUIET' : m.change < 0 ? 'RISK' : 'CHANGE',
       knowledge: 'OBSERVED',
-      statement: m.change === -100 ? `${label(m.row.label)} carried ${m.before} calls the week before and none this week.` : `${label(m.row.label)} calls are ${m.change < 0 ? 'down' : 'up'} ${Math.abs(m.change)}% (${m.before} to ${m.row.calls}).`,
+      statement: m.change === -100 ? `${label(m.row.label)} carried ${m.before} calls the week before and none this week.` : `${label(m.row.label)} weekly attempts ${m.change < 0 ? 'down' : 'up'} ${Math.abs(m.change)}% (${m.before} to ${m.row.calls})${m.row.lastCallAt ? `; last attempt ${m.row.lastCallAt.slice(0, 10)}` : ''}.`,
       entities: [m.ref],
       evidenceRefs: [WINDOW_REF, PRIOR_REF],
       severity: Math.abs(m.change) >= 50 ? 'HIGH' : 'MEDIUM',
       asOf,
     });
   }
-  const unsold = current.filter((r) => r.calls >= 10 && r.monetized === 0).slice(0, 3);
+  const unsold = current.filter((r) => recent(r) && !allUnrouted(r) && r.calls >= 10 && r.monetized === 0).slice(0, 3);
   for (const r of unsold) {
     const ref = memberRef('campaign', r.key);
     if (!ref) continue;
     name(ref);
     signals.push({ key: campaignSignalKey('unsold', r.key, ref, false), kind: 'RISK', knowledge: 'OBSERVED', statement: `${label(r.label)} carried ${r.calls} calls and none were monetized.`, entities: [ref], evidenceRefs: [WINDOW_REF], severity: 'HIGH', asOf });
   }
-  for (const r of [...current].sort((a,b) => b.calls - a.calls).slice(0, Math.min(2, 12 - signals.length))) {
+  for (const r of current.filter(recent).sort((a,b) => b.calls - a.calls).slice(0, Math.min(2, 12 - signals.length))) {
     if (r.calls === 0 || r.callsWithRevenue !== r.calls || r.callsWithPayout !== r.calls || r.callsWithCost !== r.calls) continue;
     const ref = memberRef('campaign', r.key);
     if (!ref) continue;
@@ -204,13 +209,19 @@ export function campaignsRule(ctx: CallsContext, now: Date): RuleReading {
     const net = r.revenueCents - r.payoutCents - r.costCents;
     signals.push({ key: campaignSignalKey('economics', r.key, ref, false), kind: net < 0 ? 'RISK' : 'OPERATIONAL', knowledge: 'MEASURED', statement: `${label(r.label)}: ${r.calls} calls, ${r.monetized} monetized, ${money(r.revenueCents)} revenue, ${money(r.payoutCents)} payout, ${money(r.costCents)} telco, ${money(net)} net.`, entities: [ref], evidenceRefs: [WINDOW_REF], severity: net < 0 ? 'HIGH' : 'LOW', asOf });
   }
+  for (const r of current.filter((r) => recent(r) && allUnrouted(r)).slice(0, 2)) {
+    const ref = memberRef('campaign', r.key);
+    if (!ref) continue;
+    name(ref);
+    signals.push({ key: campaignSignalKey('unrouted', r.key, ref, false), kind: 'RISK', knowledge: 'OBSERVED', statement: `${label(r.label)}: ${r.calls} weekly attempts all reported no route; last attempt ${r.lastCallAt?.slice(0, 10) ?? 'unknown'}. These are not connected calls.`, entities: [ref], evidenceRefs: [WINDOW_REF], severity: 'MEDIUM', asOf });
+  }
   const high = signals.filter((s) => s.severity === 'HIGH').length;
   return {
-    statement: current.length === 0 ? `No campaign carried calls in the last ${WINDOW_DAYS} days.` : `${plural(current.length, 'campaign')} active${moves.length ? `; ${plural(Math.min(moves.length, 6), 'campaign')} moved sharply against the week before` : ''}${unsold.length ? `; ${plural(unsold.length, 'campaign')} with no monetized calls` : ''}.`,
+    statement: current.length === 0 ? `No campaign carried calls in the last ${WINDOW_DAYS} days.` : `${plural(current.length, 'campaign')} carried attempts in the rolling week${moves.length ? `; ${plural(Math.min(moves.length, 6), 'campaign')} moved sharply against the week before` : ''}${unsold.length ? `; ${plural(unsold.length, 'campaign')} with no monetized calls` : ''}.`,
     status: high > 0 ? 'ATTENTION' : moves.length > 0 ? 'WATCH' : 'CALM',
     confidence: ctx.prior ? 'HIGH' : 'MEDIUM',
     signals: signals.slice(0, 12),
-    limitations: ctx.prior ? [] : [`Loop’s call record does not cover the ${WINDOW_DAYS} days before, so campaign movement cannot be read yet.`],
+    limitations: ['Weekly counts include attempts; old or all-no-route campaigns are not current growth priorities. No-route is not evidence of incurred cost. Campaign labels do not establish retainer identity.', ...(ctx.prior ? [] : [`Loop’s call record does not cover the ${WINDOW_DAYS} days before, so campaign movement cannot be read yet.`])],
     entityRefs,
     coverage: ctx.prior ? 'CONNECTED_SUFFICIENT' : 'CONNECTED_PARTIAL',
     windowStart: ctx.windowStart,
@@ -223,7 +234,7 @@ export function campaignsRule(ctx: CallsContext, now: Date): RuleReading {
 }
 
 function callsFingerprint(domain: string, ctx: CallsContext, dayKey: string): string {
-  const slim = (a: CallWindowAggregate | null) => a && [a.calls, a.monetized, a.revenueCents, a.payoutCents, a.callsWithRevenue, a.callsWithPayout, a.costCents, a.callsWithCost, a.campaigns.map((r) => [r.key, r.label, r.calls, r.monetized, r.revenueCents, r.payoutCents, r.costCents, r.callsWithRevenue, r.callsWithPayout, r.callsWithCost]).sort(), a.buyers.map((r) => [r.key, r.label, r.revenueCents]).sort()];
+  const slim = (a: CallWindowAggregate | null) => a && [a.calls, a.monetized, a.revenueCents, a.payoutCents, a.callsWithRevenue, a.callsWithPayout, a.costCents, a.callsWithCost, a.campaigns.map((r) => [r.key, r.label, r.calls, r.monetized, r.revenueCents, r.payoutCents, r.costCents, r.callsWithRevenue, r.callsWithPayout, r.callsWithCost, r.lastCallAt, r.noRoute, r.callsWithNoRoute, r.completed, r.callsWithCompleted, r.noRouteStatuses, r.callsWithRawStatus]).sort(), a.buyers.map((r) => [r.key, r.label, r.revenueCents]).sort()];
   return fingerprintOf(domain, [dayKey, slim(ctx.current), slim(ctx.prior), ctx.lastDayCalls]);
 }
 
@@ -231,7 +242,7 @@ function callsSpec(calls: CallsPort, domain: 'CALLGRID' | 'CAMPAIGNS') {
   return {
     domain,
     scope: 'ORGANIZATION' as const,
-    version: '4',
+    version: '5',
     provider: null,
     consentBasis: 'LOOP_RECORDS' as const,
     async discover(now: Date) {

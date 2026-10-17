@@ -98,3 +98,23 @@ test('where the record begins: the organization’s own earliest call, or null w
   assert.deepEqual(await repo.firstCallAt('org_a'), at('2026-08-14T13:00:00Z'));
   assert.equal(await repo.firstCallAt('org_c'), null);
 });
+
+test('aggregate dimensions retain source event recency and reported no-route coverage without caller data', () => {
+  const rows = [
+    { ...ROWS[0]!, sourceOccurredAt: new Date('2026-10-12T20:56:00Z'), noRoute: true, completed: false },
+    { ...ROWS[0]!, sourceOccurredAt: new Date('2026-10-11T20:56:00Z'), noRoute: null, completed: null },
+  ];
+  const campaign = aggregateRows(rows).campaigns[0]!;
+  assert.equal(campaign.lastCallAt, '2026-10-12T20:56:00.000Z');
+  assert.equal(campaign.noRoute, 1);
+  assert.equal(campaign.callsWithNoRoute, 1);
+  assert.equal(campaign.completed, 0);
+  assert.equal(campaign.callsWithCompleted, 1, 'missing outcome is not false');
+});
+
+test('native status counts do not manufacture asserted noRoute booleans', () => {
+  const campaign = aggregateRows([{ ...ROWS[0]!, rawStatus: 'NO_ROUTE', noRoute: null, completed: null }]).campaigns[0]!;
+  assert.equal(campaign.noRouteStatuses, 1);
+  assert.equal(campaign.callsWithRawStatus, 1);
+  assert.equal(campaign.callsWithNoRoute, 0);
+});

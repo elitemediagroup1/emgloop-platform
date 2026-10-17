@@ -302,6 +302,8 @@ model Organization {
   sourceConnections           SourceConnection[]
   /// Content-free observations from those sources (who/when, never content); see SourceObservation.
   sourceObservations          SourceObservation[]
+  publicNewsArticles          PublicNewsArticle[]
+  publicNewsFeeds             PublicNewsFeedState[]
   /// Historical baseline checkpoints (Telegram): per member per provider; see SourceBaselineCheckpoint.
   sourceBaselineCheckpoints   SourceBaselineCheckpoint[]
   /// Content-processing authorizations (Telegram content-triage): per member per provider; see
@@ -8112,4 +8114,37 @@ model CrmDiscoveryDismissal {
 
   @@unique([organizationId, userId, correspondentHash])
   @@map("crm_discovery_dismissals")
+}
+
+/// Public publication metadata retained for attributed business insights. Never full article bodies.
+model PublicNewsArticle {
+  id             String   @id @default(cuid())
+  organizationId String
+  sourceId       String
+  publisher      String
+  url            String
+  title          String
+  publishedAt    DateTime
+  retrievedAt    DateTime
+  expiresAt      DateTime
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, url])
+  @@index([organizationId, publishedAt])
+  @@index([expiresAt])
+  @@map("public_news_articles")
+}
+
+/// Feed health is separate from article publication time; a failed fetch never refreshes old evidence.
+model PublicNewsFeedState {
+  id             String @id @default(cuid())
+  organizationId String
+  sourceId       String
+  checkedAt      DateTime
+  succeededAt    DateTime?
+  status         String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, sourceId])
+  @@map("public_news_feed_states")
 }
