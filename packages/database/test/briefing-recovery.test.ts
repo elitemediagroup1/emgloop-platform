@@ -78,7 +78,7 @@ function validated(statement: string, req: AiRunRequest) {
   };
   return (
     rejections.length
-      ? { outcome: 'REJECTED_OUTPUT', rejections, provenance }
+      ? { outcome: 'REJECTED_OUTPUT', rejections, lengthIssues: contract.lengthIssues?.(output), provenance }
       : { outcome: 'ANSWERED', output, provenance }
   ) as never;
 }
@@ -87,7 +87,7 @@ test('the prompt supplies every size limit enforced by the briefing contract', (
   assert.match(prompt, new RegExp(`${BRIEFING_LIMITS.maxLineChars} characters`));
   assert.match(prompt, new RegExp(`at most ${BRIEFING_LIMITS.maxLimitations} limitations`));
   assert.match(prompt, /Do not calculate/);
-  assert.equal(BRIEFING_TEMPLATE_VERSION, '7');
+  assert.equal(BRIEFING_TEMPLATE_VERSION, '8');
 });
 
 test('unchanged evidence is reusable briefly but a new scheduled reading is required after fifteen minutes', async (t) => {
@@ -162,6 +162,7 @@ test('a length rejection gets one repair from original evidence and only a valid
   assert.equal(requests[1]!.context, requests[0]!.context);
   assert.equal(requests[1]!.evidence, requests[0]!.evidence);
   assert.match(requests[1]!.instructions, /ANSWER_TOO_LONG/);
+  assert.match(requests[1]!.instructions, /line\.statement\[0\]: 241>240/);
   assert.doesNotMatch(requests[1]!.instructions, /x{241}/);
   assert.equal(db.rows[0].coverage.composer, 'MODEL');
   assert.equal((await composer.compose(principal, 'America/New_York')).outcome, 'REUSED');
@@ -186,6 +187,8 @@ test('two invalid answers retain an honest RULE briefing and content-free reject
   assert.equal(calls, 2);
   assert.equal(result.outcome, 'RULE');
   assert.equal(db.rows[0].coverage.modelStage, 'REJECTED_OUTPUT:ANSWER_TOO_LONG');
+  assert.deepEqual(db.rows[0].coverage.validationLengthIssues, [{ field: 'line.statement', index: 0, actual: 241, maximum: 240 }]);
+  assert.doesNotMatch(JSON.stringify(db.rows[0]), /x{241}/);
   assert.equal(db.rows[0].coverage.composer, 'RULE');
 });
 

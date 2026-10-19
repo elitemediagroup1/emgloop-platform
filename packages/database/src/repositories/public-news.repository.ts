@@ -1,6 +1,10 @@
 import type { PrismaClient } from '@prisma/client';
 import type { PublicNewsArticle } from '@emgloop/shared';
 
+// Up to 40 bounded metadata upserts share one atomic health update. Five parallel feeds
+// get explicit bounded headroom instead of Prisma's five-second transaction default.
+export const PUBLIC_NEWS_WRITE_OPTIONS = Object.freeze({ maxWait: 5_000, timeout: 20_000 });
+
 /** Public metadata is still tenant scoped. A successful empty fetch and a failed fetch differ. */
 export class PublicNewsRepository {
   constructor(private readonly prisma: PrismaClient) {}
@@ -18,7 +22,7 @@ export class PublicNewsRepository {
       }
       await tx.publicNewsFeedState.upsert({ where: { organizationId_sourceId: { organizationId, sourceId } }, create: { organizationId, sourceId, checkedAt: now, succeededAt: articles ? now : null, status: articles ? 'READY' : 'ERROR' }, update: { checkedAt: now, status: articles ? 'READY' : 'ERROR', ...(articles ? { succeededAt: now } : {}) } });
       await tx.publicNewsArticle.deleteMany({ where: { organizationId, expiresAt: { lte: now } } });
-    });
+    }, PUBLIC_NEWS_WRITE_OPTIONS);
   }
 
   async snapshot(organizationId: string, now: Date) {

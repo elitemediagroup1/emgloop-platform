@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parsePublicNewsRss, fetchPublicNews, PUBLIC_NEWS_FEEDS } from '../src/news/public-feeds';
+import { parsePublicNewsRss, fetchPublicNews, PUBLIC_NEWS_FEEDS, publicNewsFailure } from '../src/news/public-feeds';
 const now = new Date('2026-10-16T18:00:00Z');
 const feed = PUBLIC_NEWS_FEEDS[0];
 const item = (url = 'https://www.ftc.gov/news/test', date = 'Fri, 16 Oct 2026 12:00:00 GMT') => `<item><title><![CDATA[Advertising &amp; privacy]]></title><link>${url}</link><pubDate>${date}</pubDate><description>Never ingest bodies</description></item>`;
@@ -20,4 +20,23 @@ test('fetch never follows redirects or sends business context and rejects HTTP f
   const fetcher = (async (url, init) => { called = true; assert.equal(url, feed.url); assert.equal(init?.redirect, 'error'); assert.equal(init?.body, undefined); return new Response('unavailable', { status: 503 }); }) as typeof fetch;
   await assert.rejects(fetchPublicNews(feed, now, fetcher));
   assert.ok(called);
+});
+
+
+test('fetch errors expose fixed codes and HTTP status, never exception text or response bodies', async () => {
+  const cases: [typeof fetch, object][] = [
+    [(async () => new Response('private response body', { status: 403 })) as typeof fetch, { code: 'HTTP_ERROR', httpStatus: 403 }],
+    [(async () => { throw new DOMException('private timeout URL', 'TimeoutError'); }) as typeof fetch, { code: 'TIMEOUT' }],
+    [(async () => { throw new Error('private network URL'); }) as typeof fetch, { code: 'NETWORK_ERROR' }],
+    [(async () => new Response('<html>private body</html>')) as typeof fetch, { code: 'INVALID_FEED' }],
+    [(async () => new Response(null)) as typeof fetch, { code: 'EMPTY_RESPONSE' }],
+    [(async () => new Response('x'.repeat(1_000_001))) as typeof fetch, { code: 'RESPONSE_TOO_LARGE' }],
+  ];
+  for (const [fetcher, expected] of cases) {
+    await assert.rejects(fetchPublicNews(feed, now, fetcher), (error: unknown) => {
+      assert.deepEqual(publicNewsFailure(error), expected);
+      assert.doesNotMatch(String(error), /private/);
+      return true;
+    });
+  }
 });

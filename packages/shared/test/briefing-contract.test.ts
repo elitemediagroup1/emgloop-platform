@@ -52,3 +52,16 @@ test('INSIGHT connects two supplied artifacts and labels its implication as cond
   assert.ok(check(answer({ lines: [{ ...line, citations: ['digest:mail', 'digest:mail'] }] })).includes('UNCITED_CLAIM'));
   assert.ok(check(answer({ lines: [{ ...line, statement: 'Mail and work establish a follow-through bottleneck.' }] })).includes('CAUSAL_OVERREACH'));
 });
+
+
+test('length feedback is bounded contract metadata and counts Unicode characters rather than UTF-16 units', () => {
+  const parsed = contract.parse(answer({ headline: '🟢'.repeat(160), lines: [{ kind: 'WATCH', statement: 'x'.repeat(241), citations: ['digest:mail'] }] }))!;
+  assert.deepEqual(contract.lengthIssues!(parsed), [{ field: 'line.statement', index: 0, actual: 241, maximum: 240 }]);
+  const excessive = contract.parse(answer({ headline: 'h'.repeat(161), limitations: Array(5).fill('gap'), lines: Array.from({ length: 7 }, () => ({ kind: 'WATCH', statement: 'private'.repeat(41), citations: Array(5).fill('digest:mail') })) }))!;
+  const issues = contract.lengthIssues!(excessive);
+  assert.equal(issues.length, 8);
+  assert.deepEqual(issues.slice(0, 3), [{ field: 'headline', actual: 161, maximum: 160 }, { field: 'lines', actual: 7, maximum: 6 }, { field: 'limitations', actual: 5, maximum: 4 }]);
+  assert.ok(issues.some((i) => i.field === 'line.citations'));
+  assert.doesNotMatch(JSON.stringify(issues), /private|digest:mail/);
+  assert.ok(check(answer({ headline: 'h'.repeat(161) })).includes('ANSWER_TOO_LONG'));
+});

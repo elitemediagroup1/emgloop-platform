@@ -33,6 +33,7 @@ import {
   zonedWallTimeToUtc,
   rankDomainSignals,
   type AiBriefing,
+  type AiOutputLengthIssue,
   type AiContextItem,
   type AiSupportedEvidence,
   type BriefingLineKind,
@@ -52,7 +53,7 @@ import { SituationRepository, type SituationView } from '../../repositories/inte
 import { SourceContentAuthorizationRepository } from '../../repositories/source-content-authorization.repository';
 import { WorkBriefRepository } from '../../repositories/work-state/work-brief.repository';
 import type { AiPrincipal, AiRuntimeGateway } from '../ai-runtime/gateway';
-import { BRIEFING_TEMPLATE_ID, BRIEFING_TEMPLATE_VERSION, renderBriefingInstructions } from '../ai-runtime/templates/briefing';
+import { BRIEFING_TEMPLATE_ID, BRIEFING_TEMPLATE_VERSION, renderBriefingInstructions, renderBriefingRepairInstructions } from '../ai-runtime/templates/briefing';
 
 export const BRIEFING_RECORD_SCHEMA = 'loop-briefing.v1';
 export const BRIEFING_RULE_VERSION = 'loop-briefing-rule#1';
@@ -121,7 +122,7 @@ export interface BriefingPorts {
   readonly signal?: AbortSignal;
 }
 
-export type BriefingOutcome = { readonly outcome: 'REUSED' | 'DEFERRED' | 'COMPOSED' | 'RULE' | 'NOTHING_TO_SAY'; readonly version?: number; readonly reason?: string };
+export type BriefingOutcome = { readonly outcome: 'REUSED' | 'DEFERRED' | 'COMPOSED' | 'RULE' | 'NOTHING_TO_SAY'; readonly version?: number; readonly reason?: string; readonly lengthIssues?: readonly AiOutputLengthIssue[] };
 
 /**
  * Which ORGANIZATION domains this member may read, from the registry's authority: the workspace (the ADMIN
@@ -483,6 +484,7 @@ export class BriefingComposer {
       reason?: string;
     } | null = null;
     let modelAttemptedAt: string | undefined;
+    let lengthIssues: readonly AiOutputLengthIssue[] = [];
     if (modelOn && artifacts.length > 0) {
       modelAttemptedAt = now.toISOString();
       const { items, evidence } = briefingContextOf(artifacts, principal.organizationId);
@@ -506,6 +508,7 @@ export class BriefingComposer {
         evidence,
       };
       let result = await this.ports.runtime!.run(principal, request);
+      if (result.outcome === 'REJECTED_OUTPUT') lengthIssues = result.lengthIssues ?? [];
       const unjustifiedAbsence = (r: typeof result) =>
         r.outcome === 'ANSWERED' &&
         !absenceOk &&
@@ -524,8 +527,9 @@ export class BriefingComposer {
         result = await this.ports.runtime!.run(principal, {
           ...request,
           templateVersion: `${BRIEFING_TEMPLATE_VERSION}.repair1`,
-          instructions: `${request.instructions}\nOne bounded repair after validation codes ${codes.join(', ')}. Use only the original supplied artifacts. Return fewer, shorter lines if necessary. Omit unsupported claims or figures. Do not recommend actions or infer that nothing needs attention from incomplete coverage. Return the exact required JSON shape.`,
+          instructions: renderBriefingRepairInstructions(request.instructions, codes, lengthIssues),
         });
+        if (result.outcome === 'REJECTED_OUTPUT' && result.lengthIssues?.length) lengthIssues = result.lengthIssues;
       }
       const b: AiBriefing | null =
         result.outcome === 'ANSWERED' ? (result.output.briefing ?? null) : null;
@@ -589,6 +593,7 @@ export class BriefingComposer {
         // Which part of Loop each cited artifact is from, so a surface can link a line to where it lives.
         refs: Object.fromEntries(artifacts.map((a) => [a.ref, a.domain])),
         links: Object.fromEntries(artifacts.filter((a) => a.sourceUrl).map((a) => [a.ref, { url: a.sourceUrl, title: a.title, publishedAt: a.publishedAt }])),
+        ...(composed.composer === 'RULE' && lengthIssues.length ? { validationLengthIssues: lengthIssues } : {}),
         limitations: composed.limitations,
         ...(composed.invocationId ? { invocationId: composed.invocationId, providerId: composed.providerId, taskId: AI_TASK_LOOP_BRIEFING.taskId, taskVersion: AI_TASK_LOOP_BRIEFING.version } : {}),
       },
@@ -598,7 +603,7 @@ export class BriefingComposer {
       generatorVersion: composed.composer === 'MODEL' ? `${AI_TASK_LOOP_BRIEFING.taskId}#${AI_TASK_LOOP_BRIEFING.version}` : BRIEFING_RULE_VERSION,
       generatedAt: now,
     });
-    return { outcome: composed.composer === 'MODEL' ? 'COMPOSED' : 'RULE', version: written.version, ...(composed.reason ? { reason: composed.reason } : {}) };
+    return { outcome: composed.composer === 'MODEL' ? 'COMPOSED' : 'RULE', version: written.version, ...(composed.reason ? { reason: composed.reason } : {}), ...(composed.composer === 'RULE' && lengthIssues.length ? { lengthIssues } : {}) };
   }
 
   /** The people a scheduled pass composes for: members with a live reading of their own. Ids only. */

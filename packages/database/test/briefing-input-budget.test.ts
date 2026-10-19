@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BRIEFING_SCHEMA, estimateAiInputTokens } from '@emgloop/shared';
 import { briefingContextOf, briefingAbsenceJustified, fitBriefingArtifacts, gapLimitations, type BriefingArtifact } from '../src/services/intelligence-fabric/briefing';
-import { renderBriefingInstructions } from '../src/services/ai-runtime/templates/briefing';
+import { renderBriefingInstructions, renderBriefingRepairInstructions } from '../src/services/ai-runtime/templates/briefing';
 import { AI_BUDGET_POLICY } from '@emgloop/providers';
 
 const artifact = (ref: string, length: number, domain = 'MAIL'): BriefingArtifact => ({ ref, domain, title: domain, statement: 'x'.repeat(length), signals: [], basis: ref, coverage: 'CONNECTED_PARTIAL', limitations: ['Only the supplied records were read.'], status: 'WATCH' });
@@ -18,7 +18,9 @@ test('the former 24,000-character artifact allowance can exceed policy; fitting 
   assert.ok(fitted.artifacts.length > 0);
   assert.ok(fitted.artifacts.length < artifacts.length);
   assert.ok(estimate(fitted.artifacts, fitted.gaps) <= cap - 500);
-  assert.ok(estimate(fitted.artifacts, fitted.gaps, '\nOne bounded repair after validation codes UNSUPPORTED_NUMBER, ANSWER_TOO_LONG. Use only the original supplied artifacts. Return fewer, shorter lines if necessary. Omit unsupported claims or figures. Do not recommend actions or infer that nothing needs attention from incomplete coverage. Return the exact required JSON shape.') <= cap);
+  assert.ok(estimate(fitted.artifacts, fitted.gaps, renderBriefingRepairInstructions('', Array(6).fill('UNSUPPORTED_NUMBER_IN_TEXT'), Array.from({ length: 8 }, (_, index) => ({ field: 'line.statement' as const, index, actual: 10000, maximum: 240 })))) <= cap);
+  const repair = renderBriefingRepairInstructions('', Array(6).fill('UNSUPPORTED_NUMBER_IN_TEXT'), Array.from({ length: 8 }, (_, index) => ({ field: 'line.statement' as const, index, actual: 10000000, maximum: 240 })));
+  assert.ok(Math.ceil(repair.length / 2) <= 500, 'bounded feedback must fit the reserved repair headroom even when initial context fills its allowance');
   assert.equal(fitted.gaps.filter((g) => g.domain === 'MAIL' && g.reason === 'CONTEXT_LIMIT').length, 1);
   assert.equal(briefingAbsenceJustified(fitted.artifacts, fitted.gaps), false);
 });

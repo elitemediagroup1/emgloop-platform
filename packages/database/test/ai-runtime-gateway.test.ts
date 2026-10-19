@@ -30,6 +30,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   AI_ACTIVATION_OFF,
+  AI_TASKS, BRIEFING_SCHEMA, BRIEFING_SCHEMA_ID,
   AI_TASK_CASE_EXPLANATION,
   type AiActivation,
   type AiBudgetPolicy,
@@ -830,4 +831,21 @@ test('G2: the policy is per provider -- an approved fallback serves when the pri
   assert.equal(p2.calls, 1);
   assert.equal(ledger.calls[0]!.target.providerId, 'p2');
   assert.equal(ledger.calls[0]!.fellBackFrom, `p1/${POLICY.tasks['case.explanation']!.primary.modelId}`, 'the stand-in is recorded');
+});
+
+
+test('a rejected briefing returns length measurements without exposing rejected prose or changing ledger content', async () => {
+  const task = AI_TASKS.find((t) => t.taskId === 'loop.briefing.compose')!;
+  const provider = fixture('p1', answer({}, { output: { json: { schemaId: BRIEFING_SCHEMA_ID, headline: 'A current development.', lines: [{ kind: 'WATCH', statement: 'z'.repeat(241), citations: [REF] }], limitations: [] } } }));
+  const { runtime, ledger } = world([provider], { config: {
+    activation: { ...ON, tasks: [task.taskId] },
+    policy: { ...POLICY, tasks: { [task.taskId]: { ...POLICY.tasks['case.explanation']!, taskId: task.taskId, taskVersion: task.version } } },
+  }, providerPolicies: async () => APPROVED_POLICIES.map((p) => ({ ...p, ceiling: 'COMMUNICATION_CONTENT' as const })) });
+  const result = await runtime.run(PRINCIPAL, request({ task, schema: BRIEFING_SCHEMA, context: context({ taskId: task.taskId }) }));
+  assert.equal(result.outcome, 'REJECTED_OUTPUT');
+  if (result.outcome !== 'REJECTED_OUTPUT') return;
+  assert.deepEqual(result.lengthIssues, [{ field: 'line.statement', index: 0, actual: 241, maximum: 240 }]);
+  assert.doesNotMatch(JSON.stringify(result), /z{241}/);
+  assert.doesNotMatch(JSON.stringify(ledger), /z{241}/);
+  assert.equal(provider.calls, 1);
 });

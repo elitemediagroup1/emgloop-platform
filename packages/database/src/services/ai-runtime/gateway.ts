@@ -86,6 +86,7 @@ import {
   type AiOperatingBudget,
   type AiOutputContract,
   type AiOutputRejection,
+  type AiOutputLengthIssue,
   type AiProviderPolicy,
   type AiRouteTargetPolicy,
   type AiRoutingPolicy,
@@ -241,7 +242,7 @@ export type AiOperatingBudgetReading =
 export type AiRunResult =
   | { readonly outcome: 'ANSWERED'; readonly output: AiTaskOutput; readonly provenance: AiInvocationProvenance }
   | { readonly outcome: 'REFUSED_BY_LOOP'; readonly refusals: readonly AiAdmissionRefusal[] }
-  | { readonly outcome: 'REJECTED_OUTPUT'; readonly rejections: readonly AiOutputRejection[]; readonly provenance: AiInvocationProvenance }
+  | { readonly outcome: 'REJECTED_OUTPUT'; readonly rejections: readonly AiOutputRejection[]; readonly lengthIssues?: readonly AiOutputLengthIssue[]; readonly provenance: AiInvocationProvenance }
   | { readonly outcome: 'REFUSED_BY_MODEL'; readonly provenance: AiInvocationProvenance }
   | { readonly outcome: 'FAILED'; readonly failure: string; readonly provenance: AiInvocationProvenance };
 
@@ -701,7 +702,10 @@ export class AiRuntimeGateway {
       rejectionCodes: rejections,
     });
 
-    if (!accepted) return { outcome: 'REJECTED_OUTPUT', rejections, provenance: provenance(target, result, 'REJECTED_BY_LOOP') };
+    if (!accepted) {
+      const lengthIssues = parsed && rejections.includes('ANSWER_TOO_LONG') ? contract.lengthIssues?.(parsed) ?? [] : [];
+      return { outcome: 'REJECTED_OUTPUT', rejections, ...(lengthIssues.length ? { lengthIssues } : {}), provenance: provenance(target, result, 'REJECTED_BY_LOOP') };
+    }
     return { outcome: 'ANSWERED', output: parsed, provenance: provenance(target, result, 'ANSWERED') };
   }
 

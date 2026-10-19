@@ -487,6 +487,15 @@ export const AI_OUTPUT_REJECTIONS = [
 ] as const;
 export type AiOutputRejection = (typeof AI_OUTPUT_REJECTIONS)[number];
 
+/** Content-free validation feedback. Field names are contract-owned, never provider prose. */
+export interface AiOutputLengthIssue {
+  readonly field: 'headline' | 'lines' | 'line.statement' | 'line.citations' | 'limitations';
+  readonly index?: number;
+  readonly actual: number;
+  readonly maximum: number;
+}
+
+
 /** Bounds on an answer a person has to read. The schema cannot say these for every provider. */
 /** What a proposed draft may be. Longer than this is not a reply somebody will read. */
 export const AI_DRAFT_LIMITS = Object.freeze({ maxBodyChars: 6000 });
