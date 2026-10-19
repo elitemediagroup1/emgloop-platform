@@ -412,5 +412,5 @@ export type {
   LocalMediaStorageDeps,
 } from './storage/media-storage';
 
-export { PUBLIC_NEWS_FEEDS, fetchPublicNews, parsePublicNewsRss } from './news/public-feeds';
+export { PUBLIC_NEWS_FEEDS, fetchPublicNews, parsePublicNewsRss, PublicNewsReadError, publicNewsFailure } from './news/public-feeds';
 export type { PublicNewsFeed, PublicNewsArticle } from './news/public-feeds';

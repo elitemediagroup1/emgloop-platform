@@ -16,12 +16,14 @@ import { LOOP_CHAT_SCHEMA_ID, parseLoopChatOutput, validateLoopChatOutput } from
 
 import { DOMAIN_READING_SCHEMA_ID, parseDomainReadingOutput, validateDomainReadingOutput } from './domain-reading';
 import { MAIL_CONTENT_TRIAGE_SCHEMA_ID, TELEGRAM_TRIAGE_V5_SCHEMA_ID, parseConversationTriageOutput, parseTriageV5Output, validateTriageV5Output } from './telegram-triage-v5';
-import { BRIEFING_SCHEMA_ID, parseBriefingOutput, validateBriefingOutput } from './briefing-contract';
+import { BRIEFING_SCHEMA_ID, parseBriefingOutput, validateBriefingOutput, briefingOutputLengthIssues } from './briefing-contract';
 import { SITUATION_SYNTHESIS_SCHEMA_ID, SITUATION_VERIFICATION_SCHEMA_ID, parseSituationSynthesisOutput, parseSituationVerificationOutput, validateSituationSynthesisOutput, validateSituationVerificationOutput } from './situation-contracts';
-import { parseAiTaskOutput, validateAiTaskOutput, type AiOutputRejection, type AiSupportedEvidence, type AiTaskDefinition, type AiTaskOutput } from './task';
+import { parseAiTaskOutput, validateAiTaskOutput, type AiOutputLengthIssue, type AiOutputRejection, type AiSupportedEvidence, type AiTaskDefinition, type AiTaskOutput } from './task';
 
 export interface AiOutputContract {
   readonly schemaId: string;
+  /** Optional bounded field/count diagnostics; no model text is retained. */
+  lengthIssues?(output: AiTaskOutput): readonly AiOutputLengthIssue[];
   /** Shape only: null when the answer is not the answer that was asked for. */
   parse(value: unknown): AiTaskOutput | null;
   /** Every rule the parsed answer breaks. Empty means Loop may show it. */
@@ -50,7 +52,7 @@ export const AI_OUTPUT_CONTRACTS: Readonly<Record<string, AiOutputContract>> = O
   // Phase F: situation synthesis and its independent verification. Phase G: the Briefing.
   [SITUATION_SYNTHESIS_SCHEMA_ID]: Object.freeze({ schemaId: SITUATION_SYNTHESIS_SCHEMA_ID, parse: parseSituationSynthesisOutput, validate: validateSituationSynthesisOutput }),
   [SITUATION_VERIFICATION_SCHEMA_ID]: Object.freeze({ schemaId: SITUATION_VERIFICATION_SCHEMA_ID, parse: parseSituationVerificationOutput, validate: validateSituationVerificationOutput }),
-  [BRIEFING_SCHEMA_ID]: Object.freeze({ schemaId: BRIEFING_SCHEMA_ID, parse: parseBriefingOutput, validate: validateBriefingOutput }),
+  [BRIEFING_SCHEMA_ID]: Object.freeze({ schemaId: BRIEFING_SCHEMA_ID, parse: parseBriefingOutput, validate: validateBriefingOutput, lengthIssues: briefingOutputLengthIssues }),
 });
 
 /** The contract an answer to this schema is judged by, or null when none is registered. */

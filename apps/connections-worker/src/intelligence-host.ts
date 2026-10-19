@@ -136,7 +136,7 @@ export async function createIntelligenceHost(
               const bounded = new db.BriefingComposer({ prisma, runtime: ai.runtime ? (ai.runtime as ConstructorParameters<typeof db.DomainReadingService>[0]) : null, modelEnabled, now, observed, signal: controller.signal });
               const r = await bounded.compose({ organizationId: p.organizationId, userId: p.userId }, p.timeZone).catch(() => ({ outcome: 'ERROR' as const }));
               briefingTally[r.outcome] = (briefingTally[r.outcome] ?? 0) + 1;
-              if ('reason' in r && r.reason) log('intelligence_briefing_stage', { outcome: r.outcome, reason: r.reason });
+              if ('reason' in r && r.reason) log('intelligence_briefing_stage', { outcome: r.outcome, reason: r.reason, ...('lengthIssues' in r && r.lengthIssues?.length ? { lengthIssues: r.lengthIssues } : {}) });
             } finally { clearTimeout(timer); }
           }
         }

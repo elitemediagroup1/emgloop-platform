@@ -7,7 +7,7 @@
 //
 // PURE.
 
-import { aiDatesInText, aiHasQuotation, aiNumberSupported, aiNumbersInText, aiProseRejections, type AiOutputRejection, type AiSupportedEvidence, type AiTaskDefinition, type AiTaskOutput } from './task';
+import { aiDatesInText, aiHasQuotation, aiNumberSupported, aiNumbersInText, aiProseRejections, type AiOutputLengthIssue, type AiOutputRejection, type AiSupportedEvidence, type AiTaskDefinition, type AiTaskOutput } from './task';
 
 export const BRIEFING_SCHEMA_ID = 'loop-briefing.v1';
 
@@ -64,23 +64,39 @@ export function parseBriefingOutput(value: unknown): AiTaskOutput | null {
   return { schemaId: BRIEFING_SCHEMA_ID, summary: briefing.headline, claims: [], limitations: briefing.limitations, briefing };
 }
 
+/** Shares the validator's exact character/count rules, without returning any rejected prose. */
+export function briefingOutputLengthIssues(output: AiTaskOutput): AiOutputLengthIssue[] {
+  const b = output.briefing;
+  if (!b) return [];
+  const issues: AiOutputLengthIssue[] = [];
+  const check = (field: AiOutputLengthIssue['field'], actual: number, maximum: number, index?: number) => {
+    if (actual > maximum && issues.length < 8) issues.push({ field, ...(index === undefined ? {} : { index }), actual, maximum });
+  };
+  check('headline', [...b.headline].length, BRIEFING_LIMITS.maxHeadlineChars);
+  check('lines', b.lines.length, BRIEFING_LIMITS.maxLines);
+  check('limitations', b.limitations.length, BRIEFING_LIMITS.maxLimitations);
+  b.lines.forEach((line, index) => {
+    check('line.statement', [...line.statement].length, BRIEFING_LIMITS.maxLineChars, index);
+    check('line.citations', line.citations.length, BRIEFING_LIMITS.maxCitations, index);
+  });
+  return issues;
+}
+
 const CAUSAL = /\b(because|caused|causes|due to|led to|resulted in|as a result|therefore|driven by|triggered)\b/i;
 
 export function validateBriefingOutput(output: AiTaskOutput, task: AiTaskDefinition, suppliedRefs: ReadonlySet<string>, evidence: AiSupportedEvidence): AiOutputRejection[] {
-  const L = BRIEFING_LIMITS;
   const out: AiOutputRejection[] = [];
   if (output.schemaId !== task.outputSchemaId || output.schemaId !== BRIEFING_SCHEMA_ID) out.push('WRONG_SCHEMA');
   const b = output.briefing;
   if (!b) return [...new Set([...out, 'EMPTY_ANSWER' as const])];
   if (b.headline.trim() === '') out.push('EMPTY_ANSWER');
-  if ([...b.headline].length > L.maxHeadlineChars || b.lines.length > L.maxLines || b.limitations.length > L.maxLimitations) out.push('ANSWER_TOO_LONG');
+  if (briefingOutputLengthIssues(output).length) out.push('ANSWER_TOO_LONG');
   const all = new Set<number>();
   for (const set of evidence.figures.values()) for (const n of set) all.add(n);
   for (const n of aiNumbersInText(b.headline)) if (!aiNumberSupported(n, all)) out.push('UNSUPPORTED_NUMBER_IN_TEXT');
   for (const line of b.lines) {
     if (!(BRIEFING_LINE_KINDS as readonly string[]).includes(line.kind)) out.push('WRONG_SCHEMA');
     if (line.statement.trim() === '') out.push('EMPTY_ANSWER');
-    if ([...line.statement].length > L.maxLineChars || line.citations.length > L.maxCitations) out.push('ANSWER_TOO_LONG');
     if (line.citations.length === 0) out.push('UNCITED_CLAIM');
     // Insights must connect supplied evidence, and remain explicitly conditional.
     if (line.kind === 'INSIGHT') {
