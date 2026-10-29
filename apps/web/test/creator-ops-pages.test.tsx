@@ -177,7 +177,7 @@ describe('The EMG seat acts only through the actions, and the actions only throu
     assert.match(actions, /^'use server';/);
     const names = [...actions.matchAll(/export async function (\w+Action)\(formData: FormData\)/g)].map((m) => m[1]!);
     assert.deepEqual(names.sort(), [
-      'addProductionCommentAction', 'bindCreatorLoginAction', 'declareDeliverableAction', 'designateOpportunityAction',
+      'addCreatorProfileAction', 'addProductionCommentAction', 'bindCreatorLoginAction', 'declareDeliverableAction', 'designateOpportunityAction',
       'recordBrandApprovalAction', 'recordEmgApprovalAction', 'relayBrandFeedbackAction', 'returnVersionForReviewAction',
       'setExpectedReturnAction', 'transitionCampaignAction',
     ]);
@@ -253,8 +253,14 @@ describe('The Person record and its creator context', () => {
   it('still guards itself first and keeps its honest summary', () => {
     assert.match(src, /const session = await requirePermission\('identityResolution', 'view'\);/);
     assert.ok(src.indexOf("await requirePermission('identityResolution', 'view')") < src.indexOf('crmSubjectReads('));
-    assert.match(src, /label: 'Opportunities', value: null/);
-    assert.match(src, /label: 'Open work', value: null/);
+    assert.match(src, /label: 'Opportunities', href: null, reason:/);
+    assert.match(src, /label: 'Work', href: null, reason:/);
+  });
+
+  it('offers creator onboarding only to the EMG workspace and uses the signed-session action', () => {
+    assert.match(src, /resolveWorkspaceRole\(session\) === 'ADMIN' \? \(/);
+    assert.match(src, /form action=\{addCreatorProfileAction\}/);
+    assert.match(src, /name="partyId" value=\{record.partyId\}/);
   });
 
   it('links Opportunities and Work to the creator operating view only when a profile exists and the seat can open the ADMIN tree', () => {

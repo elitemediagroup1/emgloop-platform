@@ -1,4 +1,4 @@
-import { SOCIAL_PLATFORM_LABELS, tiktokSocialAccountOf } from '@emgloop/shared';
+import { SOCIAL_PLATFORMS, SOCIAL_PLATFORM_LABELS, creatorDeclaredSocialHandles, tiktokSocialAccountOf } from '@emgloop/shared';
 import { requireWorkspace } from '../../../../workspaces/guard';
 import { creatorDomain, requireCreator } from '../../../../creator/creator-runtime';
 import { loadAnalytics, refusedFrom } from '../../../../creator/creator-data';
@@ -79,6 +79,7 @@ export default async function CreatorProfilePage({ searchParams }: { searchParam
   const rate = readObject(profile?.rateInfo);
   const rateVisible = rate.visibleToCreator === true;
   const preferences = readObject(profile?.preferences);
+  const socialHandles = creatorDeclaredSocialHandles(preferences);
   const documents = readDocuments(profile?.documents);
   const audience = analytics.ok ? analytics.value.latestAudience : [];
 
@@ -107,6 +108,16 @@ export default async function CreatorProfilePage({ searchParams }: { searchParam
             <input className="loop-input" type="text" name="categories" defaultValue={(profile?.categories ?? []).join(', ')} placeholder="beauty, travel, food" />
             <span className="loop-note">Comma-separated, up to twelve.</span>
           </label>
+          <fieldset className="loop-stack">
+            <legend className="loop-label">Your social handles</legend>
+            <p className="loop-note">Add at least one handle or full HTTPS profile URL. EMG uses these to review your public accounts while platform connections are being set up. Saving a handle does not connect an account or verify ownership.</p>
+            {SOCIAL_PLATFORMS.map(platform => (
+              <label className="loop-field" key={platform}>
+                <span className="loop-label">{SOCIAL_PLATFORM_LABELS[platform]}</span>
+                <input className="loop-input" name={`social_${platform}`} maxLength={200} defaultValue={socialHandles[platform] ?? ''} placeholder="@yourhandle or profile URL" />
+              </label>
+            ))}
+          </fieldset>
           <div className="loop-btnrow">
             <button type="submit" className="loop-btn loop-btn--primary">
               Save

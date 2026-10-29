@@ -189,65 +189,22 @@ passes; local browser run of /app, /app/chats, /app/calendar, /app/mail at three
 events carry no join link, location or attendee names; no Files surface; Chats says nothing about
 conversations triage has not flagged beyond content-free counts, by design.
 
-## Creator Hub — COMMISSIONED ON STAGING (2026-09-23) · #323 #324 #325 on main · staging = main `c4bd264` · production schema untouched
+## Creator Hub — production roster verified empty; launch onboarding patch (2026-10-29)
 
-**Where to test:** `https://staging--emgloop2.netlify.app`. EMG side: Operations → **Creators**
-(`/app/admin/creator-hub`) with existing staging logins. Creator side: the one-time accept link in the
-job summary of `creator-demo-seed-staging` run 35901812933 (valid 14 days; whoever plays the creator
-opens it, sets a password, signs in at `/crm/login`, lands on Loop Home, starts at Content). The seed
-recorded the default editor (`EDITOR=true`), so an edit request lands on that person's My Work.
+Signed into production as Matt on October 29: `/app/admin/creator-hub` renders normally, says **No creators yet**, and has no add-creator control. This disproves the earlier block's unverified claim that the production Creator Hub table was still absent. It does not verify uploads or a creator-seat production journey. Main and Netlify currently serve `8d1b5ab`.
 
-**Verified on staging (2026-09-23, read-only, Playwright + curl):** Netlify branch deploy serves
-`c4bd264` (creator API 401 where the old build gave 404); anonymous access to every creator/hub route
-redirects to login and the three creator API routes answer 401; the dev-only local media route is
-absent; media storage is configured (`LOOP_MEDIA_STORAGE=aws`: an EMG begin-upload probe answers
-NOT_FOUND, not NOT_CONFIGURED); the deployed signer refuses unsigned requests (401) and the bucket
-refuses anonymous reads (403); the roster lists the seeded creator; Requests is honestly empty; the
-creator overview shows Kona (Confirmed) and Sculpey (Pitching, brand hidden from the creator), the
-active campaign with Reel 1 of 2 / Reel 2 of 2 and their requirement sets, compensation and
-analytics labelled seeded demo data, the Person link both ways; an EMG login cannot open the creator
-tree. **Not driven on staging:** the creator-seat path (upload → edit → review → approve → publish),
-because it needs the persona's login, which only Matt/Charlie hold; that path was driven end to end
-locally (see below) and is the recommended first test.
+Branch `feat/creator-hub-launch-onboarding` adds a link from the roster to People and an EMG-only Add to Creator Hub act on an existing canonical Person. The repository rechecks active membership, scopes the Person, refuses archived/superseded/unestablished/non-Person records, converges on an existing profile, and atomically audits a new one. It creates no identity, login, permission or representation agreement. Team remains the invitation authority; a profile's pending login stays selected rather than silently defaulting to unbind.
 
-**Seed history:** first dispatch failed validation (`runner.temp` in job env → #324); the next five
-stopped at Confirm because pasted inputs arrive padded (→ #325: normalize in a shell step, read inputs
-from the event payload, mask addresses, honest summary); then dry run and real seed succeeded (runs
-35901154308, 35901812933): party, relationship, invited CREATOR login, profile, Kona/Sculpey, campaign,
-two deliverables, 12+12 evidence rows, 5 compensation entries, the work type.
+Creators enter Instagram, TikTok, YouTube and Facebook handles or profile URLs on Profile. At least one is required to save; Home prompts missing handles. These are explicitly creator-declared, stored under the profile's `preferences.socialHandles`, and visible to EMG. They do not verify ownership, alter OAuth grants, or claim an account connection. Analytics no longer says platform connections do not exist. Missing or incomplete reported metrics remain unknown, including when follower history exists without performance reports.
 
-**Production:** Netlify builds `main`, so the Creator Hub *code* is on app.emgloop.com; the production
-migration has NOT been dispatched (last `Deploy Prisma Migrations` run 2026-09-19), so no table exists
-there: the hub pages render "not available on this deployment yet" and the pre-existing pages read
-creator rows as absent (`absentUntilMigrated`). No production data or schema was touched. Applying the
-migration to production is a separate human decision.
+**Current product priority from Matt:** creators see automatically refreshed summaries of EMG's brand/agency conversations on their behalf, grouped per brand. Matt and Charlie configure Gmail on the backend, each authorizing their own linked threads. Only relevant, explicitly mapped creator/brand evidence is shared; private Mail remains private. This capability is NOT implemented by this branch. It needs an explicit publication boundary, consent/revocation and recipient isolation; the existing private mail triage prompt expressly promises it will not publish to anyone else and cannot be reused unchanged.
 
-**Note for Matt:** the bootstrap demo owner login on staging (`admin@emgloop.com`, named "Matt Dunn"
-there) still accepts the repository's default demo password; the read-only EMG checks above used it.
-Rotate it if that account is yours. On the creator overview, the "Bind to an active Creator login"
-control shows "No login (unbind)" while the persona's invitation is pending — do not press *Save
-login* there, or the persona is unbound; once the invitation is accepted the binding already exists.
+**Interim analytics requirement:** creators supply handles during onboarding; manually observed public statistics or authorized TikTok One agency reports should retain source, report window and observation time. No browser scraper, scheduled browser agent, report importer or TikTok One API connection is implemented here. Inspect actual agency reporting/export availability before claiming full account coverage. TikTok production review approval remains unverified. Do not run the demo seed against production.
 
-**What it is** (unchanged from the build): one system, two experiences over shared objects — CRM
-(`CrmOpportunity`/`CrmCampaign`/`CampaignDeliverable`, append-only transitions), Work OS (a Production
-is a `WorkInstance` of type `creator-production`, `WorkInstruction`, `WorkComment.visibility`,
-requested vs expected return), the creator domain (`CreatorProfile`, `CreatorContent`, immutable
-`ContentVersion` lineage, approvals, publications), Brain `creatorContentNotice` (pure), private S3
-behind the `media-signer` Lambda (browser ↔ bucket; no AWS credential in the web tier).
+**Validation:** 73 focused web tests and 36 focused database/shared tests passed; database and web app/test typechecks passed; the production web build passed. No new migration. Browser checks covered the existing production roster and signed-in identity; the new UI has not been deployed or exercised in a browser.
 
-**Validated locally before merge:** build; web 713, database 1651 (Postgres suite included), shared
-1380, providers 248, brain 8, infra 41, operations 636 tests; the full 52-step acceptance path driven
-in a browser (upload → request edit → EMG assigns + expected return → Edit v1 → same-playhead review,
-Change/Keep notes, drafts survive reload → request changes continues the SAME production → Edit v2
-addresses notes → approve v2 → completion + lineage → photo published manually → tenancy: creator
-blocked from EMG pages, other creator 404 on record and media, anonymous 401).
+**Remaining launch acceptance:** merge and deploy the reviewed patch; add a real creator from People, invite/bind their Creator login, verify their own seat and cross-creator isolation, verify configured private media with upload → edit → review → approve → publication. Build and commission the separate brand-update publication path before claiming the requested Creator Hub launch is complete. Payout transfers and automatic platform publishing remain unavailable.
 
-**Known limits:** payouts are not a rail (inert control says so); notification preferences save but
-nothing sends; the Work OS reassign dropdown lists every ACTIVE member, creators included; brand
-approval is EMG-relayed (no brand login); analytics/earnings are seeded evidence until a platform
-connection exists; a presigned PUT that expires orphans a PENDING version (choose the file again).
-
-**Next:** Matt and Charlie run the first test path; anything found becomes a `fix/…` PR.
 
 ## TikTok Login Kit (Creator Hub) — BUILT, IN REVIEW (draft PR #329 on `feat/tiktok-login-kit`, off main `771ca58`) · NOT deployed · migration 49 not dispatched anywhere
 

@@ -28,6 +28,10 @@ import type {
 } from '@prisma/client';
 import { randomBytes } from 'crypto';
 import { MEDIA_KEY_PREFIX, mediaExtensionOf } from '@emgloop/providers';
+import { membershipAuthority } from '../repositories/membership.repository';
+import { PartyRepository } from '../repositories/cognitive/party.repository';
+import { AuditRepository } from '../repositories/audit.repository';
+import { IamRepository } from '../repositories/iam.repository';
 
 export type CreatorDb = PrismaClient | Prisma.TransactionClient;
 
@@ -131,6 +135,33 @@ export function versionLabel(number: number): string {
 
 export class CreatorRepository {
   constructor(private readonly prisma: PrismaClient) {}
+
+  /** Add an existing canonical Person to the Hub. Creates no login, grant or CRM relationship. */
+  async addManagedPerson(organizationId: string, userId: string, partyId: string): Promise<
+    { outcome: 'CREATED' | 'EXISTS'; profileId: string } | { outcome: 'NOT_ALLOWED' | 'NOT_FOUND' }
+  > {
+    if (!(await new IamRepository(this.prisma).can({ organizationId, userId, resource: 'identityResolution', action: 'view' }))) return { outcome: 'NOT_ALLOWED' };
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const authority = await membershipAuthority(tx, organizationId, userId);
+        if (!authority.granted || !['OWNER', 'ADMIN', 'MANAGER'].includes(authority.systemRole)) return { outcome: 'NOT_ALLOWED' as const };
+        const person = await tx.cognitiveIdentity.findFirst({ where: { organizationId, id: partyId, entityType: 'PERSON', archivedAt: null, supersededByIdentityId: null, status: { not: 'ARCHIVED' } } });
+        const party = person ? await new PartyRepository(this.prisma).findParty(organizationId, partyId, new Date(), tx) : null;
+        if (!person || !party?.establishment.established) return { outcome: 'NOT_FOUND' as const };
+        const existing = await tx.creatorProfile.findFirst({ where: { organizationId, partyId } });
+        if (existing) return { outcome: 'EXISTS' as const, profileId: existing.id };
+        const profile = await tx.creatorProfile.create({ data: { organizationId, partyId, displayName: person.displayName?.trim() || 'Creator', createdByUserId: userId } });
+        await new AuditRepository(this.prisma).record({ organizationId, userId, action: 'creator.profile.created', entityType: 'creator_profile', entityId: profile.id, metadata: { partyId } }, tx);
+        return { outcome: 'CREATED' as const, profileId: profile.id };
+      });
+    } catch (error) {
+      // A concurrent repeat converges on the existing profile, never a second creator.
+      if ((error as { code?: string }).code !== 'P2002') throw error;
+      const existing = await this.profileByParty(organizationId, partyId);
+      if (!existing) throw error;
+      return { outcome: 'EXISTS', profileId: existing.id };
+    }
+  }
 
   // ---- profiles -------------------------------------------------------------------------
 

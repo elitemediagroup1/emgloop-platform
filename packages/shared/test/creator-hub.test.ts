@@ -114,3 +114,12 @@ test('notes: validated, sorted, fail closed', () => {
   assert.equal(productionStepName('Creator review', 2), 'Creator review · round 2');
   assert.equal(formatSeconds(71.9), '1:11');
 });
+
+test('declared social handles do not grant a connection and reject foreign hosts', async () => {
+  const { parseCreatorSocialHandles, creatorDeclaredSocialHandles } = await import('../src/creator-hub');
+  assert.deepEqual(parseCreatorSocialHandles({ INSTAGRAM: '@real.creator', TIKTOK: 'https://www.tiktok.com/@realcreator' }), { ok: true, handles: { INSTAGRAM: '@real.creator', TIKTOK: 'https://www.tiktok.com/@realcreator' } });
+  for (const value of ['https://tiktok.com.evil.test/@a', 'https://x@www.tiktok.com/@a', 'https://www.tiktok.com/', 'https://www.tiktok.com/@a?token=secret', 'javascript:alert(1)', '@bad handle']) assert.equal(parseCreatorSocialHandles({ TIKTOK: value }).ok, false, value);
+  assert.equal(parseCreatorSocialHandles({}).ok, false);
+  assert.deepEqual(creatorDeclaredSocialHandles({ socialHandles: { INSTAGRAM: '@a' }, notifyOnReturn: true }), { INSTAGRAM: '@a' });
+  assert.deepEqual(creatorDeclaredSocialHandles({ socialHandles: { INSTAGRAM: 'https://wrong.test/a' } }), {});
+});

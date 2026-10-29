@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import type { CampaignView, DeliverableView, LibraryItem, OpportunityView } from '@emgloop/database';
 import {
   CAMPAIGN_STATES,
+  creatorDeclaredSocialHandles,
   COMPENSATION_STATES,
   COMPENSATION_STATE_LABELS,
   CREATOR_VISIBLE_OPPORTUNITY_LABELS,
@@ -300,6 +301,7 @@ export default async function CreatorOverviewPage({ params, searchParams }: { pa
   const handle = creatorHandle(profile!);
   const readyTargets = library.filter((c) => c.latestVersion && c.latestVersion.uploadState === 'READY');
   const social = Array.isArray(profile!.socialAccounts) ? (profile!.socialAccounts as { platform?: string; state?: string }[]) : [];
+  const declaredHandles = creatorDeclaredSocialHandles(profile!.preferences);
   const categories = Array.isArray(profile!.categories) ? (profile!.categories as string[]) : [];
 
   return (
@@ -502,9 +504,9 @@ export default async function CreatorOverviewPage({ params, searchParams }: { pa
                 <>
                   <Facts
                     rows={[
-                      { label: 'Views', value: num(analytics.totals.views) },
-                      { label: 'Reach', value: num(analytics.totals.reach) },
-                      { label: 'Engagements', value: num(analytics.totals.engagements) },
+                      { label: 'Views', value: analytics.totals.views === null ? null : num(analytics.totals.views), unknownText: 'Not fully reported' },
+                      { label: 'Reach', value: analytics.totals.reach === null ? null : num(analytics.totals.reach), unknownText: 'Not fully reported' },
+                      { label: 'Engagements', value: analytics.totals.engagements === null ? null : num(analytics.totals.engagements), unknownText: 'Not fully reported' },
                       ...analytics.latestAudience.map((a) => ({
                         label: `${SOCIAL_PLATFORM_LABELS[a.platform as SocialPlatform] ?? a.platform} followers`,
                         value: `${num(a.followers)}${a.growth30dPct !== null ? ` · ${a.growth30dPct >= 0 ? '+' : ''}${a.growth30dPct}% / 30d` : ''}`,
@@ -529,6 +531,7 @@ export default async function CreatorOverviewPage({ params, searchParams }: { pa
               <Facts
                 rows={[
                   { label: 'Handle', value: handle, unknownText: 'None' },
+                  ...Object.entries(declaredHandles).map(([platform, value]) => ({ label: `${SOCIAL_PLATFORM_LABELS[platform as SocialPlatform]} · creator supplied`, value })),
                   { label: 'Categories', value: categories.length ? categories.join(', ') : null, unknownText: 'None' },
                   {
                     label: 'Platforms',
@@ -538,6 +541,7 @@ export default async function CreatorOverviewPage({ params, searchParams }: { pa
                   { label: 'Login', value: login ? `${login.name ?? login.email} · ${login.email} · ${login.status.toLowerCase()}` : null, unknownText: 'No login yet' },
                 ]}
               />
+              {!login ? <p className="loop-note">Invite this person with the Creator role from <Link href="/app/admin/administration/team">Team</Link>, then bind their active login here. Their Hub starts at Loop Home after sign-in.</p> : null}
               {profile!.bio ? <p className="loop-note">{profile!.bio}</p> : null}
               <form action={bindCreatorLoginAction} className="loop-stack" style={{ marginTop: 10 }} aria-label="Bind the creator's login">
                 <input type="hidden" name="profileId" value={profile!.id} />
@@ -546,6 +550,7 @@ export default async function CreatorOverviewPage({ params, searchParams }: { pa
                   <span className="loop-label">Bind to an active Creator login</span>
                   <select className="loop-select" name="email" defaultValue={login?.email ?? ''}>
                     <option value="">No login (unbind)</option>
+                    {login && !logins.some((u) => u.id === login.id) ? <option value={login.email}>{login.name ?? login.email} · {login.status.toLowerCase()}</option> : null}
                     {logins.map((u) => (
                       <option key={u.id} value={u.email}>{u.name ? `${u.name} · ${u.email}` : u.email}</option>
                     ))}

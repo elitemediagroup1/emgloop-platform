@@ -10,7 +10,7 @@ import 'server-only';
 
 import Link from 'next/link';
 import type { ContentNotice, LibraryItem } from '@emgloop/database';
-import type { TimeView } from '@emgloop/shared';
+import { creatorDeclaredSocialHandles, type TimeView } from '@emgloop/shared';
 import { settle } from '../app/app/_home/settle';
 import { LoopPage, PageHead, Panel, StateBlock, SummaryStrip } from '../app/app/_loop-os/record';
 import { CreatorNoticePanel } from '../app/app/creator/_parts/notice-panel';
@@ -28,6 +28,8 @@ function Failed({ what }: { what: string }) {
 export async function CreatorHome({ seat, time }: { seat: CreatorSeat; time: TimeView }) {
   const domain = creatorDomain();
   const s = seatOf(seat);
+  const profile = await settle(() => domain.creator.profileById(seat.actor.organizationId, seat.profileId));
+  const needsHandles = profile.ok && Object.keys(creatorDeclaredSocialHandles(profile.value?.preferences)).length === 0;
   const [tasks, opportunities, library, earnings, analytics] = await Promise.all([
     settle(() => domain.records.tasks(seat.actor, { content: CREATOR_HREFS.contentRecord, profile: CREATOR_HREFS.profile })),
     settle(() => domain.records.opportunities(s, seat.partyId)),
@@ -55,6 +57,7 @@ export async function CreatorHome({ seat, time }: { seat: CreatorSeat; time: Tim
     <LoopPage label="Loop Home">
       <PageHead trail={[{ label: 'Your Loop' }]} title={`${time.greeting()}, ${seat.displayName}`} subtitle="Your content, the opportunities EMG is working on for you, and what needs you." />
 
+      {needsHandles ? <StateBlock kind="attention" title="Welcome — add your social handles" body="Finish your profile so EMG can review the right accounts for you." action={{ label: 'Complete your profile', href: CREATOR_HREFS.profile }} /> : null}
       <SummaryStrip
         label="At a glance"
         items={[
