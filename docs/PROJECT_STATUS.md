@@ -208,7 +208,7 @@ Creators enter Instagram, TikTok, YouTube and Facebook handles or profile URLs o
 
 ## Creator brand email updates — built for review, not commissioned (2026-10-29)
 
-Branch `feat/creator-brand-email-updates` stacks over draft onboarding #407, which remains open and unmerged. Matt approved automatic summaries after an owner links a thread, and a slight creator-facing delay while employee operational timing stays unchanged. Merge #407 to main and verify its content there before retargeting/reviewing this branch against main. Matt merges.
+Draft PR #408 (`feat/creator-brand-email-updates`) stacks over draft onboarding #407, which remains open and unmerged. Matt approved automatic summaries after an owner links a thread, and a slight creator-facing delay while employee operational timing stays unchanged. Merge #407 to main and verify its content there before retargeting/reviewing this branch against main. Matt merges.
 
 The new publication path lets each active EMG mailbox owner authorize one of their own Gmail threads for one bound creator and established brand/agency. Anthropic interprets the bounded evidence through the existing gateway, with OpenAI availability fallback, under the dedicated `creator.brand.update` task. Creators see short updates grouped by brand on Home and Opportunities, with stage, next step and actual source/check times. This does not republish private Mail triage or merge different threads into one AI synthesis. New threads require their own link. Mixed-creator/internal-only discussions must not be shared; AI confidentiality classification is imperfect.
 
