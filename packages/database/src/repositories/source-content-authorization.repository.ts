@@ -347,6 +347,7 @@ export class SourceContentAuthorizationRepository {
   ): Promise<ContentWriteOutcome> {
     // Known before the transaction: a missing table cannot be caught inside one (see the helper).
     const digestsPresent = await intelligenceDigestsPresent(this.prisma, { organizationId, userId });
+    const creatorSharesPresent = String(provider) === 'GMAIL' && (await absentUntilMigrated(this.prisma.creatorBrandMailShare.findMany({ where: { organizationId, ownerUserId: userId }, select: { id: true }, take: 1 }))) !== null;
     return this.prisma.$transaction(async (tx) => {
       const existing = await tx.sourceContentAuthorization.findFirst({ where: { organizationId, userId, provider }, select: CONTENT_AUTHORIZATION_COLUMNS });
       if (!existing || existing.revokedAt != null) return { outcome: 'NOTHING_TO_DO' as const };
@@ -360,6 +361,8 @@ export class SourceContentAuthorizationRepository {
         { organizationId, userId },
         { provider, occurredAt: request.now, reason: CONTENT_REVOKED_REASON },
       );
+      // Deliberately shared creator paraphrases are withdrawn in the consent's own transaction too.
+      if (creatorSharesPresent) await tx.creatorBrandMailShare.deleteMany({ where: { organizationId, ownerUserId: userId } });
       // Domain intelligence drawn under this consent is deleted outright, in this transaction.
       const digests = digestsPresent ? await new IntelligenceDigestRepository(tx).withdrawForProvider({ organizationId, userId }, provider) : { deleted: 0 };
       await writeAudit(this.prisma, tx, {
