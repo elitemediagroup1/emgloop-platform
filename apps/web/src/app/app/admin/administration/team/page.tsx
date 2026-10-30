@@ -7,7 +7,7 @@
 // out of the legacy CRM sidebar. /crm/users now redirects here.
 
 import { requirePermission, hasPermission } from '../../../../../auth/guard';
-import { repositories } from '@emgloop/database';
+import { repositories, PartyReadModelRepository, prisma } from '@emgloop/database';
 import { SYSTEM_ROLES, SYSTEM_ROLE_LABELS } from '@emgloop/database';
 import {
   inviteUserAction,
@@ -30,13 +30,23 @@ function fmtDate(iso: string | null): string {
 export default async function AdminTeamPage({
   searchParams,
 }: {
-  searchParams?: { notice?: string; error?: string };
+  searchParams?: { notice?: string; error?: string; role?: string; creatorPartyId?: string };
 }) {
   await requireWorkspace('ADMIN');
   const session = await requirePermission('users', 'view');
   const canManage = await hasPermission('users', 'create');
   const users = await repositories.iam.listUsers(session.organizationId);
   const invites = await repositories.iam.listInvitations(session.organizationId);
+  const firstCreatorPeople = canManage && await hasPermission('identityResolution', 'view') ? await new PartyReadModelRepository(prisma).listEstablished(session.organizationId, 'PERSON', { limit: 100 }) : null;
+
+  const creatorPeople = firstCreatorPeople ? { items: [...firstCreatorPeople.items], nextCursor: firstCreatorPeople.nextCursor } : null;
+  for (let page = 1; creatorPeople?.nextCursor && page < 10; page++) {
+    const next = await new PartyReadModelRepository(prisma).listEstablished(session.organizationId, 'PERSON', { limit: 100, cursor: creatorPeople.nextCursor });
+    creatorPeople.items.push(...next.items);
+    creatorPeople.nextCursor = next.nextCursor;
+  }
+
+  const selectedCreatorPerson = creatorPeople?.items.find(person => person.partyId === searchParams?.creatorPartyId);
 
   // Feedback from the last action (invite/revoke/resend/remove/…). Server actions
   // redirect back here with a single message so the list always reflects the real
@@ -59,11 +69,12 @@ export default async function AdminTeamPage({
 
       {canManage ? (
         <section className="adm-card">
-          <h2 className="adm-card__title">Invite a team member</h2>
+          <h2 className="adm-card__title" id="invite">Invite a team member or creator</h2>
+          <p>Creators complete their own profile and social handles after accepting. Select Creator, enter their name and email, and choose automatic Person creation or their existing identity. They fill in their own profile; you do not create a Hub profile first.</p>
           <form action={inviteUserAction} className="adm-inviteform">
             <label className="adm-field">
               <span className="adm-field__label">Name</span>
-              <input className="adm-input" name="name" placeholder="Full name" />
+              <input className="adm-input" name="name" placeholder="Full name" defaultValue={selectedCreatorPerson?.displayName ?? undefined} />
             </label>
             <label className="adm-field">
               <span className="adm-field__label">Email</span>
@@ -71,12 +82,20 @@ export default async function AdminTeamPage({
             </label>
             <label className="adm-field">
               <span className="adm-field__label">Role</span>
-              <select className="adm-input" name="role" defaultValue="EMPLOYEE">
+              <select className="adm-input" name="role" defaultValue={searchParams?.role === 'CREATOR' ? 'CREATOR' : 'EMPLOYEE'}>
                 {SYSTEM_ROLES.map((r) => (
                   <option key={r} value={r}>{SYSTEM_ROLE_LABELS[r]}</option>
                 ))}
               </select>
             </label>
+            <label className="adm-field">
+              <span className="adm-field__label">Person identity (Creator invitations only)</span>
+              <select className="adm-input" name="creatorPartyId" defaultValue={selectedCreatorPerson?.partyId ?? '__new__'}>
+                <option value="__new__">Create their Person identity automatically with this invitation</option>
+                {creatorPeople?.items.map(person => <option key={person.partyId} value={person.partyId}>{person.displayName ?? 'Unnamed Person'}</option>)}
+              </select>
+            </label>
+            {creatorPeople?.nextCursor ? <p>Only the first 1,000 established people are listed. If the intended creator is missing, ask an administrator to check their canonical Person record before inviting.</p> : null}
             <button className="adm-btn adm-btn--primary" type="submit">Send invite</button>
           </form>
         </section>

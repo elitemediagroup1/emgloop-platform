@@ -20,6 +20,7 @@ import { redirect } from 'next/navigation';
 import { CrmOpportunityService, prisma, repositories, userSystemRole, type DeclareDeliverableInput } from '@emgloop/database';
 import {
   CAMPAIGN_STATES,
+  SOCIAL_PLATFORMS,
   CREATOR_VISIBLE_OPPORTUNITY_STATES,
   DELIVERABLE_TYPES,
   resolveDisplayTimeZone,
@@ -344,4 +345,19 @@ export async function addCreatorProfileAction(formData: FormData): Promise<void>
   const result = await creatorDomain().creator.addManagedPerson(actor.organizationId, actor.userId, partyId);
   if (result.outcome === 'NOT_ALLOWED' || result.outcome === 'NOT_FOUND') refuse(EMG_HREFS.creators, result.outcome);
   if ('profileId' in result) done(EMG_HREFS.creator(result.profileId), EMG_HREFS.creators, `/app/crm/people/${encodeURIComponent(partyId)}`);
+}
+
+/** Preload an explicitly selected test creator; no account authorization or automatic fetch occurs. */
+export async function preloadCreatorAccountsAction(formData: FormData): Promise<void> {
+  const { actor, workspace } = await requireEmgActor();
+  const back = returnPath(formData);
+  if (workspace !== 'ADMIN') refuse(back, 'NOT_ALLOWED');
+  const outcome = await creatorDomain().creator.preloadAccounts(actor.organizationId, actor.userId, str(formData, 'profileId'), {
+    handles: Object.fromEntries(SOCIAL_PLATFORMS.map(p => [p, str(formData, `social_${p}`)])),
+    followers: Object.fromEntries(SOCIAL_PLATFORMS.map(p => [p, str(formData, `followers_${p}`)])),
+    mailboxEmail: str(formData, 'mailboxEmail'), tiktokOneUrl: str(formData, 'tiktokOneUrl'),
+    medianViews: str(formData, 'medianViews'), engagementPct: str(formData, 'engagementPct'), view6sPct: str(formData, 'view6sPct'),
+  });
+  if (outcome !== 'SAVED') refuse(back, outcome);
+  done(back, '/app/creator/profile', '/app/creator/analytics', '/app');
 }

@@ -11,6 +11,7 @@ import {
   DELIVERABLE_TYPES,
   EVIDENCE_SOURCE_LABELS,
   SOCIAL_PLATFORM_LABELS,
+  SOCIAL_PLATFORMS,
   type CompensationState,
   type EvidenceSource,
   type SocialPlatform,
@@ -19,6 +20,7 @@ import { requireWorkspace } from '../../../../../workspaces/guard';
 import { creatorDomain, EMG_HREFS } from '../../../../../creator/creator-runtime';
 import {
   bindCreatorLoginAction,
+  preloadCreatorAccountsAction,
   declareDeliverableAction,
   designateOpportunityAction,
   recordBrandApprovalAction,
@@ -26,6 +28,7 @@ import {
   relayBrandFeedbackAction,
   transitionCampaignAction,
 } from '../../../../../creator/emg-actions';
+import { ObservedTikTokReport } from '../../../../../creator/observed-tiktok-report';
 import { viewerTime } from '../../../../../time/viewer-time';
 import { money, num } from '../../../_loop-os/format';
 import { Facts, LoopPage, PageHead, Panel, RecordLayout, StateBlock, SummaryStrip } from '../../../_loop-os/record';
@@ -508,8 +511,8 @@ export default async function CreatorOverviewPage({ params, searchParams }: { pa
                       { label: 'Reach', value: analytics.totals.reach === null ? null : num(analytics.totals.reach), unknownText: 'Not fully reported' },
                       { label: 'Engagements', value: analytics.totals.engagements === null ? null : num(analytics.totals.engagements), unknownText: 'Not fully reported' },
                       ...analytics.latestAudience.map((a) => ({
-                        label: `${SOCIAL_PLATFORM_LABELS[a.platform as SocialPlatform] ?? a.platform} followers`,
-                        value: `${num(a.followers)}${a.growth30dPct !== null ? ` · ${a.growth30dPct >= 0 ? '+' : ''}${a.growth30dPct}% / 30d` : ''}`,
+                        label: `${SOCIAL_PLATFORM_LABELS[a.platform as SocialPlatform] ?? a.platform} ${a.platform === 'YOUTUBE' ? 'subscribers' : 'followers'}`,
+                        value: `${num(a.followers)}${a.source === 'PUBLIC_PROFILE' || a.source === 'TIKTOK_ONE_MANUAL' ? ' (may be rounded)' : ''}${a.growth30dPct !== null ? ` · ${a.growth30dPct >= 0 ? '+' : ''}${a.growth30dPct}% / 30d` : ''}`,
                       })),
                     ]}
                   />
@@ -527,6 +530,7 @@ export default async function CreatorOverviewPage({ params, searchParams }: { pa
               )}
             </Panel>
 
+            <ObservedTikTokReport preferences={profile!.preferences} time={time} />
             <Panel title="Profile and login">
               <Facts
                 rows={[
@@ -541,7 +545,29 @@ export default async function CreatorOverviewPage({ params, searchParams }: { pa
                   { label: 'Login', value: login ? `${login.name ?? login.email} · ${login.email} · ${login.status.toLowerCase()}` : null, unknownText: 'No login yet' },
                 ]}
               />
-              {!login ? <p className="loop-note">Invite this person with the Creator role from <Link href="/app/admin/administration/team">Team</Link>, then bind their active login here. Their Hub starts at Loop Home after sign-in.</p> : null}
+              <details style={{ marginTop: 12 }}>
+                <summary>Preload accounts and observed analytics</summary>
+                <p className="loop-note">For staff-prepared testing. Saving links or an email address grants no platform or Gmail access. Record only figures you just observed; leave unavailable figures empty.</p>
+                <form action={preloadCreatorAccountsAction} className="loop-stack">
+                  <input type="hidden" name="profileId" value={profile!.id} /><input type="hidden" name="returnTo" value={here} />
+                  <label className="loop-field"><span className="loop-label">EMG Gmail address to connect</span><input className="loop-input" name="mailboxEmail" type="email" required maxLength={254} defaultValue={profile!.preferences && typeof profile!.preferences === 'object' && !Array.isArray(profile!.preferences) && typeof (profile!.preferences as Record<string, unknown>).managedMailboxEmail === 'string' ? (profile!.preferences as Record<string, string>).managedMailboxEmail : ''} /></label>
+                  <p className="loop-note">Mailbox reference only. Google sign-in and a separate mailbox authorization are still required; this does not replace a staff member’s personal connection.</p>
+                  {SOCIAL_PLATFORMS.map(platform => <fieldset key={platform} className="loop-stack">
+                    <legend>{SOCIAL_PLATFORM_LABELS[platform]}</legend>
+                    <label className="loop-field"><span className="loop-label">Profile URL or handle</span><input className="loop-input" name={`social_${platform}`} maxLength={200} defaultValue={declaredHandles[platform] ?? ''} /></label>
+                    <label className="loop-field"><span className="loop-label">Followers/subscribers just observed</span><input className="loop-input" name={`followers_${platform}`} maxLength={20} placeholder="e.g. 19,267 or 176.9K" /></label>
+                  </fieldset>)}
+                  <fieldset className="loop-stack"><legend>TikTok One report (optional)</legend>
+                    <p className="loop-note">Record the report for the 30 most recent videos. Its median is not a total. Provide all four fields together.</p>
+                    <label className="loop-field"><span className="loop-label">TikTok One creator profile URL (without query parameters)</span><input className="loop-input" name="tiktokOneUrl" type="url" maxLength={200} /></label>
+                    <label className="loop-field"><span className="loop-label">Median views</span><input className="loop-input" name="medianViews" maxLength={20} /></label>
+                    <label className="loop-field"><span className="loop-label">Engagement rate (%)</span><input className="loop-input" name="engagementPct" inputMode="decimal" maxLength={12} /></label>
+                    <label className="loop-field"><span className="loop-label">6-second video views (%)</span><input className="loop-input" name="view6sPct" inputMode="decimal" maxLength={12} /></label>
+                  </fieldset>
+                  <button className="loop-btn" type="submit">Save account references and observations</button>
+                </form>
+              </details>
+              {!login ? <p className="loop-note">Invite this person with the Creator role from <Link href={`/app/admin/administration/team?role=CREATOR&creatorPartyId=${encodeURIComponent(profile!.partyId)}#invite`}>Team</Link>. Accepting the invitation binds this profile automatically and opens their profile setup. Manual binding is retained for controlled tests.</p> : null}
               {profile!.bio ? <p className="loop-note">{profile!.bio}</p> : null}
               <form action={bindCreatorLoginAction} className="loop-stack" style={{ marginTop: 10 }} aria-label="Bind the creator's login">
                 <input type="hidden" name="profileId" value={profile!.id} />

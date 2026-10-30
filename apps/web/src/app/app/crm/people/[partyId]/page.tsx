@@ -309,7 +309,8 @@ export default async function PersonPage({ params, searchParams }: { params: { p
               </Panel>
             ) : resolveWorkspaceRole(session) === 'ADMIN' ? (
               <Panel title="Creator Hub">
-                <p className="loop-note">Create a workspace for this person’s content, opportunities and production. Invite their Creator login from Team, then bind it in the Hub. This does not record a representation agreement.</p>
+                <p className="loop-note">For normal onboarding, invite this creator and let them complete their own profile. Manual profile creation is available for controlled testing; neither act records a representation agreement.</p>
+                <Link className="loop-btn loop-btn--primary" href={`/app/admin/administration/team?role=CREATOR&creatorPartyId=${encodeURIComponent(record.partyId)}#invite`}>Invite creator to onboard</Link>
                 <form action={addCreatorProfileAction}>
                   <input type="hidden" name="partyId" value={record.partyId} />
                   <button className="loop-btn loop-btn--primary" type="submit">Add to Creator Hub</button>

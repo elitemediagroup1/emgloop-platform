@@ -13,7 +13,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { repositories } from '@emgloop/database';
+import { repositories, prisma, issueCreatorInvitation } from '@emgloop/database';
 import { SystemRole } from '@emgloop/database';
 import { invitationAcceptUrl } from '@emgloop/shared';
 import { newToken, hashToken } from '../auth/auth';
@@ -52,6 +52,11 @@ export async function inviteUserAction(formData: FormData): Promise<void> {
   // its NEXT_REDIRECT control-flow throw is not swallowed by the catch.
   let result: { message: string; kind: 'notice' | 'error' };
 
+  const creatorPartyId = String(formData.get('creatorPartyId') ?? '').trim();
+  if (role === 'CREATOR' && ((creatorPartyId === '__new__' && (!name || !(await repositories.iam.can({ organizationId: session.organizationId, userId: session.userId, resource: 'identityResolution', action: 'approve' })))) || (creatorPartyId !== '__new__' && !(await repositories.iam.creatorInvitationTarget(session.organizationId, session.userId, creatorPartyId))))) {
+    redirect(teamUrl('Enter the creator name and authorize a new Person record, or select their existing Person identity.', 'error'));
+  }
+
   if (!email) {
     result = { message: 'Enter an email address to send an invitation.', kind: 'error' };
   } else {
@@ -79,14 +84,11 @@ export async function inviteUserAction(formData: FormData): Promise<void> {
         // member cannot ride an old session back in during re-invitation.
         if (outcome.reused) await repositories.auth.revokeAllForUser(outcome.userId);
         const token = newToken();
-        await repositories.iam.createInvitation({
-          organizationId: session.organizationId,
-          email,
-          systemRole: role,
-          inviterId: session.userId,
-          tokenHash: hashToken(token),
-          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-        });
+        if (role === 'CREATOR') {
+          await issueCreatorInvitation(prisma, session.organizationId, session.userId, { email, name, partyId: creatorPartyId, tokenHash: hashToken(token), expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) });
+        } else {
+          await repositories.iam.createInvitation({ organizationId: session.organizationId, email, systemRole: role, inviterId: session.userId, tokenHash: hashToken(token), expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) });
+        }
         // Send the invitation email using the plaintext token (only the hash is
         // stored). The URL MUST be absolute (an email client mangles a relative
         // path into http:///…). invitationAcceptUrl builds it from the one
@@ -242,6 +244,7 @@ export async function resendInvitationAction(formData: FormData): Promise<void> 
           organizationId: session.organizationId,
           email: target.email,
           systemRole: parseRole(target.systemRole),
+          creatorPartyId: target.creatorPartyId,
           inviterId: session.userId,
           tokenHash: hashToken(token),
           expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),

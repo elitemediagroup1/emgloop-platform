@@ -25,7 +25,8 @@ export const ONBOARDING_GOOGLE_PATH = '/app/onboarding/google';
 export const CONNECTIONS_PATH = '/app/connections';
 
 /** The destination after an invitation is accepted and the session is established. */
-export function postInvitationDestination(): string {
+export function postInvitationDestination(role?: string): string {
+  if (role === 'CREATOR') return '/app/creator/profile?onboarding=1';
   return ONBOARDING_GOOGLE_PATH;
 }
 

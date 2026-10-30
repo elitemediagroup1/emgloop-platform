@@ -1,4 +1,4 @@
-import { SOCIAL_PLATFORMS, SOCIAL_PLATFORM_LABELS, creatorDeclaredSocialHandles, tiktokSocialAccountOf } from '@emgloop/shared';
+import { EVIDENCE_SOURCE_LABELS, type EvidenceSource, SOCIAL_PLATFORMS, SOCIAL_PLATFORM_LABELS, creatorDeclaredSocialHandles, tiktokSocialAccountOf } from '@emgloop/shared';
 import { requireWorkspace } from '../../../../workspaces/guard';
 import { creatorDomain, requireCreator } from '../../../../creator/creator-runtime';
 import { loadAnalytics, refusedFrom } from '../../../../creator/creator-data';
@@ -86,6 +86,7 @@ export default async function CreatorProfilePage({ searchParams }: { searchParam
   return (
     <LoopPage label="Profile">
       <PageHead trail={[{ label: 'Creator' }, { label: 'Profile' }]} title={profile?.displayName ?? seat.displayName} subtitle={profile?.handle ? `@${profile.handle}` : undefined} />
+      {param(searchParams.onboarding) === '1' ? <StateBlock kind="empty" compact title="Welcome to Creator Hub" body="Complete your profile and add at least one social handle below. Your brand updates and shared work will appear as EMG links them to you. You do not need to connect EMG’s email accounts." /> : null}
       {saved ? <StateBlock kind="empty" compact title="Saved." body={saved === 'preferences' ? 'Your preference is saved to your profile.' : 'Your profile is updated.'} /> : null}
       {refused ? <StateBlock kind="attention" compact title={refusalText(refused.reason, refused.detail).title} body={refusalText(refused.reason, refused.detail).body} /> : null}
 
@@ -171,7 +172,7 @@ export default async function CreatorProfilePage({ searchParams }: { searchParam
           <Facts
             rows={audience.map((a) => ({
               label: (SOCIAL_PLATFORM_LABELS as Record<string, string>)[a.platform] ?? a.platform,
-              value: `${a.followers.toLocaleString('en-US')} followers${a.growth30dPct !== null ? ` · ${a.growth30dPct > 0 ? '+' : ''}${a.growth30dPct}% in 30 days` : ''} · ${time.date(a.observedAt)}${a.source === 'SEEDED_DEMO' ? ' · seeded demo data' : a.source === 'PLATFORM' ? ' · from the platform' : ''}`,
+              value: `${a.followers.toLocaleString('en-US')} followers${a.growth30dPct !== null ? ` · ${a.growth30dPct > 0 ? '+' : ''}${a.growth30dPct}% in 30 days` : ''} · ${time.date(a.observedAt)}${EVIDENCE_SOURCE_LABELS[a.source as EvidenceSource] ? ` · ${EVIDENCE_SOURCE_LABELS[a.source as EvidenceSource]}` : ' · source not classified'}`,
             }))}
           />
         )}

@@ -178,6 +178,14 @@ export async function acceptInviteAction(formData: FormData) {
     );
   }
 
+  if (invitationSystemRole(invitation) === 'CREATOR') {
+    const accepted = await iam.acceptCreatorInvitation(hashToken(rawToken), { name, passwordHash: hashPassword(password), now: new Date() });
+    if (!accepted) backToForm('This creator invitation cannot be accepted. Ask EMG to check the invitation and creator identity.');
+    const result = await login({ email: accepted!.email, password });
+    if (!result.ok) redirect('/crm/login?message=' + encodeURIComponent('Your creator account is ready. Please sign in.'));
+    redirect(postInvitationDestination('CREATOR'));
+  }
+
   // The invited employee's user record is created at invite time. Reuse it so a
   // single invitation can never create more than one account.
   const existing = await auth.findUserByEmail(invitation.organizationId, invitation.email);
