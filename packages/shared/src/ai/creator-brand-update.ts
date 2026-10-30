@@ -1,7 +1,7 @@
 // A deliberately shared creator update, distinct from private Mail triage. Pure.
 import { aiDatesInText, aiNumbersInText, aiHasQuotation, aiVerbatimRuns, type AiTaskOutput, type AiTaskDefinition, type AiSupportedEvidence, type AiOutputRejection } from './task';
 export const CREATOR_BRAND_UPDATE_SCHEMA_ID = 'creator-brand-update.v1';
-export const CREATOR_BRAND_STAGES = ['OUTREACH', 'DISCUSSING', 'AWAITING_EMG', 'AWAITING_BRAND', 'AWAITING_CREATOR', 'CONFIRMED', 'DECLINED', 'PAUSED'] as const;
+export const CREATOR_BRAND_STAGES = ['OUTREACH', 'DISCUSSING', 'AWAITING_EMG', 'AWAITING_BRAND', 'AWAITING_CREATOR', 'NEGOTIATING', 'CONFIRMED', 'DECLINED', 'PAUSED'] as const;
 export interface CreatorBrandUpdate {
   readonly publishable: boolean;
   readonly stage: typeof CREATOR_BRAND_STAGES[number];

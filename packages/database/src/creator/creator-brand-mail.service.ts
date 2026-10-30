@@ -30,8 +30,12 @@ export const CREATOR_BRAND_MAIL_INSTRUCTIONS = [
   'Do not invent agreement, an ask, a promise, success, a deadline, or causation. A pitch is not a deal.',
   'Newest messages supersede older proposals. Mark a declined or paused discussion accordingly.',
   'Avoid numbers and dates. Cite only supplied mail_message references, at least one for a publishable update.',
+  'OUTREACH means outbound pitches/follow-ups with no substantive brand reply in the supplied evidence. Automated replies do not count.',
+  'DISCUSSING and AWAITING_* require an actual substantive two-way conversation. Do not infer a reply from a follow-up.',
+  'NEGOTIATING requires explicit discussion of a specific partnership scope, deliverables or agreement. Interest alone is DISCUSSING.',
+  'CONFIRMED requires explicit agreement; never turn a pitch or a request for information into a deal.',
   'Use schemaId creator-brand-update.v1. stage is OUTREACH, DISCUSSING, AWAITING_EMG, AWAITING_BRAND,',
-  'AWAITING_CREATOR, CONFIRMED, DECLINED or PAUSED. No tools. Do not send email or change any other record.',
+  'AWAITING_CREATOR, NEGOTIATING, CONFIRMED, DECLINED or PAUSED. No tools. Do not send email or change any other record.',
 ].join('\n');
 
 export class CreatorBrandMailService {
@@ -64,7 +68,7 @@ export class CreatorBrandMailService {
       const messages = thread.messages.slice(-8).map(m => ({ ...m, text: m.text.slice(0, 1800) }));
       const built = buildMailTriageContext({ organizationId: row.organizationId, viewerUserId: row.ownerUserId, threadId: row.threadId, subject: thread.subject, messages, truncated: thread.truncated || thread.messages.length > messages.length, lane: null });
       const context = { ...built.context, taskId: AI_TASK_CREATOR_BRAND_UPDATE.taskId, items: [...built.context.items, { blockId: `${row.organizationId}::creator_scope:${row.id}`, kind: 'TEXT' as const, trust: 'UNTRUSTED_INPUT' as const, sourceRef: `creator_scope:${row.id}`, content: `SCOPE: creator=${JSON.stringify(scope.creatorName)}; brand or agency=${JSON.stringify(scope.brandName)}; earlier context ${thread.truncated || thread.messages.length > messages.length ? 'is incomplete' : 'is included'}.`, sensitivity: 'CONTACT_IDENTIFIER' as const, readUnder: { resource: 'identityResolution', action: 'view' as const } }] };
-      const result = await this.ports.runtime.run(principal, { task: AI_TASK_CREATOR_BRAND_UPDATE, context, evidence: built.evidence, instructions: CREATOR_BRAND_MAIL_INSTRUCTIONS, schema: CREATOR_BRAND_UPDATE_SCHEMA, templateId: 'creator-brand-mail', templateVersion: '1' });
+      const result = await this.ports.runtime.run(principal, { task: AI_TASK_CREATOR_BRAND_UPDATE, context, evidence: built.evidence, instructions: CREATOR_BRAND_MAIL_INSTRUCTIONS, schema: CREATOR_BRAND_UPDATE_SCHEMA, templateId: 'creator-brand-mail', templateVersion: '2' });
       if (result.outcome !== 'ANSWERED' || !result.output.creatorBrandUpdate) {
         await repository.finish(row, { now: now(), update: null, failure: result.outcome === 'ANSWERED' ? 'OUTPUT_INVALID' : result.outcome });
         return 'NOT_PUBLISHED';
