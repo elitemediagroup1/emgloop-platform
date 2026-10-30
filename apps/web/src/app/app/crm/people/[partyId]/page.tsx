@@ -13,6 +13,7 @@ import { OutreachNotice, PersonContext, PersonOutreach } from '../../../../../cr
 // view (opportunities, campaigns, work in production) lives in Creator Operations. Only a
 // seat that can open that tree gets a link; anyone else is told where it is, honestly.
 import { creatorDomain, EMG_HREFS } from '../../../../../creator/creator-runtime';
+import { addCreatorProfileAction } from '../../../../../creator/emg-actions';
 import { resolveWorkspaceRole } from '../../../../../workspaces/role-router';
 import {
   ActionButton,
@@ -305,6 +306,14 @@ export default async function PersonPage({ params, searchParams }: { params: { p
                   {subject.name} has a creator profile{creatorProfile.handle ? ` (${creatorProfile.handle.startsWith('@') ? creatorProfile.handle : `@${creatorProfile.handle}`})` : ''}.{' '}
                   {creatorHref ? <Link href={creatorHref}>Open creator operations</Link> : CREATOR_ELSEWHERE}
                 </p>
+              </Panel>
+            ) : resolveWorkspaceRole(session) === 'ADMIN' ? (
+              <Panel title="Creator Hub">
+                <p className="loop-note">Create a workspace for this person’s content, opportunities and production. Invite their Creator login from Team, then bind it in the Hub. This does not record a representation agreement.</p>
+                <form action={addCreatorProfileAction}>
+                  <input type="hidden" name="partyId" value={record.partyId} />
+                  <button className="loop-btn loop-btn--primary" type="submit">Add to Creator Hub</button>
+                </form>
               </Panel>
             ) : null}
           </>

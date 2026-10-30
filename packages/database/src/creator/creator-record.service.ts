@@ -233,12 +233,24 @@ export interface EarningsView {
   readonly payoutState: string;
 }
 
+/** A total is known only when every included report supplies every requested metric. */
+export function sumReportedCreatorMetrics(rows: readonly { metrics: Record<string, number> }[], keys: readonly string[]): number | null {
+  if (rows.length === 0) return null;
+  let total = 0;
+  for (const row of rows) for (const key of keys) {
+    const value = row.metrics[key];
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return null;
+    total += value;
+  }
+  return Number.isFinite(total) ? total : null;
+}
+
 export interface AnalyticsView {
   readonly platforms: readonly string[];
   readonly audience: readonly { platform: string; observedAt: string; followers: number; growth30dPct: number | null; source: string }[];
   readonly latestAudience: readonly { platform: string; followers: number; growth30dPct: number | null; observedAt: string; source: string }[];
   readonly performance: readonly { id: string; contentId: string | null; contentTitle: string | null; versionId: string | null; platform: string; windowStart: string; windowEnd: string; metrics: Record<string, number>; source: string }[];
-  readonly totals: { views: number; reach: number; engagements: number };
+  readonly totals: { views: number | null; reach: number | null; engagements: number | null };
   readonly topContent: readonly { contentId: string; title: string; views: number; platform: string }[];
   readonly sources: readonly string[];
   readonly seeded: boolean;
@@ -665,13 +677,14 @@ export class CreatorRecordService {
       metrics: (p.metrics && typeof p.metrics === 'object' && !Array.isArray(p.metrics) ? (p.metrics as Record<string, number>) : {}),
       source: p.source,
     }));
-    const totals = rows.reduce(
-      (acc, r) => ({ views: acc.views + num(r.metrics, 'views'), reach: acc.reach + num(r.metrics, 'reach'), engagements: acc.engagements + num(r.metrics, 'likes') + num(r.metrics, 'comments') + num(r.metrics, 'saves') + num(r.metrics, 'shares') }),
-      { views: 0, reach: 0, engagements: 0 },
-    );
+    const totals = {
+      views: sumReportedCreatorMetrics(rows, ['views']),
+      reach: sumReportedCreatorMetrics(rows, ['reach']),
+      engagements: sumReportedCreatorMetrics(rows, ['likes', 'comments', 'saves', 'shares']),
+    };
     const byContent = new Map<string, { title: string; views: number; platform: string }>();
     for (const r of rows) {
-      if (!r.contentId) continue;
+      if (!r.contentId || sumReportedCreatorMetrics([r], ['views']) === null) continue;
       const cur = byContent.get(r.contentId) ?? { title: r.contentTitle ?? 'Untitled', views: 0, platform: r.platform };
       cur.views += num(r.metrics, 'views');
       byContent.set(r.contentId, cur);

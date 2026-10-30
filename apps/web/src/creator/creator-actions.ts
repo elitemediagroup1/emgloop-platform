@@ -19,7 +19,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { INSTRUCTION_LIMITS, SOCIAL_PLATFORMS, resolveDisplayTimeZone, validateNotes, zonedWallTimeToUtc } from '@emgloop/shared';
+import { INSTRUCTION_LIMITS, SOCIAL_PLATFORMS, parseCreatorSocialHandles, resolveDisplayTimeZone, validateNotes, zonedWallTimeToUtc } from '@emgloop/shared';
 import { readerTimeZone } from '../daily-loop/reader-zone';
 import { CREATOR_HREFS, creatorDomain, requireCreator } from './creator-runtime';
 
@@ -169,7 +169,15 @@ export async function updateProfileAction(formData: FormData): Promise<void> {
     .map((c) => c.trim().slice(0, PROFILE_LIMITS.category))
     .filter(Boolean)
     .slice(0, PROFILE_LIMITS.categories);
-  const updated = await creatorDomain().creator.updateProfile(seat.actor.organizationId, seat.profileId, { displayName, handle: handle || null, bio: bio || null, categories });
+  const declared = parseCreatorSocialHandles(Object.fromEntries(SOCIAL_PLATFORMS.map(p => [p, field(formData, `social_${p}`)])));
+  if (!declared.ok) refused(back, 'INVALID', declared.platform ? `Check your ${declared.platform.toLowerCase()} handle or profile URL.` : 'Add at least one social handle to complete your profile.');
+  const domain = creatorDomain();
+  const profile = await domain.creator.profileById(seat.actor.organizationId, seat.profileId);
+  if (!profile) refused(back, 'NOT_FOUND');
+  const existing = profile!.preferences && typeof profile!.preferences === 'object' && !Array.isArray(profile!.preferences) ? profile!.preferences as Record<string, unknown> : {};
+  const preferences = { ...existing, socialHandles: declared.handles };
+  type Patch = Parameters<typeof domain.creator.updateProfile>[2];
+  const updated = await domain.creator.updateProfile(seat.actor.organizationId, seat.profileId, { displayName, handle: handle || null, bio: bio || null, categories, preferences: preferences as unknown as NonNullable<Patch['preferences']> });
   if (!updated) refused(back, 'NOT_FOUND');
   revalidatePath(back);
   revalidatePath(CREATOR_HREFS.home);

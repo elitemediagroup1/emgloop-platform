@@ -324,9 +324,24 @@ export async function bindCreatorLoginAction(formData: FormData): Promise<void> 
   }
   // An ACTIVE member of THIS organization, through the repository (never prisma here).
   const user = await repositories.auth.findUserByEmail(actor.organizationId, email);
+  const current = await domain.creator.profileById(actor.organizationId, profileId);
+  if (!current) refuse(back, 'NOT_FOUND');
+  // Saving an unchanged pending invitation must preserve its binding.
+  if (user && current!.userId === user.id && user.status === 'INVITED') done(back);
   if (!user || user.status !== 'ACTIVE') refuse(back, 'NOT_FOUND');
   if (userSystemRole(user!) !== 'CREATOR') refuse(back, 'NOT_A_CREATOR_LOGIN');
   const bound = await domain.creator.bindUser(actor.organizationId, profileId, user!.id);
   if (!bound) refuse(back, 'NOT_FOUND');
   done(back);
+}
+
+/** Create a Hub profile for an existing Person; invitations and CRM relationships stay separate. */
+export async function addCreatorProfileAction(formData: FormData): Promise<void> {
+  const { actor, workspace } = await requireEmgActor();
+  if (workspace !== 'ADMIN') refuse(EMG_HREFS.creators, 'NOT_ALLOWED');
+  const partyId = str(formData, 'partyId');
+  if (!partyId || partyId.length > 200) refuse(EMG_HREFS.creators, 'INVALID');
+  const result = await creatorDomain().creator.addManagedPerson(actor.organizationId, actor.userId, partyId);
+  if (result.outcome === 'NOT_ALLOWED' || result.outcome === 'NOT_FOUND') refuse(EMG_HREFS.creators, result.outcome);
+  if ('profileId' in result) done(EMG_HREFS.creator(result.profileId), EMG_HREFS.creators, `/app/crm/people/${encodeURIComponent(partyId)}`);
 }

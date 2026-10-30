@@ -341,3 +341,35 @@ export function creatorActionsFor(input: { state: ContentState; hasDeliverable: 
     markPublished: state === 'FINAL' || (state === 'APPROVED_BY_YOU' && !hasDeliverable),
   };
 }
+
+/** Creator-declared handles are leads for a review, never proof of ownership or an API connection. */
+export function parseCreatorSocialHandles(input: Readonly<Record<string, string>>):
+  { ok: true; handles: Partial<Record<SocialPlatform, string>> } | { ok: false; platform: SocialPlatform | null } {
+  const handles: Partial<Record<SocialPlatform, string>> = {};
+  const hosts: Record<SocialPlatform, readonly string[]> = {
+    INSTAGRAM: ['instagram.com', 'www.instagram.com'], TIKTOK: ['tiktok.com', 'www.tiktok.com'],
+    YOUTUBE: ['youtube.com', 'www.youtube.com'], FACEBOOK: ['facebook.com', 'www.facebook.com'],
+  };
+  for (const platform of SOCIAL_PLATFORMS) {
+    const value = (input[platform] ?? '').trim();
+    if (!value) continue;
+    if (value.length > 200 || /[\s<>"'\\]/.test(value)) return { ok: false, platform };
+    if (value.startsWith('https://')) {
+      try {
+        const url = new URL(value);
+        if (!hosts[platform].includes(url.hostname) || url.username || url.password || url.port || url.search || url.hash || url.pathname === '/') return { ok: false, platform };
+      } catch { return { ok: false, platform }; }
+    } else if (!/^@?[\p{L}\p{N}_.-]{1,100}$/u.test(value)) return { ok: false, platform };
+    handles[platform] = value;
+  }
+  return Object.keys(handles).length ? { ok: true, handles } : { ok: false, platform: null };
+}
+
+export function creatorDeclaredSocialHandles(preferences: unknown): Partial<Record<SocialPlatform, string>> {
+  if (!preferences || typeof preferences !== 'object' || Array.isArray(preferences)) return {};
+  const raw = (preferences as Record<string, unknown>).socialHandles;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const input = Object.fromEntries(SOCIAL_PLATFORMS.map(p => [p, typeof (raw as Record<string, unknown>)[p] === 'string' ? (raw as Record<string, string>)[p]! : '']));
+  const parsed = parseCreatorSocialHandles(input);
+  return parsed.ok ? parsed.handles : {};
+}

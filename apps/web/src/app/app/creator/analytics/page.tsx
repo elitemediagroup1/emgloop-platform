@@ -10,9 +10,8 @@ import { compactNumber, param } from '../_parts/vocabulary';
 
 // Analytics (Creator Hub): what the stored evidence says, labelled by where it came from.
 //
-// No platform is connected today (connections are not built), so every row is either seeded demo
-// data -- said so, in a banner and on every point -- or a row EMG recorded. A window with no rows
-// shows no number; a creator with nothing at all sees "Not connected", not a zero.
+// TikTok can be connected from Profile. Audience observations are stored separately from
+// performance reports: a connection or follower count never implies a measured views/reach total.
 //   ?platform=INSTAGRAM|TIKTOK|...   one platform's rows
 //   ?days=7|30|90                    the reporting window (default 30)
 
@@ -43,10 +42,11 @@ export default async function CreatorAnalyticsPage({ searchParams }: { searchPar
       {all.seeded ? (
         <StateBlock kind="attention" compact title="Seeded demo data" body="Some or all of what is shown here was seeded to demonstrate the surface. It is not a platform report and says nothing about your real audience." />
       ) : null}
-      {!all.connected ? <p className="loop-note">No platform is connected. Platform connections are not available yet; what is shown comes from rows EMG recorded or seeded.</p> : null}
+      {!all.connected ? <p className="loop-note">No platform is connected. Connect TikTok from Profile; any existing reports retain their recorded source.</p> : null}
 
+      <p className="loop-note"><Link href={CREATOR_HREFS.profile}>Manage social connections</Link>. TikTok’s last-read account and recent-video counts are on Profile. They are lifetime observations, not totals for the reporting window below.</p>
       {nothing ? (
-        <StateBlock kind="unavailable" title="Not connected" body="Analytics can only read what is connected, and platform connections are not available yet. When EMG records a report for you, it appears here with its source." />
+        <StateBlock kind="unavailable" title="Not connected" body="Connect TikTok from Profile to begin recording audience observations. Performance appears when a report is recorded; unavailable metrics remain unreported." />
       ) : (
         <>
           <nav className="loop-filters" aria-label="Platform">
@@ -70,9 +70,9 @@ export default async function CreatorAnalyticsPage({ searchParams }: { searchPar
           <SummaryStrip
             label="Summary"
             items={[
-              { label: 'Views', value: view.performance.length > 0 ? compactNumber(view.totals.views) : null, unknownText: 'No reports in this window' },
-              { label: 'Reach', value: view.performance.length > 0 ? compactNumber(view.totals.reach) : null, unknownText: 'No reports in this window' },
-              { label: 'Engagements', value: view.performance.length > 0 ? compactNumber(view.totals.engagements) : null, unknownText: 'No reports in this window' },
+              { label: 'Views', value: view.totals.views !== null ? compactNumber(view.totals.views) : null, unknownText: 'Not fully reported in this window' },
+              { label: 'Reach', value: view.totals.reach !== null ? compactNumber(view.totals.reach) : null, unknownText: 'Not fully reported in this window' },
+              { label: 'Engagements', value: view.totals.engagements !== null ? compactNumber(view.totals.engagements) : null, unknownText: 'Not fully reported in this window' },
               { label: 'Followers', value: followers === null ? null : compactNumber(followers), unknownText: 'No audience observed' },
             ]}
           />
