@@ -11,7 +11,7 @@ const time = createTimeView({ timeZone: 'America/New_York', source: 'device' }, 
 const row = (patch: Partial<PublishedCreatorBrandUpdate> = {}): PublishedCreatorBrandUpdate => ({ id: 'shared1', brandId: 'brand1', brand: 'Brand One', stage: 'AWAITING_BRAND', summary: 'The brand is considering the proposed collaboration.', nextStep: 'EMG is waiting for its reply.', generatedAt: at, evidenceAt: at, checkedAt: at, current: true, ...patch });
 test('creator brand cards group canonical brands, stamp evidence times and label earlier readings', () => {
   const html = renderToStaticMarkup(<CreatorBrandUpdatesView rows={[row(), row({ id: 'shared2', current: false, nextStep: '', summary: 'An earlier conversation is awaiting review.' }), row({ id: 'shared3', brandId: 'different-brand', brand: 'Brand Two', summary: null, generatedAt: null, current: false })]} time={time} />);
-  assert.equal((html.match(/<h3>/g) ?? []).length, 2);
+  assert.equal((html.match(/<summary>Brand /g) ?? []).length, 2);
   assert.match(html, /earlier reading/);
   assert.match(html, /Source conversation through/);
   assert.match(html, /shareable summary is not available yet/);
@@ -21,7 +21,7 @@ test('creator brand cards group canonical brands, stamp evidence times and label
 test('no shared update never claims no outreach, and separate canonical brands with identical labels stay separate', () => {
   assert.match(renderToStaticMarkup(<CreatorBrandUpdatesView rows={[]} time={time} />), /does not mean no outreach/);
   const html = renderToStaticMarkup(<CreatorBrandUpdatesView rows={[row(), row({ id: 'other', brandId: 'other-company' })]} time={time} />);
-  assert.equal((html.match(/<h3>/g) ?? []).length, 2);
+  assert.equal((html.match(/<summary>Brand One<\/summary>/g) ?? []).length, 2);
 });
 test('publication routes are fixed-purpose signed calls and the browser only refreshes stored views', () => {
   const read = (path: string) => readFileSync(fileURLToPath(new URL(`../src/${path}`, import.meta.url)), 'utf8');
@@ -61,4 +61,33 @@ test('the actual refresh endpoint refuses unsigned, stale, changed-purpose and t
       if (old === undefined) delete process.env[key]; else process.env[key] = old;
     }
   }
+});
+
+test('three collapsed tiles count canonical brands once and newest source stage wins across threads', () => {
+  const html = renderToStaticMarkup(<CreatorBrandUpdatesView time={time} rows={[
+    row({ id: 'pitch', stage: 'OUTREACH', evidenceAt: new Date(at.getTime() - 1000) }),
+    row({ id: 'reply', stage: 'DISCUSSING' }),
+    row({ id: 'deal', brandId: 'deal', brand: 'Deal Brand', stage: 'NEGOTIATING' }),
+    row({ id: 'sent', brandId: 'sent', brand: 'Sent Brand', stage: 'OUTREACH' }),
+    row({ id: 'old', brandId: 'old', brand: 'Old Brand', stage: 'CONFIRMED', current: false }),
+    row({ id: 'paused', brandId: 'paused', brand: 'Paused Brand', stage: 'PAUSED' }),
+  ]} />);
+  assert.match(html, /<h3>Outreach<\/h3>/);
+  assert.match(html, /<h3>Conversations<\/h3>/);
+  assert.match(html, /<h3>Active deals<\/h3>/);
+  assert.match(html, /reached out to 1 brand awaiting a first reply/);
+  assert.match(html, /1 brand conversation is underway/);
+  assert.match(html, /1 brand has an active partnership discussion: 1 negotiating, 0 confirmed/);
+  assert.equal((html.match(/<summary>Brand One<\/summary>/g) ?? []).length, 1);
+  assert.match(html, /Earlier, paused or pending updates/);
+  assert.doesNotMatch(html, /<details open/);
+});
+
+test('a newer pending thread suppresses an older active-deal count for the same brand', () => {
+  const html = renderToStaticMarkup(<CreatorBrandUpdatesView time={time} rows={[
+    row({ stage: 'CONFIRMED', evidenceAt: new Date(at.getTime() - 1000) }),
+    row({ id: 'new', current: false, summary: null, stage: null }),
+  ]} />);
+  assert.match(html, /No current active deals are shared yet/);
+  assert.doesNotMatch(html, /1 brand has an active/);
 });

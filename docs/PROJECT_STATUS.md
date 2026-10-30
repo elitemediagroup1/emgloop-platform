@@ -1,5 +1,10 @@
 # EMG Loop — Project Status (where we left off)
 
+## Creator outreach summary tiles — October 30, 2026
+
+Branch `feat/creator-outreach-tiles` replaces the full brand-update list with three collapsed tiles and nested brand summaries. Counts deduplicate canonical brands by newest source activity; stale/pending/declined/paused updates remain separate. Template 2 distinguishes unanswered outreach, two-way discussion, specific negotiation and confirmed agreements. Existing explicit thread-sharing and creator-scoped repository guards are unchanged. Automatic Gmail matching and independent creator mailbox OAuth remain unimplemented; no live inbox linking or production data changes are included. No migration or new configuration. Validation: 6 focused web and 12 shared/database tests pass; database typecheck and production web build pass. Web app/test typecheck passes. Lint remains blocked by the existing missing ESLint configuration. Draft PR publication follows; live rendering and populated-email acceptance remain pending.
+
+
 ## Headlines — #405 live; feed diagnostics and length repair follow-up (2026-10-19)
 
 #405 is merged as `4955ba1d90c5ae0a4113d4a01af7251a45a22ec9` and Netlify production published that commit on October 17. Signed-in Home and full Headlines verification on October 19 showed an actual conditional INSIGHT connecting Chats and CallGrid, with the reading's own timestamp. This verifies connected rendering, not a proven causal link or complete source coverage. Public-news storage is operating: production logs repeatedly recorded four refreshed feeds and one failure. The prior count-only event cannot identify the failed source or distinguish download from persistence failure. All five fixed feeds parsed successfully from the development environment; the production failure's cause remains unknown.
