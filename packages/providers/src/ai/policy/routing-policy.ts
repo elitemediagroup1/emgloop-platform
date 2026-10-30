@@ -112,7 +112,7 @@ function target(
 // was not Claude; no fallback to the subject's own provider -- with OpenAI uncommissioned a Claude-written
 // situation is simply not independently verified, and says so), and the Briefing (SYNTHESIS lane). One model
 // per call: no task calls both providers for the same answer. Existing entries are UNCHANGED.
-export const AI_ROUTING_POLICY_VERSION = 'routing.2026-10-15.14';
+export const AI_ROUTING_POLICY_VERSION = 'routing.2026-10-29.15';
 
 function situationRoute(taskId: string) {
   return Object.freeze({
@@ -231,6 +231,13 @@ export const AI_ROUTING_POLICY: AiRoutingPolicy = Object.freeze({
     'situation.synthesis.private': situationRoute('situation.synthesis.private'),
     'situation.verify': verificationRoute('situation.verify'),
     'situation.verify.private': verificationRoute('situation.verify.private'),
+    'creator.brand.update': Object.freeze({
+      taskId: 'creator.brand.update', taskVersion: '1.0.0',
+      primary: target('anthropic', 'claude-opus-5', { reasoningEffort: 'low', timeoutMs: 20_000, maxOutputTokens: 1200 }),
+      fallback: target('openai', 'gpt-6-astra', { reasoningEffort: 'low', timeoutMs: 20_000, maxOutputTokens: 1200 }),
+      fallbackPermitted: true, budgetClass: 'domain-reading', lane: 'BACKGROUND',
+      providerChoiceReason: 'Anthropic interprets explicitly shared creator threads; OpenAI is the availability fallback under the same validated publication contract.',
+    }),
     'loop.question.answer': Object.freeze({
       taskId: 'loop.question.answer', taskVersion: '1.1.0',
       primary: target('openai', 'gpt-6-astra', { reasoningEffort: 'low', timeoutMs: 20_000, maxOutputTokens: 4_000 }),

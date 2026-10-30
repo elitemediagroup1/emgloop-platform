@@ -38,6 +38,7 @@ import {
 } from '@emgloop/database';
 import type { CapabilityStatus, ConnectionState } from '@emgloop/shared';
 
+import { creatorMailHost, readCreatorMailHostConfig, CREATOR_MAIL_TICK_MS } from './creator-mail-host';
 import { fatalLogFields, readWorkerConfig } from './config';
 import { CALLGRID_TICK_MS, createCallGridHost, readCallGridHostConfig } from './callgrid-host';
 import { createDbObservationSink } from './observation-sink';
@@ -67,6 +68,7 @@ function log(event: string, fields: Record<string, unknown> = {}): void {
 
 async function main(): Promise<void> {
   const config = readWorkerConfig();
+  const creatorMailConfig = readCreatorMailHostConfig(process.env);
   const callgridConfig = readCallGridHostConfig(process.env);
   const connections = new SourceConnectionRepository(prisma);
   const baselines = new SourceBaselineCheckpointRepository(prisma);
@@ -431,6 +433,11 @@ async function main(): Promise<void> {
     } catch (err) {
       log('digest_purge_error', { name: (err as Error)?.name ?? 'error' });
     }
+    try {
+      const { CreatorBrandMailRepository } = await import('@emgloop/database');
+      const purged = await new CreatorBrandMailRepository(prisma).purgeExpired(new Date());
+      if (purged > 0) log('creator_mail_purge', { purged });
+    } catch { log('creator_mail_purge_error', { state: 'FAILED' }); }
     // 4. Loop Briefings past the approved 90-day retention (work_briefs, BRIEFS). Platform-wide by time.
     try {
       const { WorkBriefRepository } = await import('@emgloop/database');
@@ -519,6 +526,9 @@ async function main(): Promise<void> {
   const callgridTimer = callgrid.scheduled ? setInterval(() => void callgrid.pass(), CALLGRID_TICK_MS) : null;
   if (callgrid.scheduled) void callgrid.pass();
   log('callgrid_api_host', { scheduled: callgrid.scheduled, intervalMs: CALLGRID_TICK_MS });
+  const creatorMail = creatorMailHost(creatorMailConfig, { fetch, now: () => new Date(), log });
+  const creatorMailTimer = creatorMail.scheduled ? setInterval(() => void creatorMail.pass(), CREATOR_MAIL_TICK_MS) : null;
+  if (creatorMail.scheduled) void creatorMail.pass();
   void sweep();
   void purge();
   void baseline();
@@ -535,8 +545,9 @@ async function main(): Promise<void> {
     if (hydrationTimer) clearInterval(hydrationTimer);
     if (intelligenceTimer) clearInterval(intelligenceTimer);
     if (callgridTimer) clearInterval(callgridTimer);
+    if (creatorMailTimer) clearInterval(creatorMailTimer);
     server.close();
-    void callgrid.stop().finally(() => prisma.$disconnect());
+    void Promise.all([callgrid.stop(), creatorMail.stop()]).finally(() => prisma.$disconnect());
     log('worker_stopping');
   };
   process.on('SIGTERM', shutdown);

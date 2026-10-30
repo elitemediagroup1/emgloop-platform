@@ -605,3 +605,5 @@ export * from './crm-people-command-center';
 export * from './crm-people-discovery';
 
 export * from './public-news';
+
+export * from './ai/creator-brand-update';

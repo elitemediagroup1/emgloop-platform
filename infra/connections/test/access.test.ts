@@ -183,6 +183,7 @@ test('the deploy workflow: manual, one stage per run, environment and confirmati
     'CONNECTIONS_PRODUCTION_AI_PROVIDERS',
     'CONNECTIONS_PRODUCTION_AI_TASKS',
     'CONNECTIONS_PRODUCTION_ALERT_EMAIL', 'CONNECTIONS_PRODUCTION_CALLGRID_ORGANIZATION',
+    'CONNECTIONS_PRODUCTION_CREATOR_MAIL_REFRESH_URL',
     'CONNECTIONS_PRODUCTION_DEPLOY_ROLE_ARN',
     // Loop Intelligence (2026-09-26): optional worker settings, all unset by default.
     'CONNECTIONS_PRODUCTION_INTELLIGENCE_ACTING_USERS',
@@ -193,6 +194,7 @@ test('the deploy workflow: manual, one stage per run, environment and confirmati
     'CONNECTIONS_STAGING_AI_PROVIDERS',
     'CONNECTIONS_STAGING_AI_TASKS',
     'CONNECTIONS_STAGING_ALERT_EMAIL', 'CONNECTIONS_STAGING_CALLGRID_ORGANIZATION',
+    'CONNECTIONS_STAGING_CREATOR_MAIL_REFRESH_URL',
     'CONNECTIONS_STAGING_DEPLOY_ROLE_ARN',
     'CONNECTIONS_STAGING_INTELLIGENCE_ACTING_USERS',
     'CONNECTIONS_STAGING_INTELLIGENCE_BRIEFINGS',
@@ -216,7 +218,7 @@ test('the deploy workflow: manual, one stage per run, environment and confirmati
       assert.ok(code.includes(`${local}="$(trim "$${prefix}_${name}")"`), `${stage} resolves ${local} from ${prefix}_${name}`);
     }
   }
-  assert.ok(code.includes('for v in "$role" "$alert_email" "$ai_org_id" "$ai_providers" "$ai_tasks" "$intel_producers" "$intel_situations" "$intel_briefings" "$intel_acting" "$callgrid_org"; do'));
+  assert.ok(code.includes('for v in "$role" "$alert_email" "$ai_org_id" "$ai_providers" "$ai_tasks" "$intel_producers" "$intel_situations" "$intel_briefings" "$intel_acting" "$callgrid_org" "$creator_mail_url"; do'));
   // Loop Intelligence: resolved by STAGE the same way, whitespace-refused, handed to every CDK step.
   for (const [stage, prefix] of [['staging', 'STAGING'], ['production', 'PRODUCTION']] as const) {
     for (const [name, local] of [['INTELLIGENCE_PRODUCERS', 'intel_producers'], ['INTELLIGENCE_SITUATIONS', 'intel_situations'], ['INTELLIGENCE_BRIEFINGS', 'intel_briefings'], ['INTELLIGENCE_ACTING_USERS', 'intel_acting']] as const) {
