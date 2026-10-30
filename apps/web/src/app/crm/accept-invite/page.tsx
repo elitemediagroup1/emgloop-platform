@@ -6,6 +6,7 @@ import { acceptInviteAction } from '../../../auth/actions';
 export const dynamic = 'force-dynamic';
 
 const ROLE_LABELS: Record<string, string> = {
+  CREATOR: 'Creator',
   OWNER: 'Owner',
   ADMIN: 'Admin',
   MANAGER: 'Manager',
@@ -111,7 +112,7 @@ export default async function AcceptInvitePage({
   return (
     <div className="crm-auth-wrap">
       <div className="crm-auth-card">
-        <h1>Join EMG Loop</h1>
+        <h1>{state.roleLabel === 'Creator' ? 'Welcome to Creator Hub' : 'Join EMG Loop'}</h1>
         <p className="crm-auth-sub">
           You have been invited to
           {state.organizationName ? ' ' + state.organizationName : ' EMG Loop'}
@@ -119,6 +120,7 @@ export default async function AcceptInvitePage({
           get started.
         </p>
 
+        {state.roleLabel === 'Creator' ? <p className="crm-auth-sub">Create your login, then complete your own creator profile and social handles. EMG manages brand email connections behind the scenes.</p> : null}
         {error ? <div className="crm-auth-error">{error}</div> : null}
 
         <div className="crm-auth-hint">

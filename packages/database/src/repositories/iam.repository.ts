@@ -33,6 +33,7 @@ import { disconnectSourceConnectionsInTx } from './source-connection.repository'
 import { revokeContentAuthorizationsInTx } from './source-content-authorization.repository';
 import { absentUntilMigrated } from '../creator/until-migrated';
 import { AuditRepository } from './audit.repository';
+import { PartyRepository } from './cognitive/party.repository';
 import { WorkErasureRepository, type WorkErasure } from './work-state/work-erasure.repository';
 import { intelligenceDigestsPresent } from './intelligence/intelligence-digest.repository';
 import { intelligenceFabricPresent, type IntelligenceFabricPresence } from './intelligence/intelligence-fabric-presence';
@@ -465,6 +466,7 @@ export interface UserListItem {
 }
 
 export interface InvitationView {
+  creatorPartyId?: string;
   id: string;
   email: string;
   systemRole: string;
@@ -886,16 +888,60 @@ export class IamRepository {
     systemRole?: string;
     tokenHash: string;
     expiresAt?: Date;
+    creatorPartyId?: string;
   }): Promise<Invitation> {
+    if (data.systemRole === 'CREATOR' && !(await this.creatorInvitationTarget(data.organizationId, data.inviterId, data.creatorPartyId ?? ''))) throw new Error('CREATOR_TARGET_REQUIRED');
     return this.prisma.invitation.create({
       data: {
         organizationId: data.organizationId,
         email: data.email,
         invitedById: data.inviterId,        status: 'PENDING',
         tokenHash: data.tokenHash,
-        expiresAt: data.expiresAt ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),        metadata: { systemRole: data.systemRole ?? 'EMPLOYEE' },
+        expiresAt: data.expiresAt ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),        metadata: { systemRole: data.systemRole ?? 'EMPLOYEE', ...(data.systemRole === 'CREATOR' ? { creatorPartyId: data.creatorPartyId } : {}) },
       },
     });
+  }
+
+  /** EMG selects identity once when inviting; no creator profile is filled in by staff. */
+  async creatorInvitationTarget(organizationId: string, inviterId: string, partyId: string): Promise<boolean> {
+    return this.creatorInvitationTargetIn(this.prisma, organizationId, inviterId, partyId);
+  }
+
+  private async creatorInvitationTargetIn(db: Prisma.TransactionClient, organizationId: string, inviterId: string, partyId: string): Promise<boolean> {
+    const authority = await membershipAuthority(db, organizationId, inviterId);
+    if (!authority.granted || !['OWNER', 'ADMIN', 'MANAGER'].includes(authority.systemRole)) return false;
+    const iam = new IamRepository(db as PrismaClient);
+    if (!(await iam.can({ organizationId, userId: inviterId, resource: 'users', action: 'create' })) || !(await iam.can({ organizationId, userId: inviterId, resource: 'identityResolution', action: 'view' }))) return false;
+    const person = await db.cognitiveIdentity.findFirst({ where: { organizationId, id: partyId, entityType: 'PERSON', archivedAt: null, supersededByIdentityId: null, status: { not: 'ARCHIVED' } } });
+    const party = person ? await new PartyRepository(this.prisma).findParty(organizationId, partyId, new Date(), db) : null;
+    return !!party?.establishment.established;
+  }
+
+  /** Token alone chooses organization, role, user and Person. All acceptance writes are atomic. */
+  async acceptCreatorInvitation(tokenHash: string, input: { name: string; passwordHash: string; now: Date }): Promise<{ email: string } | null> {
+    return this.prisma.$transaction(async tx => {
+      const invitation = await tx.invitation.findFirst({ where: { tokenHash, status: 'PENDING', expiresAt: { gt: input.now } } });
+      if (!invitation || !invitation.invitedById || invitationSystemRole(invitation) !== 'CREATOR') return null;
+      const organizationId = invitation.organizationId;
+      const user = await tx.user.findFirst({ where: { organizationId, email: invitation.email, status: 'INVITED' } });
+      if (!user || hasRemovalMarker(user.metadata) || userSystemRole(user) !== 'CREATOR') return null;
+      const bound = await tx.creatorProfile.findFirst({ where: { organizationId, userId: user.id } });
+      const partyId = typeof meta(invitation).creatorPartyId === 'string' ? meta(invitation).creatorPartyId as string : bound?.partyId;
+      if (!partyId || !(await this.creatorInvitationTargetIn(tx, organizationId, invitation.invitedById, partyId))) return null;
+      const existing = await tx.creatorProfile.findFirst({ where: { organizationId, partyId } });
+      if ((bound && bound.partyId !== partyId) || (existing?.userId && existing.userId !== user.id)) return null;
+      // Refuse stale links before touching the password or membership. Serializable isolation
+      // and the conditional token consume also prevent concurrent acceptances from rebinding.
+      const consumed = await tx.invitation.updateMany({ where: { id: invitation.id, organizationId, status: 'PENDING', expiresAt: { gt: input.now } }, data: { status: 'ACCEPTED', acceptedAt: input.now } });
+      if (consumed.count !== 1) return null;
+      const updated = await tx.user.update({ where: { id: user.id }, data: { name: input.name.trim().slice(0, 120), status: 'ACTIVE', metadata: { ...meta(user), passwordHash: input.passwordHash } as Prisma.InputJsonValue } });
+      await syncMembershipFromUser(tx, updated);
+      const profile = existing
+        ? await tx.creatorProfile.update({ where: { id: existing.id }, data: { userId: user.id } })
+        : await tx.creatorProfile.create({ data: { organizationId, partyId, userId: user.id, displayName: input.name.trim().slice(0, 120), createdByUserId: invitation.invitedById } });
+      await new AuditRepository(this.prisma).record({ organizationId, userId: user.id, action: 'creator.onboarding.started', entityType: 'creator_profile', entityId: profile.id, metadata: { invitationId: invitation.id } }, tx);
+      return { email: user.email };
+    }, { isolationLevel: 'Serializable' });
   }
 
   async listInvitations(organizationId: string): Promise<InvitationView[]> {
@@ -914,6 +960,7 @@ export class IamRepository {
       id: i.id,
       email: i.email,
       systemRole: invitationSystemRole({ metadata: i.metadata }),
+      ...(typeof meta(i).creatorPartyId === 'string' ? { creatorPartyId: meta(i).creatorPartyId as string } : {}),
       status: i.status,
       expiresAt: i.expiresAt?.toISOString() ?? null,
       createdAt: i.createdAt.toISOString(),

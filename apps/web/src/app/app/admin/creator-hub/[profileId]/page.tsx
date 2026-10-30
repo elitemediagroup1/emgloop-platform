@@ -541,7 +541,7 @@ export default async function CreatorOverviewPage({ params, searchParams }: { pa
                   { label: 'Login', value: login ? `${login.name ?? login.email} · ${login.email} · ${login.status.toLowerCase()}` : null, unknownText: 'No login yet' },
                 ]}
               />
-              {!login ? <p className="loop-note">Invite this person with the Creator role from <Link href="/app/admin/administration/team">Team</Link>, then bind their active login here. Their Hub starts at Loop Home after sign-in.</p> : null}
+              {!login ? <p className="loop-note">Invite this person with the Creator role from <Link href={`/app/admin/administration/team?role=CREATOR&creatorPartyId=${encodeURIComponent(profile!.partyId)}#invite`}>Team</Link>. Accepting the invitation binds this profile automatically and opens their profile setup. Manual binding is retained for controlled tests.</p> : null}
               {profile!.bio ? <p className="loop-note">{profile!.bio}</p> : null}
               <form action={bindCreatorLoginAction} className="loop-stack" style={{ marginTop: 10 }} aria-label="Bind the creator's login">
                 <input type="hidden" name="profileId" value={profile!.id} />

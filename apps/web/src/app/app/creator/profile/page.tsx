@@ -86,6 +86,7 @@ export default async function CreatorProfilePage({ searchParams }: { searchParam
   return (
     <LoopPage label="Profile">
       <PageHead trail={[{ label: 'Creator' }, { label: 'Profile' }]} title={profile?.displayName ?? seat.displayName} subtitle={profile?.handle ? `@${profile.handle}` : undefined} />
+      {param(searchParams.onboarding) === '1' ? <StateBlock kind="empty" compact title="Welcome to Creator Hub" body="Complete your profile and add at least one social handle below. Your brand updates and shared work will appear as EMG links them to you. You do not need to connect EMG’s email accounts." /> : null}
       {saved ? <StateBlock kind="empty" compact title="Saved." body={saved === 'preferences' ? 'Your preference is saved to your profile.' : 'Your profile is updated.'} /> : null}
       {refused ? <StateBlock kind="attention" compact title={refusalText(refused.reason, refused.detail).title} body={refusalText(refused.reason, refused.detail).body} /> : null}
 

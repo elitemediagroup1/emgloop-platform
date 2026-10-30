@@ -27,7 +27,7 @@ export default async function CreatorRosterPage({ searchParams }: { searchParams
         subtitle="Every managed creator in your workspace: what they need from EMG, and what EMG is waiting on."
         actions={
           <div className="loop-btnrow">
-            <Link className="loop-btn loop-btn--primary" href="/app/crm/people">Add creator from People</Link>
+            <Link className="loop-btn loop-btn--primary" href="/app/admin/administration/team?role=CREATOR#invite">Invite creator</Link>
             <Link className="loop-btn" href={EMG_HREFS.requests}>Requests</Link>
           </div>
         }
