@@ -48,3 +48,34 @@ No other creator profile or invitation was created by this work. Do not use prod
 The existing production AWS refresh deployment and budget limits still govern summaries. A green
 migration or website deploy does not prove the worker ran, email delivery succeeded, or a creator
 received the correct AI update. No migration or new environment variable is added by self-onboarding.
+
+## Staff-prepared social evidence for the Trevon pilot
+
+The profile's staff-only **Preload accounts and observed analytics** control records supplied
+platform URLs/handles and the intended EMG mailbox email. An email reference is not OAuth consent,
+a login, an active mailbox connection or permission to read that inbox. The independent managed
+creator-mailbox OAuth/worker path still needs implementation; do not replace Matt's own Google
+connection with the creator's mailbox. Existing Google connections are one per Loop login.
+
+Record only freshly observed public follower/subscriber displays. `176.9K` remains identified as
+rounded, while a full `19,267` display is retained as such. Unavailable fields are left empty, never
+zero. The existing audience table receives source-labelled observations with no invented growth;
+source URL/raw displayed count and recording time are retained in the profile preferences.
+
+The optional TikTok One report stores median views, engagement rate and 6-second video view rate
+with its explicit **30 most recent videos** basis. It is shown on Creator Home, Analytics and the
+staff creator view. It is not a sum of monthly video views or reach. These are manual snapshots,
+not proof of a connected API. Re-saving links without counts/report fields does not refresh the
+analytics timestamps. Historical audience rows remain append-only.
+
+EMG's authorized TikTok One session and Trevon's agency profile were successfully inspected on
+October 30. Public TikTok, Instagram and YouTube profiles were also accessible. The user supplied
+his three handles and confirmed the intended EMG Gmail address. These observations have NOT yet
+been preloaded into the live profile: the UI is in PR #410 and must deploy first. No other creator's
+private analytics, credential, rate, demographic assumption or guessed metric was recorded.
+
+The browser may retain TikTok's sign-in while its session remains valid. This does not provision
+unattended AWS browser sessions or a scheduled importer. No cookie export, credential copy, new
+API key or background analytics schedule was created. Use authorized interactive reads for the
+pilot; actual automated collection must be separately implemented, tested and activated. Keep
+API onboarding and third-party sign-in/consent in their official browser flows.

@@ -96,10 +96,12 @@ export const COMPENSATION_STATE_LABELS: Record<CompensationState, string> = {
 export const PAYABLE_COMPENSATION_STATE: CompensationState = 'AVAILABLE';
 
 /** Where a piece of evidence came from. SEEDED_DEMO is labelled wherever it appears. */
-export const EVIDENCE_SOURCES = ['PLATFORM', 'SEEDED_DEMO'] as const;
+export const EVIDENCE_SOURCES = ['PLATFORM', 'PUBLIC_PROFILE', 'TIKTOK_ONE_MANUAL', 'SEEDED_DEMO'] as const;
 export type EvidenceSource = (typeof EVIDENCE_SOURCES)[number];
 export const EVIDENCE_SOURCE_LABELS: Record<EvidenceSource, string> = {
   PLATFORM: 'from the platform',
+  PUBLIC_PROFILE: 'public profile observation (counts may be rounded)',
+  TIKTOK_ONE_MANUAL: 'TikTok One observation (not an API connection)',
   SEEDED_DEMO: 'seeded demo data',
 };
 
@@ -372,4 +374,14 @@ export function creatorDeclaredSocialHandles(preferences: unknown): Partial<Reco
   const input = Object.fromEntries(SOCIAL_PLATFORMS.map(p => [p, typeof (raw as Record<string, unknown>)[p] === 'string' ? (raw as Record<string, string>)[p]! : '']));
   const parsed = parseCreatorSocialHandles(input);
   return parsed.ok ? parsed.handles : {};
+}
+
+/** Parse what a platform displayed, retaining roundedness instead of claiming exact counts. */
+export function parseCreatorAudienceDisplay(raw: string): { count: number; displayed: string; rounded: boolean } | null {
+  const displayed = raw.trim();
+  if (!/^(?:\d+|\d{1,3}(?:,\d{3})+|\d+(?:\.\d{1,3})?[KMB])$/i.test(displayed)) return null;
+  const suffix = displayed.slice(-1).toUpperCase();
+  const scale = suffix === 'K' ? 1_000 : suffix === 'M' ? 1_000_000 : suffix === 'B' ? 1_000_000_000 : 1;
+  const count = Number((scale === 1 ? displayed : displayed.slice(0, -1)).replace(/,/g, '')) * scale;
+  return Number.isSafeInteger(count) && count >= 0 && count <= 2_147_483_647 ? { count, displayed, rounded: scale !== 1 } : null;
 }

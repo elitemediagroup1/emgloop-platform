@@ -1,7 +1,8 @@
 import Link from 'next/link';
-import { SOCIAL_PLATFORMS, SOCIAL_PLATFORM_LABELS } from '@emgloop/shared';
+import { EVIDENCE_SOURCE_LABELS, type EvidenceSource, SOCIAL_PLATFORMS, SOCIAL_PLATFORM_LABELS } from '@emgloop/shared';
 import { requireWorkspace } from '../../../../workspaces/guard';
-import { CREATOR_HREFS, requireCreator } from '../../../../creator/creator-runtime';
+import { CREATOR_HREFS, creatorDomain, requireCreator } from '../../../../creator/creator-runtime';
+import { ObservedTikTokReport } from '../../../../creator/observed-tiktok-report';
 import { loadAnalytics } from '../../../../creator/creator-data';
 import { viewerTime } from '../../../../time/viewer-time';
 import { LoopPage, PageHead, Panel, StateBlock, SummaryStrip } from '../../_loop-os/record';
@@ -27,6 +28,7 @@ export default async function CreatorAnalyticsPage({ searchParams }: { searchPar
   const days = (WINDOWS as readonly number[]).includes(daysRaw) ? daysRaw : 30;
   const platformRaw = param(searchParams.platform);
   const platform = platformRaw && (SOCIAL_PLATFORMS as readonly string[]).includes(platformRaw) ? platformRaw : null;
+  const profile = await creatorDomain().creator.profileById(seat.actor.organizationId, seat.profileId);
   const all = await loadAnalytics(seat, { days });
   const view = platform ? await loadAnalytics(seat, { platform, days }) : all;
   const platforms = [...new Set([...all.platforms, ...all.latestAudience.map((a) => a.platform)])];
@@ -45,6 +47,8 @@ export default async function CreatorAnalyticsPage({ searchParams }: { searchPar
       {!all.connected ? <p className="loop-note">No platform is connected. Connect TikTok from Profile; any existing reports retain their recorded source.</p> : null}
 
       <p className="loop-note"><Link href={CREATOR_HREFS.profile}>Manage social connections</Link>. TikTok’s last-read account and recent-video counts are on Profile. They are lifetime observations, not totals for the reporting window below.</p>
+      {latest.some(a => a.source === 'PUBLIC_PROFILE' || a.source === 'TIKTOK_ONE_MANUAL') ? <p className="loop-note">Public and manually collected audience counts can be rounded; their observation timestamps do not imply an API connection or a unique combined audience.</p> : null}
+      <ObservedTikTokReport preferences={profile?.preferences} time={time} />
       {nothing ? (
         <StateBlock kind="unavailable" title="Not connected" body="Connect TikTok from Profile to begin recording audience observations. Performance appears when a report is recorded; unavailable metrics remain unreported." />
       ) : (
@@ -109,7 +113,7 @@ export default async function CreatorAnalyticsPage({ searchParams }: { searchPar
             )}
             <p className="loop-note" style={{ marginTop: 10 }}>
               {view.performance.length} report{view.performance.length === 1 ? '' : 's'} in the last {days} days
-              {view.sources.length > 0 ? ` · sources: ${view.sources.map((s) => (s === 'SEEDED_DEMO' ? 'seeded demo data' : s === 'PLATFORM' ? 'platform' : s)).join(', ')}` : ''}
+              {view.sources.length > 0 ? ` · sources: ${view.sources.map((s) => (EVIDENCE_SOURCE_LABELS[s as EvidenceSource] ?? s)).join(', ')}` : ''}
             </p>
           </Panel>
         </>

@@ -1,4 +1,4 @@
-import { SOCIAL_PLATFORMS, SOCIAL_PLATFORM_LABELS, creatorDeclaredSocialHandles, tiktokSocialAccountOf } from '@emgloop/shared';
+import { EVIDENCE_SOURCE_LABELS, type EvidenceSource, SOCIAL_PLATFORMS, SOCIAL_PLATFORM_LABELS, creatorDeclaredSocialHandles, tiktokSocialAccountOf } from '@emgloop/shared';
 import { requireWorkspace } from '../../../../workspaces/guard';
 import { creatorDomain, requireCreator } from '../../../../creator/creator-runtime';
 import { loadAnalytics, refusedFrom } from '../../../../creator/creator-data';
@@ -172,7 +172,7 @@ export default async function CreatorProfilePage({ searchParams }: { searchParam
           <Facts
             rows={audience.map((a) => ({
               label: (SOCIAL_PLATFORM_LABELS as Record<string, string>)[a.platform] ?? a.platform,
-              value: `${a.followers.toLocaleString('en-US')} followers${a.growth30dPct !== null ? ` · ${a.growth30dPct > 0 ? '+' : ''}${a.growth30dPct}% in 30 days` : ''} · ${time.date(a.observedAt)}${a.source === 'SEEDED_DEMO' ? ' · seeded demo data' : a.source === 'PLATFORM' ? ' · from the platform' : ''}`,
+              value: `${a.followers.toLocaleString('en-US')} followers${a.growth30dPct !== null ? ` · ${a.growth30dPct > 0 ? '+' : ''}${a.growth30dPct}% in 30 days` : ''} · ${time.date(a.observedAt)}${EVIDENCE_SOURCE_LABELS[a.source as EvidenceSource] ? ` · ${EVIDENCE_SOURCE_LABELS[a.source as EvidenceSource]}` : ' · source not classified'}`,
             }))}
           />
         )}

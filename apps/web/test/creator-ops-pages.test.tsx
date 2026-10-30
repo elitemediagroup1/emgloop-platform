@@ -177,7 +177,7 @@ describe('The EMG seat acts only through the actions, and the actions only throu
     assert.match(actions, /^'use server';/);
     const names = [...actions.matchAll(/export async function (\w+Action)\(formData: FormData\)/g)].map((m) => m[1]!);
     assert.deepEqual(names.sort(), [
-      'addCreatorProfileAction', 'addProductionCommentAction', 'bindCreatorLoginAction', 'declareDeliverableAction', 'designateOpportunityAction',
+      'addCreatorProfileAction', 'addProductionCommentAction', 'bindCreatorLoginAction', 'declareDeliverableAction', 'designateOpportunityAction', 'preloadCreatorAccountsAction',
       'recordBrandApprovalAction', 'recordEmgApprovalAction', 'relayBrandFeedbackAction', 'returnVersionForReviewAction',
       'setExpectedReturnAction', 'transitionCampaignAction',
     ]);

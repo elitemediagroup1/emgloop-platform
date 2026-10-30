@@ -11,6 +11,7 @@ import 'server-only';
 import Link from 'next/link';
 import type { ContentNotice, LibraryItem } from '@emgloop/database';
 import { creatorDeclaredSocialHandles, type TimeView } from '@emgloop/shared';
+import { ObservedTikTokReport } from './observed-tiktok-report';
 import { CreatorBrandUpdates } from './creator-brand-updates';
 import { settle } from '../app/app/_home/settle';
 import { LoopPage, PageHead, Panel, StateBlock, SummaryStrip } from '../app/app/_loop-os/record';
@@ -78,6 +79,7 @@ export async function CreatorHome({ seat, time }: { seat: CreatorSeat; time: Tim
       />
 
       <CreatorBrandUpdates seat={seat} time={time} />
+      {profile.ok ? <ObservedTikTokReport preferences={profile.value?.preferences} time={time} /> : null}
       <Panel title="Things that need you">
         {!tasks.ok ? <Failed what="your tasks" /> : needs.length === 0 ? <StateBlock kind="empty" compact title="Nothing needs you right now." body="A returned edit or a deliverable due soon lands here." action={{ label: 'All tasks', href: CREATOR_HREFS.tasks }} /> : <TaskList tasks={needs} time={time} />}
       </Panel>

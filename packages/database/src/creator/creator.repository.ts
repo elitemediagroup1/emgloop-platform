@@ -27,6 +27,7 @@ import type {
   CreatorCompensationEntry,
 } from '@prisma/client';
 import { randomBytes } from 'crypto';
+import { parseCreatorSocialHandles, parseCreatorAudienceDisplay, SOCIAL_PLATFORMS } from '@emgloop/shared';
 import { MEDIA_KEY_PREFIX, mediaExtensionOf } from '@emgloop/providers';
 import { membershipAuthority } from '../repositories/membership.repository';
 import { PartyRepository } from '../repositories/cognitive/party.repository';
@@ -161,6 +162,45 @@ export class CreatorRepository {
       if (!existing) throw error;
       return { outcome: 'EXISTS', profileId: existing.id };
     }
+  }
+
+  /** Staff-prepared test data, not an OAuth grant. Sources and timestamps remain explicit. */
+  async preloadAccounts(organizationId: string, userId: string, profileId: string, input: {
+    handles: Record<string, string>; mailboxEmail: string; followers: Record<string, string>;
+    tiktokOneUrl: string; medianViews: string; engagementPct: string; view6sPct: string;
+  }): Promise<'SAVED' | 'INVALID' | 'NOT_FOUND' | 'NOT_ALLOWED'> {
+    const handles = parseCreatorSocialHandles(input.handles);
+    if (!handles.ok || input.mailboxEmail.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.mailboxEmail)) return 'INVALID';
+    const observations: { platform: typeof SOCIAL_PLATFORMS[number]; count: number; displayed: string; rounded: boolean; sourceUrl: string }[] = [];
+    for (const platform of SOCIAL_PLATFORMS) {
+      const raw = input.followers[platform]?.trim(); if (!raw) continue;
+      const parsed = parseCreatorAudienceDisplay(raw);
+      const sourceUrl = handles.handles[platform];
+      if (!parsed || !sourceUrl?.startsWith('https://')) return 'INVALID';
+      observations.push({ platform, ...parsed, sourceUrl });
+    }
+    const hasTikTokOne = !!input.tiktokOneUrl.trim();
+    const median = input.medianViews.trim() ? parseCreatorAudienceDisplay(input.medianViews) : null;
+    const pct = (s: string) => /^\d{1,3}(?:\.\d{1,4})?$/.test(s.trim()) && Number(s) <= 100 ? Number(s) : null;
+    const engagement = pct(input.engagementPct), six = pct(input.view6sPct);
+    if (hasTikTokOne && (!/^https:\/\/ads\.tiktok\.com\/creative\/creator\/profile\/\d+$/.test(input.tiktokOneUrl) || !handles.handles.TIKTOK || !median || engagement === null || six === null)) return 'INVALID';
+    if (!hasTikTokOne && [input.medianViews, input.engagementPct, input.view6sPct].some(v => !!v.trim())) return 'INVALID';
+    return this.prisma.$transaction(async tx => {
+      const authority = await membershipAuthority(tx, organizationId, userId);
+      if (!authority.granted || !['OWNER', 'ADMIN'].includes(authority.systemRole)) return 'NOT_ALLOWED';
+      if (!(await new IamRepository(tx as PrismaClient).can({ organizationId, userId, resource: 'identityResolution', action: 'view' }))) return 'NOT_ALLOWED';
+      const profile = await tx.creatorProfile.findFirst({ where: { organizationId, id: profileId } });
+      if (!profile) return 'NOT_FOUND';
+      const previous = profile.preferences && typeof profile.preferences === 'object' && !Array.isArray(profile.preferences) ? profile.preferences as Record<string, unknown> : {};
+      const now = new Date();
+      const socialObservations = Object.fromEntries(observations.map(o => [o.platform, { displayed: o.displayed, rounded: o.rounded, sourceUrl: o.sourceUrl, observedAt: now.toISOString(), source: o.platform === 'TIKTOK' && hasTikTokOne ? 'TIKTOK_ONE_MANUAL' : 'PUBLIC_PROFILE' }]));
+      for (const o of observations) await tx.creatorAudienceSnapshot.create({ data: { organizationId, creatorProfileId: profile.id, platform: o.platform, followers: o.count, growth30dPct: null, observedAt: now, source: o.platform === 'TIKTOK' && hasTikTokOne ? 'TIKTOK_ONE_MANUAL' : 'PUBLIC_PROFILE' } });
+      const oldObservations = previous.socialObservations && typeof previous.socialObservations === 'object' && !Array.isArray(previous.socialObservations) ? previous.socialObservations as Record<string, unknown> : {};
+      const preferences = { ...previous, socialHandles: handles.handles, managedMailboxEmail: input.mailboxEmail.toLowerCase(), socialObservations: { ...oldObservations, ...socialObservations }, ...(hasTikTokOne ? { tiktokOneObservation: { sourceUrl: input.tiktokOneUrl, observedAt: now.toISOString(), basis: '30 most recent videos', medianViews: median!.count, medianViewsDisplayed: median!.displayed, engagementPct: engagement!, view6sPct: six! } } : {}) };
+      await tx.creatorProfile.update({ where: { id: profile.id }, data: { preferences: preferences as Prisma.InputJsonValue } });
+      await new AuditRepository(this.prisma).record({ organizationId, userId, action: 'creator.accounts.preloaded', entityType: 'creator_profile', entityId: profile.id, metadata: { platforms: Object.keys(handles.handles), observedPlatforms: observations.map(o => o.platform), tiktokOne: hasTikTokOne } }, tx);
+      return 'SAVED';
+    }, { isolationLevel: 'Serializable' });
   }
 
   // ---- profiles -------------------------------------------------------------------------
