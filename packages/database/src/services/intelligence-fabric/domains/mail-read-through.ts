@@ -27,13 +27,20 @@ export function trimQuotedHistory(text: string): string {
   return out.join('\n').replace(/\n{3,}/g, '\n\n').trim().slice(0, MAX_TEXT_CHARS);
 }
 
-export function gmailMailReadThrough(prisma: PrismaClient, config: EmployeeGmailConfig) {
+export function gmailMailReadThrough(prisma: PrismaClient, config: EmployeeGmailConfig, options: { excludeLabels?: readonly string[] } = {}) {
   return async (principal: { organizationId: string; userId: string }, loopThreadId: string): Promise<MailThreadRead | null> => {
     const row = await prisma.workThread.findFirst({ where: { id: loopThreadId, organizationId: principal.organizationId, userId: principal.userId }, select: { threadId: true, subject: true } });
     if (!row) return null;
     const result = await readEmployeeGmailThread(config, principal, row.threadId);
     if (!result.ok) return null;
     const all = result.thread.messages;
+    // Shared creator publication must honor fresh Gmail labels, even before metadata sync catches up.
+    if (options.excludeLabels?.length) {
+      if (all.some(m => m.fact.labels.some(label => options.excludeLabels!.includes(label)))) return null;
+      const latest = all.reduce<(typeof all)[number] | null>((a, b) => !a || b.fact.internalDate > a.fact.internalDate ? b : a, null);
+      // Attachment-only or unreadable newest mail cannot silently leave an older state current.
+      if (!latest?.body.text || !trimQuotedHistory(latest.body.text)) return null;
+    }
     const kept = all.slice(-MAX_MESSAGES);
     const messages: MailTriageMessage[] = kept.flatMap((m) => {
       const text = m.body.text ? trimQuotedHistory(m.body.text) : '';

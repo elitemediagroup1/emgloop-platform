@@ -96,6 +96,7 @@ const UNIQUE_KEYS: Record<string, string[]> = {
   caseParticipant: ['priorityId', 'userId', 'contribution'],
   // Google Workspace connection. One connection per member, and one connect attempt per
   // state hash; the live-account key is in EXTRA_UNIQUE_KEYS.
+  creatorBrandMailShare: ['organizationId', 'ownerUserId', 'threadId'],
   googleConnection: ['organizationId', 'userId'],
   googleOAuthState: ['stateHash'],
   // TikTok Login Kit connection (Creator Hub). Same keys as Google's; the live-account key is
@@ -318,6 +319,7 @@ const COLUMN_DEFAULTS: Record<string, Row> = {
   },
   // The creator domain: every @default and every nullable column a row is born with, so a
   // repository reading one back sees what Postgres returns (null, never undefined).
+  creatorBrandMailShare: { revokedAt: null, summary: null, sourceFingerprint: null, evidenceAt: null, generatedAt: null, checkedAt: null, leaseToken: null, leaseUntil: null, lastFailureClass: null, invocationId: null, providerId: null },
   creatorProfile: {
     userId: null, handle: null, bio: null, categories: [], socialAccounts: [], payoutState: 'NOT_SET_UP', rateInfo: {}, documents: [],
     preferences: {}, defaultEditorUserId: null, createdByUserId: null,

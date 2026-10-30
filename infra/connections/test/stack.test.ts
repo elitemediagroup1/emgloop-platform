@@ -654,3 +654,11 @@ test('CallGrid is inert by default; explicit activation injects one stage-scoped
   assert.match(JSON.stringify(on.toJSON()), /api_key/);
   on.resourceCountIs('AWS::ECS::Service', 1);
 });
+
+test('creator mail refresh is opt-in and pinned to the stage web endpoint', async () => {
+  const { creatorMailRefreshFromContext } = await import('../lib/app');
+  assert.equal(creatorMailRefreshFromContext('production', undefined), undefined);
+  assert.equal(creatorMailRefreshFromContext('production', 'https://app.emgloop.com/api/internal/creator-brand-updates'), 'https://app.emgloop.com/api/internal/creator-brand-updates');
+  assert.equal(creatorMailRefreshFromContext('staging', 'https://staging--emgloop2.netlify.app/api/internal/creator-brand-updates'), 'https://staging--emgloop2.netlify.app/api/internal/creator-brand-updates');
+  for (const value of ['https://evil.test/api/internal/creator-brand-updates', 'https://app.emgloop.com/api/internal/creator-brand-updates?secret=oops', 'https://staging--emgloop2.netlify.app/api/internal/creator-brand-updates']) assert.throws(() => creatorMailRefreshFromContext('production', value));
+});

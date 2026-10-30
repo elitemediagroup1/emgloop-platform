@@ -1,3 +1,5 @@
+import { CreatorMailSharing } from '../../../../creator/creator-mail-sharing';
+import { resolveWorkspaceRole } from '../../../../workspaces/role-router';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
@@ -29,7 +31,7 @@ import { Conversation } from '../_mail/conversation';
 
 export const dynamic = 'force-dynamic';
 
-export default async function MailThreadPage({ params }: { params: { threadId: string } }) {
+export default async function MailThreadPage({ params, searchParams }: { params: { threadId: string }; searchParams?: { creatorUpdate?: string } }) {
   const session = await getSession();
   if (!session) redirect(loginPathFor('/app/mail'));
   await requirePermission('employeeIntelligence', 'view');
@@ -142,6 +144,7 @@ export default async function MailThreadPage({ params }: { params: { threadId: s
           }
         />
         <ThreadAttention item={openItem ? { id: openItem.id, class: openItem.class, snoozed: openItem.state === 'SNOOZED' } : null} threadId={threadId} />
+        {resolveWorkspaceRole(session) === 'ADMIN' ? <CreatorMailSharing principal={principal} threadId={threadId} outcome={typeof searchParams?.creatorUpdate === 'string' ? searchParams.creatorUpdate : undefined} /> : null}
         <Panel title="Conversation">
           <Conversation messages={messages} selfAddress={result.selfAddress} time={time} />
         </Panel>

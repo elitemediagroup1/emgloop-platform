@@ -174,9 +174,18 @@ export const AI_TASK_LOOP_QUESTION: AiTaskDefinition = Object.freeze({
   resultOwner: Object.freeze({ authority: 'EMPLOYEE_INTELLIGENCE', subjectType: 'EMPLOYEE_QUESTION' } as const),
 });
 
+/** Owner-authorized thread interpretation for publication only to its explicitly bound creator. */
+export const AI_TASK_CREATOR_BRAND_UPDATE: AiTaskDefinition = Object.freeze({
+  ...AI_TASK_MAIL_CONTENT_TRIAGE,
+  taskId: 'creator.brand.update', version: '1.0.0', resultType: 'ANALYSIS',
+  resultOwner: Object.freeze({ authority: 'RELATIONSHIPS', subjectType: 'CREATOR_BRAND_THREAD' } as const),
+  invokerRoles: OPERATORS, outputSchemaId: 'creator-brand-update.v1', maxOutputTokens: 1200,
+});
+
 /** Every Loop Intelligence task, in phase order. */
 export const AI_INTELLIGENCE_TASKS: readonly AiTaskDefinition[] = Object.freeze([
   AI_TASK_MAIL_CONTENT_TRIAGE,
+  AI_TASK_CREATOR_BRAND_UPDATE,
   AI_TASK_MAIL_DOMAIN_READING,
   AI_TASK_CALENDAR_DOMAIN_READING,
   AI_TASK_CALLGRID_DOMAIN_READING,

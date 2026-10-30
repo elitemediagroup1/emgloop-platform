@@ -87,6 +87,8 @@ export interface ConnectionsStackProps extends StackProps {
   readonly intelligence?: Readonly<Record<string, string>>;
   /** Explicit operator allowlist: one API account bound to one organization. */
   readonly callgridOrganization?: string;
+  /** Optional signed refresh trigger; web retains the existing Google grants. */
+  readonly creatorMailRefreshUrl?: string;
 }
 
 /** The Secrets Manager names a stage's stack references or creates: `loop/connections/<stage>/…`. */
@@ -214,6 +216,7 @@ export class ConnectionsStack extends Stack {
         LOOP_CONNECTION_OBSERVATION_RETENTION_DAYS: String(props.observationRetentionDays ?? 30),
         LOOP_CONNECTION_SWEEP_INTERVAL_MS: '60000',
         ...aiEnvironment,
+        ...(props.creatorMailRefreshUrl ? { LOOP_CREATOR_MAIL_REFRESH_URL: props.creatorMailRefreshUrl } : {}),
         ...(props.intelligence ?? {}),
         ...(props.callgridOrganization ? { LOOP_CALLGRID_ORGANIZATION: props.callgridOrganization } : {}),
       },

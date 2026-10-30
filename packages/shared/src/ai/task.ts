@@ -1,3 +1,4 @@
+import type { CreatorBrandUpdate } from './creator-brand-update';
 // What Loop asks for, and what it will accept as an answer. Slice AI S0.
 //
 // Architecture: docs/architecture/loop-ai-runtime.md §6 and §16, approved as PD-F-08.
@@ -321,6 +322,7 @@ export interface AiTaskOutput {
   /** Phase G: the composed Briefing (briefing-contract.ts). */
   readonly briefing?: AiBriefing;
   readonly chatAnswer?: AiLoopChatAnswer;
+  readonly creatorBrandUpdate?: CreatorBrandUpdate;
 }
 
 export interface AiDraftText {
