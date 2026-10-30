@@ -63,3 +63,6 @@ export function createCreatorDomain(prisma: PrismaClient, work: WorkRepository) 
   };
 }
 export type CreatorDomain = ReturnType<typeof createCreatorDomain>;
+export { CreatorBrandMailRepository } from './creator-brand-mail.repository';
+export type { PublishedCreatorBrandUpdate } from './creator-brand-mail.repository';
+export { CreatorBrandMailService } from './creator-brand-mail.service';

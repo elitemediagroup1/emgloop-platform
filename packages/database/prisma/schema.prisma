@@ -199,6 +199,7 @@ enum IntegrationEventStatus {
 // ---------------------------------------------------------------------------
 
 model Organization {
+  creatorBrandMailShares CreatorBrandMailShare[]
   id        String             @id @default(cuid())
   name      String
   slug      String             @unique
@@ -6548,7 +6549,9 @@ model WorkThread {
 
   organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   membership   OrganizationMembership @relation("WorkThreadMember", fields: [userId, organizationId], references: [userId, organizationId], onDelete: Cascade)
+  creatorBrandShares CreatorBrandMailShare[]
 
+  @@unique([organizationId, userId, id])
   @@unique([organizationId, userId, provider, threadId])
   @@index([organizationId, userId, derivedClass, lastMessageAt])
   @@index([organizationId, userId, lastMessageAt])
@@ -7090,7 +7093,9 @@ model CreatorProfile {
 
   organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   contents     CreatorContent[]
+  brandMailShares CreatorBrandMailShare[]
 
+  @@unique([organizationId, id])
   @@unique([organizationId, partyId])
   @@index([organizationId])
   @@map("creator_profiles")
@@ -8147,4 +8152,40 @@ model PublicNewsFeedState {
 
   @@unique([organizationId, sourceId])
   @@map("public_news_feed_states")
+}
+
+/// Explicit owner-approved publication scope. No email subject, address or body is retained.
+model CreatorBrandMailShare {
+  id String @id @default(cuid())
+  organizationId String
+  ownerUserId String
+  creatorProfileId String
+  recipientUserId String
+  brandPartyId String
+  threadId String
+  contentAuthorizationId String
+  contentAuthorizedAt DateTime
+  decisionRef String
+  authorizedAt DateTime @default(now())
+  revokedAt DateTime?
+  summary Json?
+  sourceFingerprint String?
+  evidenceAt DateTime?
+  generatedAt DateTime?
+  checkedAt DateTime?
+  nextCheckAt DateTime @default(now())
+  leaseToken String?
+  leaseUntil DateTime?
+  lastFailureClass String?
+  invocationId String?
+  providerId String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  creatorProfile CreatorProfile @relation(fields: [organizationId, creatorProfileId], references: [organizationId, id], onDelete: Cascade, map: "creator_brand_mail_shares_creator_fkey")
+  thread WorkThread @relation(fields: [organizationId, ownerUserId, threadId], references: [organizationId, userId, id], onDelete: Cascade, map: "creator_brand_mail_shares_thread_fkey")
+  @@unique([organizationId, ownerUserId, threadId], map: "creator_brand_mail_shares_owner_thread_key")
+  @@index([nextCheckAt, leaseUntil], map: "creator_brand_mail_shares_due_idx")
+  @@index([organizationId, creatorProfileId, recipientUserId], map: "creator_brand_mail_shares_recipient_idx")
+  @@map("creator_brand_mail_shares")
 }

@@ -977,6 +977,7 @@ test('a Brain event becomes a valid Activity item that points at work, never at 
   // excluded from this feed in both directions -- its requirement is not demanded here, and an
   // event about one never becomes an item here.
   assert.deepEqual(adapter.requiresFor({ kind: 'ORGANIZATION' }), [{ resource: 'commercialIntelligence', action: 'view' }]);
+  assert.equal(brainTaskRequirements('creator.brand.update'), null, 'a creator publication job cannot expose mailbox activity to the organization');
   assert.equal(brainTaskRequirements('mail.reply.draft'), null, 'an employee-private task has no organization activity item');
   assert.deepEqual(brainTaskRequirements('case.explanation'), [{ resource: 'commercialIntelligence', action: 'view' }]);
   const page = await adapter.page({ organizationId: ORG, subject: { kind: 'ORGANIZATION' }, filter: 'ALL', cursor: null, limit: 10, interactionsIncluded: false });

@@ -188,6 +188,14 @@ export function callgridOrganizationFromContext(value: unknown): string | undefi
   return value.trim();
 }
 
+/** Explicit opt-in to the stage's existing Loop web host; never send the control secret elsewhere. */
+export function creatorMailRefreshFromContext(stage: ConnectionsStage, value: unknown): string | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  const expected = `${DEFAULT_MEDIA_ORIGINS[stage][0]}/api/internal/creator-brand-updates`;
+  if (typeof value !== 'string' || value.trim() !== expected) throw new Error('creatorMailRefreshUrl must be the stage-specific Loop creator-brand-updates endpoint');
+  return expected;
+}
+
 export function buildConnectionsApp(options: ConnectionsAppOptions): { app: App; stack: ConnectionsStack } {
   // `-c key=value` from the CLI reaches the App through its environment, not through this props
   // object, so the stage and its account are read from the App after construction. Nothing is
@@ -224,6 +232,7 @@ export function buildConnectionsApp(options: ConnectionsAppOptions): { app: App;
     image: options.image,
     assetsDir: options.assetsDir,
     mediaOrigins,
+    creatorMailRefreshUrl: creatorMailRefreshFromContext(target.stage, app.node.tryGetContext('creatorMailRefreshUrl')),
     callgridOrganization: callgridOrganizationFromContext(app.node.tryGetContext('callgridOrganization')),
     terminationProtection: true,
     // A stack-level tag as well as the per-resource one the stack applies: CloudFormation

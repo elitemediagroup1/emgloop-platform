@@ -462,8 +462,10 @@ describe('nothing in the mail surface can send on its own, or be aimed at anybod
         assert.equal(src.includes(forbidden), false, `${page}: ${forbidden}`);
       }
     }
-    // The conversation page reads nothing from the query string at all.
-    assert.equal(code(read('../src/app/app/mail/[threadId]/page.tsx')).includes('searchParams'), false);
+    // A creator-sharing status notice is presentation only; the query still cannot name a principal.
+    const conversation = code(read('../src/app/app/mail/[threadId]/page.tsx'));
+    assert.match(conversation, /searchParams\?: \{ creatorUpdate\?: string \}/);
+    assert.match(conversation, /outcome=\{typeof searchParams\?\.creatorUpdate === 'string' \? searchParams.creatorUpdate : undefined\}/);
     // The list page hands the query string to ONE reader, which knows four keys -- a view, a search
     // and two switches -- and none of them can name a person, a mailbox or an organization.
     const list = code(read('../src/app/app/mail/page.tsx'));

@@ -1,3 +1,4 @@
+import { CreatorBrandUpdates } from '../../../../creator/creator-brand-updates';
 import Link from 'next/link';
 import { requireWorkspace } from '../../../../workspaces/guard';
 import { CREATOR_HREFS, creatorDomain, requireCreator } from '../../../../creator/creator-runtime';
@@ -21,6 +22,7 @@ export default async function CreatorOpportunitiesPage() {
   return (
     <LoopPage label="Opportunities">
       <PageHead trail={[{ label: 'Creator' }, { label: 'Opportunities' }]} title="Opportunities" subtitle="Brand interest EMG is working on for you, in the words EMG chose to share." />
+      <CreatorBrandUpdates seat={seat} time={time} />
       {opportunities.length === 0 ? (
         <StateBlock kind="empty" title="No opportunities yet." body="EMG shares an opportunity here once it decides you can see it. Nothing is hidden behind a number." />
       ) : (

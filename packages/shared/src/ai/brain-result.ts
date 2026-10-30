@@ -99,6 +99,7 @@ export const BRAIN_RESULT_SUBJECT_TYPES = [
   // One conversation in one employee's own mailbox. Deliberately not CUSTOMER_CONVERSATION: that
   // is the CRM's shared record of the business talking to a customer, and this is somebody's
   // private correspondence, which never becomes the other by being drafted against.
+  'CREATOR_BRAND_THREAD',
   'EMPLOYEE_MAIL_THREAD',
   // One conversation in one employee's own background source (e.g. Telegram). Deliberately not
   // EMPLOYEE_MAIL_THREAD (that is mail) and not CUSTOMER_CONVERSATION (that is the CRM's shared
@@ -138,6 +139,7 @@ export interface BrainOwnershipRule extends BrainResultOwner {
 export const BRAIN_OWNERSHIP_RULES: readonly BrainOwnershipRule[] = Object.freeze([
   rule('ANSWER', 'BRAIN_CONVERSATIONS', 'CONVERSATION', 'a Brain conversation turn'),
   rule('ANALYSIS', 'COMMERCIAL_INTELLIGENCE', 'CASE', 'a Case analysis held by Commercial Intelligence'),
+  rule('ANALYSIS', 'RELATIONSHIPS', 'CREATOR_BRAND_THREAD', 'a minimized creator-facing update under an explicit owner-approved publication scope'),
   rule('ANALYSIS', 'RELATIONSHIPS', 'RELATIONSHIP', 'a Relationship analysis held by the Relationship authority'),
   rule('ANALYSIS', 'CAMPAIGNS', 'CAMPAIGN', 'a Campaign analysis held by the Campaign authority'),
   rule('FINDING', 'COMMERCIAL_INTELLIGENCE', 'CASE', 'CaseFindingService, author MODEL'),
