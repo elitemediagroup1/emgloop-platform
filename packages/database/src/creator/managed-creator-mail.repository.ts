@@ -141,6 +141,9 @@ export class ManagedCreatorMailRepository {
     for (const row of rows ?? []) {
       if (!(await this.allowed(this.prisma, row))) continue;
       for (const r of captureReadings(row.readings)) {
+        // A discovered brand is private candidate data until a shareable reading is accepted.
+        // Never turn model refusal/withholding into a creator-visible brand association.
+        if (!accepted(r)) continue;
         if (!r.brandId || !r.evidenceAt || !Number.isFinite(Date.parse(r.evidenceAt)) || Date.parse(r.evidenceAt) > now.getTime() || now.getTime() - Date.parse(r.evidenceAt) > 30 * DAY) continue;
         const brand = await new PartyReadModelRepository(this.prisma).establishedOne(row.organizationId, 'COMPANY', r.brandId);
         if (!brand) continue;

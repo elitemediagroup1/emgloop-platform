@@ -24,7 +24,8 @@ export function creatorMailAliases(profile: MailCreatorIdentity): string[] {
   }
   return [...new Set(names.map(normalized))].sort();
 }
-export const creatorCaptureScopeHash = (profile: MailCreatorIdentity) => mailEvidenceHash(JSON.stringify({ version: 1, aliases: creatorMailAliases(profile) }));
+// Invalidate pre-fix automatic attribution/readings; a manager must explicitly restart the pilot.
+export const creatorCaptureScopeHash = (profile: MailCreatorIdentity) => mailEvidenceHash(JSON.stringify({ version: 2, aliases: creatorMailAliases(profile) }));
 export function creatorMailQuery(profile: MailCreatorIdentity, assigned: boolean, since: Date): string | null {
   const terms = creatorMailAliases(profile).map(s => s.replace(/["{}\\:\r\n]/g, ' ').trim()).filter(Boolean);
   if (!assigned && !terms.length) return null;
