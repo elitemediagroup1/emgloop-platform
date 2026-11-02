@@ -8,6 +8,7 @@ import { creatorMailSharingEnabled } from './creator-mail-runtime';
 import { type CreatorSeat } from './creator-runtime';
 import { Panel, StateBlock } from '../app/app/_loop-os/record';
 import { settle } from '../app/app/_home/settle';
+import { managedCreatorMailRepository } from './creator-mail-runtime';
 const STAGES: Record<string, string> = { OUTREACH: 'Awaiting first reply', DISCUSSING: 'In discussion', AWAITING_EMG: 'Waiting on EMG', AWAITING_BRAND: 'Waiting on the brand', AWAITING_CREATOR: 'Needs you', NEGOTIATING: 'Negotiating', CONFIRMED: 'Confirmed', DECLINED: 'Did not go ahead', PAUSED: 'Paused' };
 type BrandGroup = { brandId: string; brand: string; updates: PublishedCreatorBrandUpdate[] };
 const BUCKETS = [
@@ -31,7 +32,7 @@ function Brand({ group, time }: { group: BrandGroup; time: TimeView }) {
     {group.updates.map(update => <Update key={update.id} update={update} time={time} />)}
   </details>;
 }
-export function CreatorBrandUpdatesView({ rows, time }: { rows: readonly PublishedCreatorBrandUpdate[]; time: TimeView }) {
+export function CreatorBrandUpdatesView({ rows, time, sourceNote }: { rows: readonly PublishedCreatorBrandUpdate[]; time: TimeView; sourceNote?: string }) {
   const brands = new Map<string, BrandGroup>();
   for (const row of rows) {
     const group = brands.get(row.brandId) ?? { brandId: row.brandId, brand: row.brand, updates: [] };
@@ -68,7 +69,7 @@ export function CreatorBrandUpdatesView({ rows, time }: { rows: readonly Publish
         {other.map(group => <Brand key={group.brandId} group={group} time={time} />)}
       </details> : null}
     </div>
-    <p className="loop-note">Counts cover currently summarized, explicitly shared Gmail conversations only, not your entire outreach history. This view includes up to 100 shared threads. Each brand is counted once in its latest stage. An empty list does not mean no outreach has happened. AI interpretations can be wrong; private emails and internal commercial details are not shown.</p>
+    <p className="loop-note">{sourceNote ?? 'Counts cover currently summarized, explicitly shared Gmail conversations only, not your entire outreach history. This view includes up to 100 shared threads.'} Each brand is counted once in its latest stage. An empty list does not mean no outreach has happened. AI interpretations can be wrong; private emails and internal commercial details are not shown.</p>
   </Panel>;
 }
 export async function CreatorBrandUpdates({ seat, time }: { seat: CreatorSeat; time: TimeView }) {
@@ -76,5 +77,6 @@ export async function CreatorBrandUpdates({ seat, time }: { seat: CreatorSeat; t
   const repo = new CreatorBrandMailRepository(prisma);
   const result = await settle(async () => await repo.present({ organizationId: seat.actor.organizationId, userId: seat.actor.userId }) ? repo.forCreator({ organizationId: seat.actor.organizationId, userId: seat.actor.userId }, seat.profileId, time.now) : null);
   if (!result.ok || result.value === null) return <Panel title="Brand updates"><StateBlock kind="unavailable" compact title="Brand updates are not available right now." body="This is not a finding that there are no brand conversations." /></Panel>;
-  return <><CreatorUpdatesRefresh /><CreatorBrandUpdatesView rows={result.value} time={time} /></>;
+  const managed = await settle(() => managedCreatorMailRepository().updates({ organizationId: seat.actor.organizationId, userId: seat.actor.userId }, seat.profileId, time.now));
+  return <><CreatorUpdatesRefresh />{!managed.ok ? <p className="loop-note">Managed mailbox updates could not be read. Counts may be incomplete.</p> : null}<CreatorBrandUpdatesView rows={[...result.value, ...(managed.ok ? managed.value : [])]} time={time} sourceNote="Counts cover accepted explicit thread shares and analyzed managed-mailbox pilot conversations, not your entire outreach history. Capture examines up to 100 threads per selected source in its pilot window; missing, held or pending readings are not current activity." /></>;
 }

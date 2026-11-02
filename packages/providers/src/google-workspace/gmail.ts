@@ -99,6 +99,29 @@ export interface GmailChangesRequest extends GmailCallOptions {
   readonly startHistoryId: string;
 }
 
+export interface GmailThreadSearchResult {
+  readonly ok: boolean;
+  readonly threadIds: readonly string[];
+  readonly nextPageToken: string | null;
+  readonly failure?: GmailReadFailure;
+}
+
+/** One bounded search page; no bodies, no writes, no history cursor advancement. */
+export async function searchGoogleGmailThreads(request: GmailCallOptions & { query: string; pageToken?: string | null }): Promise<GmailThreadSearchResult> {
+  if (!request.query.trim() || request.query.length > 1500 || (request.pageToken?.length ?? 0) > 2048) return { ok: false, threadIds: [], nextPageToken: null, failure: 'MALFORMED' };
+  const params = new URLSearchParams({ q: request.query, maxResults: '25', includeSpamTrash: 'false' });
+  if (request.pageToken) params.set('pageToken', request.pageToken);
+  const answer = await get(request, '/threads', params);
+  if (!answer.ok) return { ok: false, threadIds: [], nextPageToken: null, failure: answer.failure };
+  const raw = answer.payload.threads;
+  if (raw !== undefined && !Array.isArray(raw)) return { ok: false, threadIds: [], nextPageToken: null, failure: 'MALFORMED' };
+  if (Array.isArray(raw) && raw.some(t => !t || typeof t !== 'object' || typeof t.id !== 'string' || !/^[A-Za-z0-9_-]{1,200}$/.test(t.id))) return { ok: false, threadIds: [], nextPageToken: null, failure: 'MALFORMED' };
+  const ids = (Array.isArray(raw) ? raw : []).flatMap(t => t && typeof t === 'object' && typeof t.id === 'string' && /^[A-Za-z0-9_-]{1,200}$/.test(t.id) ? [t.id] : []);
+  const next = answer.payload.nextPageToken;
+  if (next !== undefined && (typeof next !== 'string' || next.length > 2048)) return { ok: false, threadIds: [], nextPageToken: null, failure: 'MALFORMED' };
+  return { ok: true, threadIds: [...new Set(ids)].slice(0, 25), nextPageToken: typeof next === 'string' && next ? next : null };
+}
+
 // --- HTTP ------------------------------------------------------------------------------------
 
 function failureForStatus(status: number, payload: unknown): GmailReadFailure {

@@ -348,12 +348,13 @@ export {
   readGoogleGmailWindow,
   readGoogleGmailChanges,
   readGoogleGmailThread,
+  searchGoogleGmailThreads,
   sendGoogleGmailMessage,
   lookupGoogleGmailSent,
   GOOGLE_GMAIL_RECONCILE_RECENT,
   GOOGLE_GMAIL_RECONCILE_MAX_PAGES,
 } from './google-workspace/gmail';
-export type { GmailCallOptions, GmailWindowRequest, GmailChangesRequest } from './google-workspace/gmail';
+export type { GmailCallOptions, GmailWindowRequest, GmailChangesRequest, GmailThreadSearchResult } from './google-workspace/gmail';
 
 // TikTok Login Kit connection (Creator Hub): the OAuth 2.0 web flow (authorize, code exchange,
 // rotating refresh, revoke) and the two Display API reads Loop makes (user info, public video

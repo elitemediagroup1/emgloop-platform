@@ -297,6 +297,7 @@ model Organization {
   /// Google Workspace connection (Private V1). One per member; see GoogleConnection.
   googleConnections           GoogleConnection[]
   managedGoogleMailboxes      ManagedGoogleMailbox[]
+  managedCreatorMailCaptures ManagedCreatorMailCapture[]
   managedGoogleOAuthStates    ManagedGoogleOAuthState[]
   /// TikTok Login Kit connection (Creator Hub). One per member; see TikTokConnection.
   tiktokConnections           TikTokConnection[]
@@ -565,6 +566,8 @@ model OrganizationMembership {
   googleConnection            GoogleConnection[]           @relation("GoogleConnectionMember")
   googleOAuthStates           GoogleOAuthState[]           @relation("GoogleOAuthStateMember")
   managedGoogleMailboxes      ManagedGoogleMailbox[]       @relation("ManagedMailboxAuthorizer")
+  managedCreatorMailCaptures ManagedCreatorMailCapture[] @relation("CreatorCaptureManager")
+  receivedCreatorMailCaptures ManagedCreatorMailCapture[] @relation("CreatorCaptureRecipient")
   managedGoogleOAuthStates    ManagedGoogleOAuthState[]    @relation("ManagedMailboxOAuthMember")
   /// A TikTok connection belongs to a membership the same way: the creator, in THIS organization.
   tiktokConnection            TikTokConnection[]           @relation("TikTokConnectionMember")
@@ -5970,12 +5973,53 @@ model ManagedGoogleMailbox {
   creator CreatorProfile? @relation(fields: [organizationId, creatorProfileId], references: [organizationId, id], onDelete: Cascade)
   authorizer OrganizationMembership @relation("ManagedMailboxAuthorizer", fields: [authorizedByUserId, organizationId], references: [userId, organizationId], onDelete: Cascade)
   attempts ManagedGoogleOAuthState[]
+  creatorCaptures ManagedCreatorMailCapture[]
 
   @@unique([organizationId, id])
   @@unique([organizationId, expectedEmail])
   @@unique([organizationId, creatorProfileId])
   @@unique([organizationId, activeGoogleSubject])
   @@map("managed_google_mailboxes")
+}
+
+/// One bounded source-to-creator capture; only minimized readings and keyed provenance, never bodies.
+model ManagedCreatorMailCapture {
+  id String @id @default(cuid())
+  organizationId String
+  creatorProfileId String
+  recipientUserId String
+  ownerUserId String
+  mailboxId String
+  mailboxRevision String
+  scopeHash String
+  generation String @default(cuid())
+  enabled Boolean @default(true)
+  windowStart DateTime
+  cycleStartedAt DateTime
+  query String
+  pendingThreadIds String[] @default([])
+  nextPageToken String?
+  listedCount Int @default(0)
+  searchComplete Boolean @default(false)
+  capped Boolean @default(false)
+  readings Json @default("[]")
+  lastCheckedAt DateTime?
+  lastFailureClass String?
+  nextCheckAt DateTime @default(now())
+  leaseToken String?
+  leaseUntil DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  creator CreatorProfile @relation(fields: [organizationId, creatorProfileId], references: [organizationId, id], onDelete: Cascade)
+  mailbox ManagedGoogleMailbox @relation(fields: [organizationId, mailboxId], references: [organizationId, id], onDelete: Cascade)
+  manager OrganizationMembership @relation("CreatorCaptureManager", fields: [ownerUserId, organizationId], references: [userId, organizationId], onDelete: Cascade)
+  recipient OrganizationMembership @relation("CreatorCaptureRecipient", fields: [recipientUserId, organizationId], references: [userId, organizationId], onDelete: Cascade)
+
+  @@unique([organizationId, creatorProfileId, mailboxId])
+  @@index([nextCheckAt, leaseUntil])
+  @@map("managed_creator_mail_captures")
 }
 
 model ManagedGoogleOAuthState {
@@ -7158,6 +7202,7 @@ model CreatorProfile {
   contents     CreatorContent[]
   brandMailShares CreatorBrandMailShare[]
   managedGoogleMailboxes ManagedGoogleMailbox[]
+  managedMailCaptures ManagedCreatorMailCapture[]
 
   @@unique([organizationId, id])
   @@unique([organizationId, partyId])

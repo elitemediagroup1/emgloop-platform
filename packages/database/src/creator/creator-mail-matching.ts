@@ -1,0 +1,47 @@
+import { createHash } from 'crypto';
+import type { CreatorProfile } from '@prisma/client';
+import { creatorDeclaredSocialHandles, type CreatorBrandUpdate } from '@emgloop/shared';
+
+export type MailCreatorIdentity = Pick<CreatorProfile, 'id' | 'displayName' | 'handle' | 'preferences' | 'socialAccounts'>;
+const normalized = (value: string) => value.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim();
+export const mailEvidenceHash = (value: string) => createHash('sha256').update(value).digest('hex');
+export function exactMailPhrase(text: string, phrase: string): boolean {
+  const term = normalized(phrase).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return !!term && new RegExp(`(?<![\\p{L}\\p{N}_])${term}(?![\\p{L}\\p{N}_])`, 'u').test(normalized(text));
+}
+export function creatorMailAliases(profile: MailCreatorIdentity): string[] {
+  const names = normalized(profile.displayName).split(' ').filter(Boolean).length >= 2 ? [profile.displayName] : [];
+  const social = Array.isArray(profile.socialAccounts) ? profile.socialAccounts : [];
+  const handles = [profile.handle, ...Object.values(creatorDeclaredSocialHandles(profile.preferences)), ...social.flatMap(s => s && typeof s === 'object' && !Array.isArray(s) && typeof s.handle === 'string' ? [s.handle] : [])];
+  for (const raw of handles) {
+    if (!raw) continue;
+    let handle = raw;
+    if (raw.startsWith('https://')) {
+      try { const u = new URL(raw); if (!['instagram.com', 'www.instagram.com', 'tiktok.com', 'www.tiktok.com', 'youtube.com', 'www.youtube.com', 'facebook.com', 'www.facebook.com'].includes(u.hostname)) continue; handle = u.pathname.replace(/\/$/, '').split('/').pop() ?? ''; } catch { continue; }
+    }
+    handle = handle.replace(/^@/, '');
+    if (/^[\p{L}\p{N}_.-]{4,100}$/u.test(handle) && !['videos', 'reels', 'posts', 'featured'].includes(handle)) names.push(handle);
+  }
+  return [...new Set(names.map(normalized))].sort();
+}
+export const creatorCaptureScopeHash = (profile: MailCreatorIdentity) => mailEvidenceHash(JSON.stringify({ version: 1, aliases: creatorMailAliases(profile) }));
+export function creatorMailQuery(profile: MailCreatorIdentity, assigned: boolean, since: Date): string | null {
+  const terms = creatorMailAliases(profile).map(s => s.replace(/["{}\\:\r\n]/g, ' ').trim()).filter(Boolean);
+  if (!assigned && !terms.length) return null;
+  const q = `after:${Math.floor(since.getTime() / 1000)} -in:spam -in:trash -in:drafts${assigned ? '' : ` {${terms.map(s => `"${s}"`).join(' ')}}`}`;
+  return q.length <= 1500 ? q : null;
+}
+export type CaptureReadingState = 'CURRENT' | 'WITHHELD' | 'UNMATCHED_CREATOR' | 'MIXED_CREATORS' | 'UNMAPPED_BRAND' | 'SOURCE_UNAVAILABLE' | 'MODEL_UNAVAILABLE';
+export interface ManagedCaptureReading {
+  readonly threadId: string;
+  readonly brandId: string | null;
+  readonly evidenceKey: string;
+  readonly fingerprint: string;
+  readonly evidenceAt: string | null;
+  readonly checkedAt: string;
+  readonly generatedAt: string | null;
+  readonly messageCount: number;
+  readonly incomplete: boolean;
+  readonly state: CaptureReadingState;
+  readonly update?: CreatorBrandUpdate;
+}
