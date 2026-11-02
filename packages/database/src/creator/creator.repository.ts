@@ -33,6 +33,7 @@ import { membershipAuthority } from '../repositories/membership.repository';
 import { PartyRepository } from '../repositories/cognitive/party.repository';
 import { AuditRepository } from '../repositories/audit.repository';
 import { IamRepository } from '../repositories/iam.repository';
+import { managedMailboxTablesPresent, endManagedCreatorMailboxInTx } from './managed-mailbox.repository';
 
 export type CreatorDb = PrismaClient | Prisma.TransactionClient;
 
@@ -185,9 +186,10 @@ export class CreatorRepository {
     const engagement = pct(input.engagementPct), six = pct(input.view6sPct);
     if (hasTikTokOne && (!/^https:\/\/ads\.tiktok\.com\/creative\/creator\/profile\/\d+$/.test(input.tiktokOneUrl) || !handles.handles.TIKTOK || !median || engagement === null || six === null)) return 'INVALID';
     if (!hasTikTokOne && [input.medianViews, input.engagementPct, input.view6sPct].some(v => !!v.trim())) return 'INVALID';
+    const hasManagedMailboxes = await managedMailboxTablesPresent(this.prisma, organizationId);
     return this.prisma.$transaction(async tx => {
       const authority = await membershipAuthority(tx, organizationId, userId);
-      if (!authority.granted || !['OWNER', 'ADMIN'].includes(authority.systemRole)) return 'NOT_ALLOWED';
+      if (!authority.granted || !['OWNER', 'ADMIN', 'MANAGER'].includes(authority.systemRole)) return 'NOT_ALLOWED';
       if (!(await new IamRepository(tx as PrismaClient).can({ organizationId, userId, resource: 'identityResolution', action: 'view' }))) return 'NOT_ALLOWED';
       const profile = await tx.creatorProfile.findFirst({ where: { organizationId, id: profileId } });
       if (!profile) return 'NOT_FOUND';
@@ -198,6 +200,7 @@ export class CreatorRepository {
       const oldObservations = previous.socialObservations && typeof previous.socialObservations === 'object' && !Array.isArray(previous.socialObservations) ? previous.socialObservations as Record<string, unknown> : {};
       const preferences = { ...previous, socialHandles: handles.handles, managedMailboxEmail: input.mailboxEmail.toLowerCase(), socialObservations: { ...oldObservations, ...socialObservations }, ...(hasTikTokOne ? { tiktokOneObservation: { sourceUrl: input.tiktokOneUrl, observedAt: now.toISOString(), basis: '30 most recent videos', medianViews: median!.count, medianViewsDisplayed: median!.displayed, engagementPct: engagement!, view6sPct: six! } } : {}) };
       await tx.creatorProfile.update({ where: { id: profile.id }, data: { preferences: preferences as Prisma.InputJsonValue } });
+      if (hasManagedMailboxes && previous.managedMailboxEmail !== preferences.managedMailboxEmail) await endManagedCreatorMailboxInTx(tx, organizationId, profile.id, now);
       await new AuditRepository(this.prisma).record({ organizationId, userId, action: 'creator.accounts.preloaded', entityType: 'creator_profile', entityId: profile.id, metadata: { platforms: Object.keys(handles.handles), observedPlatforms: observations.map(o => o.platform), tiktokOne: hasTikTokOne } }, tx);
       return 'SAVED';
     }, { isolationLevel: 'Serializable' });
@@ -248,9 +251,21 @@ export class CreatorRepository {
     id: string,
     patch: { displayName?: string; handle?: string | null; bio?: string | null; categories?: string[]; preferences?: Prisma.InputJsonValue; socialAccounts?: Prisma.InputJsonValue; payoutState?: string },
   ): Promise<CreatorProfile | null> {
-    const existing = await this.prisma.creatorProfile.findFirst({ where: { organizationId, id }, select: { id: true } });
-    if (!existing) return null;
-    return this.prisma.creatorProfile.update({ where: { id: existing.id }, data: patch });
+    return this.prisma.$transaction(async tx => {
+      const existing = await tx.creatorProfile.findFirst({ where: { organizationId, id }, select: { id: true, preferences: true } });
+      if (!existing) return null;
+      const data = { ...patch };
+      if (patch.preferences !== undefined) {
+        const previous = existing.preferences && typeof existing.preferences === 'object' && !Array.isArray(existing.preferences) ? existing.preferences as Record<string, Prisma.InputJsonValue> : {};
+        const safe: Record<string, Prisma.InputJsonValue | null | undefined> = patch.preferences && typeof patch.preferences === 'object' && !Array.isArray(patch.preferences) ? { ...patch.preferences as Prisma.InputJsonObject } : {};
+        // The manager's assignment survives a creator's stale profile save, and cannot be
+        // changed or fabricated through the creator-editable preferences path.
+        delete safe.managedMailboxEmail;
+        if (previous.managedMailboxEmail !== undefined) safe.managedMailboxEmail = previous.managedMailboxEmail;
+        data.preferences = safe;
+      }
+      return tx.creatorProfile.update({ where: { id: existing.id }, data });
+    }, { isolationLevel: 'Serializable' });
   }
 
   /** Bind (or rebind) the login that acts as this creator. EMG-only act. */

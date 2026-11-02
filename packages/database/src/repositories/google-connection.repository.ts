@@ -37,6 +37,7 @@ import type { SealedGoogleToken } from '../services/google/google-token-sealer';
 import { AuditRepository } from './audit.repository';
 import { membershipAuthority } from './membership.repository';
 import { isSerializationFailure } from './transaction-conflict';
+import { absentUntilMigrated } from '../creator/until-migrated';
 
 type Tx = Prisma.TransactionClient;
 
@@ -618,6 +619,11 @@ export class GoogleConnectionRepository {
       where: { activeGoogleSubject: googleSubject, NOT: { id: exceptConnectionId } },
       select: { id: true },
     });
-    return other !== null;
+    if (other) return true;
+    // The same Google app grant can also back a manager-authorized shared source. Do not
+    // revoke it at Google when disconnecting a private connection; remove only Loop's copy.
+    // Like the existing check above, this deliberately returns ONLY a global yes/no.
+    if (!('managedGoogleMailbox' in this.prisma)) return false;
+    return !!(await absentUntilMigrated(this.prisma.managedGoogleMailbox.findFirst({ where: { activeGoogleSubject: googleSubject }, select: { id: true } })));
   }
 }

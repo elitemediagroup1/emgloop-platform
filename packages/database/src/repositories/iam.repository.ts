@@ -29,6 +29,7 @@ import type { PrismaClient, Prisma, User, Invitation } from '@prisma/client';
 import { SystemRole } from '@prisma/client';
 import { hasRemovalMarker, membershipAuthority, syncMembershipFromUser } from './membership.repository';
 import { revokeGoogleConnectionInTx, type GoogleActor, type GoogleRevocation } from './google-connection.repository';
+import { managedMailboxTablesPresent, endManagedMailboxesInTx } from '../creator/managed-mailbox.repository';
 import { disconnectSourceConnectionsInTx } from './source-connection.repository';
 import { revokeContentAuthorizationsInTx } from './source-content-authorization.repository';
 import { absentUntilMigrated } from '../creator/until-migrated';
@@ -109,6 +110,8 @@ export type Resource =
   // person's OWN Google connection -- never anybody else's data. Grants: see
   // GOOGLE_WORKSPACE_GRANTS, which, like identityResolution, has no READ_ONLY fallback.
   | 'googleWorkspace'
+  // Explicit manager-authorized shared sources; never a grant over private GoogleConnection.
+  | 'managedMailboxes'
   // Daily Loop employee intelligence (DL-1; daily-loop-employee-intelligence.md §20.1). A
   // person's OWN work state, derived from their OWN Google connection -- and nobody else's,
   // for any role. Grants: see EMPLOYEE_INTELLIGENCE_GRANTS.
@@ -377,6 +380,7 @@ export function roleLabel(role: string | null | undefined): string {
 
 /** Pure matrix check (no DB). Baseline before explicit rules. */
 export function matrixAllows(role: string, resource: Resource, action: Action): boolean {
+  if (resource === 'managedMailboxes') return ['OWNER', 'ADMIN', 'MANAGER'].includes(role) && ['view', 'update'].includes(action);
   if (resource === 'identityResolution') {
     return (IDENTITY_RESOLUTION_GRANTS[role] ?? []).includes(action);
   }
@@ -754,12 +758,14 @@ export class IamRepository {
     const user = await this.prisma.user.findFirst({ where: { id: userId, organizationId } });
     if (!user) return;
     const m = meta(user);
+    const endManaged = !['OWNER', 'ADMIN', 'MANAGER'].includes(systemRole) && await managedMailboxTablesPresent(this.prisma, organizationId);
     await this.prisma.$transaction(async (tx) => {
       const updated = await tx.user.update({
         where: { id: userId },
         data: { metadata: { ...m, systemRole } },
       });
       await syncMembershipFromUser(tx, updated);
+      if (endManaged) await endManagedMailboxesInTx(tx, organizationId, userId, new Date());
     });
   }
 
@@ -796,6 +802,7 @@ export class IamRepository {
   async disableMember(organizationId: string, userId: string, actor: GoogleActor = { userId: null }): Promise<MemberEndResult> {
     let googleRevocation: GoogleRevocation | null = null;
     const endSources = await sourceConnectionTablesPresent(this.prisma, organizationId, userId);
+    const endManaged = await managedMailboxTablesPresent(this.prisma, organizationId);
     const digests = await intelligenceDigestsPresent(this.prisma, { organizationId, userId });
     const fabric = await intelligenceFabricPresent(this.prisma);
     const changed = await this.setStatus(organizationId, userId, 'DISABLED', async (tx) => {
@@ -806,6 +813,7 @@ export class IamRepository {
         now,
       });
       if (endSources) await endSourceConnectionsInTx(this.prisma, tx, organizationId, userId, 'MEMBER_DISABLED', actor, now, digests);
+      if (endManaged) await endManagedMailboxesInTx(tx, organizationId, userId, now);
       await eraseWorkStateInTx(this.prisma, tx, organizationId, userId, 'MEMBER_DISABLED', actor, digests, fabric);
     });
     return { changed, googleRevocation: changed ? googleRevocation : null };
@@ -854,6 +862,7 @@ export class IamRepository {
     if (!user) return { changed: false, googleRevocation: null };
     const m = meta(user);
     const endSources = await sourceConnectionTablesPresent(this.prisma, organizationId, userId);
+    const endManaged = await managedMailboxTablesPresent(this.prisma, organizationId);
     const digests = await intelligenceDigestsPresent(this.prisma, { organizationId, userId });
     const fabric = await intelligenceFabricPresent(this.prisma);
     const googleRevocation = await this.prisma.$transaction(async (tx) => {
@@ -872,6 +881,7 @@ export class IamRepository {
         now,
       });
       if (endSources) await endSourceConnectionsInTx(this.prisma, tx, organizationId, userId, 'MEMBER_REMOVED', actor, now, digests);
+      if (endManaged) await endManagedMailboxesInTx(tx, organizationId, userId, now);
       await eraseWorkStateInTx(this.prisma, tx, organizationId, userId, 'MEMBER_REMOVED', actor, digests, fabric);
       return revocation;
     });

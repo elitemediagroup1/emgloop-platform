@@ -5,6 +5,7 @@ import { creatorDomain, EMG_HREFS } from '../../../../creator/creator-runtime';
 import { LoopPage, PageHead, StateBlock } from '../../_loop-os/record';
 import { RefusedBlock, RosterView, TRAIL } from './_shared';
 import { OrganizationReadingSection } from '../../../../intelligence/domain-reading-section';
+import { ManagedMailboxPanel } from '../../../../creator/managed-mailbox-panel';
 
 // EMG Creator Operations — the roster (design pass §10: Operations → Creators).
 //
@@ -15,7 +16,7 @@ import { OrganizationReadingSection } from '../../../../intelligence/domain-read
 
 export const dynamic = 'force-dynamic';
 
-export default async function CreatorRosterPage({ searchParams }: { searchParams?: { refused?: string } }) {
+export default async function CreatorRosterPage({ searchParams }: { searchParams?: { refused?: string; mailbox?: string } }) {
   const session = await requireWorkspace('ADMIN');
   // Null only while the Creator Hub migration has not reached this database.
   const rows = await absentUntilMigrated(creatorDomain().records.roster(session.organizationId));
@@ -33,6 +34,7 @@ export default async function CreatorRosterPage({ searchParams }: { searchParams
         }
       />
       <RefusedBlock refused={searchParams?.refused} />
+      <ManagedMailboxPanel principal={{ organizationId: session.organizationId, userId: session.userId }} outcome={searchParams?.mailbox} />
       <OrganizationReadingSection domain="CREATORS" title="Creator Hub reading" />
       {rows === null ? (
         <StateBlock kind="unavailable" title="The Creator Hub is not available on this deployment yet." body="Its database migration has not been applied here. Nothing is wrong with the existing records." />

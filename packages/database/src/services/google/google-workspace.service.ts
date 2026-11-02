@@ -58,7 +58,7 @@ export interface GoogleSessionPrincipal extends GooglePrincipal {
 
 /** Google, as the service needs it. The web tier binds client id, secret and redirect URI. */
 export interface GoogleOAuthPort {
-  authorizationUrl(request: { readonly scopes: readonly string[]; readonly state: string; readonly nonce: string; readonly loginHint: string | null }): string;
+  authorizationUrl(request: { readonly scopes: readonly string[]; readonly state: string; readonly nonce: string; readonly loginHint: string | null; readonly includeGrantedScopes?: boolean }): string;
   exchangeCode(code: string): Promise<GoogleTokenResult>;
   refresh(refreshToken: string): Promise<GoogleTokenResult>;
   revoke(token: string): Promise<GoogleRevokeResult>;
