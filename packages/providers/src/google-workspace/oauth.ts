@@ -45,6 +45,8 @@ export interface GoogleAuthorizationRequest {
   readonly nonce: string;
   /** The `sub` of the account already connected, so Google offers that account first. */
   readonly loginHint?: string | null;
+  /** Managed read-only mailboxes must not accumulate a person's Calendar/Drive/send grants. */
+  readonly includeGrantedScopes?: boolean;
 }
 
 /**
@@ -64,7 +66,7 @@ export function googleAuthorizationUrl(request: GoogleAuthorizationRequest): str
     redirect_uri: request.redirectUri,
     scope: request.scopes.join(' '),
     access_type: 'offline',
-    include_granted_scopes: 'true',
+    include_granted_scopes: request.includeGrantedScopes === false ? 'false' : 'true',
     prompt: 'consent',
     state: request.state,
     nonce: request.nonce,

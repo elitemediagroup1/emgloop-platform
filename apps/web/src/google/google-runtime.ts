@@ -13,6 +13,7 @@ import 'server-only';
 import {
   GoogleTokenSealer,
   GoogleWorkspaceService,
+  ManagedMailboxService,
   createGoogleOAuthPort,
   googleFetch,
   prisma,
@@ -47,6 +48,15 @@ export function googleWorkspace(): GoogleWorkspaceService {
     authorize: (principal, action) =>
       repositories.iam.can({ organizationId: principal.organizationId, userId: principal.userId, resource: 'googleWorkspace', action }),
   });
+}
+
+/** Shared staff and individually assigned creator mailboxes, authorized from the manager seat. */
+export function managedMailboxes(): { service: ManagedMailboxService; configured: boolean } {
+  const env = readGoogleEnvironment();
+  return { configured: env.state === 'CONFIGURED', service: new ManagedMailboxService(prisma, {
+    configured: env.state === 'CONFIGURED' ? { oauth: createGoogleOAuthPort(env, { signingKeys: googleSigningKeys() }), sealer: new GoogleTokenSealer(env.tokenKey) } : null,
+    fetchImpl: googleFetch,
+  }) };
 }
 
 /**

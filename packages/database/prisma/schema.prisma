@@ -296,6 +296,8 @@ model Organization {
   aiControlCurrent            AiControlCurrent[]
   /// Google Workspace connection (Private V1). One per member; see GoogleConnection.
   googleConnections           GoogleConnection[]
+  managedGoogleMailboxes      ManagedGoogleMailbox[]
+  managedGoogleOAuthStates    ManagedGoogleOAuthState[]
   /// TikTok Login Kit connection (Creator Hub). One per member; see TikTokConnection.
   tiktokConnections           TikTokConnection[]
   /// Background conversation sources (Teams, Telegram). One per member per provider; see
@@ -562,6 +564,8 @@ model OrganizationMembership {
   /// A Google connection belongs to a membership: the person, in THIS organization.
   googleConnection            GoogleConnection[]           @relation("GoogleConnectionMember")
   googleOAuthStates           GoogleOAuthState[]           @relation("GoogleOAuthStateMember")
+  managedGoogleMailboxes      ManagedGoogleMailbox[]       @relation("ManagedMailboxAuthorizer")
+  managedGoogleOAuthStates    ManagedGoogleOAuthState[]    @relation("ManagedMailboxOAuthMember")
   /// A TikTok connection belongs to a membership the same way: the creator, in THIS organization.
   tiktokConnection            TikTokConnection[]           @relation("TikTokConnectionMember")
   tiktokOAuthStates           TikTokOAuthState[]           @relation("TikTokOAuthStateMember")
@@ -1388,9 +1392,12 @@ model UserSession {
   user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   /// Google connect attempts started in this session; the callback must arrive in the same one.
   googleOAuthStates GoogleOAuthState[]
+  /// Manager-side shared mailbox attempts; separate from the person's private Google state.
+  managedGoogleOAuthStates ManagedGoogleOAuthState[]
   /// TikTok connect attempts, bound to the session the same way.
   tiktokOAuthStates TikTokOAuthState[]
 
+  @@unique([organizationId, userId, id])
   @@index([userId])
   @@index([organizationId])
   @@map("user_sessions")
@@ -5934,11 +5941,67 @@ model GoogleConnection {
   @@map("google_connections")
 }
 
-/// One attempt to connect Google: the OAuth `state`, single-use and short-lived.
-///
-/// BOUND TO WHO STARTED IT. Organization, user AND the browser session: the callback is
-/// honoured only in the same session, within ten minutes, once. Only hashes of the state
-/// and nonce are stored; the values travel through Google and back and nowhere else.
+/// Organization-shared staff mailboxes connect once for the roster; creator mailboxes bind to
+/// one profile. These are manager-authorized sources, never replacements for private GoogleConnection.
+model ManagedGoogleMailbox {
+  id                    String @id @default(cuid())
+  organizationId        String
+  creatorProfileId      String?
+  authorizedByUserId    String
+  /// STAFF or CREATOR; constrained together with creatorProfileId in the migration.
+  kind                  String
+  expectedEmail         String
+  googleSubject         String?
+  activeGoogleSubject   String?
+  status                String @default("PENDING")
+  grantedScopes         String[] @default([])
+  refreshTokenSealed     Bytes?
+  sealVersion           String?
+  keyRef                String?
+  /// Compare-and-set generation: disconnect/reconnect invalidates in-flight OAuth/reads.
+  revision              String @default(cuid())
+  connectedAt           DateTime?
+  disconnectedAt        DateTime?
+  lastFailureClass      String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  creator CreatorProfile? @relation(fields: [organizationId, creatorProfileId], references: [organizationId, id], onDelete: Cascade)
+  authorizer OrganizationMembership @relation("ManagedMailboxAuthorizer", fields: [authorizedByUserId, organizationId], references: [userId, organizationId], onDelete: Cascade)
+  attempts ManagedGoogleOAuthState[]
+
+  @@unique([organizationId, id])
+  @@unique([organizationId, expectedEmail])
+  @@unique([organizationId, creatorProfileId])
+  @@unique([organizationId, activeGoogleSubject])
+  @@map("managed_google_mailboxes")
+}
+
+model ManagedGoogleOAuthState {
+  id             String @id @default(cuid())
+  organizationId String
+  mailboxId      String
+  userId         String
+  sessionId      String
+  stateHash      String @unique
+  nonceHash      String
+  expectedEmail  String
+  revision       String
+  expiresAt      DateTime
+  consumedAt     DateTime?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  mailbox ManagedGoogleMailbox @relation(fields: [organizationId, mailboxId], references: [organizationId, id], onDelete: Cascade)
+  membership OrganizationMembership @relation("ManagedMailboxOAuthMember", fields: [userId, organizationId], references: [userId, organizationId], onDelete: Cascade)
+  session UserSession @relation(fields: [organizationId, userId, sessionId], references: [organizationId, userId, id], onDelete: Cascade)
+
+  @@index([organizationId, userId, expiresAt])
+  @@map("managed_google_oauth_states")
+}
+
+/// A private Google connect attempt: hashed state/nonce, one use, ten minutes, same signed session.
 model GoogleOAuthState {
   id             String    @id @default(cuid())
   organizationId String
@@ -7094,6 +7157,7 @@ model CreatorProfile {
   organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   contents     CreatorContent[]
   brandMailShares CreatorBrandMailShare[]
+  managedGoogleMailboxes ManagedGoogleMailbox[]
 
   @@unique([organizationId, id])
   @@unique([organizationId, partyId])

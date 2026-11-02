@@ -320,6 +320,8 @@ const COLUMN_DEFAULTS: Record<string, Row> = {
   // The creator domain: every @default and every nullable column a row is born with, so a
   // repository reading one back sees what Postgres returns (null, never undefined).
   creatorBrandMailShare: { revokedAt: null, summary: null, sourceFingerprint: null, evidenceAt: null, generatedAt: null, checkedAt: null, leaseToken: null, leaseUntil: null, lastFailureClass: null, invocationId: null, providerId: null },
+  managedGoogleMailbox: { creatorProfileId: null, googleSubject: null, activeGoogleSubject: null, status: 'PENDING', grantedScopes: [], refreshTokenSealed: null, sealVersion: null, keyRef: null, connectedAt: null, disconnectedAt: null, lastFailureClass: null },
+  managedGoogleOAuthState: { consumedAt: null },
   creatorProfile: {
     userId: null, handle: null, bio: null, categories: [], socialAccounts: [], payoutState: 'NOT_SET_UP', rateInfo: {}, documents: [],
     preferences: {}, defaultEditorUserId: null, createdByUserId: null,
@@ -442,6 +444,8 @@ function rangeBound(value: any, fallback: number): number {
 
 // A delegate may carry more than one unique. Prisma enforces each independently.
 const EXTRA_UNIQUE_KEYS: Record<string, string[][]> = {
+  managedGoogleMailbox: [['organizationId', 'expectedEmail'], ['organizationId', 'creatorProfileId'], ['organizationId', 'activeGoogleSubject']],
+  managedGoogleOAuthState: [['stateHash']],
   // One live link per Google account per organization. NULL once revoked, and NULLs
   // never collide -- the same device as the CRM natural keys below.
   googleConnection: [['organizationId', 'activeGoogleSubject']],

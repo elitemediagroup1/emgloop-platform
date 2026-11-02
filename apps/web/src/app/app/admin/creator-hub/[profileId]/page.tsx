@@ -29,6 +29,7 @@ import {
   transitionCampaignAction,
 } from '../../../../../creator/emg-actions';
 import { ObservedTikTokReport } from '../../../../../creator/observed-tiktok-report';
+import { ManagedMailboxPanel } from '../../../../../creator/managed-mailbox-panel';
 import { viewerTime } from '../../../../../time/viewer-time';
 import { money, num } from '../../../_loop-os/format';
 import { Facts, LoopPage, PageHead, Panel, RecordLayout, StateBlock, SummaryStrip } from '../../../_loop-os/record';
@@ -276,7 +277,7 @@ function LibraryTable({ items, profileId }: { items: readonly LibraryItem[]; pro
   );
 }
 
-export default async function CreatorOverviewPage({ params, searchParams }: { params: { profileId: string }; searchParams?: { refused?: string } }) {
+export default async function CreatorOverviewPage({ params, searchParams }: { params: { profileId: string }; searchParams?: { refused?: string; mailbox?: string } }) {
   const session = await requireWorkspace('ADMIN');
   const organizationId = session.organizationId;
   const domain = creatorDomain();
@@ -336,6 +337,7 @@ export default async function CreatorOverviewPage({ params, searchParams }: { pa
         railLabel="Compensation, analytics and profile"
         main={
           <>
+            <ManagedMailboxPanel principal={{ organizationId, userId: session.userId }} profileId={profile!.id} outcome={searchParams?.mailbox} />
             <Panel title="Productions" lead="What is in motion on this creator's content, and who it waits on.">
               {requests.needsEmg.length + requests.awaitingCreator.length === 0 ? (
                 <p className="loop-note">Nothing is in production for {profile!.displayName} right now.</p>

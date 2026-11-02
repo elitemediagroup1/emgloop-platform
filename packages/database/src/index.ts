@@ -467,6 +467,9 @@ export { loopProducers, parseActingUsers, principalResolver } from './services/i
 export type { LoopProducerPorts } from './services/intelligence-fabric/loop-producers';
 export { runIntelligencePass } from './services/intelligence-fabric/intelligence-pass';
 export { gmailMailReadThrough, trimQuotedHistory } from './services/intelligence-fabric/domains/mail-read-through';
+export { ManagedMailboxService } from './creator/managed-mailbox.service';
+export { MANAGED_MAILBOX_STATE_PREFIX } from './creator/managed-mailbox.repository';
+export type { ManagedMailboxOutcome, ManagedMailboxSummary } from './creator/managed-mailbox.repository';
 export { MailContentTriageService } from './services/ai-runtime/mail-content-triage.service';
 // Loop Intelligence Phase F: connected situations, held as Cases; private ones are one person's alone.
 export { SituationRepository, SITUATION_RECORD_SCHEMA, situationRecurrenceKey } from './repositories/intelligence/situation.repository';
