@@ -30,3 +30,8 @@ test('publication rejects private financial details, contact values, invented nu
   assert.ok(rejections({ citations: ['mail_message:foreign:1'] }).includes('CITATION_NOT_SUPPLIED'));
   assert.ok(rejections({ summary: 'x'.repeat(601) }).includes('ANSWER_TOO_LONG'));
 });
+
+test('negotiating is an admitted stage distinct from a pitch or a confirmed agreement', () => {
+  assert.ok(parseCreatorBrandUpdate(update({ stage: 'NEGOTIATING' })));
+  assert.deepEqual(rejections({ stage: 'NEGOTIATING' }), []);
+});

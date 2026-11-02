@@ -67,3 +67,21 @@ Unset the Netlify decision reference and redeploy to stop publishing/displaying,
 GitHub refresh URL and redeploy the AWS worker to stop the trigger. A mailbox owner can withdraw an
 individual share immediately from their Mail conversation without a deployment. The existing MAIL
 content-consent revoke removes that owner's shares. Ordinary AI kill/budget controls still apply.
+
+## Creator summary tiles
+
+Brand updates now renders three collapsed summaries: Outreach, Conversations and Active deals.
+Each counts canonical brands once, using the newest source activity across its shared threads.
+Outreach means no substantive reply; automated messages are not replies. Conversations require
+actual two-way evidence. Active deals require specific negotiation (`NEGOTIATING`) or explicit
+agreement (`CONFIRMED`); interest alone is insufficient. Template 2 describes these distinctions.
+The tile totals are deterministic counts of accepted current summaries, not another AI reading.
+Expand a tile to see brands, then a brand to see its existing model summaries and next steps.
+Stale, missing, declined and paused readings are separated from current stage totals. This remains
+a bounded view of up to 100 explicitly shared threads, not a count of every Gmail pitch ever sent.
+No raw messages or mailbox identifiers are added. Existing authorization and withdrawal checks
+remain in the repository. A new template does not backfill unchanged historical summaries.
+
+This change does not discover/link creator threads automatically, add independent managed-mailbox
+OAuth, or connect an unconnected mailbox. Each mailbox owner still authorizes and links appropriate
+threads. Those ingestion requirements must be commissioned before counts represent actual outreach.
