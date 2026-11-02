@@ -7,7 +7,7 @@ import { PartyService } from '../src/services/party.service';
 import { CreatorRepository } from '../src/creator/creator.repository';
 import { ManagedCreatorMailRepository, captureReadings } from '../src/creator/managed-creator-mail.repository';
 import { ManagedCreatorMailService } from '../src/creator/managed-creator-mail.service';
-import { creatorMailAliases, creatorMailQuery, exactMailPhrase } from '../src/creator/creator-mail-matching';
+import { creatorMailAliases, creatorMailQuery, exactMailPhrase, mailEvidenceHash } from '../src/creator/creator-mail-matching';
 import type { AiRunResult } from '../src/services/ai-runtime/gateway';
 import { makeCognitivePrisma } from './helpers/cognitive-prisma-fake';
 const T0 = new Date('2026-11-02T18:00:00Z');
@@ -25,24 +25,88 @@ async function world() {
   const staff = await source('matt@elitemediagroup.io'), assigned = await source('trevon@emgtalentgroup.com', profile.id), charlie = await source('charlie@elitemediagroup.io'), fran = await source('francesca@elitemediagroup.io', null, 'PENDING');
   let now = T0, modelCalls = 0, searches = 0, reads = 0, mode = 'normal';
   let modelHook = async () => {};
+  let threadHook = (value: GmailThreadView) => value;
   const thread = (): GmailThreadView => ({ threadId: 'PRIVATE_THREAD', messages: [
     { fact: { provider: 'GOOGLE', messageId: 'PRIVATE_MESSAGE_1', threadId: 'PRIVATE_THREAD', internalDate: new Date(T0.getTime() - 2000), labels: ['SENT'], from: { address: staff.expectedEmail, name: 'Matt' }, to: [{ address: 'rep@brand.example', name: 'Rep' }], cc: [{ address: assigned.expectedEmail, name: 'Trevon' }], subject: 'PRIVATE_SUBJECT Brand Bravo and Trevon Hill', headerMessageId: '<physical-pitch@example.test>', inReplyTo: null, references: [], fromSelf: true }, body: { messageId: 'PRIVATE_MESSAGE_1', text: `PRIVATE_BODY Trevon Hill would like to discuss a paid Brand Bravo partnership.${mode === 'mixed' ? ' Other Creator is included too.' : ''}`, html: null, attachments: [], truncated: false } },
     { fact: { provider: 'GOOGLE', messageId: 'PRIVATE_MESSAGE_2', threadId: 'PRIVATE_THREAD', internalDate: new Date(T0.getTime() - 1000), labels: ['INBOX'], from: { address: 'rep@brand.example', name: 'Rep' }, to: [{ address: staff.expectedEmail, name: 'Matt' }], cc: [{ address: assigned.expectedEmail, name: 'Trevon' }], subject: 'PRIVATE_SUBJECT Brand Bravo and Trevon Hill', headerMessageId: '<physical-reply@example.test>', inReplyTo: '<physical-pitch@example.test>', references: [], fromSelf: false, ...(mode === 'automated' ? { automationClass: 'AUTO_SUBMITTED' as const } : {}) }, body: { messageId: 'PRIVATE_MESSAGE_2', text: mode === 'unreadable' ? null : 'PRIVATE_REPLY We would like the creator portfolio to discuss the partnership.', html: null, attachments: [], truncated: false } },
   ] });
   const service = new ManagedCreatorMailService({ repository: repo, now: () => now, mailboxes: {
     searchThreads: async (principal, mailboxId, query) => { searches++; assert.deepEqual(principal, owner); assert.ok([staff.id, assigned.id].includes(mailboxId)); assert.match(query, /-in:spam/); if (mailboxId === staff.id) assert.match(query, /"trevon hill"/); return { ok: true, threadIds: [mailboxId === staff.id ? 'PRIVATE_STAFF_THREAD' : 'PRIVATE_CREATOR_THREAD'], nextPageToken: null }; },
-    readThread: async principal => { reads++; assert.deepEqual(principal, owner); return { ok: true, thread: thread() }; },
+    readThread: async principal => { reads++; assert.deepEqual(principal, owner); return { ok: true, thread: threadHook(thread()) }; },
   }, runtime: { run: async (principal, request) => {
-    modelCalls++; assert.deepEqual(principal, owner); assert.equal(request.task.taskId, 'creator.brand.update'); assert.ok(request.context.items.every(i => i.readUnder.resource === 'managedMailboxes')); assert.match(request.instructions, /automatic exact-text match/);
+    modelCalls++; assert.deepEqual(principal, owner); assert.equal(request.task.taskId, 'creator.brand.update'); assert.ok(request.context.items.every(i => i.readUnder.resource === 'managedMailboxes')); assert.match(request.instructions, /provisional automatic candidate/);
     await modelHook();
     if (mode === 'budget') return { outcome: 'REFUSED_BY_LOOP', refusals: ['BUDGET_EXHAUSTED'] } as AiRunResult;
+    if (mode === 'rejected') return { outcome: 'REJECTED_OUTPUT', rejections: ['UNSUPPORTED_NUMBER_IN_TEXT'] } as unknown as AiRunResult;
+    if (mode === 'withheld') return { outcome: 'ANSWERED', output: parseCreatorBrandUpdate({ schemaId: CREATOR_BRAND_UPDATE_SCHEMA_ID, publishable: false, stage: 'PAUSED', summary: '', nextStep: '', citations: [] }), provenance: {} } as unknown as AiRunResult;
     const citation = request.context.items.find(i => i.sourceRef.startsWith('mail_message:'))!.sourceRef;
     return { outcome: 'ANSWERED', output: parseCreatorBrandUpdate({ schemaId: CREATOR_BRAND_UPDATE_SCHEMA_ID, publishable: true, stage: mode === 'automated' ? 'OUTREACH' : 'DISCUSSING', summary: 'EMG and the brand are discussing a creator partnership.', nextStep: 'EMG is preparing the creator portfolio.', citations: [citation] }), provenance: {} } as unknown as AiRunResult;
   } } });
   async function start(ids = [staff.id, assigned.id]) { assert.equal(await repo.configure(owner, profile.id, ids, now), 'STARTED'); }
   async function drain() { for (let i = 0; i < 12; i++) if (!Object.keys(await service.pass()).length) return; throw Error('did not drain bounded initial pass'); }
-  return { db, repo, service, iam, creators, owner, recipient, second, foreign, profile, other, brand, staff, assigned, charlie, fran, start, drain, thread, setMode: (v: string) => { mode = v; }, clock: (v: Date) => { now = v; }, modelHook: (v: () => Promise<void>) => { modelHook = v; }, counts: () => ({ modelCalls, searches, reads }) };
+  return { db, repo, service, iam, creators, owner, recipient, second, foreign, profile, other, brand, staff, assigned, charlie, fran, start, drain, thread, setMode: (v: string) => { mode = v; }, clock: (v: Date) => { now = v; }, threadHook: (v: typeof threadHook) => { threadHook = v; }, modelHook: (v: () => Promise<void>) => { modelHook = v; }, counts: () => ({ modelCalls, searches, reads }) };
 }
+
+test('an ordinary body word cannot become the canonical brand Going in a Trevon Cashion conversation', async () => {
+  const w = await world();
+  await w.db.cognitiveIdentity.update({ where: { id: w.brand }, data: { displayName: 'Going' } });
+  w.threadHook(t => ({ ...t, messages: t.messages.map(m => ({ ...m, fact: { ...m.fact, subject: 'Trevon Hill x Cashion Rods Partnership' }, body: { ...m.body, text: 'Trevon Hill: I am going to have to pass at this time.' } })) }));
+  await w.start(); await w.drain();
+  assert.equal(w.counts().modelCalls, 0);
+  assert.deepEqual(await w.repo.updates(w.recipient, w.profile.id, T0), []);
+});
+
+test('unaccepted candidate brands never appear in the creator view or manager preview', async () => {
+  const w = await world(); w.setMode('budget'); await w.start([w.staff.id]); await w.drain();
+  assert.equal(w.counts().modelCalls, 1);
+  for (const state of ['MODEL_UNAVAILABLE', 'WITHHELD', 'SOURCE_UNAVAILABLE']) {
+    const row = (await w.db.managedCreatorMailCapture.findMany())[0]!;
+    await w.db.managedCreatorMailCapture.update({ where: { id: row.id }, data: { readings: [{ ...captureReadings(row.readings)[0], state }] } });
+    assert.deepEqual(await w.repo.updates(w.recipient, w.profile.id, T0), [], state);
+    assert.deepEqual(await w.repo.updates(w.owner, w.profile.id, T0, true), [], state);
+  }
+});
+
+test('Hope Going subject plus a Trevon footer is not automatic staff attribution', async () => {
+  const w = await world();
+  await w.db.cognitiveIdentity.update({ where: { id: w.brand }, data: { displayName: 'Going' } });
+  w.threadHook(t => ({ ...t, messages: t.messages.map(m => ({ ...m, fact: { ...m.fact, subject: 'Hope Holcer x Going partnership' }, body: { ...m.body, text: 'Discussing Hope Holcer and Going.\n\nOur roster also includes Trevon Hill.' } })) }));
+  await w.start([w.staff.id]); await w.drain();
+  assert.equal(w.counts().modelCalls, 0);
+  assert.deepEqual(await w.repo.updates(w.recipient, w.profile.id, T0), []);
+});
+
+test('assigned-mailbox discovery needs no creator keyword; staff auto attribution requires the creator in the subject', async () => {
+  for (const assigned of [false, true]) {
+    const w = await world();
+    w.threadHook(t => ({ ...t, messages: t.messages.map(m => ({ ...m, fact: { ...m.fact, subject: 'Brand Bravo partnership' }, body: { ...m.body, text: 'We would like to discuss the partnership.' } })) }));
+    await w.start([assigned ? w.assigned.id : w.staff.id]); await w.drain();
+    assert.equal(w.counts().modelCalls, assigned ? 1 : 0);
+    const row = (await w.db.managedCreatorMailCapture.findMany())[0]!;
+    assert.equal(row.query.includes('"trevon hill"'), !assigned);
+    assert.equal((await w.repo.updates(w.recipient, w.profile.id, T0)).length, assigned ? 1 : 0);
+  }
+});
+
+test('withheld and rejected AI results expose no candidate; validation failure is distinct from a Gmail problem', async () => {
+  for (const mode of ['withheld', 'rejected']) {
+    const w = await world(); w.setMode(mode); await w.start([w.staff.id]); await w.drain();
+    assert.deepEqual(await w.repo.updates(w.recipient, w.profile.id, T0), []);
+    const row = (await w.db.managedCreatorMailCapture.findMany())[0]!;
+    assert.equal(row.lastFailureClass, mode === 'rejected' ? 'MODEL_OUTPUT_REJECTED' : null);
+  }
+});
+
+test('pre-fix capture scope cannot display cached accepted readings or read another message', async () => {
+  const w = await world(); await w.start(); await w.drain();
+  assert.equal((await w.repo.updates(w.recipient, w.profile.id, T0)).length, 1);
+  const reads = w.counts().reads;
+  const oldScopeHash = mailEvidenceHash(JSON.stringify({ version: 1, aliases: creatorMailAliases(w.profile) }));
+  await w.db.managedCreatorMailCapture.updateMany({ where: { organizationId: 'a' }, data: { scopeHash: oldScopeHash } });
+  assert.deepEqual(await w.repo.updates(w.recipient, w.profile.id, T0), []);
+  w.clock(new Date(T0.getTime() + 301_000)); await w.service.pass();
+  assert.equal(w.counts().reads, reads);
+});
 
 test('two selected mailboxes feed one creator, duplicate copied messages count once, and no source content escapes', async () => {
   const w = await world(); await w.start(); await w.drain();
@@ -108,7 +172,7 @@ test('a refused model leaves a visible pending source and backs off without repe
   const w = await world(); w.setMode('budget'); await w.start([w.staff.id]); await w.drain();
   assert.equal(w.counts().modelCalls, 1); assert.deepEqual(await w.service.pass(), {});
   const row = (await w.db.managedCreatorMailCapture.findMany())[0]!;
-  assert.equal(row.lastFailureClass, 'MODEL_UNAVAILABLE'); assert.equal(row.pendingThreadIds.length, 1); assert.ok(row.nextCheckAt > T0);
+  assert.equal(row.lastFailureClass, 'MODEL_POLICY_REFUSED'); assert.equal(row.pendingThreadIds.length, 1); assert.ok(row.nextCheckAt > T0);
   const projected = await w.repo.updates(w.recipient, w.profile.id, T0);
   assert.ok(projected.every(r => !r.current && !r.summary));
 });

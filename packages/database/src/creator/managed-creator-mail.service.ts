@@ -11,7 +11,14 @@ import { creatorMailAliases, exactMailPhrase, mailEvidenceHash, type ManagedCapt
 
 const INSTRUCTIONS = CREATOR_BRAND_MAIL_INSTRUCTIONS
   .replace('Interpret one explicitly owner-authorized brand email thread', 'Interpret one manager-authorized managed-mailbox brand conversation')
-  .replace('SCOPE is the owner’s explicit mapping; replies need not repeat those names. Withhold if the messages contradict that mapping.', 'SCOPE is an automatic exact-text match or an assigned creator mailbox. Confirm that this is a creator-brand partnership discussion. Withhold uncertain, internal or contradicted matches.');
+  .replace('SCOPE is the owner’s explicit mapping; replies need not repeat those names. Withhold if the messages contradict that mapping.', [
+    'SCOPE is a provisional automatic candidate, NOT an owner-confirmed creator-brand relationship.',
+    'Confirm from the messages that the named creator is the subject of the named brand partnership.',
+    'A search keyword, roster list, signature, quoted unrelated pitch or ordinary word matching a company name is not attribution evidence.',
+    'An assigned mailbox is a search source, not proof that every forwarded discussion belongs to its creator.',
+    'Other creators may not exist in Loop yet. Withhold their discussions even when they are absent from the supplied roster.',
+    'Withhold uncertain, internal, mixed-creator or contradicted matches. Cite the actual partnership evidence.',
+  ].join(' '));
 export class ManagedCreatorMailService {
   constructor(private readonly ports: {
     repository: ManagedCreatorMailRepository;
@@ -54,9 +61,10 @@ export class ManagedCreatorMailService {
     const threadId = row.pendingThreadIds[0]!;
     const checked = now();
     let reading: ManagedCaptureReading = { threadId, brandId: null, evidenceKey: mailEvidenceHash(`${row.id}:${threadId}`), fingerprint: '', evidenceAt: null, checkedAt: checked.toISOString(), generatedAt: null, messageCount: 0, incomplete: false, state: 'SOURCE_UNAVAILABLE' };
+    let modelFailure = 'MODEL_UNAVAILABLE';
     const finish = async (delayMs = 0, keepPending = false, unchanged = false): Promise<Record<string, number>> => {
       const end = !keepPending && row.pendingThreadIds.length === 1 && row.searchComplete;
-      const stored = await repo.finish(row, now(), { reading, pending: keepPending ? row.pendingThreadIds : row.pendingThreadIds.slice(1), delayMs: delayMs || (end ? 300_000 : 0), failure: keepPending ? 'MODEL_UNAVAILABLE' : null });
+      const stored = await repo.finish(row, now(), { reading, pending: keepPending ? row.pendingThreadIds : row.pendingThreadIds.slice(1), delayMs: delayMs || (end ? 300_000 : 0), failure: keepPending ? modelFailure : null });
       if (!stored) return { WITHDRAWN: 1 };
       if (keepPending) return { CAPTURE_WAITING: 1, NOT_PUBLISHED: 1 };
       return { CAPTURE_CHECKED: 1, [unchanged ? 'UNCHANGED' : reading.state === 'CURRENT' ? 'PUBLISHED' : reading.state === 'SOURCE_UNAVAILABLE' ? 'SOURCE_UNAVAILABLE' : 'WITHHELD']: 1 };
@@ -85,12 +93,17 @@ export class ManagedCreatorMailService {
     const text = `${subject}\n${messages.map(m => m.text).join('\n')}`;
     const matches = scope.roster.filter(p => creatorMailAliases(p).some(alias => exactMailPhrase(text, alias)));
     if (matches.some(p => p.id !== row.creatorProfileId)) { reading = { ...reading, state: 'MIXED_CREATORS' }; return finish(); }
-    if (scope.source.kind === 'STAFF' && !matches.some(p => p.id === row.creatorProfileId)) { reading = { ...reading, state: 'UNMATCHED_CREATOR' }; return finish(); }
+    // Staff keywords discover candidates across a shared inbox. Auto attribution additionally
+    // requires the intended creator in the subject; a footer/body hit cannot bind another creator's thread.
+    // Generic subjects remain eligible for explicit manager-authorized thread sharing instead.
+    if (scope.source.kind === 'STAFF' && !creatorMailAliases(scope.profile).some(alias => exactMailPhrase(subject, alias))) { reading = { ...reading, state: 'UNMATCHED_CREATOR' }; return finish(); }
     const subjectBrands = scope.brands.filter(b => b.displayName && b.displayName.trim().length >= 4 && exactMailPhrase(subject, b.displayName));
-    const brands = subjectBrands.length ? subjectBrands : scope.brands.filter(b => b.displayName && b.displayName.trim().length >= 4 && exactMailPhrase(text, b.displayName));
+    // Body words (e.g. "going to have to pass") are not canonical company references.
+    // Conservative auto capture uses subject candidates only; the model must still confirm relevance.
+    const brands = subjectBrands;
     if (brands.length !== 1) { reading = { ...reading, state: 'UNMAPPED_BRAND' }; return finish(); }
     const brand = brands[0]!;
-    reading = { ...reading, brandId: brand.id, fingerprint: mailEvidenceHash(JSON.stringify({ template: 3, creator: row.creatorProfileId, brand: brand.id, messages, incomplete: reading.incomplete })) };
+    reading = { ...reading, brandId: brand.id, fingerprint: mailEvidenceHash(JSON.stringify({ template: 4, creator: row.creatorProfileId, brand: brand.id, messages, incomplete: reading.incomplete })) };
     const previous = captureReadings(row.readings).find(r => r.threadId === threadId && r.fingerprint === reading.fingerprint && ['CURRENT', 'WITHHELD'].includes(r.state));
     if (previous) { reading = { ...previous, evidenceAt: reading.evidenceAt, evidenceKey: reading.evidenceKey, checkedAt: now().toISOString() }; return finish(0, false, true); }
     const contextId = mailEvidenceHash(`${row.id}:${threadId}`);
@@ -98,8 +111,13 @@ export class ManagedCreatorMailService {
     const built = buildMailTriageContext({ ...principal, organizationId: row.organizationId, viewerUserId: row.ownerUserId, threadId: contextId, subject, messages, truncated: reading.incomplete, lane: null });
     const authority = { resource: 'managedMailboxes', action: 'view' as const };
     const context = { ...built.context, taskId: AI_TASK_CREATOR_BRAND_UPDATE.taskId, items: [...built.context.items.map(item => ({ ...item, readUnder: authority })), { blockId: `${row.organizationId}::creator_scope:${row.id}`, kind: 'TEXT' as const, trust: 'UNTRUSTED_INPUT' as const, sourceRef: `creator_scope:${row.id}`, content: `SCOPE: creator=${JSON.stringify(scope.profile.displayName)}; brand or agency=${JSON.stringify(brand.displayName)}; source=${scope.source.kind === 'CREATOR' ? 'assigned creator mailbox' : 'shared staff mailbox'}; evidence ${reading.incomplete ? 'is incomplete' : 'is included'}.`, sensitivity: 'CONTACT_IDENTIFIER' as const, readUnder: authority }] };
-    const result = await runtime.run(principal, { task: AI_TASK_CREATOR_BRAND_UPDATE, context, evidence: built.evidence, instructions: INSTRUCTIONS, schema: CREATOR_BRAND_UPDATE_SCHEMA, templateId: 'managed-creator-brand-mail', templateVersion: '3' });
+    const result = await runtime.run(principal, { task: AI_TASK_CREATOR_BRAND_UPDATE, context, evidence: built.evidence, instructions: INSTRUCTIONS, schema: CREATOR_BRAND_UPDATE_SCHEMA, templateId: 'managed-creator-brand-mail', templateVersion: '4' });
     if (result.outcome !== 'ANSWERED' || !result.output.creatorBrandUpdate) {
+      // Closed internal codes only: no provider error prose or rejected output.
+      modelFailure = result.outcome === 'REFUSED_BY_LOOP' ? 'MODEL_POLICY_REFUSED'
+        : result.outcome === 'REJECTED_OUTPUT' ? 'MODEL_OUTPUT_REJECTED'
+        : result.outcome === 'REFUSED_BY_MODEL' ? 'MODEL_REFUSED'
+        : result.outcome === 'FAILED' ? 'MODEL_CALL_FAILED' : 'MODEL_OUTPUT_INVALID';
       reading = { ...reading, state: 'MODEL_UNAVAILABLE' };
       return finish(3600_000, true);
     }
