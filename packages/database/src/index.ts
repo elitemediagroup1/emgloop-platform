@@ -468,6 +468,8 @@ export type { LoopProducerPorts } from './services/intelligence-fabric/loop-prod
 export { runIntelligencePass } from './services/intelligence-fabric/intelligence-pass';
 export { gmailMailReadThrough, trimQuotedHistory } from './services/intelligence-fabric/domains/mail-read-through';
 export { ManagedMailboxService } from './creator/managed-mailbox.service';
+export { ManagedCreatorMailRepository, captureReadings } from './creator/managed-creator-mail.repository';
+export { ManagedCreatorMailService } from './creator/managed-creator-mail.service';
 export { MANAGED_MAILBOX_STATE_PREFIX } from './creator/managed-mailbox.repository';
 export type { ManagedMailboxOutcome, ManagedMailboxSummary } from './creator/managed-mailbox.repository';
 export { MailContentTriageService } from './services/ai-runtime/mail-content-triage.service';

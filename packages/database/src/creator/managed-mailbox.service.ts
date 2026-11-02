@@ -1,6 +1,6 @@
 import { randomBytes } from 'crypto';
 import type { PrismaClient } from '@prisma/client';
-import { readGoogleGmailThread, type GmailCallOptions } from '@emgloop/providers';
+import { readGoogleGmailThread, searchGoogleGmailThreads, type GmailCallOptions, type GmailThreadSearchResult } from '@emgloop/providers';
 import type { GmailThreadResult } from '@emgloop/shared';
 import { GoogleTokenSealer } from '../services/google/google-token-sealer';
 import {
@@ -44,6 +44,7 @@ export class ManagedMailboxService {
       now?: () => Date;
       randomToken?: () => string;
       readThread?: typeof readGoogleGmailThread;
+      searchThreads?: typeof searchGoogleGmailThreads;
       fetchImpl?: GmailCallOptions['fetchImpl'];
     },
   ) {
@@ -144,6 +145,14 @@ export class ManagedMailboxService {
   ): Promise<GmailThreadResult> {
     const unavailable = (): GmailThreadResult => ({ ok: false, failure: 'UNAVAILABLE' });
     if (!threadId || threadId.length > 200) return unavailable();
+    return this.withAccess(principal, mailboxId, options => (this.deps.readThread ?? readGoogleGmailThread)({ ...options, threadId }), unavailable);
+  }
+
+  async searchThreads(principal: GooglePrincipal, mailboxId: string, query: string, pageToken?: string | null): Promise<GmailThreadSearchResult> {
+    return this.withAccess(principal, mailboxId, options => (this.deps.searchThreads ?? searchGoogleGmailThreads)({ ...options, query, pageToken }), () => ({ ok: false, threadIds: [], nextPageToken: null, failure: 'UNAVAILABLE' }));
+  }
+
+  private async withAccess<T>(principal: GooglePrincipal, mailboxId: string, operation: (options: GmailCallOptions) => Promise<T>, unavailable: () => T): Promise<T> {
     const configured = this.deps.configured;
     if (!configured || !this.deps.fetchImpl) return unavailable();
     const row = await this.repository.credential(principal, mailboxId);
@@ -175,11 +184,10 @@ export class ManagedMailboxService {
     if (refreshed.grant.scope && !grantIsReadOnly(refreshed.grant.scope)) return unavailable();
     if ((await this.repository.credential(principal, mailboxId))?.revision !== row.revision)
       return unavailable();
-    const result = await (this.deps.readThread ?? readGoogleGmailThread)({
+    const result = await operation({
       fetchImpl: this.deps.fetchImpl,
       accessToken: refreshed.grant.accessToken,
       selfAddress: row.expectedEmail,
-      threadId,
     });
     return (await this.repository.credential(principal, mailboxId))?.revision === row.revision
       ? result
