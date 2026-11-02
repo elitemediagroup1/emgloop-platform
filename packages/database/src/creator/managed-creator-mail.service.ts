@@ -54,7 +54,7 @@ export class ManagedCreatorMailService {
     const threadId = row.pendingThreadIds[0]!;
     const checked = now();
     let reading: ManagedCaptureReading = { threadId, brandId: null, evidenceKey: mailEvidenceHash(`${row.id}:${threadId}`), fingerprint: '', evidenceAt: null, checkedAt: checked.toISOString(), generatedAt: null, messageCount: 0, incomplete: false, state: 'SOURCE_UNAVAILABLE' };
-    const finish = async (delayMs = 0, keepPending = false, unchanged = false) => {
+    const finish = async (delayMs = 0, keepPending = false, unchanged = false): Promise<Record<string, number>> => {
       const end = !keepPending && row.pendingThreadIds.length === 1 && row.searchComplete;
       const stored = await repo.finish(row, now(), { reading, pending: keepPending ? row.pendingThreadIds : row.pendingThreadIds.slice(1), delayMs: delayMs || (end ? 300_000 : 0), failure: keepPending ? 'MODEL_UNAVAILABLE' : null });
       if (!stored) return { WITHDRAWN: 1 };
