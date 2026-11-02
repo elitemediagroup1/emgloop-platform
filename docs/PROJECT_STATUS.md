@@ -2,11 +2,13 @@
 
 ## Managed creator mail pilot — November 2, 2026
 
-#412 is merged, deployed, and its production migration succeeded. Matt reports his shared staff source and Trevon's assigned source connected. Charlie is also connected; the requested initial pilot remains Matt + Trevon. Francesca is excluded until a later authorization.
+#412 is merged, deployed, and its production migration succeeded. Matt reports his shared staff source, Trevon's assigned source and Charlie's shared staff source connected. The initial pilot uses these three sources. Francesca is excluded until a later authorization.
 
-Branch `feat/managed-creator-mail-capture` adds manager-selected capture sources, a bounded 30-day/100-thread-per-source queue, exact creator/canonical company matching, withheld ambiguous readings, governed creator.brand.update calls, source revocation and recipient fences, Message-ID deduplication, manager previews and creator tiles. The running production ECS worker was read-only verified configured for the existing signed creator-brand-updates endpoint; no AWS mutation was made. Capture is NOT live and no live email was read. A new additive migration and web release are required; Matt merges. The manager must start the selected-source pilot after release. Existing authorizations are retained.
+Draft PR #413 (feat/managed-creator-mail-capture) adds manager-selected capture sources, a bounded 30-day/100-thread-per-source queue, exact creator/canonical company matching, withheld ambiguous readings, governed creator.brand.update calls, source revocation and recipient fences, Message-ID deduplication, manager previews and creator tiles. The running production ECS worker was read-only verified configured for the existing signed creator-brand-updates endpoint; no AWS mutation was made. Capture is NOT live and no live email was read. Existing mailbox authorizations are retained.
 
-Focused capture/connection tests: 18 passed. Additional validation and live acceptance remain pending; do not treat this checkpoint as release approval. The local production build is running. No accounts were added or required for Francesca.
+Validation: production web build passed; database and web application/test typechecks passed; Prisma schema and diff checks passed. Focused capture/connection tests: 18 passed. Full database suite: 1,885 passed, 215 skipped; providers: 273 passed; web: 999 passed and the same four independently reproduced baseline source-assertion failures. Standalone lint remains unavailable because the repository lacks its ESLint setup. Embedded PostgreSQL migration checks passed for scoped foreign keys, source uniqueness, bounds, paired leases, paused-row privacy and cascade. This does not establish production migration or live acceptance.
+
+Next: Matt reviews/merges #413, runs Deploy Prisma Migrations for the additive 20261102200000_managed_creator_mail_capture migration, and confirms the production web release. Then open Trevon's manager record, explicitly select Matt + Charlie + Trevon's assigned source, confirm capture and start the pilot. Verify source coverage, manager preview and Trevon's creator tiles against actual source conversations. Fran remains excluded. No worker infrastructure deployment or new OAuth login is required.
 
 ## Headlines — #405 live; feed diagnostics and length repair follow-up (2026-10-19)
 
