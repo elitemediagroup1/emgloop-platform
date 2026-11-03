@@ -3,7 +3,7 @@ const RESULTS = [
   ['CURRENT', 'Accepted summary (may be stale)'],
   ['UNMATCHED_CREATOR', 'Creator not matched in staff subject'],
   ['MIXED_CREATORS', 'Another onboarded creator mentioned'],
-  ['UNMAPPED_BRAND', 'No single established company matched in subject'],
+  ['UNMAPPED_BRAND', 'No single established company matched in subject or external domain'],
   ['SOURCE_UNAVAILABLE', 'Source unreadable, excluded or outside the time window'],
   ['WITHHELD', 'Internal, automated or withheld by AI'],
   ['MODEL_UNAVAILABLE', 'AI summary unavailable'],
