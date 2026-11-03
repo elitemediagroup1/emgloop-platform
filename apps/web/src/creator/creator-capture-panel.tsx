@@ -1,5 +1,5 @@
 import 'server-only';
-import { captureReadings } from '@emgloop/database';
+import { captureReadings, creatorCapturePolicyReasons } from '@emgloop/database';
 import type { WorkPrincipal } from '@emgloop/database';
 import { Panel } from '../app/app/_loop-os/record';
 import { managedMailboxes } from '../google/google-runtime';
@@ -21,6 +21,13 @@ const FAILURES: Record<string, string> = {
   SCOPE_ENDED: 'capture authorization or creator scope ended',
 };
 
+function captureFailureLabel(failure: string): string {
+  const reasons = creatorCapturePolicyReasons(failure);
+  return reasons.length
+    ? `AI admission refused (${reasons.join(', ')}); retry pending`
+    : FAILURES[failure] ?? 'source processing unavailable; existing readings may be stale';
+}
+
 export async function CreatorCapturePanel({ principal, profileId, ownEmail, outcome }: { principal: WorkPrincipal; profileId: string; ownEmail: string; outcome?: string }) {
   if (!creatorMailSharingEnabled()) return null;
   const repo = managedCreatorMailRepository(), sources = managedMailboxes().service.repository;
@@ -38,7 +45,7 @@ export async function CreatorCapturePanel({ principal, profileId, ownEmail, outc
     <CreatorUpdatesRefresh />
     {displayedOutcome && Object.hasOwn(OUTCOMES, displayedOutcome) ? <p role="status">{OUTCOMES[displayedOutcome]}</p> : null}
     <p className="loop-note">{active.length} sources enabled · {allReadings.length} source threads checked · {active.reduce((n, c) => n + c.pendingThreadIds.length, 0)} source threads queued. These are source checks, not unique brand counts.</p>
-    {active.map(c => <p className="loop-note" key={c.id}>{available.find(s => s.id === c.mailboxId)?.expectedEmail ?? 'Source needs reconnection'}: {c.lastCheckedAt ? `last checked ${time.dateTime(c.lastCheckedAt)}` : 'awaiting first check'} · {c.listedCount} threads found this pass{c.capped ? ' · 100-thread source limit reached' : ''}{c.lastFailureClass ? ` · ${FAILURES[c.lastFailureClass] ?? 'source processing unavailable; existing readings may be stale'}` : ''}.</p>)}
+    {active.map(c => <p className="loop-note" key={c.id}>{available.find(s => s.id === c.mailboxId)?.expectedEmail ?? 'Source needs reconnection'}: {c.lastCheckedAt ? `last checked ${time.dateTime(c.lastCheckedAt)}` : 'awaiting first check'} · {c.listedCount} threads found this pass{c.capped ? ' · 100-thread source limit reached' : ''}{c.lastFailureClass ? ` · ${captureFailureLabel(c.lastFailureClass)}` : ''}.</p>)}
     {allReadings.some(r => r.state !== 'CURRENT') ? <p className="loop-note">Some source threads are held, unmatched, unreadable or awaiting AI. They are excluded from current activity. Brand matching requires an established company, and mixed-creator discussions are withheld.</p> : null}
     <CreatorCaptureScreening sources={active.map(c => ({ label: available.find(s => s.id === c.mailboxId)?.expectedEmail ?? 'Unavailable source', readings: captureReadings(c.readings) }))} />
     <form action={startCreatorCaptureAction} className="loop-stack">

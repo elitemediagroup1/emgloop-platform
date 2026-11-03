@@ -8,12 +8,15 @@ import { CreatorRepository } from '../src/creator/creator.repository';
 import { ManagedCreatorMailRepository, captureReadings } from '../src/creator/managed-creator-mail.repository';
 import { ManagedCreatorMailService } from '../src/creator/managed-creator-mail.service';
 import { creatorMailAliases, creatorMailQuery, exactMailPhrase, mailEvidenceHash, companyMailDomainMatch } from '../src/creator/creator-mail-matching';
+import { AI_ROUTING_POLICY, AI_BUDGET_POLICY } from '@emgloop/providers';
+import { AiRuntimeGateway, InMemoryAiUsageLedger, type AiRunRequest } from '../src/services/ai-runtime/gateway';
 import type { AiRunResult } from '../src/services/ai-runtime/gateway';
 import { makeCognitivePrisma } from './helpers/cognitive-prisma-fake';
+import { creatorCapturePolicyFailure, creatorCapturePolicyReasons } from '../src/creator/creator-capture-failure';
 import { creatorMailText } from '../src/creator/creator-mail-text';
 const T0 = new Date('2026-11-02T18:00:00Z');
 const READ = 'https://www.googleapis.com/auth/gmail.readonly';
-async function world() {
+async function world(realRuntime?: { run(principal: { organizationId: string; userId: string }, request: AiRunRequest): Promise<AiRunResult> }) {
   const db = makeCognitivePrisma({ also: ['creatorProfile', 'managedGoogleMailbox', 'managedCreatorMailCapture', 'managedGoogleOAuthState', 'googleConnection', 'googleOAuthState', 'organizationMembership'] }) as unknown as PrismaClient;
   const iam = new IamRepository(db), creators = new CreatorRepository(db), people = new PartyService(db), repo = new ManagedCreatorMailRepository(db);
   async function member(role: string, email: string, org = 'a') { const u = await iam.createUser({ organizationId: org, email, systemRole: role }); await iam.activateUser(org, u.id); return { organizationId: org, userId: u.id }; }
@@ -34,10 +37,10 @@ async function world() {
   const service = new ManagedCreatorMailService({ repository: repo, now: () => now, mailboxes: {
     searchThreads: async (principal, mailboxId, query) => { searches++; assert.deepEqual(principal, owner); assert.ok([staff.id, assigned.id].includes(mailboxId)); assert.match(query, /-in:spam/); if (mailboxId === staff.id) assert.match(query, /"trevon hill"/); return { ok: true, threadIds: [mailboxId === staff.id ? 'PRIVATE_STAFF_THREAD' : 'PRIVATE_CREATOR_THREAD'], nextPageToken: null }; },
     readThread: async principal => { reads++; assert.deepEqual(principal, owner); return { ok: true, thread: threadHook(thread()) }; },
-  }, runtime: { run: async (principal, request) => {
+  }, runtime: realRuntime ?? { run: async (principal, request) => {
     modelCalls++; assert.deepEqual(principal, owner); assert.equal(request.task.taskId, 'creator.brand.update'); assert.ok(request.context.items.every(i => i.readUnder.resource === 'managedMailboxes')); assert.match(request.instructions, /provisional automatic candidate/);
     await modelHook();
-    if (mode === 'budget') return { outcome: 'REFUSED_BY_LOOP', refusals: ['BUDGET_EXHAUSTED'] } as AiRunResult;
+    if (mode === 'budget') return { outcome: 'REFUSED_BY_LOOP', refusals: ['TASK_NOT_ENABLED', 'BUDGET_BACKGROUND_DEFERRED'] } as AiRunResult;
     if (mode === 'rejected') return { outcome: 'REJECTED_OUTPUT', rejections: ['UNSUPPORTED_NUMBER_IN_TEXT'] } as unknown as AiRunResult;
     if (mode === 'withheld') return { outcome: 'ANSWERED', output: parseCreatorBrandUpdate({ schemaId: CREATOR_BRAND_UPDATE_SCHEMA_ID, publishable: false, stage: 'PAUSED', summary: '', nextStep: '', citations: [] }), provenance: {} } as unknown as AiRunResult;
     const citation = request.context.items.find(i => i.sourceRef.startsWith('mail_message:'))!.sourceRef;
@@ -206,7 +209,7 @@ test('a refused model leaves a visible pending source and backs off without repe
   const w = await world(); w.setMode('budget'); await w.start([w.staff.id]); await w.drain();
   assert.equal(w.counts().modelCalls, 1); assert.deepEqual(await w.service.pass(), {});
   const row = (await w.db.managedCreatorMailCapture.findMany())[0]!;
-  assert.equal(row.lastFailureClass, 'MODEL_POLICY_REFUSED'); assert.equal(row.pendingThreadIds.length, 1); assert.ok(row.nextCheckAt > T0);
+  assert.equal(row.lastFailureClass, 'MODEL_POLICY_REFUSED:TASK_NOT_ENABLED,BUDGET_BACKGROUND_DEFERRED'); assert.equal(row.pendingThreadIds.length, 1); assert.ok(row.nextCheckAt > T0);
   const projected = await w.repo.updates(w.recipient, w.profile.id, T0);
   assert.ok(projected.every(r => !r.current && !r.summary));
 });
@@ -227,4 +230,32 @@ test('matching uses whole full names or declared handles, never a first-name sub
   assert.equal(exactMailPhrase('Hello @trevonhill!', 'trevonhill'), true);
   const q = creatorMailQuery(p, false, T0)!;
   assert.match(q, /"trevon hill"/); assert.doesNotMatch(creatorMailQuery(p, true, T0)!, /"trevon hill"/);
+});
+
+test('capture policy diagnostics accept only known admission codes, never arbitrary prose', () => {
+  const failure = creatorCapturePolicyFailure(['PRIVATE_PROVIDER_ERROR', 'TASK_NOT_ENABLED', 'TASK_NOT_ENABLED', 'CONTEXT_REFUSED']);
+  assert.equal(failure, 'MODEL_POLICY_REFUSED:TASK_NOT_ENABLED,CONTEXT_REFUSED');
+  assert.deepEqual(creatorCapturePolicyReasons(failure), ['TASK_NOT_ENABLED', 'CONTEXT_REFUSED']);
+  assert.deepEqual(creatorCapturePolicyReasons('MODEL_POLICY_REFUSED:PRIVATE_PROVIDER_ERROR'), []);
+  assert.equal(creatorCapturePolicyFailure(['PRIVATE_PROVIDER_ERROR']), 'MODEL_POLICY_REFUSED');
+});
+
+test('real gateway task refusal survives capture storage without a provider call or creator publication', async () => {
+  let calls = 0;
+  const ledger = new InMemoryAiUsageLedger();
+  const gateway = new AiRuntimeGateway({
+    activation: { enabled: true, organizations: ['a'], tasks: [], providers: ['anthropic', 'openai'] },
+    policy: AI_ROUTING_POLICY, budget: AI_BUDGET_POLICY, killSwitches: [], maxAttemptsPerTarget: 1,
+  }, {
+    providers: ['anthropic', 'openai'].map(providerId => ({ providerId, invoke: async () => { calls++; throw Error('must not call'); } })),
+    ledger, authorize: async () => true, now: () => T0, newInvocationId: () => 'fixture',
+    providerPolicies: async () => ['anthropic', 'openai'].map(providerId => ({ providerId, state: 'ACTIVE' as const, ceiling: 'COMMUNICATION_CONTENT' as const, version: 1, recordedAtMs: T0.getTime() })),
+  });
+  const w = await world(gateway);
+  await w.start([w.staff.id]); await w.drain();
+  const row = (await w.db.managedCreatorMailCapture.findMany())[0]!;
+  assert.equal(row.lastFailureClass, 'MODEL_POLICY_REFUSED:TASK_NOT_ENABLED');
+  assert.equal(calls, 0); assert.equal(ledger.calls.length, 0);
+  assert.equal(row.nextCheckAt.getTime(), T0.getTime() + 3600_000);
+  assert.deepEqual(await w.repo.updates(w.recipient, w.profile.id, T0), []);
 });
