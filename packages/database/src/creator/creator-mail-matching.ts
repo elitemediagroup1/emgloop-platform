@@ -9,6 +9,21 @@ export function exactMailPhrase(text: string, phrase: string): boolean {
   const term = normalized(phrase).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   return !!term && new RegExp(`(?<![\\p{L}\\p{N}_])${term}(?![\\p{L}\\p{N}_])`, 'u').test(normalized(text));
 }
+/** Candidate evidence only: full company name equals an external participant's domain stem.
+ * No substring/fuzzy match, URL scraping, local-part match, or public email-provider match.
+ */
+export function companyMailDomainMatch(company: string, addresses: readonly string[]): boolean {
+  const name = normalized(company).replace(/[^\p{L}\p{N}]/gu, '');
+  if (name.length < 4) return false;
+  const personal = new Set(['gmail.com', 'googlemail.com', 'outlook.com', 'hotmail.com', 'live.com', 'yahoo.com', 'icloud.com', 'aol.com', 'proton.me', 'protonmail.com', 'mail.com']);
+  return addresses.some(address => {
+    const domain = address.trim().toLowerCase().split('@');
+    if (domain.length !== 2 || !domain[0] || !/^[a-z0-9]+(?:[.-][a-z0-9]+)*\.[a-z]{2,24}$/.test(domain[1]!)) return false;
+    const labels = domain[1]!.split('.');
+    const host = labels.slice(-2).join('.');
+    return !personal.has(host) && labels.at(-2)!.replace(/-/g, '') === name;
+  });
+}
 export function creatorMailAliases(profile: MailCreatorIdentity): string[] {
   const names = normalized(profile.displayName).split(' ').filter(Boolean).length >= 2 ? [profile.displayName] : [];
   const social = Array.isArray(profile.socialAccounts) ? profile.socialAccounts : [];

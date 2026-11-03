@@ -4,10 +4,10 @@ import type { GmailThreadSearchResult } from '@emgloop/providers';
 import type { WorkPrincipal } from '../repositories/work-state/work-principal';
 import type { AiRunRequest, AiRunResult } from '../services/ai-runtime/gateway';
 import { buildMailTriageContext } from '../services/ai-runtime/mail-content-triage-context';
-import { trimQuotedHistory } from '../services/intelligence-fabric/domains/mail-read-through';
+import { creatorMailText } from './creator-mail-text';
 import { CREATOR_BRAND_MAIL_INSTRUCTIONS } from './creator-brand-mail.service';
 import { ManagedCreatorMailRepository, captureReadings } from './managed-creator-mail.repository';
-import { creatorMailAliases, exactMailPhrase, mailEvidenceHash, type ManagedCaptureReading } from './creator-mail-matching';
+import { creatorMailAliases, exactMailPhrase, companyMailDomainMatch, mailEvidenceHash, type ManagedCaptureReading } from './creator-mail-matching';
 
 const INSTRUCTIONS = CREATOR_BRAND_MAIL_INSTRUCTIONS
   .replace('Interpret one explicitly owner-authorized brand email thread', 'Interpret one manager-authorized managed-mailbox brand conversation')
@@ -81,11 +81,11 @@ export class ManagedCreatorMailService {
     const latest = [...external].sort((a, b) => b.fact.internalDate.getTime() - a.fact.internalDate.getTime())[0]!;
     const evidenceAt = latest.fact.internalDate;
     if (!Number.isFinite(evidenceAt.getTime()) || evidenceAt > now() || now().getTime() - evidenceAt.getTime() > 30 * 86400_000) return finish();
-    reading = { ...reading, evidenceAt: evidenceAt.toISOString(), evidenceKey: mailEvidenceHash(latest.fact.headerMessageId?.trim() || `${row.id}:${threadId}:${latest.fact.messageId}`), messageCount: external.length, incomplete: external.length > 8 || external.some(m => m.body.truncated || (m.body.text?.length ?? 0) > 1800) };
-    if (!latest.body.text || !trimQuotedHistory(latest.body.text)) return finish();
+    reading = { ...reading, evidenceAt: evidenceAt.toISOString(), evidenceKey: mailEvidenceHash(latest.fact.headerMessageId?.trim() || `${row.id}:${threadId}:${latest.fact.messageId}`), messageCount: external.length, incomplete: external.length > 8 || external.some(m => m.body.truncated || (m.body.text?.length ?? 0) > 1800 || !m.body.text?.trim() && !!m.body.html) };
+    if (!creatorMailText(latest.body)) return finish();
     const human = external.filter(m => !m.fact.automationClass);
     const messages = human.slice(-8).flatMap(m => {
-      const text = m.body.text ? trimQuotedHistory(m.body.text).slice(0, 1800) : '';
+      const text = creatorMailText(m.body)?.slice(0, 1800) ?? '';
       return text ? [{ direction: (internal.has(m.fact.from?.address.toLowerCase() ?? '') || m.fact.fromSelf ? 'OUTBOUND' : 'INBOUND') as 'OUTBOUND' | 'INBOUND', occurredAt: m.fact.internalDate, fromLabel: null, text }] : [];
     });
     if (!messages.length) { reading = { ...reading, state: 'WITHHELD' }; return finish(); }
@@ -97,10 +97,10 @@ export class ManagedCreatorMailService {
     // requires the intended creator in the subject; a footer/body hit cannot bind another creator's thread.
     // Generic subjects remain eligible for explicit manager-authorized thread sharing instead.
     if (scope.source.kind === 'STAFF' && !creatorMailAliases(scope.profile).some(alias => exactMailPhrase(subject, alias))) { reading = { ...reading, state: 'UNMATCHED_CREATOR' }; return finish(); }
-    const subjectBrands = scope.brands.filter(b => b.displayName && b.displayName.trim().length >= 4 && exactMailPhrase(subject, b.displayName));
-    // Body words (e.g. "going to have to pass") are not canonical company references.
-    // Conservative auto capture uses subject candidates only; the model must still confirm relevance.
-    const brands = subjectBrands;
+    const participants = external.flatMap(m => [m.fact.from, ...m.fact.to, ...m.fact.cc].flatMap(a => a && !internal.has(a.address.toLowerCase()) ? [a.address] : []));
+    // Never match a company from ordinary body words. An exact company/domain correspondence
+    // is another provisional candidate, not confirmation of a creator-brand relationship.
+    const brands = scope.brands.filter(b => b.displayName && b.displayName.trim().length >= 4 && (exactMailPhrase(subject, b.displayName) || companyMailDomainMatch(b.displayName, participants)));
     if (brands.length !== 1) { reading = { ...reading, state: 'UNMAPPED_BRAND' }; return finish(); }
     const brand = brands[0]!;
     reading = { ...reading, brandId: brand.id, fingerprint: mailEvidenceHash(JSON.stringify({ template: 4, creator: row.creatorProfileId, brand: brand.id, messages, incomplete: reading.incomplete })) };

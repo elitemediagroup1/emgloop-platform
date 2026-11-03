@@ -7,9 +7,10 @@ import { PartyService } from '../src/services/party.service';
 import { CreatorRepository } from '../src/creator/creator.repository';
 import { ManagedCreatorMailRepository, captureReadings } from '../src/creator/managed-creator-mail.repository';
 import { ManagedCreatorMailService } from '../src/creator/managed-creator-mail.service';
-import { creatorMailAliases, creatorMailQuery, exactMailPhrase, mailEvidenceHash } from '../src/creator/creator-mail-matching';
+import { creatorMailAliases, creatorMailQuery, exactMailPhrase, mailEvidenceHash, companyMailDomainMatch } from '../src/creator/creator-mail-matching';
 import type { AiRunResult } from '../src/services/ai-runtime/gateway';
 import { makeCognitivePrisma } from './helpers/cognitive-prisma-fake';
+import { creatorMailText } from '../src/creator/creator-mail-text';
 const T0 = new Date('2026-11-02T18:00:00Z');
 const READ = 'https://www.googleapis.com/auth/gmail.readonly';
 async function world() {
@@ -54,6 +55,39 @@ test('an ordinary body word cannot become the canonical brand Going in a Trevon 
   await w.start(); await w.drain();
   assert.equal(w.counts().modelCalls, 0);
   assert.deepEqual(await w.repo.updates(w.recipient, w.profile.id, T0), []);
+});
+
+test('HTML-only sent messages reach governed summarization without publishing source HTML', async () => {
+  const w = await world();
+  w.threadHook(t => ({ ...t, messages: t.messages.map(m => ({ ...m, body: { ...m.body, text: null, html: '<p>Trevon Hill and Brand Bravo are discussing a partnership.</p><img src="https://tracker.invalid/PRIVATE_TRACKER"><div class="gmail_quote">PRIVATE_QUOTED_HISTORY</div>' } })) }));
+  await w.start(); await w.drain();
+  assert.equal(w.counts().modelCalls, 2);
+  assert.equal((await w.repo.updates(w.recipient, w.profile.id, T0))[0]?.stage, 'DISCUSSING');
+  const stored = JSON.stringify(await w.db.managedCreatorMailCapture.findMany());
+  assert.doesNotMatch(stored, /<p>|PRIVATE_TRACKER|PRIVATE_QUOTED_HISTORY|discussing a partnership/);
+  assert.ok((await w.db.managedCreatorMailCapture.findMany()).every(c => captureReadings(c.readings).every(r => r.incomplete)));
+});
+
+test('a shortened subject brand needs an exact whole-company external domain match, not body words', async () => {
+  const w = await world();
+  await w.db.cognitiveIdentity.update({ where: { id: w.brand }, data: { displayName: 'BRUNT Workwear' } });
+  w.threadHook(t => ({ ...t, messages: t.messages.map(m => ({ ...m, fact: { ...m.fact, subject: 'Trevon Hill x BRUNT', from: m.fact.fromSelf ? m.fact.from : { address: 'rep@bruntworkwear.com', name: 'Rep' }, to: m.fact.fromSelf ? [{ address: 'rep@bruntworkwear.com', name: 'Rep' }] : m.fact.to }, body: { ...m.body, text: null, html: '<p>Trevon Hill and BRUNT are discussing a partnership.</p>' } })) }));
+  await w.start([w.staff.id]); await w.drain();
+  assert.equal(w.counts().modelCalls, 1);
+  assert.equal((await w.repo.updates(w.recipient, w.profile.id, T0))[0]?.brandId, w.brand);
+  assert.equal(companyMailDomainMatch('Going', ['rep@notgoing.com', 'rep@going.com.attacker.invalid', 'going@gmail.com']), false);
+  assert.equal(companyMailDomainMatch('Gmail', ['rep@gmail.com']), false);
+  assert.equal(companyMailDomainMatch('BRUNT Workwear', ['rep@news.bruntworkwear.com']), true);
+});
+
+test('HTML fallback extracts visible text, strips quotes and active content, and prefers supplied plain text', () => {
+  const html = '<html><head><title>PRIVATE_TITLE</title></head><body><p>Brand &amp; creator</p><p>Next step<br>Follow up</p><script>PRIVATE_SCRIPT</script><style>PRIVATE_STYLE</style><img src="https://tracker.invalid/PRIVATE_IMAGE"><a href="https://private.invalid/PRIVATE_LINK">Visible link</a><blockquote>PRIVATE_QUOTE</blockquote><div class="gmail_quote">PRIVATE_HISTORY</div><div class="gmail_signature">PRIVATE_SIGNATURE</div><div hidden>PRIVATE_HIDDEN</div></body></html>';
+  const result = creatorMailText({ text: null, html });
+  assert.match(result!, /Brand & creator/); assert.match(result!, /Next step\nFollow up/); assert.match(result!, /Visible link/);
+  assert.doesNotMatch(result!, /PRIVATE_|https:|<[^>]+>/);
+  assert.equal(creatorMailText({ text: 'Plain version', html }), 'Plain version');
+  assert.equal(creatorMailText({ text: '', html: '<script>PRIVATE_SCRIPT</script><img src="x">' }), null);
+  assert.ok(creatorMailText({ text: null, html: '<p>' + 'word '.repeat(100_000) + '</p>' })!.length <= 4000);
 });
 
 test('unaccepted candidate brands never appear in the creator view or manager preview', async () => {
