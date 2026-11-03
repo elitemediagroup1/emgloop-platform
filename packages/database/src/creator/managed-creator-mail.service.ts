@@ -4,6 +4,7 @@ import type { GmailThreadSearchResult } from '@emgloop/providers';
 import type { WorkPrincipal } from '../repositories/work-state/work-principal';
 import type { AiRunRequest, AiRunResult } from '../services/ai-runtime/gateway';
 import { buildMailTriageContext } from '../services/ai-runtime/mail-content-triage-context';
+import { creatorCapturePolicyFailure } from './creator-capture-failure';
 import { creatorMailText } from './creator-mail-text';
 import { CREATOR_BRAND_MAIL_INSTRUCTIONS } from './creator-brand-mail.service';
 import { ManagedCreatorMailRepository, captureReadings } from './managed-creator-mail.repository';
@@ -114,7 +115,7 @@ export class ManagedCreatorMailService {
     const result = await runtime.run(principal, { task: AI_TASK_CREATOR_BRAND_UPDATE, context, evidence: built.evidence, instructions: INSTRUCTIONS, schema: CREATOR_BRAND_UPDATE_SCHEMA, templateId: 'managed-creator-brand-mail', templateVersion: '4' });
     if (result.outcome !== 'ANSWERED' || !result.output.creatorBrandUpdate) {
       // Closed internal codes only: no provider error prose or rejected output.
-      modelFailure = result.outcome === 'REFUSED_BY_LOOP' ? 'MODEL_POLICY_REFUSED'
+      modelFailure = result.outcome === 'REFUSED_BY_LOOP' ? creatorCapturePolicyFailure(result.refusals)
         : result.outcome === 'REJECTED_OUTPUT' ? 'MODEL_OUTPUT_REJECTED'
         : result.outcome === 'REFUSED_BY_MODEL' ? 'MODEL_REFUSED'
         : result.outcome === 'FAILED' ? 'MODEL_CALL_FAILED' : 'MODEL_OUTPUT_INVALID';

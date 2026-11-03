@@ -1027,3 +1027,5 @@ export type { LoopQuestionResult } from './services/ai-runtime/loop-question.ser
 export { callQuestionArtifact } from './services/intelligence-fabric/call-snapshot';
 
 export { refreshPublicNews } from './services/public-news-sync';
+
+export { creatorCapturePolicyReasons } from './creator/creator-capture-failure';
