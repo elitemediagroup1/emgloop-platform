@@ -23,7 +23,8 @@
     "@prisma/client": "^5.18.0",
     "@emgloop/shared": "*",
     "@emgloop/providers": "*",
-    "@emgloop/brain": "*"
+    "@emgloop/brain": "*",
+    "html-to-text": "9.0.5"
   },
   "devDependencies": {
     "prisma": "^5.18.0",
