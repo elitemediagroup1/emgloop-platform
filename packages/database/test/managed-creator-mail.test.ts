@@ -29,14 +29,15 @@ async function world(realRuntime?: { run(principal: { organizationId: string; us
   const staff = await source('matt@elitemediagroup.io'), assigned = await source('trevon@emgtalentgroup.com', profile.id), charlie = await source('charlie@elitemediagroup.io'), fran = await source('francesca@elitemediagroup.io', null, 'PENDING');
   let now = T0, modelCalls = 0, searches = 0, reads = 0, mode = 'normal';
   let modelHook = async () => {};
-  let threadHook = (value: GmailThreadView) => value;
+  let threadHook = (value: GmailThreadView, _threadId?: string) => value;
+  let searchIds: string[] | null = null;
   const thread = (): GmailThreadView => ({ threadId: 'PRIVATE_THREAD', messages: [
     { fact: { provider: 'GOOGLE', messageId: 'PRIVATE_MESSAGE_1', threadId: 'PRIVATE_THREAD', internalDate: new Date(T0.getTime() - 2000), labels: ['SENT'], from: { address: staff.expectedEmail, name: 'Matt' }, to: [{ address: 'rep@brand.example', name: 'Rep' }], cc: [{ address: assigned.expectedEmail, name: 'Trevon' }], subject: 'PRIVATE_SUBJECT Brand Bravo and Trevon Hill', headerMessageId: '<physical-pitch@example.test>', inReplyTo: null, references: [], fromSelf: true }, body: { messageId: 'PRIVATE_MESSAGE_1', text: `PRIVATE_BODY Trevon Hill would like to discuss a paid Brand Bravo partnership.${mode === 'mixed' ? ' Other Creator is included too.' : ''}`, html: null, attachments: [], truncated: false } },
     { fact: { provider: 'GOOGLE', messageId: 'PRIVATE_MESSAGE_2', threadId: 'PRIVATE_THREAD', internalDate: new Date(T0.getTime() - 1000), labels: ['INBOX'], from: { address: 'rep@brand.example', name: 'Rep' }, to: [{ address: staff.expectedEmail, name: 'Matt' }], cc: [{ address: assigned.expectedEmail, name: 'Trevon' }], subject: 'PRIVATE_SUBJECT Brand Bravo and Trevon Hill', headerMessageId: '<physical-reply@example.test>', inReplyTo: '<physical-pitch@example.test>', references: [], fromSelf: false, ...(mode === 'automated' ? { automationClass: 'AUTO_SUBMITTED' as const } : {}) }, body: { messageId: 'PRIVATE_MESSAGE_2', text: mode === 'unreadable' ? null : 'PRIVATE_REPLY We would like the creator portfolio to discuss the partnership.', html: null, attachments: [], truncated: false } },
   ] });
   const service = new ManagedCreatorMailService({ repository: repo, now: () => now, mailboxes: {
-    searchThreads: async (principal, mailboxId, query) => { searches++; assert.deepEqual(principal, owner); assert.ok([staff.id, assigned.id].includes(mailboxId)); assert.match(query, /-in:spam/); if (mailboxId === staff.id) assert.match(query, /"trevon hill"/); return { ok: true, threadIds: [mailboxId === staff.id ? 'PRIVATE_STAFF_THREAD' : 'PRIVATE_CREATOR_THREAD'], nextPageToken: null }; },
-    readThread: async principal => { reads++; assert.deepEqual(principal, owner); return { ok: true, thread: threadHook(thread()) }; },
+    searchThreads: async (principal, mailboxId, query) => { searches++; assert.deepEqual(principal, owner); assert.ok([staff.id, assigned.id].includes(mailboxId)); assert.match(query, /-in:spam/); if (mailboxId === staff.id) assert.match(query, /"trevon hill"/); return { ok: true, threadIds: searchIds ?? [mailboxId === staff.id ? 'PRIVATE_STAFF_THREAD' : 'PRIVATE_CREATOR_THREAD'], nextPageToken: null }; },
+    readThread: async (principal, _mailboxId, threadId) => { reads++; assert.deepEqual(principal, owner); return { ok: true, thread: threadHook(thread(), threadId) }; },
   }, runtime: realRuntime ?? { run: async (principal, request) => {
     modelCalls++; assert.deepEqual(principal, owner); assert.equal(request.task.taskId, 'creator.brand.update'); assert.ok(request.context.items.every(i => i.readUnder.resource === 'managedMailboxes')); assert.match(request.instructions, /provisional automatic candidate/);
     await modelHook();
@@ -48,7 +49,7 @@ async function world(realRuntime?: { run(principal: { organizationId: string; us
   } } });
   async function start(ids = [staff.id, assigned.id]) { assert.equal(await repo.configure(owner, profile.id, ids, now), 'STARTED'); }
   async function drain() { for (let i = 0; i < 12; i++) if (!Object.keys(await service.pass()).length) return; throw Error('did not drain bounded initial pass'); }
-  return { db, repo, service, iam, creators, owner, recipient, second, foreign, profile, other, brand, staff, assigned, charlie, fran, start, drain, thread, setMode: (v: string) => { mode = v; }, clock: (v: Date) => { now = v; }, threadHook: (v: typeof threadHook) => { threadHook = v; }, modelHook: (v: () => Promise<void>) => { modelHook = v; }, counts: () => ({ modelCalls, searches, reads }) };
+  return { searchIds: (ids: string[]) => { searchIds = ids; }, db, repo, service, iam, creators, owner, recipient, second, foreign, profile, other, brand, staff, assigned, charlie, fran, start, drain, thread, setMode: (v: string) => { mode = v; }, clock: (v: Date) => { now = v; }, threadHook: (v: typeof threadHook) => { threadHook = v; }, modelHook: (v: () => Promise<void>) => { modelHook = v; }, counts: () => ({ modelCalls, searches, reads }) };
 }
 
 test('an ordinary body word cannot become the canonical brand Going in a Trevon Cashion conversation', async () => {
@@ -293,14 +294,15 @@ test('real gateway repairs a rejected summary once and publishes only the newly 
   assert.doesNotMatch(JSON.stringify(await w.db.managedCreatorMailCapture.findMany()), /PRIVATE_REJECTED_SUMMARY/);
 });
 
-test('two rejected outputs stop at two calls, retain exact safe reasons and preserve backoff', async () => {
+test('two rejected outputs stop at two calls and retain a per-thread validation cooldown', async () => {
   const runtime = validatingRuntime(async request => modelReply(request, 'PRIVATE_REJECTED_SUMMARY costs $500.'));
   const w = await world(runtime.gateway); await w.start([w.staff.id]); await w.drain();
   assert.equal(runtime.requests.length, 2);
   const row = (await w.db.managedCreatorMailCapture.findMany())[0]!;
   assert.deepEqual(creatorCaptureOutputReasons(row.lastFailureClass!), ['UNSUPPORTED_NUMBER_IN_TEXT', 'VERBATIM_CONTENT']);
-  assert.equal(row.pendingThreadIds.length, 1);
-  assert.equal(row.nextCheckAt.getTime(), T0.getTime() + 3600_000);
+  assert.equal(row.pendingThreadIds.length, 0);
+  assert.equal(row.nextCheckAt.getTime(), T0.getTime() + 300_000);
+  assert.equal(captureReadings(row.readings)[0]!.retryAfter, new Date(T0.getTime() + 3600_000).toISOString());
   assert.deepEqual(await w.repo.updates(w.recipient, w.profile.id, T0), []);
   assert.equal(creatorCaptureOutputFailure(['PRIVATE_ERROR_TEXT']), 'MODEL_OUTPUT_REJECTED');
   assert.deepEqual(creatorCaptureOutputReasons('MODEL_OUTPUT_REJECTED:PRIVATE_ERROR_TEXT'), []);
@@ -320,4 +322,55 @@ test('scope withdrawal after rejection prevents the repair and any late publicat
   w = await world(runtime.gateway); await w.start([w.staff.id]); await w.drain();
   assert.equal(runtime.requests.length, 1);
   assert.deepEqual(await w.repo.updates(w.recipient, w.profile.id, T0), []);
+});
+
+test('a rejected thread cannot block a healthy thread or retry early during later search cycles', async () => {
+  const runtime = validatingRuntime(async (request, ordinal) => modelReply(request,
+    ordinal <= 2 ? 'Unsupported 2027 claim.' : 'EMG is discussing a collaboration with the brand.'));
+  const w = await world(runtime.gateway);
+  w.searchIds(['PRIVATE_BAD_THREAD', 'PRIVATE_HEALTHY_THREAD']);
+  await w.start([w.staff.id]); await w.drain();
+  assert.equal(runtime.requests.length, 3, 'two failed attempts for one thread, then one accepted healthy thread');
+  let row = (await w.db.managedCreatorMailCapture.findMany())[0]!;
+  let failed = captureReadings(row.readings).find(r => r.threadId === 'PRIVATE_BAD_THREAD')!;
+  assert.equal(failed.state, 'MODEL_UNAVAILABLE');
+  assert.deepEqual(failed.rejections, ['UNSUPPORTED_NUMBER_IN_TEXT']);
+  assert.equal(failed.retryAfter, new Date(T0.getTime() + 3600_000).toISOString());
+  assert.equal((await w.repo.updates(w.recipient, w.profile.id, T0))[0]?.summary, 'EMG is discussing a collaboration with the brand.');
+  const readsBefore = w.counts().reads;
+  for (const minute of [5, 10]) {
+    w.clock(new Date(T0.getTime() + minute * 60_000)); await w.drain();
+    assert.equal(runtime.requests.length, 3, 'no model retry during the rejected thread cooldown');
+    row = (await w.db.managedCreatorMailCapture.findMany())[0]!;
+    const kept = captureReadings(row.readings).find(r => r.threadId === 'PRIVATE_BAD_THREAD')!;
+    assert.equal(kept.retryAfter, failed.retryAfter, 'skipping a queued cooldown never extends it');
+    assert.equal(kept.checkedAt, failed.checkedAt, 'actual failed-attempt time remains accurate');
+  }
+  assert.equal(w.counts().reads, readsBefore + 2, 'cooling thread is skipped before Gmail reads; healthy thread still checked');
+  w.clock(new Date(T0.getTime() + 3600_000)); await w.drain();
+  assert.equal(runtime.requests.length, 4, 'failed thread becomes eligible again at its own deadline');
+  row = (await w.db.managedCreatorMailCapture.findMany())[0]!;
+  failed = captureReadings(row.readings).find(r => r.threadId === 'PRIVATE_BAD_THREAD')!;
+  assert.equal(failed.state, 'CURRENT');
+  assert.equal(failed.retryAfter, undefined);
+  assert.equal(failed.rejections, undefined);
+});
+
+test('the bounded reading cache retains validation cooldowns when other source checks fill it', async () => {
+  const runtime = validatingRuntime(async request => modelReply(request, 'Unsupported 2027 claim.'));
+  const w = await world(runtime.gateway); await w.start([w.staff.id]); await w.drain();
+  const at = new Date(T0.getTime() + 300_000);
+  w.clock(at);
+  let row = (await w.db.managedCreatorMailCapture.findMany())[0]!;
+  const failed = captureReadings(row.readings)[0]!;
+  for (let i = 0; i < 101; i++) {
+    const claimed = await w.repo.claim(w.owner, row.id, at);
+    assert.ok(claimed);
+    assert.equal(await w.repo.finish(claimed!, at, { reading: { ...failed, threadId: `other-${i}`, state: 'SOURCE_UNAVAILABLE', retryAfter: undefined, rejections: undefined }, delayMs: 0 }), true);
+  }
+  row = (await w.db.managedCreatorMailCapture.findMany())[0]!;
+  const kept = captureReadings(row.readings);
+  assert.equal(kept.length, 100);
+  assert.equal(kept.find(r => r.threadId === failed.threadId)?.retryAfter, failed.retryAfter);
+  assert.equal(runtime.requests.length, 2);
 });

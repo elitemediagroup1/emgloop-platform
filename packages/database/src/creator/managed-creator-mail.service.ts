@@ -61,6 +61,14 @@ export class ManagedCreatorMailService {
       return { CAPTURE_LISTED: 1 };
     }
     const threadId = row.pendingThreadIds[0]!;
+    const cooling = captureReadings(row.readings).find(r => r.threadId === threadId && r.state === 'MODEL_UNAVAILABLE');
+    const retryAt = Date.parse(cooling?.retryAfter ?? '');
+    if (cooling && retryAt > now().getTime() && retryAt <= Date.parse(cooling.checkedAt) + 3600_000 &&
+      AI_OUTPUT_REJECTIONS.some(code => Array.isArray(cooling.rejections) && cooling.rejections.includes(code))) {
+      // Pop only this cycle's queue entry. Do not rewrite the reading/check time or extend its cooldown.
+      const stored = await repo.finish(row, now(), { pending: row.pendingThreadIds.slice(1), delayMs: row.pendingThreadIds.length === 1 && row.searchComplete ? 300_000 : 0 });
+      return stored ? { CAPTURE_CHECKED: 1, DEFERRED: 1 } : { WITHDRAWN: 1 };
+    }
     const checked = now();
     let reading: ManagedCaptureReading = { threadId, brandId: null, evidenceKey: mailEvidenceHash(`${row.id}:${threadId}`), fingerprint: '', evidenceAt: null, checkedAt: checked.toISOString(), generatedAt: null, messageCount: 0, incomplete: false, state: 'SOURCE_UNAVAILABLE' };
     let modelFailure = 'MODEL_UNAVAILABLE';
@@ -134,6 +142,15 @@ export class ManagedCreatorMailService {
         : result.outcome === 'REFUSED_BY_MODEL' ? 'MODEL_REFUSED'
         : result.outcome === 'FAILED' ? 'MODEL_CALL_FAILED' : 'MODEL_OUTPUT_INVALID';
       reading = { ...reading, state: 'MODEL_UNAVAILABLE' };
+      if (result.outcome === 'REJECTED_OUTPUT') {
+        const rejections = AI_OUTPUT_REJECTIONS.filter(code => result.rejections.includes(code));
+        if (rejections.length) {
+          reading = { ...reading, retryAfter: new Date(now().getTime() + 3600_000).toISOString(), rejections };
+          const stored = await repo.finish(row, now(), { reading, pending: row.pendingThreadIds.slice(1),
+            delayMs: row.pendingThreadIds.length === 1 && row.searchComplete ? 300_000 : 0, failure: modelFailure });
+          return stored ? { CAPTURE_CHECKED: 1, NOT_PUBLISHED: 1 } : { WITHDRAWN: 1 };
+        }
+      }
       return finish(3600_000, true);
     }
     const update = result.output.creatorBrandUpdate;

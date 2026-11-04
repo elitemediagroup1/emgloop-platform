@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 import { Prisma, type PrismaClient, type ManagedCreatorMailCapture } from '@prisma/client';
-import { AI_TASK_CREATOR_BRAND_UPDATE, CREATOR_BRAND_UPDATE_SCHEMA_ID, parseCreatorBrandUpdate, validateCreatorBrandUpdate } from '@emgloop/shared';
+import { AI_OUTPUT_REJECTIONS, AI_TASK_CREATOR_BRAND_UPDATE, CREATOR_BRAND_UPDATE_SCHEMA_ID, parseCreatorBrandUpdate, validateCreatorBrandUpdate } from '@emgloop/shared';
 import type { WorkPrincipal } from '../repositories/work-state/work-principal';
 import { membershipAuthority } from '../repositories/membership.repository';
 import { PartyReadModelRepository } from '../repositories/party-read-model.repository';
@@ -116,10 +116,22 @@ export class ManagedCreatorMailRepository {
         if (reading.state === 'CURRENT' && !accepted(reading)) reading = { ...reading, state: 'WITHHELD', update: undefined, generatedAt: null };
         // Store the contract, never an accidental extra field containing source mail or model prose.
         const update = reading.update ? parseCreatorBrandUpdate({ schemaId: CREATOR_BRAND_UPDATE_SCHEMA_ID, ...reading.update })?.creatorBrandUpdate : undefined;
-        reading = { threadId: reading.threadId, brandId: reading.brandId, evidenceKey: reading.evidenceKey, fingerprint: reading.fingerprint, evidenceAt: reading.evidenceAt, checkedAt: now.toISOString(), generatedAt: reading.generatedAt, messageCount: reading.messageCount, incomplete: reading.incomplete, state: reading.state, ...(update ? { update } : {}) };
-        readings = [...readings.filter(r => r.threadId !== reading.threadId), reading].slice(-100);
+        const codes = AI_OUTPUT_REJECTIONS.filter(code => Array.isArray(reading.rejections) && reading.rejections.includes(code));
+        const retryAt = Date.parse(reading.retryAfter ?? '');
+        const validationRetry = reading.state === 'MODEL_UNAVAILABLE' && codes.length && retryAt >= now.getTime() && retryAt <= now.getTime() + 3600_000
+          ? { retryAfter: new Date(retryAt).toISOString(), rejections: codes } : {};
+        reading = { ...validationRetry, threadId: reading.threadId, brandId: reading.brandId, evidenceKey: reading.evidenceKey, fingerprint: reading.fingerprint, evidenceAt: reading.evidenceAt, checkedAt: now.toISOString(), generatedAt: reading.generatedAt, messageCount: reading.messageCount, incomplete: reading.incomplete, state: reading.state, ...(update ? { update } : {}) };
+        readings = [...readings.filter(r => r.threadId !== reading.threadId), reading];
       }
       readings = readings.filter(r => !r.evidenceAt || Number.isFinite(Date.parse(r.evidenceAt)) && now.getTime() - Date.parse(r.evidenceAt) <= 30 * DAY);
+      // Retain active validation cooldowns inside the same 100-reading bound so queue churn
+      // cannot erase a failed attempt's wait time and trigger another model call early.
+      const cooling = readings.filter(r => r.state === 'MODEL_UNAVAILABLE' && Date.parse(r.retryAfter ?? '') > now.getTime() &&
+        Date.parse(r.retryAfter ?? '') <= Date.parse(r.checkedAt) + 3600_000 &&
+        AI_OUTPUT_REJECTIONS.some(code => Array.isArray(r.rejections) && r.rejections.includes(code))).slice(-100);
+      const coolingIds = new Set(cooling.map(r => r.threadId));
+      const room = 100 - cooling.length;
+      readings = [...cooling, ...(room ? readings.filter(r => !coolingIds.has(r.threadId)).slice(-room) : [])];
       await tx.managedCreatorMailCapture.update({ where: { id: live.id }, data: { leaseToken: null, leaseUntil: null, nextCheckAt: new Date(now.getTime() + (patch.delayMs ?? 0)), lastCheckedAt: now, lastFailureClass: patch.failure ?? null,
         readings: JSON.parse(JSON.stringify(readings)) as Prisma.InputJsonValue,
         ...(patch.pending ? { pendingThreadIds: [...patch.pending].slice(0, 100) } : {}), ...(patch.pageToken !== undefined ? { nextPageToken: patch.pageToken } : {}), ...(patch.listed !== undefined ? { listedCount: patch.listed } : {}), ...(patch.complete !== undefined ? { searchComplete: patch.complete } : {}), ...(patch.capped !== undefined ? { capped: patch.capped } : {}),

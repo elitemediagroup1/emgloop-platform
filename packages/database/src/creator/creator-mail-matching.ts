@@ -1,6 +1,6 @@
 import { createHash } from 'crypto';
 import type { CreatorProfile } from '@prisma/client';
-import { creatorDeclaredSocialHandles, type CreatorBrandUpdate } from '@emgloop/shared';
+import { creatorDeclaredSocialHandles, type CreatorBrandUpdate, type AiOutputRejection } from '@emgloop/shared';
 
 export type MailCreatorIdentity = Pick<CreatorProfile, 'id' | 'displayName' | 'handle' | 'preferences' | 'socialAccounts'>;
 const normalized = (value: string) => value.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim();
@@ -60,4 +60,7 @@ export interface ManagedCaptureReading {
   readonly incomplete: boolean;
   readonly state: CaptureReadingState;
   readonly update?: CreatorBrandUpdate;
+  /** Validation-only cooldown. Other model failures still back off the entire source. */
+  readonly retryAfter?: string;
+  readonly rejections?: readonly AiOutputRejection[];
 }
