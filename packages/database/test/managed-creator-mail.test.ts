@@ -13,7 +13,7 @@ import { AiRuntimeGateway, InMemoryAiUsageLedger, type AiRunRequest } from '../s
 import type { AiRunResult } from '../src/services/ai-runtime/gateway';
 import { makeCognitivePrisma } from './helpers/cognitive-prisma-fake';
 import { creatorCapturePolicyFailure, creatorCapturePolicyReasons, creatorCaptureOutputFailure, creatorCaptureOutputReasons } from '../src/creator/creator-capture-failure';
-import { creatorMailText } from '../src/creator/creator-mail-text';
+import { creatorMailText, creatorMailAttributionText } from '../src/creator/creator-mail-text';
 const T0 = new Date('2026-11-02T18:00:00Z');
 const READ = 'https://www.googleapis.com/auth/gmail.readonly';
 async function world(realRuntime?: { run(principal: { organizationId: string; userId: string }, request: AiRunRequest): Promise<AiRunResult> }) {
@@ -114,7 +114,7 @@ test('Hope Going subject plus a Trevon footer is not automatic staff attribution
   assert.deepEqual(await w.repo.updates(w.recipient, w.profile.id, T0), []);
 });
 
-test('assigned-mailbox discovery needs no creator keyword; staff auto attribution requires the creator in the subject', async () => {
+test('assigned-mailbox discovery needs no creator keyword; staff attribution needs the creator in subject or body', async () => {
   for (const assigned of [false, true]) {
     const w = await world();
     w.threadHook(t => ({ ...t, messages: t.messages.map(m => ({ ...m, fact: { ...m.fact, subject: 'Brand Bravo partnership' }, body: { ...m.body, text: 'We would like to discuss the partnership.' } })) }));
@@ -373,4 +373,39 @@ test('the bounded reading cache retains validation cooldowns when other source c
   assert.equal(kept.length, 100);
   assert.equal(kept.find(r => r.threadId === failed.threadId)?.retryAfter, failed.retryAfter);
   assert.equal(runtime.requests.length, 2);
+});
+
+test('staff body-only creator names and saved handles reach AI even with a generic subject', async () => {
+  for (const identity of ['Trevon Hill', '@trevonhill']) {
+    const w = await world();
+    w.threadHook(t => ({ ...t, messages: t.messages.map(m => ({ ...m, fact: { ...m.fact, subject: 'Brand Bravo partnership' }, body: { ...m.body, text: `We are discussing a collaboration with ${identity}.` } })) }));
+    await w.start([w.staff.id]); await w.drain();
+    assert.equal(w.counts().modelCalls, 1, identity);
+    assert.equal((await w.repo.updates(w.recipient, w.profile.id, T0))[0]?.stage, 'DISCUSSING');
+  }
+});
+
+test('a name found only in signatures, roster footer or quoted history cannot bind staff mail', async () => {
+  for (const body of [
+    'We are discussing a partnership.\n\nBest,\nTrevon Hill',
+    'We are discussing a partnership.\n\nOur roster:\nTrevon Hill',
+    'We are discussing a partnership.\n\nOur roster also includes Trevon Hill.',
+    'We are discussing a partnership.\nOn Monday someone wrote:\nTrevon Hill',
+    'We are discussing a partnership.\n> Trevon Hill',
+  ]) {
+    const w = await world();
+    w.threadHook(t => ({ ...t, messages: t.messages.map(m => ({ ...m, fact: { ...m.fact, subject: 'Brand Bravo partnership' }, body: { ...m.body, text: body } })) }));
+    await w.start([w.staff.id]); await w.drain();
+    assert.equal(w.counts().modelCalls, 0, body);
+    assert.deepEqual(await w.repo.updates(w.recipient, w.profile.id, T0), []);
+  }
+  assert.match(creatorMailAttributionText('Thanks for considering Trevon Hill for this partnership.'), /Trevon Hill/);
+});
+
+test('body-only mixed creator discussions are withheld before AI', async () => {
+  const w = await world();
+  w.threadHook(t => ({ ...t, messages: t.messages.map(m => ({ ...m, fact: { ...m.fact, subject: 'Brand Bravo partnership' }, body: { ...m.body, text: 'We are discussing Trevon Hill and Other Creator for the partnership.' } })) }));
+  await w.start([w.staff.id]); await w.drain();
+  assert.equal(w.counts().modelCalls, 0);
+  assert.equal(captureReadings((await w.db.managedCreatorMailCapture.findMany())[0]!.readings)[0]?.state, 'MIXED_CREATORS');
 });

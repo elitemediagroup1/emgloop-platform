@@ -9,7 +9,7 @@ test('manager breakdown distinguishes pre-AI brand and creator gates from unavai
     { label: 'Assigned source', readings: [{ state: 'MODEL_UNAVAILABLE' }, { state: 'CURRENT' }] },
   ]} />);
   assert.match(html, /company matched in subject or external domain<\/th><td>2<\/td><td>0<\/td>/);
-  assert.match(html, /Creator not matched in staff subject<\/th><td>1<\/td><td>0<\/td>/);
+  assert.match(html, /Creator not matched in staff subject or body<\/th><td>1<\/td><td>0<\/td>/);
   assert.match(html, /AI summary unavailable<\/th><td>0<\/td><td>1<\/td>/);
   assert.match(html, /Accepted summary \(may be stale\)<\/th><td>0<\/td><td>1<\/td>/);
   assert.match(html, /An unmatched or unmapped thread stops before AI/);
