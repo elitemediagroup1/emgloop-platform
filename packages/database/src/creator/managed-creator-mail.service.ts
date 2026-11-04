@@ -5,7 +5,7 @@ import type { WorkPrincipal } from '../repositories/work-state/work-principal';
 import type { AiRunRequest, AiRunResult } from '../services/ai-runtime/gateway';
 import { buildMailTriageContext } from '../services/ai-runtime/mail-content-triage-context';
 import { creatorCapturePolicyFailure, creatorCaptureOutputFailure } from './creator-capture-failure';
-import { creatorMailText } from './creator-mail-text';
+import { creatorMailText, creatorMailAttributionText } from './creator-mail-text';
 import { CREATOR_BRAND_MAIL_INSTRUCTIONS } from './creator-brand-mail.service';
 import { ManagedCreatorMailRepository, captureReadings } from './managed-creator-mail.repository';
 import { creatorMailAliases, exactMailPhrase, companyMailDomainMatch, mailEvidenceHash, type ManagedCaptureReading } from './creator-mail-matching';
@@ -95,7 +95,10 @@ export class ManagedCreatorMailService {
     if (!creatorMailText(latest.body)) return finish();
     const human = external.filter(m => !m.fact.automationClass);
     const messages = human.slice(-8).flatMap(m => {
-      const text = creatorMailText(m.body)?.slice(0, 1800) ?? '';
+      const raw = creatorMailText(m.body) ?? '';
+      const substantive = creatorMailAttributionText(raw);
+      if (substantive !== raw) reading = { ...reading, incomplete: true };
+      const text = substantive.slice(0, 1800);
       return text ? [{ direction: (internal.has(m.fact.from?.address.toLowerCase() ?? '') || m.fact.fromSelf ? 'OUTBOUND' : 'INBOUND') as 'OUTBOUND' | 'INBOUND', occurredAt: m.fact.internalDate, fromLabel: null, text }] : [];
     });
     if (!messages.length) { reading = { ...reading, state: 'WITHHELD' }; return finish(); }
@@ -103,17 +106,16 @@ export class ManagedCreatorMailService {
     const text = `${subject}\n${messages.map(m => m.text).join('\n')}`;
     const matches = scope.roster.filter(p => creatorMailAliases(p).some(alias => exactMailPhrase(text, alias)));
     if (matches.some(p => p.id !== row.creatorProfileId)) { reading = { ...reading, state: 'MIXED_CREATORS' }; return finish(); }
-    // Staff keywords discover candidates across a shared inbox. Auto attribution additionally
-    // requires the intended creator in the subject; a footer/body hit cannot bind another creator's thread.
-    // Generic subjects remain eligible for explicit manager-authorized thread sharing instead.
-    if (scope.source.kind === 'STAFF' && !creatorMailAliases(scope.profile).some(alias => exactMailPhrase(subject, alias))) { reading = { ...reading, state: 'UNMATCHED_CREATOR' }; return finish(); }
+    // Shared inboxes match the saved creator name/handle in the subject OR substantive body.
+    // Signatures, roster footers and quoted history cannot supply the match; AI still confirms it.
+    if (scope.source.kind === 'STAFF' && !creatorMailAliases(scope.profile).some(alias => exactMailPhrase(text, alias))) { reading = { ...reading, state: 'UNMATCHED_CREATOR' }; return finish(); }
     const participants = external.flatMap(m => [m.fact.from, ...m.fact.to, ...m.fact.cc].flatMap(a => a && !internal.has(a.address.toLowerCase()) ? [a.address] : []));
     // Never match a company from ordinary body words. An exact company/domain correspondence
     // is another provisional candidate, not confirmation of a creator-brand relationship.
     const brands = scope.brands.filter(b => b.displayName && b.displayName.trim().length >= 4 && (exactMailPhrase(subject, b.displayName) || companyMailDomainMatch(b.displayName, participants)));
     if (brands.length !== 1) { reading = { ...reading, state: 'UNMAPPED_BRAND' }; return finish(); }
     const brand = brands[0]!;
-    reading = { ...reading, brandId: brand.id, fingerprint: mailEvidenceHash(JSON.stringify({ template: 5, creator: row.creatorProfileId, brand: brand.id, messages, incomplete: reading.incomplete })) };
+    reading = { ...reading, brandId: brand.id, fingerprint: mailEvidenceHash(JSON.stringify({ template: 6, creator: row.creatorProfileId, brand: brand.id, messages, incomplete: reading.incomplete })) };
     const previous = captureReadings(row.readings).find(r => r.threadId === threadId && r.fingerprint === reading.fingerprint && ['CURRENT', 'WITHHELD'].includes(r.state));
     if (previous) { reading = { ...previous, evidenceAt: reading.evidenceAt, evidenceKey: reading.evidenceKey, checkedAt: now().toISOString() }; return finish(0, false, true); }
     const contextId = mailEvidenceHash(`${row.id}:${threadId}`);
@@ -121,7 +123,7 @@ export class ManagedCreatorMailService {
     const built = buildMailTriageContext({ ...principal, organizationId: row.organizationId, viewerUserId: row.ownerUserId, threadId: contextId, subject, messages, truncated: reading.incomplete, lane: null });
     const authority = { resource: 'managedMailboxes', action: 'view' as const };
     const context = { ...built.context, taskId: AI_TASK_CREATOR_BRAND_UPDATE.taskId, items: [...built.context.items.map(item => ({ ...item, readUnder: authority })), { blockId: `${row.organizationId}::creator_scope:${row.id}`, kind: 'TEXT' as const, trust: 'UNTRUSTED_INPUT' as const, sourceRef: `creator_scope:${row.id}`, content: `SCOPE: creator=${JSON.stringify(scope.profile.displayName)}; brand or agency=${JSON.stringify(brand.displayName)}; source=${scope.source.kind === 'CREATOR' ? 'assigned creator mailbox' : 'shared staff mailbox'}; evidence ${reading.incomplete ? 'is incomplete' : 'is included'}.`, sensitivity: 'CONTACT_IDENTIFIER' as const, readUnder: authority }] };
-    const request: AiRunRequest = { task: AI_TASK_CREATOR_BRAND_UPDATE, context, evidence: built.evidence, instructions: INSTRUCTIONS, schema: CREATOR_BRAND_UPDATE_SCHEMA, templateId: 'managed-creator-brand-mail', templateVersion: '5', signal: AbortSignal.timeout(45_000) };
+    const request: AiRunRequest = { task: AI_TASK_CREATOR_BRAND_UPDATE, context, evidence: built.evidence, instructions: INSTRUCTIONS, schema: CREATOR_BRAND_UPDATE_SCHEMA, templateId: 'managed-creator-brand-mail', templateVersion: '6', signal: AbortSignal.timeout(45_000) };
     let result = await runtime.run(principal, request);
     // At most one validation repair, with original evidence only. Refusals/failures stop.
     // Each run uses the governed gateway and its own reservation; rejected prose is never fed back.
@@ -130,7 +132,7 @@ export class ManagedCreatorMailService {
       if (codes.length) {
         if (!(await repo.scope(row))) { await repo.finish(row, now(), { failure: 'SCOPE_ENDED', delayMs: 300_000 }); return { CAPTURE_WAITING: 1 }; }
         if (!request.signal?.aborted) result = await runtime.run(principal, {
-          ...request, templateVersion: '5.repair1',
+          ...request, templateVersion: '6.repair1',
           instructions: `${INSTRUCTIONS}\nOne validation repair. Previous validation codes: ${codes.join(', ')}. Generate a fresh response from the supplied source evidence. Do not copy source sentences or invent facts to satisfy validation. Use short paraphrases, no numbers, dates, quotes or private commercial details. Cite exact supplied mail_message references only. If a safe, attributable summary is not possible, use publishable false with empty summary, nextStep and citations.`,
         });
       }

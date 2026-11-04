@@ -19,3 +19,17 @@ export function creatorMailText(body: Pick<GmailMessageBody, 'text' | 'html'>): 
     return trimQuotedHistory(text) || null;
   } catch { return null; }
 }
+
+/** Text eligible for creator attribution; quoted history and conventional footer blocks are not evidence. */
+export function creatorMailAttributionText(text: string): string {
+  const out: string[] = [];
+  for (const line of trimQuotedHistory(text).split('\n')) {
+    if (/^\s*--\s*$/.test(line) ||
+      /^\s*(?:best(?: regards)?|kind regards|regards|thank you|thanks|cheers|sincerely)[,!]?\s*$/i.test(line) ||
+      /^\s*sent from my\b/i.test(line) ||
+      /^\s*(?:(?:our|full|current|agency|creator|talent)\s+)*roster\s*:?\s*$/i.test(line) ||
+      /^\s*our roster also includes\b/i.test(line)) break;
+    out.push(line);
+  }
+  return out.join('\n').trim();
+}
