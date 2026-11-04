@@ -16,7 +16,8 @@ export async function startCreatorCaptureAction(form: FormData): Promise<void> {
   let outcome = 'FAILED';
   try {
     const principal = { organizationId: actor.organizationId, userId: actor.userId };
-    outcome = await managedCreatorMailRepository().configure(principal, profileId, form.getAll('sourceId').map(String), new Date());
+    const keywords = field(form, 'staffKeywords').split(/\r?\n/).map(v => v.trim()).filter(Boolean);
+    outcome = await managedCreatorMailRepository().configure(principal, profileId, form.getAll('sourceId').map(String), new Date(), keywords.length ? keywords : undefined);
     if (outcome === 'STARTED') await managedCreatorMailService().pass(principal, profileId);
   } catch { /* Only closed outcome codes reach the browser. */ }
   back(profileId, outcome);

@@ -9,7 +9,7 @@ import { CreatorUpdatesRefresh } from './CreatorUpdatesRefresh';
 import { startCreatorCaptureAction, advanceCreatorCaptureAction, pauseCreatorCaptureAction } from './creator-capture-actions';
 import { viewerTime } from '../time/viewer-time';
 import { CreatorCaptureScreening } from './creator-capture-screening';
-const OUTCOMES: Record<string, string> = { STARTED: 'The selected mailbox pilot has started. Summaries will appear as conversations are checked.', PAUSED: 'Capture is paused and its creator-facing readings have been removed.', CHECKED: 'Checked the next due capture step. Pending sources keep their actual wait time.', INVALID: 'Select between one and four connected sources.', NOT_ALLOWED: 'Check the manager authorization, assigned mailbox and bound Creator login.', FAILED: 'The capture step could not finish. No unchecked output was published.' };
+const OUTCOMES: Record<string, string> = { STARTED: 'The selected mailbox pilot has started. Summaries will appear as conversations are checked.', PAUSED: 'Capture is paused and its creator-facing readings have been removed.', CHECKED: 'Checked the next due capture step. Pending sources keep their actual wait time.', INVALID: 'Select between one and four connected sources and enter one to twenty staff email keywords.', NOT_ALLOWED: 'Check the manager authorization, assigned mailbox and bound Creator login.', FAILED: 'The capture step could not finish. No unchecked output was published.' };
 
 const FAILURES: Record<string, string> = {
   SEARCH_UNAVAILABLE: 'Gmail search unavailable; retry pending',
@@ -35,7 +35,7 @@ export async function CreatorCapturePanel({ principal, profileId, ownEmail, outc
   const repo = managedCreatorMailRepository(), sources = managedMailboxes().service.repository;
   if (!(await sources.permittedFor(principal, 'view'))) return null;
   if (!(await repo.present(principal.organizationId))) return <Panel title="Creator email pilot"><p className="loop-note">Capture is awaiting its database migration. Existing mailbox connections remain saved.</p></Panel>;
-  const [staff, assigned, captures] = await Promise.all([sources.inventory(principal, null), sources.inventory(principal, profileId), repo.status(principal, profileId)]);
+  const [staff, assigned, captures, keywords] = await Promise.all([sources.inventory(principal, null), sources.inventory(principal, profileId), repo.status(principal, profileId), repo.staffKeywords(principal, profileId)]);
   const available = [...(staff ?? []), ...(assigned ?? [])].filter(s => s.status === 'CONNECTED');
   const active = (captures ?? []).filter(c => c.enabled), selected = new Set(active.map(c => c.mailboxId));
   const allReadings = active.flatMap(c => captureReadings(c.readings));
@@ -52,10 +52,12 @@ export async function CreatorCapturePanel({ principal, profileId, ownEmail, outc
     <CreatorCaptureScreening sources={active.map(c => ({ label: available.find(s => s.id === c.mailboxId)?.expectedEmail ?? 'Unavailable source', readings: captureReadings(c.readings) }))} />
     <form action={startCreatorCaptureAction} className="loop-stack">
       <input type="hidden" name="profileId" value={profileId} />
+      <label>Staff email keywords (one per line)<textarea name="staffKeywords" rows={3} maxLength={2020} defaultValue={(keywords ?? []).join('\n')} /></label>
+      <p className="loop-note">These keywords identify this creator in shared staff mailboxes. Leave blank to keep the current keywords. A match in the subject or message body sends the conversation for AI review. Assigned creator mailboxes do not use these keywords. Saving starts a fresh capture pass with the selected sources.</p>
       {available.map(s => <label key={s.id}><input type="checkbox" name="sourceId" value={s.id} defaultChecked={active.length ? selected.has(s.id) : s.kind === 'CREATOR' || s.expectedEmail.toLowerCase() === ownEmail.toLowerCase()} /> {s.expectedEmail} · {s.kind === 'CREATOR' ? 'assigned creator mailbox' : 'shared staff mailbox'}</label>)}
       {!available.length ? <p className="loop-note">Authorize a staff or assigned creator mailbox first.</p> : <>
         <label><input type="checkbox" name="confirmed" required /> Enable automatic, minimized AI brand summaries for this creator from only the selected mailboxes. Internal-only and other creators’ discussions must not be published.</label>
-        <p className="loop-note">The pilot searches the last 30 days and examines up to 100 matching threads per source. It includes sent messages and relevant archived replies, not just Inbox. Staff searches use the creator’s saved full name and social handles; automatic attribution accepts a creator match in the subject or message body, excluding quoted history and recognizable signature or roster footers. Assigned-mailbox searches do not require creator keywords. Automatic brand candidates need a subject match or an exact full-company match to an external email domain, and still need an accepted AI summary. Staff threads without a creator match are held for explicit sharing. This is bounded coverage, not a complete outreach-history count. Starting again replaces this pilot’s readings and source selection.</p>
+        <p className="loop-note">The pilot searches the last 30 days and examines up to 100 matching threads per source. It includes sent messages and relevant archived replies, not just Inbox. Staff searches use the exact keywords above; automatic attribution accepts a creator match in the subject or message body, excluding quoted history and recognizable signature or roster footers. Assigned-mailbox searches do not require creator keywords. Automatic brand candidates need a subject match or an exact full-company match to an external email domain, and still need an accepted AI summary. Staff threads without a creator match are held for explicit sharing. This is bounded coverage, not a complete outreach-history count. Starting again replaces this pilot’s readings and source selection.</p>
         <button className="loop-btn loop-btn--primary" type="submit">{active.length ? 'Restart with selected sources' : 'Start selected mailbox pilot'}</button>
       </>}
     </form>

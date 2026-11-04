@@ -409,3 +409,42 @@ test('body-only mixed creator discussions are withheld before AI', async () => {
   assert.equal(w.counts().modelCalls, 0);
   assert.equal(captureReadings((await w.db.managedCreatorMailCapture.findMany())[0]!.readings)[0]?.state, 'MIXED_CREATORS');
 });
+
+test('explicit staff keywords replace inferred aliases and accept exactly the three requested Trevon variations', async () => {
+  for (const identity of ['Trevon Hill', 'Trevon', 'trevonbassmaster']) {
+    for (const location of ['subject', 'body']) {
+      const w = await world();
+      w.threadHook(t => ({ ...t, messages: t.messages.map(m => ({ ...m, fact: { ...m.fact, subject: `Brand Bravo partnership${location === 'subject' ? ` with ${identity}` : ''}` }, body: { ...m.body, text: location === 'body' ? `A collaboration with ${identity} is being discussed.` : 'A collaboration is being discussed.' } })) }));
+      assert.equal(await w.repo.configure(w.owner, w.profile.id, [w.staff.id], T0, ['Trevon Hill', 'Trevon', 'trevonbassmaster']), 'STARTED');
+      const saved = await w.db.creatorProfile.findFirst({ where: { id: w.profile.id } });
+      assert.deepEqual(creatorMailAliases(saved!), ['trevon', 'trevon hill', 'trevonbassmaster']);
+      assert.equal(creatorMailQuery(saved!, true, T0)!.includes('trevon'), false);
+      assert.equal(exactMailPhrase('Trevonhill', 'trevon'), false);
+      assert.equal(exactMailPhrase('Trevonbassmasters', 'trevonbassmaster'), false);
+      await w.drain();
+      assert.equal(w.counts().modelCalls, 1, `${identity} in ${location}`);
+      assert.equal((await w.repo.updates(w.recipient, w.profile.id, T0)).length, 1);
+    }
+  }
+});
+
+test('keyword changes are scoped, validated and atomic with source authorization', async () => {
+  const w = await world();
+  const before = await w.repo.staffKeywords(w.owner, w.profile.id);
+  assert.equal(await w.repo.configure(w.foreign, w.profile.id, [w.staff.id], T0, ['Trevon']), 'NOT_ALLOWED');
+  assert.equal(await w.repo.configure(w.recipient, w.profile.id, [w.staff.id], T0, ['Trevon']), 'NOT_ALLOWED');
+  assert.equal(await w.repo.configure(w.owner, w.profile.id, [w.staff.id, w.fran.id], T0, ['Trevon']), 'NOT_ALLOWED');
+  for (const words of [[], [''], ['Trevon" OR after:0'], Array.from({ length: 21 }, (_, i) => `name${i}`)]) {
+    assert.equal(await w.repo.configure(w.owner, w.profile.id, [w.staff.id], T0, words), 'INVALID');
+  }
+  assert.deepEqual(await w.repo.staffKeywords(w.owner, w.profile.id), before);
+  assert.equal(await w.repo.staffKeywords(w.foreign, w.profile.id), null);
+  assert.equal(await w.repo.configure(w.owner, w.profile.id, [w.staff.id, w.assigned.id], T0, ['Trevon Hill', 'Trevon', 'trevonbassmaster']), 'STARTED');
+  const rows = await w.db.managedCreatorMailCapture.findMany();
+  assert.match(rows.find(r => r.mailboxId === w.staff.id)!.query, /\{"trevon" "trevon hill" "trevonbassmaster"\}/);
+  assert.doesNotMatch(rows.find(r => r.mailboxId === w.assigned.id)!.query, /trevon/);
+  assert.deepEqual(await w.repo.staffKeywords(w.owner, w.other.id), creatorMailAliases(w.other));
+  assert.deepEqual(await w.service.pass(), { CAPTURE_LISTED: 1 });
+  await w.drain();
+  assert.equal(w.counts().modelCalls, 2);
+});

@@ -8,7 +8,7 @@ import { AuditRepository } from '../repositories/audit.repository';
 import { IamRepository } from '../repositories/iam.repository';
 import { ManagedMailboxRepository } from './managed-mailbox.repository';
 import { absentUntilMigrated } from './until-migrated';
-import { creatorCaptureScopeHash, creatorMailQuery, mailEvidenceHash, type ManagedCaptureReading } from './creator-mail-matching';
+import { creatorCaptureScopeHash, creatorMailAliases, parseCreatorMailKeywords, creatorMailQuery, mailEvidenceHash, type ManagedCaptureReading } from './creator-mail-matching';
 import type { PublishedCreatorBrandUpdate } from './creator-brand-mail.repository';
 
 type Db = Prisma.TransactionClient;
@@ -47,24 +47,36 @@ export class ManagedCreatorMailRepository {
     } else if (source.kind !== 'STAFF' || source.creatorProfileId !== null) return null;
     return { profile, source };
   }
-  async configure(principal: WorkPrincipal, profileId: string, sourceIds: readonly string[], now: Date): Promise<'STARTED' | 'NOT_ALLOWED' | 'INVALID'> {
+  async staffKeywords(principal: WorkPrincipal, profileId: string): Promise<string[] | null> {
+    if (!(await this.mailboxes().permittedFor(principal, 'view'))) return null;
+    const profile = await this.prisma.creatorProfile.findFirst({ where: { organizationId: principal.organizationId, id: profileId } });
+    return profile ? creatorMailAliases(profile) : null;
+  }
+  async configure(principal: WorkPrincipal, profileId: string, sourceIds: readonly string[], now: Date, staffKeywords?: readonly string[]): Promise<'STARTED' | 'NOT_ALLOWED' | 'INVALID'> {
+    const keywords = staffKeywords === undefined ? undefined : parseCreatorMailKeywords(staffKeywords);
+    if (keywords === null) return 'INVALID';
     const ids = [...new Set(sourceIds)];
     if (!ids.length || ids.length > 4 || ids.some(id => !id || id.length > 200)) return 'INVALID';
     return this.prisma.$transaction(async tx => {
       if (!(await this.mailboxes().permitted(tx, principal, 'update', now))) return 'NOT_ALLOWED';
       const profile = await tx.creatorProfile.findFirst({ where: { organizationId: principal.organizationId, id: profileId } });
       if (!profile?.userId) return 'NOT_ALLOWED';
+      const preferences = profile.preferences && typeof profile.preferences === 'object' && !Array.isArray(profile.preferences) ? profile.preferences : {};
+      const updatedProfile = keywords ? { ...profile, preferences: { ...preferences, staffMailKeywords: keywords } } : profile;
       const rows = [];
       for (const mailboxId of ids) {
         const source = await tx.managedGoogleMailbox.findFirst({ where: { organizationId: principal.organizationId, id: mailboxId, status: 'CONNECTED' } });
         if (!source) return 'NOT_ALLOWED';
-        const query = creatorMailQuery(profile, source.kind === 'CREATOR', new Date(now.getTime() - 30 * DAY));
+        const query = creatorMailQuery(updatedProfile, source.kind === 'CREATOR', new Date(now.getTime() - 30 * DAY));
         if (!query) return 'INVALID';
         const data = { organizationId: principal.organizationId, creatorProfileId: profile.id, recipientUserId: profile.userId, ownerUserId: principal.userId, mailboxId, mailboxRevision: source.revision, scopeHash: creatorCaptureScopeHash(profile), generation: randomUUID(), enabled: true, windowStart: new Date(now.getTime() - 30 * DAY), cycleStartedAt: now, query, pendingThreadIds: [], nextPageToken: null, listedCount: 0, searchComplete: false, capped: false, readings: [] as Prisma.InputJsonValue, lastCheckedAt: null, lastFailureClass: null, nextCheckAt: now, leaseToken: null, leaseUntil: null };
         if (!(await this.allowed(tx, data))) return 'NOT_ALLOWED';
-        rows.push(data);
+        rows.push({ ...data, scopeHash: creatorCaptureScopeHash(updatedProfile) });
       }
-      // Validate the complete selection before any mutation; deselected sources stop immediately.
+      // Validate every selected source before changing profile keywords or capture scopes.
+      if (keywords) await tx.creatorProfile.update({ where: { id: profile.id, organizationId: principal.organizationId }, data: { preferences: updatedProfile.preferences as Prisma.InputJsonValue } });
+      // Keyword changes receive a fresh generation: no old lease or reading can cross the new scope.
+      // Deselect old sources immediately; selected sources start with the new scope.
       await tx.managedCreatorMailCapture.updateMany({ where: { organizationId: principal.organizationId, creatorProfileId: profile.id }, data: { enabled: false, readings: [], pendingThreadIds: [], leaseToken: null, leaseUntil: null, generation: randomUUID() } });
       for (const data of rows) {
         const existing = await tx.managedCreatorMailCapture.findFirst({ where: { organizationId: principal.organizationId, creatorProfileId: profile.id, mailboxId: data.mailboxId } });

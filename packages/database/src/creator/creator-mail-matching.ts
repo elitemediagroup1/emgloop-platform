@@ -24,7 +24,16 @@ export function companyMailDomainMatch(company: string, addresses: readonly stri
     return !personal.has(host) && labels.at(-2)!.replace(/-/g, '') === name;
   });
 }
+/** Explicit manager keywords replace inferred aliases, including when a first name is intentional. */
+export function parseCreatorMailKeywords(value: unknown): string[] | null {
+  if (!Array.isArray(value) || !value.length || value.length > 20 || value.some(v => typeof v !== 'string')) return null;
+  const words = [...new Set((value as string[]).map(v => normalized(v).replace(/^@/, '')))];
+  return words.every(v => v.length >= 2 && v.length <= 100 && /^[\p{L}\p{N}][\p{L}\p{N}_. -]*$/u.test(v)) ? words.sort() : null;
+}
 export function creatorMailAliases(profile: MailCreatorIdentity): string[] {
+  const preferences = profile.preferences;
+  if (preferences && typeof preferences === 'object' && !Array.isArray(preferences) && Object.hasOwn(preferences, 'staffMailKeywords')) return parseCreatorMailKeywords(preferences.staffMailKeywords) ?? [];
+
   const names = normalized(profile.displayName).split(' ').filter(Boolean).length >= 2 ? [profile.displayName] : [];
   const social = Array.isArray(profile.socialAccounts) ? profile.socialAccounts : [];
   const handles = [profile.handle, ...Object.values(creatorDeclaredSocialHandles(profile.preferences)), ...social.flatMap(s => s && typeof s === 'object' && !Array.isArray(s) && typeof s.handle === 'string' ? [s.handle] : [])];
