@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { PrismaClient } from '@prisma/client';
-import { parseCreatorBrandUpdate, CREATOR_BRAND_UPDATE_SCHEMA_ID, type GmailThreadView } from '@emgloop/shared';
+import { parseCreatorBrandUpdate, CREATOR_BRAND_UPDATE_SCHEMA_ID, type GmailThreadView, type AiModelRequest, type AiModelResult } from '@emgloop/shared';
 import { IamRepository } from '../src/repositories/iam.repository';
 import { PartyService } from '../src/services/party.service';
 import { CreatorRepository } from '../src/creator/creator.repository';
@@ -12,7 +12,7 @@ import { AI_ROUTING_POLICY, AI_BUDGET_POLICY } from '@emgloop/providers';
 import { AiRuntimeGateway, InMemoryAiUsageLedger, type AiRunRequest } from '../src/services/ai-runtime/gateway';
 import type { AiRunResult } from '../src/services/ai-runtime/gateway';
 import { makeCognitivePrisma } from './helpers/cognitive-prisma-fake';
-import { creatorCapturePolicyFailure, creatorCapturePolicyReasons } from '../src/creator/creator-capture-failure';
+import { creatorCapturePolicyFailure, creatorCapturePolicyReasons, creatorCaptureOutputFailure, creatorCaptureOutputReasons } from '../src/creator/creator-capture-failure';
 import { creatorMailText } from '../src/creator/creator-mail-text';
 const T0 = new Date('2026-11-02T18:00:00Z');
 const READ = 'https://www.googleapis.com/auth/gmail.readonly';
@@ -130,7 +130,7 @@ test('withheld and rejected AI results expose no candidate; validation failure i
     const w = await world(); w.setMode(mode); await w.start([w.staff.id]); await w.drain();
     assert.deepEqual(await w.repo.updates(w.recipient, w.profile.id, T0), []);
     const row = (await w.db.managedCreatorMailCapture.findMany())[0]!;
-    assert.equal(row.lastFailureClass, mode === 'rejected' ? 'MODEL_OUTPUT_REJECTED' : null);
+    assert.equal(row.lastFailureClass, mode === 'rejected' ? 'MODEL_OUTPUT_REJECTED:UNSUPPORTED_NUMBER_IN_TEXT' : null);
   }
 });
 
@@ -257,5 +257,67 @@ test('real gateway task refusal survives capture storage without a provider call
   assert.equal(row.lastFailureClass, 'MODEL_POLICY_REFUSED:TASK_NOT_ENABLED');
   assert.equal(calls, 0); assert.equal(ledger.calls.length, 0);
   assert.equal(row.nextCheckAt.getTime(), T0.getTime() + 3600_000);
+  assert.deepEqual(await w.repo.updates(w.recipient, w.profile.id, T0), []);
+});
+
+function validatingRuntime(reply: (request: AiModelRequest, ordinal: number) => Promise<AiModelResult>) {
+  const ledger = new InMemoryAiUsageLedger();
+  const requests: AiModelRequest[] = [];
+  let invocation = 0;
+  const gateway = new AiRuntimeGateway({
+    activation: { enabled: true, organizations: ['a'], tasks: ['creator.brand.update'], providers: ['anthropic', 'openai'] },
+    policy: AI_ROUTING_POLICY, budget: AI_BUDGET_POLICY, killSwitches: [], maxAttemptsPerTarget: 1,
+  }, {
+    providers: ['anthropic', 'openai'].map(providerId => ({ providerId, invoke: async (request: AiModelRequest) => { requests.push(request); return reply(request, requests.length); } })),
+    ledger, authorize: async () => true, now: () => T0, newInvocationId: () => `fixture-${++invocation}`,
+    providerPolicies: async () => ['anthropic', 'openai'].map(providerId => ({ providerId, state: 'ACTIVE' as const, ceiling: 'COMMUNICATION_CONTENT' as const, version: 1, recordedAtMs: T0.getTime() })),
+  });
+  return { gateway, ledger, requests };
+}
+function modelReply(request: AiModelRequest, summary: string, stopReason: AiModelResult['stopReason'] = 'END'): AiModelResult {
+  const ref = request.input.find(item => item.sourceRef.startsWith('mail_message:'))!.sourceRef;
+  return { output: { json: { schemaId: CREATOR_BRAND_UPDATE_SCHEMA_ID, publishable: true, stage: 'DISCUSSING', summary, nextStep: '', citations: [ref] } },
+    toolCalls: [], stopReason, usage: { inputTokens: 100, outputTokens: 100 }, providerRequestId: 'fixture-request', reportedModel: request.model.modelId, latencyMs: 1 };
+}
+
+test('real gateway repairs a rejected summary once and publishes only the newly validated paraphrase', async () => {
+  const runtime = validatingRuntime(async (request, ordinal) => modelReply(request, ordinal === 1 ? 'PRIVATE_REJECTED_SUMMARY costs $500.' : 'EMG is discussing a collaboration with the brand.'));
+  const w = await world(runtime.gateway); await w.start([w.staff.id]); await w.drain();
+  assert.equal(runtime.requests.length, 2);
+  assert.match(runtime.requests[1]!.instructions, /VERBATIM_CONTENT/);
+  assert.doesNotMatch(JSON.stringify(runtime.requests[1]), /PRIVATE_REJECTED_SUMMARY/);
+  assert.deepEqual(runtime.requests[1]!.input, runtime.requests[0]!.input);
+  assert.deepEqual(runtime.ledger.calls.map(c => c.reconciliation?.outcome), ['REJECTED_BY_LOOP', 'ANSWERED']);
+  const rows = await w.repo.updates(w.recipient, w.profile.id, T0);
+  assert.equal(rows[0]?.summary, 'EMG is discussing a collaboration with the brand.');
+  assert.doesNotMatch(JSON.stringify(await w.db.managedCreatorMailCapture.findMany()), /PRIVATE_REJECTED_SUMMARY/);
+});
+
+test('two rejected outputs stop at two calls, retain exact safe reasons and preserve backoff', async () => {
+  const runtime = validatingRuntime(async request => modelReply(request, 'PRIVATE_REJECTED_SUMMARY costs $500.'));
+  const w = await world(runtime.gateway); await w.start([w.staff.id]); await w.drain();
+  assert.equal(runtime.requests.length, 2);
+  const row = (await w.db.managedCreatorMailCapture.findMany())[0]!;
+  assert.deepEqual(creatorCaptureOutputReasons(row.lastFailureClass!), ['UNSUPPORTED_NUMBER_IN_TEXT', 'VERBATIM_CONTENT']);
+  assert.equal(row.pendingThreadIds.length, 1);
+  assert.equal(row.nextCheckAt.getTime(), T0.getTime() + 3600_000);
+  assert.deepEqual(await w.repo.updates(w.recipient, w.profile.id, T0), []);
+  assert.equal(creatorCaptureOutputFailure(['PRIVATE_ERROR_TEXT']), 'MODEL_OUTPUT_REJECTED');
+  assert.deepEqual(creatorCaptureOutputReasons('MODEL_OUTPUT_REJECTED:PRIVATE_ERROR_TEXT'), []);
+});
+
+test('model refusal is final and never triggers a repair or provider shopping', async () => {
+  const runtime = validatingRuntime(async request => modelReply(request, '', 'REFUSAL'));
+  const w = await world(runtime.gateway); await w.start([w.staff.id]); await w.drain();
+  assert.equal(runtime.requests.length, 1);
+  assert.equal((await w.db.managedCreatorMailCapture.findMany())[0]!.lastFailureClass, 'MODEL_REFUSED');
+  assert.deepEqual(await w.repo.updates(w.recipient, w.profile.id, T0), []);
+});
+
+test('scope withdrawal after rejection prevents the repair and any late publication', async () => {
+  let w: Awaited<ReturnType<typeof world>>;
+  const runtime = validatingRuntime(async request => { await w.repo.pause(w.owner, w.profile.id); return modelReply(request, 'PRIVATE_REJECTED_SUMMARY costs $500.'); });
+  w = await world(runtime.gateway); await w.start([w.staff.id]); await w.drain();
+  assert.equal(runtime.requests.length, 1);
   assert.deepEqual(await w.repo.updates(w.recipient, w.profile.id, T0), []);
 });
