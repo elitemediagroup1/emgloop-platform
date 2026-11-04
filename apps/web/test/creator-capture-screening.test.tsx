@@ -23,3 +23,13 @@ test('unknown results stay count-only and candidate/private fields never render'
   assert.doesNotMatch(html, /PRIVATE_/);
   assert.equal(renderToStaticMarkup(<CreatorCaptureScreening sources={[{ label: 'Authorized source', readings: [] }]} />), '');
 });
+
+test('validation retry diagnostics count only allowlisted reasons and never reveal source fields', () => {
+  const html = renderToStaticMarkup(<CreatorCaptureScreening sources={[
+    { label: 'Staff source', readings: [{ state: 'MODEL_UNAVAILABLE', rejections: ['UNSUPPORTED_NUMBER_IN_TEXT', 'PRIVATE_PROVIDER_TEXT'] }] },
+    { label: 'Other source', readings: [{ state: 'CURRENT', rejections: ['UNSUPPORTED_NUMBER_IN_TEXT'] }] },
+  ]} />);
+  assert.match(html, /UNSUPPORTED_NUMBER_IN_TEXT<\/th><td>1<\/td><td>0<\/td>/);
+  assert.match(html, /remaining queue continues/);
+  assert.doesNotMatch(html, /PRIVATE_/);
+});
