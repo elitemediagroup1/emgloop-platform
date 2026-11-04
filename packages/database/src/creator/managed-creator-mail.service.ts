@@ -1,10 +1,10 @@
 import type { ManagedCreatorMailCapture } from '@prisma/client';
-import { AI_TASK_CREATOR_BRAND_UPDATE, CREATOR_BRAND_UPDATE_SCHEMA, type GmailThreadResult } from '@emgloop/shared';
+import { AI_OUTPUT_REJECTIONS, AI_TASK_CREATOR_BRAND_UPDATE, CREATOR_BRAND_UPDATE_SCHEMA, type GmailThreadResult } from '@emgloop/shared';
 import type { GmailThreadSearchResult } from '@emgloop/providers';
 import type { WorkPrincipal } from '../repositories/work-state/work-principal';
 import type { AiRunRequest, AiRunResult } from '../services/ai-runtime/gateway';
 import { buildMailTriageContext } from '../services/ai-runtime/mail-content-triage-context';
-import { creatorCapturePolicyFailure } from './creator-capture-failure';
+import { creatorCapturePolicyFailure, creatorCaptureOutputFailure } from './creator-capture-failure';
 import { creatorMailText } from './creator-mail-text';
 import { CREATOR_BRAND_MAIL_INSTRUCTIONS } from './creator-brand-mail.service';
 import { ManagedCreatorMailRepository, captureReadings } from './managed-creator-mail.repository';
@@ -19,7 +19,8 @@ const INSTRUCTIONS = CREATOR_BRAND_MAIL_INSTRUCTIONS
     'An assigned mailbox is a search source, not proof that every forwarded discussion belongs to its creator.',
     'Other creators may not exist in Loop yet. Withhold their discussions even when they are absent from the supplied roster.',
     'Withhold uncertain, internal, mixed-creator or contradicted matches. Cite the actual partnership evidence.',
-  ].join(' '));
+  ].join(' '))
+  .concat('\nReturn exactly one JSON object with six keys: schemaId, publishable, stage, summary, nextStep, citations. No Markdown or extra keys. Paraphrase in your own words; never copy eight consecutive source words. Aim for a summary under 300 characters. citations must be an array of exact supplied mail_message sourceRef strings, at least one and at most eight when publishable.');
 export class ManagedCreatorMailService {
   constructor(private readonly ports: {
     repository: ManagedCreatorMailRepository;
@@ -104,7 +105,7 @@ export class ManagedCreatorMailService {
     const brands = scope.brands.filter(b => b.displayName && b.displayName.trim().length >= 4 && (exactMailPhrase(subject, b.displayName) || companyMailDomainMatch(b.displayName, participants)));
     if (brands.length !== 1) { reading = { ...reading, state: 'UNMAPPED_BRAND' }; return finish(); }
     const brand = brands[0]!;
-    reading = { ...reading, brandId: brand.id, fingerprint: mailEvidenceHash(JSON.stringify({ template: 4, creator: row.creatorProfileId, brand: brand.id, messages, incomplete: reading.incomplete })) };
+    reading = { ...reading, brandId: brand.id, fingerprint: mailEvidenceHash(JSON.stringify({ template: 5, creator: row.creatorProfileId, brand: brand.id, messages, incomplete: reading.incomplete })) };
     const previous = captureReadings(row.readings).find(r => r.threadId === threadId && r.fingerprint === reading.fingerprint && ['CURRENT', 'WITHHELD'].includes(r.state));
     if (previous) { reading = { ...previous, evidenceAt: reading.evidenceAt, evidenceKey: reading.evidenceKey, checkedAt: now().toISOString() }; return finish(0, false, true); }
     const contextId = mailEvidenceHash(`${row.id}:${threadId}`);
@@ -112,11 +113,24 @@ export class ManagedCreatorMailService {
     const built = buildMailTriageContext({ ...principal, organizationId: row.organizationId, viewerUserId: row.ownerUserId, threadId: contextId, subject, messages, truncated: reading.incomplete, lane: null });
     const authority = { resource: 'managedMailboxes', action: 'view' as const };
     const context = { ...built.context, taskId: AI_TASK_CREATOR_BRAND_UPDATE.taskId, items: [...built.context.items.map(item => ({ ...item, readUnder: authority })), { blockId: `${row.organizationId}::creator_scope:${row.id}`, kind: 'TEXT' as const, trust: 'UNTRUSTED_INPUT' as const, sourceRef: `creator_scope:${row.id}`, content: `SCOPE: creator=${JSON.stringify(scope.profile.displayName)}; brand or agency=${JSON.stringify(brand.displayName)}; source=${scope.source.kind === 'CREATOR' ? 'assigned creator mailbox' : 'shared staff mailbox'}; evidence ${reading.incomplete ? 'is incomplete' : 'is included'}.`, sensitivity: 'CONTACT_IDENTIFIER' as const, readUnder: authority }] };
-    const result = await runtime.run(principal, { task: AI_TASK_CREATOR_BRAND_UPDATE, context, evidence: built.evidence, instructions: INSTRUCTIONS, schema: CREATOR_BRAND_UPDATE_SCHEMA, templateId: 'managed-creator-brand-mail', templateVersion: '4' });
+    const request: AiRunRequest = { task: AI_TASK_CREATOR_BRAND_UPDATE, context, evidence: built.evidence, instructions: INSTRUCTIONS, schema: CREATOR_BRAND_UPDATE_SCHEMA, templateId: 'managed-creator-brand-mail', templateVersion: '5', signal: AbortSignal.timeout(45_000) };
+    let result = await runtime.run(principal, request);
+    // At most one validation repair, with original evidence only. Refusals/failures stop.
+    // Each run uses the governed gateway and its own reservation; rejected prose is never fed back.
+    if (result.outcome === 'REJECTED_OUTPUT' && !request.signal?.aborted) {
+      const codes = AI_OUTPUT_REJECTIONS.filter(code => result.outcome === 'REJECTED_OUTPUT' && result.rejections.includes(code)).slice(0, 8);
+      if (codes.length) {
+        if (!(await repo.scope(row))) { await repo.finish(row, now(), { failure: 'SCOPE_ENDED', delayMs: 300_000 }); return { CAPTURE_WAITING: 1 }; }
+        if (!request.signal?.aborted) result = await runtime.run(principal, {
+          ...request, templateVersion: '5.repair1',
+          instructions: `${INSTRUCTIONS}\nOne validation repair. Previous validation codes: ${codes.join(', ')}. Generate a fresh response from the supplied source evidence. Do not copy source sentences or invent facts to satisfy validation. Use short paraphrases, no numbers, dates, quotes or private commercial details. Cite exact supplied mail_message references only. If a safe, attributable summary is not possible, use publishable false with empty summary, nextStep and citations.`,
+        });
+      }
+    }
     if (result.outcome !== 'ANSWERED' || !result.output.creatorBrandUpdate) {
       // Closed internal codes only: no provider error prose or rejected output.
       modelFailure = result.outcome === 'REFUSED_BY_LOOP' ? creatorCapturePolicyFailure(result.refusals)
-        : result.outcome === 'REJECTED_OUTPUT' ? 'MODEL_OUTPUT_REJECTED'
+        : result.outcome === 'REJECTED_OUTPUT' ? creatorCaptureOutputFailure(result.rejections)
         : result.outcome === 'REFUSED_BY_MODEL' ? 'MODEL_REFUSED'
         : result.outcome === 'FAILED' ? 'MODEL_CALL_FAILED' : 'MODEL_OUTPUT_INVALID';
       reading = { ...reading, state: 'MODEL_UNAVAILABLE' };

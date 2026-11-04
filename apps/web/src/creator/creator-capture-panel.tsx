@@ -1,5 +1,5 @@
 import 'server-only';
-import { captureReadings, creatorCapturePolicyReasons } from '@emgloop/database';
+import { captureReadings, creatorCapturePolicyReasons, creatorCaptureOutputReasons } from '@emgloop/database';
 import type { WorkPrincipal } from '@emgloop/database';
 import { Panel } from '../app/app/_loop-os/record';
 import { managedMailboxes } from '../google/google-runtime';
@@ -22,6 +22,8 @@ const FAILURES: Record<string, string> = {
 };
 
 function captureFailureLabel(failure: string): string {
+  const outputReasons = creatorCaptureOutputReasons(failure);
+  if (outputReasons.length) return `AI output failed validation (${outputReasons.join(', ')}); retry pending`;
   const reasons = creatorCapturePolicyReasons(failure);
   return reasons.length
     ? `AI admission refused (${reasons.join(', ')}); retry pending`
