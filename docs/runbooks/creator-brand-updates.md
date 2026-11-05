@@ -1,8 +1,8 @@
 # Commission creator brand updates
 
-Built on branch `feat/creator-brand-email-updates`, stacked over Creator Hub onboarding #407.
-Nothing below has been run in production by this change. TikTok One and manual analytics imports
-are separate. No email is sent, and no creator or brand is created by this publication feature.
+The original explicit-thread sharing commissioning steps are below. The managed-mailbox pilot is now
+commissioned in production through #421; its capacity follow-up is described in the final section.
+TikTok One and manual analytics imports are separate. No email is sent by this publication feature.
 
 ## Required changes and order
 
@@ -49,10 +49,11 @@ concurrent duplicate processing. Quotas, model latency, connection failures, que
 refusals can delay an update. The employee CallGrid/Telegram/read paths and their cadence are untouched.
 
 `creator.brand.update` uses Anthropic as primary and OpenAI as availability fallback, in BACKGROUND,
-with the existing `domain-reading` class and unchanged organization/global/cost controls. The task's
-existing class ceiling is 24 model invocations per day; the operating BACKGROUND lane can be a further
-limit. This is a conservative commissioning ceiling, not adequate evidence of roster-wide capacity.
-Review measured usage before changing budgets. An unchanged or withheld fingerprint skips the model.
+with its own `creator-brand-update` class: at most 60 model invocations, 720,000 input tokens and
+72,000 output tokens per organization business day, including repairs and availability fallback. Each
+call is still bounded to 12,000 input / 1,200 output tokens. Other domain tasks retain their 24-call
+ceiling. Recorded operating lane/cost/shared controls still admit every call. An unchanged accepted
+or withheld fingerprint skips the model.
 No rejected prose is kept; missing/unsafe output is withheld rather than shown as fact.
 
 Only the latest bounded plain-text evidence is read (up to 20 messages upstream, at most 8×1,800
@@ -85,3 +86,41 @@ remain in the repository. A new template does not backfill unchanged historical 
 This change does not discover/link creator threads automatically, add independent managed-mailbox
 OAuth, or connect an unconnected mailbox. Each mailbox owner still authorizes and links appropriate
 threads. Those ingestion requirements must be commissioned before counts represent actual outreach.
+
+
+## Managed mailbox pilot capacity recovery (November 4, 2026)
+
+Production #421 saved Trevon’s exact staff keywords: `Trevon Hill`, `Trevon`, `trevonbassmaster`.
+Selected sources are Matt, Charlie and Trevon’s assigned mailbox; Francesca stays excluded.
+The manager preview displayed accepted BRUNT Workwear outreach after the new keyword scan, and
+Cashion Rods appeared as a declined earlier discussion before that scan. Creator-login rendering
+has not been separately verified. Subsequent refreshes stopped on `BUDGET_TASK_EXHAUSTED`.
+
+The observed ledger had 24 creator model runs (4 answered, 20 output-invalid), BACKGROUND 52/60
+calls and $1.50/$2, with 291 total organization calls and $14.54/$25 cost. A class-only increase
+would hit the lane or shared invocation cap shortly afterwards. This change gives only creator
+summaries their own task class; recorded operating changes still require the existing operations
+workflow after the code is deployed. Nothing automatically records a budget on merge or deployment.
+
+1. Matt merges the capacity PR. Verify Netlify production is serving that commit and the route uses
+   `creator-brand-update`. No worker redeploy, migration, provider grant or credential change is needed;
+   the existing worker invokes Netlify’s gateway rather than running this model task itself.
+2. Run the existing **Record AI Budget** workflow in production with preset **custom**. Use the exact
+   JSON in `docs/runbooks/creator-mail-pilot-budget.json` (compact it to one line for `settings_json`).
+   Reason: Matt requested creator-pilot recovery within the approved $25/day after observed task,
+   background and shared call exhaustion. Confirmation remains `record ai-budget production`.
+   Review its dry run/current version; a concurrent budget change must be reviewed, never overwritten.
+3. The candidate keeps organization and emergency ceilings at $25, live $4, synthesis $10,
+   interactive $2.50, live reserve $1.50, defer thresholds and breaker unchanged. It assigns $6.50
+   and 120 calls to BACKGROUND using $4.50 of previously unallocated room; lanes plus reserve sum
+   to $24.50. Organization/global invocation caps become 400/480. Creator task allowance is 60;
+   other explicitly recorded class caps remain unchanged. Shared token ceilings remain enforced.
+4. Verify workflow success and the recorded controls in Intelligence status. Do not repeat the earlier
+   version-3 $25 commissioning write, restart the pilot, clear existing readings, change the three
+   keywords, add Francesca, or force recorded retry deadlines. Advance normally due steps after the
+   new controls are recorded, then verify an accepted current summary. Existing source-wide waits
+   can persist until their original due time.
+
+Sixty model calls are not sixty published summaries: validation repairs, refusals, withholding and
+shared background work affect throughput. This is finite pilot capacity, not evidence of full-roster
+or unbounded continuous service. Budget availability never weakens attribution or publication validation.

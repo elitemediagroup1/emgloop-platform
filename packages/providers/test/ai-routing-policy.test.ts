@@ -18,7 +18,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { AI_PROVIDER_IDS, AI_REASONING_EFFORTS, AI_TASK_CASE_EXPLANATION, AI_TASK_LOOP_BRIEFING, admitAiInvocation, AI_NO_SPEND } from '@emgloop/shared';
+import { AI_PROVIDER_IDS, AI_REASONING_EFFORTS, AI_TASK_CASE_EXPLANATION, AI_TASK_LOOP_BRIEFING, AI_TASK_CREATOR_BRAND_UPDATE, admitAiInvocation, AI_NO_SPEND, AI_NO_COST, aiCapacityRefusals, aiEffectiveBudgetPolicy, aiOperatingBudgetRefusals, type AiOperatingBudget } from '@emgloop/shared';
 
 import { AI_MODEL_CATALOG, aiCatalogCapabilities, aiCatalogModel } from '../src/ai/policy/model-catalog';
 import {
@@ -196,4 +196,46 @@ test('briefings can pass the old 30-call task limit while organization guards re
   assert.equal(AI_BUDGET_POLICY.organizationDaily.maxInvocations, 60);
   assert.equal(AI_BUDGET_POLICY.globalDaily.maxInvocations, 70);
   assert.equal(AI_BUDGET_POLICY.classes['loop-briefing']!.maxInputTokensPerCall, 10_000);
+});
+
+
+test('creator summaries can pass 24 calls without raising other domain tasks or the money ceiling', () => {
+  const operating = JSON.parse(readFileSync(join(REPO, 'docs/runbooks/creator-mail-pilot-budget.json'), 'utf8')) as AiOperatingBudget;
+  assert.deepEqual(aiOperatingBudgetRefusals(operating, Object.keys(AI_BUDGET_POLICY.classes)), []);
+  const budget = aiEffectiveBudgetPolicy(AI_BUDGET_POLICY, operating);
+  const request = {
+    taskId: AI_TASK_CREATOR_BRAND_UPDATE.taskId, taskVersion: AI_TASK_CREATOR_BRAND_UPDATE.version,
+    organizationId: 'org_a', authorized: true,
+    activation: { enabled: true, organizations: ['org_a'], tasks: [AI_TASK_CREATOR_BRAND_UPDATE.taskId], providers: ['anthropic', 'openai'] },
+    policy: AI_ROUTING_POLICY, killSwitches: [], budget,
+    // Measured failure point: 24 creator calls, 291 organization calls, 52 BACKGROUND calls.
+    spend: { organization: { ...AI_NO_SPEND, invocations: 291 }, task: { ...AI_NO_SPEND, invocations: 24 }, global: { ...AI_NO_SPEND, invocations: 291 } },
+    estimatedInputTokens: 12_000, registeredProviders: ['anthropic', 'openai'], contextRefusals: [], tools: [],
+    providerPolicies: [{ providerId: 'anthropic', state: 'ACTIVE' as const, ceiling: AI_TASK_CREATOR_BRAND_UPDATE.sensitivityCeiling, version: 1, recordedAtMs: 0 }],
+    sensitivityCeiling: AI_TASK_CREATOR_BRAND_UPDATE.sensitivityCeiling,
+  };
+  assert.equal(admitAiInvocation(request).ok, true);
+  const taskFull = admitAiInvocation({ ...request, spend: { ...request.spend, task: { ...AI_NO_SPEND, invocations: 60 } } });
+  assert.equal(taskFull.ok, false);
+  if (!taskFull.ok) assert.ok(taskFull.refusals.includes('BUDGET_TASK_EXHAUSTED'));
+  for (const [kind, count] of [['organization', 400], ['global', 480]] as const) {
+    const full = admitAiInvocation({ ...request, spend: { ...request.spend, [kind]: { ...AI_NO_SPEND, invocations: count } } });
+    assert.equal(full.ok, false, `${kind} cap remains enforced`);
+  }
+  const cost = { ...AI_NO_COST, organizationMicros: 14_540_000, globalMicros: 14_810_000,
+    laneMicros: { ...AI_NO_COST.laneMicros, FORWARD: 3_100_000, BACKGROUND: 1_500_000 },
+    laneInvocations: { ...AI_NO_COST.laneInvocations, BACKGROUND: 52 } };
+  const capacity = { operating, lane: 'BACKGROUND' as const, estimateMicros: 90_000, cost };
+  assert.deepEqual(aiCapacityRefusals(capacity), []);
+  for (const blocked of [
+    { ...cost, organizationMicros: 25_000_000 },
+    { ...cost, globalMicros: 25_000_000 },
+    { ...cost, laneMicros: { ...cost.laneMicros, BACKGROUND: 6_500_000 } },
+    { ...cost, laneInvocations: { ...cost.laneInvocations, BACKGROUND: 120 } },
+    { ...cost, taskRecentFailures: 10 },
+  ]) assert.ok(aiCapacityRefusals({ ...capacity, cost: blocked }).length, 'money, lane and breaker guards bind');
+  assert.equal(operating.organizationDailyCostMicros, 25_000_000);
+  assert.equal(operating.emergencyCostMicros, 25_000_000);
+  assert.equal(budget.classes['domain-reading']!.taskDaily.maxInvocations, 24);
+  assert.equal(budget.organizationDaily.maxInputTokens, AI_BUDGET_POLICY.organizationDaily.maxInputTokens);
 });
