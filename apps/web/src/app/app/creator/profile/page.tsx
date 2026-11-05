@@ -211,10 +211,10 @@ export default async function CreatorProfilePage({ searchParams }: { searchParam
       <Panel title="Preferences">
         <form className="ch-form" action={updatePreferencesAction}>
           <label className="ch-check">
-            <input type="checkbox" name="notifyOnReturn" defaultChecked={preferences.notifyOnReturn === true} />
-            <span>Tell me when an edit comes back for my review</span>
+            <input type="checkbox" name="notifyOnReturn" defaultChecked={preferences.notifyOnReturn !== false} />
+            <span>Show edit-return updates in Loop</span>
           </label>
-          <p className="loop-note">Saved to your profile. Loop does not send notifications yet, so this changes nothing until it does.</p>
+          <p className="loop-note">Shows updates in Tasks when EMG returns an edit. This does not send email or push notifications; review tasks remain available when updates are hidden.</p>
           <div className="loop-btnrow">
             <button type="submit" className="loop-btn">
               Save preferences

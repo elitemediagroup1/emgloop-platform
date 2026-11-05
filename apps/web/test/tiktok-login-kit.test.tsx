@@ -278,7 +278,7 @@ describe('the row', () => {
     const off = render({ status: status({ configured: false, state: 'NOT_CONFIGURED' }), entry: null, outcome: null, readProblem: null, time });
     assert.match(off, /data-tiktok-state="NOT_CONFIGURED"/);
     assert.match(off, /aria-disabled="true"/);
-    assert.match(off, /not set up on this deployment/);
+    assert.match(off, /TikTok developer approval and platform setup/);
     assert.doesNotMatch(off, /href="\/api\/integrations\/tiktok\/connect"/);
     const denied = render({ status: { permitted: false }, entry: null, outcome: null, readProblem: null, time });
     assert.match(denied, /data-state="denied"/);

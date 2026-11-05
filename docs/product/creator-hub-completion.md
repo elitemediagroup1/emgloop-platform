@@ -21,7 +21,7 @@ This is the existing authorized Hub, not a parallel demonstration site.
 | Analytics | Source-labelled observations, TikTok connection/read path, charts | Verify connections and freshness; preserve unavailable versus zero |
 | Earnings | Scoped compensation entries and state totals | Define and implement the payout-request/settlement experience; do not pretend an inert transfer button moves money |
 | Profile and onboarding | Invitation binding, declared handles, documents, preferences | Prove profile persistence, invitation lifecycle, document access and revocation |
-| Notifications | Preference is saved; profile explicitly says it has no effect yet | Connect real delivery/notifications and verify creator-specific visibility |
+| Notifications | Existing Work OS in-app records; creator feed/read marker and preference wired in the current follow-through | Validate real-Postgres privacy/lifecycle checks and creator Tasks after deployment |
 
 ## Source-confirmed gaps
 
@@ -75,3 +75,25 @@ rendered visual acceptance and live workflow checks still require restored acces
   for independent content remain separate verification concerns.
 - Creator login, mobile rendering, real configured storage, notifications, platform
   integrations and payment setup still require the acceptance work listed above.
+
+
+## Creator login and classification correction
+
+Trevon's real CREATOR session was verified on November 5. Home shows 93 outreach,
+7 conversations, 4 negotiating labels and 5 earlier/paused brands. The manual refresh
+request succeeds; fresh AI completion is not thereby established. History expands,
+GOING is absent, staff capture controls are hidden, and manager access redirects to Home.
+The uploader is available, but no artificial production media was created.
+
+Matt identified the active-deal labels as incorrect. The follow-through gates active
+publication on an explicit current paid negotiation/agreement qualification. Legacy
+unqualified labels fall back to Conversations; original evidence/history is retained.
+Introductory calls, requests for scope/budget, unsolicited offers and affiliate-only
+arrangements do not establish an active deal. Later cancellations/deferments supersede
+old offers. Existing unchanged outreach skips reanalysis; only old active labels need
+the classifier upgrade. Synthesized relationships cannot invent qualification absent
+from their accepted source basis. No AI budget or retry safeguard changes.
+
+TikTok is waiting for developer approval, as confirmed by Matt. The UI explains approval
+and setup requirements without claiming account access or approval. The in-app notification
+feed reuses Work OS and sends no external messages. Payout rail selection remains open.

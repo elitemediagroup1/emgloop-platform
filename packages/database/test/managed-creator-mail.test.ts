@@ -719,3 +719,35 @@ test('draft-only conversations never invoke a model or publish', async () => {
   await w.start([w.staff.id]); await w.drain();
   assert.equal(w.counts().modelCalls, 0); assert.deepEqual(await w.repo.updates(w.recipient, w.profile.id, T0), []);
 });
+
+
+test('unqualified historic deals stay visible as conversations until the stricter review is accepted', async () => {
+  const w = await world(); await w.start([w.staff.id]); await w.drain();
+  const capture = (await w.db.managedCreatorMailCapture.findMany())[0]!;
+  const reading = captureReadings(capture.readings)[0]!;
+  const legacy = { ...reading, update: { ...reading.update!, stage: 'NEGOTIATING' as const } };
+  await w.db.creatorMailEvidence.updateMany({ where: { captureId: capture.id }, data: { reading: legacy } });
+  const published = await w.repo.updates(w.recipient, w.profile.id, T0);
+  assert.ok(published.length > 0);
+  assert.ok(published.every(r => r.stage === 'DISCUSSING'));
+  const qualified = { ...legacy, update: { ...legacy.update, dealQualification: 'CURRENT_PAID_NEGOTIATION' as const } };
+  await w.db.creatorMailEvidence.updateMany({ where: { captureId: capture.id }, data: { reading: qualified } });
+  assert.ok((await w.repo.updates(w.recipient, w.profile.id, T0)).every(r => r.stage === 'NEGOTIATING'));
+});
+
+test('cross-thread synthesis cannot invent paid-deal qualification from unqualified accepted conversations', async () => {
+  const w = await world();
+  w.searchIds(['THREAD_ONE', 'THREAD_TWO']);
+  w.threadHook((thread, id) => ({ ...thread, messages: thread.messages.map(m => ({ ...m, fact: { ...m.fact, headerMessageId: `<${id}-${m.fact.messageId}@brand.example>` } })) }));
+  await w.start([w.staff.id]); await w.drain();
+  const { CreatorRelationshipService } = await import('../src/creator/creator-relationship.service');
+  const output = parseCreatorBrandUpdate({ schemaId: CREATOR_BRAND_UPDATE_SCHEMA_ID, publishable: true, stage: 'CONFIRMED', dealQualification: 'CURRENT_PAID_AGREEMENT', brandName: 'Brand Bravo', summary: 'The brand and EMG are discussing a collaboration.', nextStep: '', citations: ['mail_message:fixture:1'] });
+  assert.ok(output);
+  const service = new CreatorRelationshipService(w.db, { run: async () => ({ outcome: 'ANSWERED', output, provenance: {} } as AiRunResult) }, () => T0);
+  await service.pass(w.owner, w.profile.id);
+  const rows = await service.projections(w.recipient, w.profile.id);
+  assert.ok(rows.length > 0);
+  assert.ok(rows.every(r => r.stage === 'DISCUSSING'));
+  const stored = await w.db.creatorMailRelationship.findMany();
+  assert.equal((stored[0]?.update as Record<string, unknown>)?.dealQualification, 'NONE');
+});

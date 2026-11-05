@@ -99,7 +99,7 @@ export default async function WorkspaceShell({
               <span className="sep" aria-hidden="true">/</span>
               <ShellCrumb groups={groups} />
             </nav>
-            {/* Notifications live in the person's Work OS queue. No fake unread
+            {/* Notifications live in the person's work queue or creator Tasks. No fake unread
                badge: AuthSession carries no unread count. Someone without a Work
                OS queue is not offered a link that would send them away. */}
             {workHref ? (

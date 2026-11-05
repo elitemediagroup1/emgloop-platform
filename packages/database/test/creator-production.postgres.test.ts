@@ -335,6 +335,32 @@ test('the canonical production path: request, return, request changes, approve, 
       const notifications = await prisma.workNotification.findMany({ where: { organizationId, userId: creatorUser, workInstanceId: wid1, workStageId: reviewNow.id } });
       assert.equal(notifications.length, 1, 'the creator is told their step is ready');
       assert.equal(notifications[0]?.type, 'next_action_ready');
+      // The creator feed reuses Work OS updates but never its private title/body.
+      const notificationId = notifications[0]!.id;
+      await prisma.workNotification.update({ where: { id: notificationId }, data: { title: 'PRIVATE_STAFF_TITLE', body: 'PRIVATE_STAFF_BODY' } });
+      const updates = await domain.records.updates(creatorActor());
+      assert.equal(updates.length, 1);
+      assert.equal(updates[0]?.title, 'Edit ready for review');
+      assert.equal(updates[0]?.contentId, contentId);
+      assert.equal(updates[0]?.readAt, null);
+      assert.doesNotMatch(JSON.stringify(updates), /PRIVATE_STAFF|Colour pass/);
+      assert.deepEqual(await domain.records.updates(otherCreatorActor()), []);
+      assert.deepEqual(await domain.records.updates({ ...creatorActor(), organizationId: away.organizationId }), []);
+      assert.equal(await domain.records.markUpdateRead(otherCreatorActor(), notificationId), false);
+      assert.equal(await domain.records.markUpdateRead(creatorActor(), notificationId), true);
+      const readAt = (await domain.records.updates(creatorActor()))[0]?.readAt;
+      assert.ok(readAt);
+      assert.equal(await domain.records.markUpdateRead(creatorActor(), notificationId), true);
+      assert.equal((await domain.records.updates(creatorActor()))[0]?.readAt, readAt, 'mark read is idempotent');
+      await domain.creator.updateProfile(organizationId, profileId, { preferences: { notifyOnReturn: false } });
+      assert.deepEqual(await domain.records.updates(creatorActor()), [], 'the preference hides the update feed');
+      assert.ok((await domain.records.tasks(creatorActor(), HREFS)).some(t => t.kind === 'REVIEW'), 'a hidden update does not hide a review task');
+      await domain.creator.updateProfile(organizationId, profileId, { preferences: { notifyOnReturn: true } });
+      await domain.creator.bindUser(organizationId, profileId, null);
+      assert.deepEqual(await domain.records.updates(creatorActor()), [], 'offboarding withdraws previously stored updates');
+      assert.equal(await domain.records.markUpdateRead(creatorActor(), notificationId), false);
+      await domain.creator.bindUser(organizationId, profileId, creatorUser);
+
     });
 
     await step('both seats read the same rows: YOUR_REVIEW, the note to the creator on both, the internal note on EMG only', async () => {

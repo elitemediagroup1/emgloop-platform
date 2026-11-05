@@ -498,6 +498,19 @@ export class CreatorRecordService {
 
   // ---- tasks ------------------------------------------------------------------------------------
 
+  async updates(actor: CreatorActor) {
+    const rows = await this.creator.notificationsForCreator(actor.organizationId, actor.userId, actor.creatorProfileId);
+    return rows.filter(row => parseProductionStep(row.stageName)?.kind === 'REVIEW').map(row => ({
+      id: row.id, contentId: row.contentId, title: 'Edit ready for review', contentTitle: row.contentTitle,
+      at: row.at.toISOString(), readAt: row.readAt?.toISOString() ?? null,
+    }));
+  }
+
+  async markUpdateRead(actor: CreatorActor, notificationId: string): Promise<boolean> {
+    if (!(await this.updates(actor)).some(row => row.id === notificationId)) return false;
+    return this.creator.markCreatorNotificationRead(actor.organizationId, actor.userId, actor.creatorProfileId, notificationId);
+  }
+
   async tasks(actor: CreatorActor, hrefs: { content: (id: string) => string; profile: string }): Promise<CreatorTask[]> {
     const out: CreatorTask[] = [];
     const profile = await this.creator.profileById(actor.organizationId, actor.creatorProfileId);

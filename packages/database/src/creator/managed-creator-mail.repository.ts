@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto';
 import { AI_BUDGET_POLICY } from '@emgloop/providers';
 import { AiControlRepository } from '../repositories/brain/ai-control.repository';
 import { Prisma, type PrismaClient, type ManagedCreatorMailCapture } from '@prisma/client';
-import { AI_OUTPUT_REJECTIONS, AI_TASK_CREATOR_BRAND_UPDATE, CREATOR_BRAND_UPDATE_SCHEMA_ID, parseCreatorBrandUpdate, validateCreatorBrandUpdate } from '@emgloop/shared';
+import { AI_OUTPUT_REJECTIONS, publishedCreatorBrandStage, AI_TASK_CREATOR_BRAND_UPDATE, CREATOR_BRAND_UPDATE_SCHEMA_ID, parseCreatorBrandUpdate, validateCreatorBrandUpdate } from '@emgloop/shared';
 import type { WorkPrincipal } from '../repositories/work-state/work-principal';
 import { membershipAuthority } from '../repositories/membership.repository';
 import { PartyReadModelRepository } from '../repositories/party-read-model.repository';
@@ -159,7 +159,7 @@ export class ManagedCreatorMailRepository {
         const retryAt = Date.parse(reading.retryAfter ?? '');
         const validationRetry = reading.state === 'MODEL_UNAVAILABLE' && codes.length && retryAt >= now.getTime() && retryAt <= now.getTime() + 3600_000
           ? { retryAfter: new Date(retryAt).toISOString(), rejections: codes } : {};
-        reading = { ...validationRetry, threadId: reading.threadId, brandId: reading.brandId, ...(reading.candidateBrandName ? { candidateBrandName: reading.candidateBrandName } : {}), evidenceKey: reading.evidenceKey, fingerprint: reading.fingerprint, evidenceAt: reading.evidenceAt, checkedAt: now.toISOString(), generatedAt: reading.generatedAt, messageCount: reading.messageCount, incomplete: reading.incomplete, state: reading.state, ...(update ? { update } : {}) };
+        reading = { ...validationRetry, threadId: reading.threadId, brandId: reading.brandId, ...(reading.candidateBrandName ? { candidateBrandName: reading.candidateBrandName } : {}), evidenceKey: reading.evidenceKey, fingerprint: reading.fingerprint, ...([9, 10].includes(reading.classificationVersion ?? 0) ? { classificationVersion: reading.classificationVersion } : {}), evidenceAt: reading.evidenceAt, checkedAt: now.toISOString(), generatedAt: reading.generatedAt, messageCount: reading.messageCount, incomplete: reading.incomplete, state: reading.state, ...(update ? { update } : {}) };
         await tx.creatorMailEvidence.upsert({ where: { captureId_generation_threadId: { captureId: live.id, generation: live.generation, threadId: reading.threadId } },
           create: { id: `${live.id}:${live.generation}:${reading.threadId}`, captureId: live.id, generation: live.generation, threadId: reading.threadId, reading: JSON.parse(JSON.stringify(reading)) },
           update: { reading: JSON.parse(JSON.stringify(reading)) } });
@@ -243,7 +243,7 @@ export class ManagedCreatorMailRepository {
         const brandId = brand?.id ?? `candidate:${mailEvidenceHash(normalizedCandidate)}`;
         const brandName = brand?.displayName ?? r.candidateBrandName!;
         const valid = accepted(r), checked = new Date(r.checkedAt), evidenceAt = new Date(r.evidenceAt);
-        const item = { id: mailEvidenceHash(`${row.creatorProfileId}:${r.evidenceKey}:${brandId}`), brand: brandName, brandId, stage: valid ? r.update!.stage : null, summary: valid ? r.update!.summary : null, nextStep: valid ? r.update!.nextStep : null, generatedAt: valid && r.generatedAt ? new Date(r.generatedAt) : null, checkedAt: checked, evidenceAt, current: valid && checked <= now && now.getTime() - checked.getTime() < 600_000, messageCount: r.messageCount };
+        const item = { id: mailEvidenceHash(`${row.creatorProfileId}:${r.evidenceKey}:${brandId}`), brand: brandName, brandId, stage: valid ? publishedCreatorBrandStage(r.update!) : null, summary: valid ? r.update!.summary : null, nextStep: valid ? r.update!.nextStep : null, generatedAt: valid && r.generatedAt ? new Date(r.generatedAt) : null, checkedAt: checked, evidenceAt, current: valid && checked <= now && now.getTime() - checked.getTime() < 600_000, messageCount: r.messageCount };
         // The same Gmail message can be read from several authorized mailboxes.
         // Deduplicate by stable source message evidence, not by mailbox-specific thread ID.
         const key = `${brandId}:${r.evidenceKey}`, old = out.get(key);
