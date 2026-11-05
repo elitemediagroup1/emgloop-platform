@@ -26,6 +26,7 @@ export interface PublishedCreatorBrandUpdate {
   readonly evidenceAt: Date | null;
   readonly checkedAt: Date | null;
   readonly current: boolean;
+  readonly synthesized?: boolean;
 }
 
 export class CreatorBrandMailRepository {

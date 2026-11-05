@@ -27,7 +27,7 @@ export async function advanceCreatorCaptureAction(form: FormData): Promise<void>
   const profileId = field(form, 'profileId');
   if (!profileId || profileId.length > 200 || workspace !== 'ADMIN' || !creatorMailSharingEnabled()) redirect(EMG_HREFS.creators);
   let outcome = 'CHECKED';
-  try { await managedCreatorMailService().pass({ organizationId: actor.organizationId, userId: actor.userId }, profileId); }
+  try { await managedCreatorMailRepository().requestRefresh({ organizationId: actor.organizationId, userId: actor.userId }, profileId, new Date()); }
   catch { outcome = 'FAILED'; }
   back(profileId, outcome);
 }

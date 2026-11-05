@@ -1029,3 +1029,4 @@ export { callQuestionArtifact } from './services/intelligence-fabric/call-snapsh
 export { refreshPublicNews } from './services/public-news-sync';
 
 export { creatorCapturePolicyReasons, creatorCaptureOutputReasons } from './creator/creator-capture-failure';
+export { CreatorRelationshipService } from './creator/creator-relationship.service';

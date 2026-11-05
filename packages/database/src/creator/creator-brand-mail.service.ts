@@ -34,6 +34,7 @@ export const CREATOR_BRAND_MAIL_INSTRUCTIONS = [
   'DISCUSSING and AWAITING_* require an actual substantive two-way conversation. Do not infer a reply from a follow-up.',
   'NEGOTIATING requires explicit discussion of a specific partnership scope, deliverables or agreement. Interest alone is DISCUSSING.',
   'CONFIRMED requires explicit agreement; never turn a pitch or a request for information into a deal.',
+  'brandName should be the actual advertiser supported by substantive evidence, or null if unresolved. Never identify an agency as its client brand.',
   'Use schemaId creator-brand-update.v1. stage is OUTREACH, DISCUSSING, AWAITING_EMG, AWAITING_BRAND,',
   'AWAITING_CREATOR, NEGOTIATING, CONFIRMED, DECLINED or PAUSED. No tools. Do not send email or change any other record.',
 ].join('\n');

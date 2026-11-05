@@ -19,7 +19,7 @@ export function captureReadings(value: unknown): ManagedCaptureReading[] {
   if (!Array.isArray(value)) return [];
   return value.filter((r): r is ManagedCaptureReading => !!r && typeof r === 'object' && typeof r.threadId === 'string' && typeof r.evidenceKey === 'string' && typeof r.fingerprint === 'string' && typeof r.checkedAt === 'string' && typeof r.state === 'string').slice(-2000);
 }
-function accepted(r: ManagedCaptureReading): boolean {
+export function accepted(r: ManagedCaptureReading): boolean {
   if (!r.update?.publishable || (!r.brandId && !r.candidateBrandName) || r.state !== 'CURRENT') return false;
   const output = parseCreatorBrandUpdate({ schemaId: CREATOR_BRAND_UPDATE_SCHEMA_ID, ...r.update });
   return !!output && !validateCreatorBrandUpdate(output, AI_TASK_CREATOR_BRAND_UPDATE, new Set(r.update.citations), { figures: new Map(), dates: new Set() }).length;
@@ -69,7 +69,7 @@ export class ManagedCreatorMailRepository {
         if (!source) return 'NOT_ALLOWED';
         const query = creatorMailQuery(updatedProfile, source.kind === 'CREATOR', new Date(0));
         if (!query) return 'INVALID';
-        const data = { organizationId: principal.organizationId, creatorProfileId: profile.id, recipientUserId: profile.userId, ownerUserId: principal.userId, mailboxId, mailboxRevision: source.revision, scopeHash: creatorCaptureScopeHash(profile), generation: randomUUID(), enabled: true, windowStart: new Date(0), cycleStartedAt: now, query, pendingThreadIds: [], nextPageToken: null, listedCount: 0, searchComplete: false, capped: false, readings: [] as Prisma.InputJsonValue, lastCheckedAt: null, lastFailureClass: null, nextCheckAt: now, leaseToken: null, leaseUntil: null };
+        const data = { organizationId: principal.organizationId, creatorProfileId: profile.id, recipientUserId: profile.userId, ownerUserId: principal.userId, mailboxId, mailboxRevision: source.revision, scopeHash: creatorCaptureScopeHash(profile), generation: randomUUID(), enabled: true, refreshActive: false, refreshSearchComplete: false, refreshPendingThreadIds: [], refreshNextPageToken: null, refreshStartedAt: null, lastRefreshAt: null, morningKey: null, windowStart: new Date(0), cycleStartedAt: now, query, pendingThreadIds: [], nextPageToken: null, listedCount: 0, searchComplete: false, capped: false, readings: [] as Prisma.InputJsonValue, lastCheckedAt: null, lastFailureClass: null, nextCheckAt: now, leaseToken: null, leaseUntil: null };
         if (!(await this.allowed(tx, data))) return 'NOT_ALLOWED';
         rows.push({ ...data, scopeHash: creatorCaptureScopeHash(updatedProfile) });
       }
@@ -77,7 +77,7 @@ export class ManagedCreatorMailRepository {
       if (keywords) await tx.creatorProfile.update({ where: { id: profile.id, organizationId: principal.organizationId }, data: { preferences: updatedProfile.preferences as Prisma.InputJsonValue } });
       // Keyword changes receive a fresh generation: no old lease or reading can cross the new scope.
       // Deselect old sources immediately; selected sources start with the new scope.
-      await tx.managedCreatorMailCapture.updateMany({ where: { organizationId: principal.organizationId, creatorProfileId: profile.id }, data: { enabled: false, readings: [], pendingThreadIds: [], leaseToken: null, leaseUntil: null, generation: randomUUID() } });
+      await tx.managedCreatorMailCapture.updateMany({ where: { organizationId: principal.organizationId, creatorProfileId: profile.id }, data: { enabled: false, readings: [], pendingThreadIds: [], refreshActive: false, refreshPendingThreadIds: [], refreshNextPageToken: null, leaseToken: null, leaseUntil: null, generation: randomUUID() } });
       for (const data of rows) {
         const existing = await tx.managedCreatorMailCapture.findFirst({ where: { organizationId: principal.organizationId, creatorProfileId: profile.id, mailboxId: data.mailboxId } });
         if (existing) await tx.managedCreatorMailCapture.update({ where: { id: existing.id }, data });
@@ -90,7 +90,7 @@ export class ManagedCreatorMailRepository {
   async pause(principal: WorkPrincipal, profileId: string): Promise<boolean> {
     return this.prisma.$transaction(async tx => {
       if (!(await this.mailboxes().permitted(tx, principal, 'update'))) return false;
-      const result = await tx.managedCreatorMailCapture.updateMany({ where: { organizationId: principal.organizationId, creatorProfileId: profileId }, data: { enabled: false, readings: [], pendingThreadIds: [], leaseToken: null, leaseUntil: null, generation: randomUUID() } });
+      const result = await tx.managedCreatorMailCapture.updateMany({ where: { organizationId: principal.organizationId, creatorProfileId: profileId }, data: { enabled: false, readings: [], pendingThreadIds: [], refreshActive: false, refreshPendingThreadIds: [], refreshNextPageToken: null, leaseToken: null, leaseUntil: null, generation: randomUUID() } });
       if (result.count) await new AuditRepository(this.prisma).record({ ...principal, action: 'creator.capture.paused', entityType: 'creator_profile', entityId: profileId }, tx);
       return true;
     });
@@ -117,11 +117,11 @@ export class ManagedCreatorMailRepository {
     if (roster.length > 500 || brands.truncated || addresses.length > 500) return null;
     return { ...live, roster, brands: brands.rows, internalAddresses: addresses.map(a => a.expectedEmail) };
   }
-  async finish(row: ManagedCreatorMailCapture, now: Date, patch: { reading?: ManagedCaptureReading; pending?: readonly string[]; pageToken?: string | null; listed?: number; complete?: boolean; capped?: boolean; failure?: string | null; delayMs?: number; resetCycle?: boolean }): Promise<boolean> {
+  async finish(row: ManagedCreatorMailCapture, now: Date, patch: { reading?: ManagedCaptureReading; pending?: readonly string[]; pageToken?: string | null; listed?: number; complete?: boolean; capped?: boolean; failure?: string | null; delayMs?: number; resetCycle?: boolean; refreshComplete?: boolean }): Promise<boolean> {
     return this.prisma.$transaction(async tx => {
       const live = await tx.managedCreatorMailCapture.findFirst({ where: { id: row.id, organizationId: row.organizationId, ownerUserId: row.ownerUserId, generation: row.generation, leaseToken: row.leaseToken, leaseUntil: { gt: now }, enabled: true } });
       if (!live) return false;
-      if (!(await this.allowed(tx, live))) { await tx.managedCreatorMailCapture.update({ where: { id: live.id }, data: { enabled: false, readings: [], pendingThreadIds: [], leaseToken: null, leaseUntil: null, generation: randomUUID(), lastFailureClass: 'SCOPE_ENDED' } }); return false; }
+      if (!(await this.allowed(tx, live))) { await tx.managedCreatorMailCapture.update({ where: { id: live.id }, data: { enabled: false, readings: [], pendingThreadIds: [], refreshActive: false, refreshPendingThreadIds: [], refreshNextPageToken: null, leaseToken: null, leaseUntil: null, generation: randomUUID(), lastFailureClass: 'SCOPE_ENDED' } }); return false; }
       let readings = captureReadings(live.readings);
       if (patch.reading) {
         let reading = patch.reading;
@@ -133,6 +133,9 @@ export class ManagedCreatorMailRepository {
         const validationRetry = reading.state === 'MODEL_UNAVAILABLE' && codes.length && retryAt >= now.getTime() && retryAt <= now.getTime() + 3600_000
           ? { retryAfter: new Date(retryAt).toISOString(), rejections: codes } : {};
         reading = { ...validationRetry, threadId: reading.threadId, brandId: reading.brandId, ...(reading.candidateBrandName ? { candidateBrandName: reading.candidateBrandName } : {}), evidenceKey: reading.evidenceKey, fingerprint: reading.fingerprint, evidenceAt: reading.evidenceAt, checkedAt: now.toISOString(), generatedAt: reading.generatedAt, messageCount: reading.messageCount, incomplete: reading.incomplete, state: reading.state, ...(update ? { update } : {}) };
+        await tx.creatorMailEvidence.upsert({ where: { captureId_generation_threadId: { captureId: live.id, generation: live.generation, threadId: reading.threadId } },
+          create: { id: `${live.id}:${live.generation}:${reading.threadId}`, captureId: live.id, generation: live.generation, threadId: reading.threadId, reading: JSON.parse(JSON.stringify(reading)) },
+          update: { reading: JSON.parse(JSON.stringify(reading)) } });
         readings = [...readings.filter(r => r.threadId !== reading.threadId), reading];
       }
       readings = readings.filter(r => !r.evidenceAt || Number.isFinite(Date.parse(r.evidenceAt)) && Date.parse(r.evidenceAt) <= now.getTime());
@@ -146,10 +149,48 @@ export class ManagedCreatorMailRepository {
       readings = [...cooling, ...(room ? readings.filter(r => !coolingIds.has(r.threadId)).slice(-room) : [])];
       await tx.managedCreatorMailCapture.update({ where: { id: live.id }, data: { leaseToken: null, leaseUntil: null, nextCheckAt: new Date(now.getTime() + (patch.delayMs ?? 0)), lastCheckedAt: now, lastFailureClass: patch.failure ?? null,
         readings: JSON.parse(JSON.stringify(readings)) as Prisma.InputJsonValue,
-        ...(patch.pending ? { pendingThreadIds: [...patch.pending].slice(0, 100) } : {}), ...(patch.pageToken !== undefined ? { nextPageToken: patch.pageToken } : {}), ...(patch.listed !== undefined ? { listedCount: patch.listed } : {}), ...(patch.complete !== undefined ? { searchComplete: patch.complete } : {}), ...(patch.capped !== undefined ? { capped: patch.capped } : {}),
-        ...(patch.resetCycle ? { cycleStartedAt: now, listedCount: 0, searchComplete: false, nextPageToken: live.capped ? live.nextPageToken : null, capped: false, pendingThreadIds: [] } : {}),
+        ...(!row.refreshActive && patch.pending ? { pendingThreadIds: [...patch.pending].slice(0, 100) } : {}), ...(!row.refreshActive && patch.pageToken !== undefined ? { nextPageToken: patch.pageToken } : {}), ...(!row.refreshActive && patch.listed !== undefined ? { listedCount: patch.listed } : {}), ...(!row.refreshActive && patch.complete !== undefined ? { searchComplete: patch.complete } : {}), ...(!row.refreshActive && patch.capped !== undefined ? { capped: patch.capped } : {}),
+        ...(!row.refreshActive && patch.resetCycle ? { cycleStartedAt: now, listedCount: 0, searchComplete: false, nextPageToken: live.capped ? live.nextPageToken : null, capped: false, pendingThreadIds: [] } : {}),
+        ...(row.refreshActive ? { ...(patch.complete !== undefined ? { refreshSearchComplete: patch.complete } : {}), ...(patch.pending ? { refreshPendingThreadIds: [...patch.pending] } : {}), ...(patch.pageToken !== undefined ? { refreshNextPageToken: patch.pageToken } : {}), ...(patch.refreshComplete ? { refreshActive: false, refreshPendingThreadIds: [], refreshNextPageToken: null, lastRefreshAt: live.refreshStartedAt ?? now } : {}) } : {}),
       } }); return true;
     }, { isolationLevel: 'Serializable' });
+  }
+  async requestRefresh(principal: WorkPrincipal, profileId: string, now: Date, creator = false): Promise<boolean> {
+    if (creator) {
+      const authority = await membershipAuthority(this.prisma, principal.organizationId, principal.userId);
+      if (!authority.granted || authority.systemRole !== 'CREATOR' || !await this.prisma.creatorProfile.findFirst({ where: { organizationId: principal.organizationId, id: profileId, userId: principal.userId } })) return false;
+    } else if (!await this.mailboxes().permittedFor(principal, 'update')) return false;
+    const rows = await this.prisma.managedCreatorMailCapture.findMany({ where: { organizationId: principal.organizationId, creatorProfileId: profileId, enabled: true } });
+    let queued = false;
+    for (const row of rows) {
+      if (!await this.allowed(this.prisma, row)) continue;
+      // Coalesce clicks, preserve leases/backfill cursors, and never defeat model/budget cooldowns.
+      if (row.refreshActive || row.refreshStartedAt && now.getTime() - row.refreshStartedAt.getTime() < 60_000) { queued = true; continue; }
+      const updated = await this.prisma.managedCreatorMailCapture.updateMany({ where: { id: row.id, generation: row.generation, enabled: true, refreshActive: false }, data: { refreshActive: true, refreshSearchComplete: false, refreshStartedAt: now, refreshPendingThreadIds: [], refreshNextPageToken: null, ...(!row.lastFailureClass ? { nextCheckAt: now } : {}) } });
+      queued ||= updated.count > 0;
+    }
+    return queued;
+  }
+  async morningRefresh(now: Date): Promise<void> {
+    const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23' }).formatToParts(now);
+    const part = (type: string) => parts.find(p => p.type === type)?.value ?? '';
+    if (Number(part('hour')) < 7) return;
+    const morningKey = `${part('year')}-${part('month')}-${part('day')}`;
+    const rows = await this.prisma.managedCreatorMailCapture.findMany({ where: { enabled: true, OR: [{ morningKey: null }, { morningKey: { not: morningKey } }] }, take: 100 });
+    for (const row of rows) {
+      if (!await this.allowed(this.prisma, row)) continue;
+      await this.prisma.managedCreatorMailCapture.updateMany({ where: { id: row.id, generation: row.generation, enabled: true, morningKey: row.morningKey }, data: { morningKey, ...(!row.refreshActive ? { refreshActive: true, refreshSearchComplete: false, refreshStartedAt: now, refreshPendingThreadIds: [], refreshNextPageToken: null, ...(!row.lastFailureClass ? { nextCheckAt: now } : {}) } : {}) } });
+    }
+  }
+  async priorReading(row: ManagedCreatorMailCapture, threadId: string): Promise<ManagedCaptureReading | undefined> {
+    const evidence = await this.prisma.creatorMailEvidence.findFirst({ where: { captureId: row.id, generation: row.generation, threadId } });
+    return captureReadings(evidence ? [evidence.reading] : row.readings).find(r => r.threadId === threadId);
+  }
+  async durableReadings(row: ManagedCreatorMailCapture): Promise<ManagedCaptureReading[]> {
+    const evidence = await this.prisma.creatorMailEvidence.findMany({ where: { captureId: row.id, generation: row.generation }, orderBy: { id: 'asc' } });
+    const all = new Map(captureReadings(row.readings).map(r => [r.threadId, r]));
+    for (const item of evidence) { const reading = captureReadings([item.reading])[0]; if (reading) all.set(reading.threadId, reading); }
+    return [...all.values()];
   }
   async status(principal: WorkPrincipal, profileId: string) {
     if (!(await this.mailboxes().permittedFor(principal, 'view'))) return null;
@@ -164,7 +205,7 @@ export class ManagedCreatorMailRepository {
     const out = new Map<string, PublishedCreatorBrandUpdate & { messageCount: number }>();
     for (const row of rows ?? []) {
       if (!(await this.allowed(this.prisma, row))) continue;
-      for (const r of captureReadings(row.readings)) {
+      for (const r of await this.durableReadings(row)) {
         // A discovered brand is private candidate data until a shareable reading is accepted.
         // Never turn model refusal/withholding into a creator-visible brand association.
         if (!accepted(r)) continue;

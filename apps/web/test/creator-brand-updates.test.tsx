@@ -77,7 +77,7 @@ test('three collapsed tiles count canonical brands once and newest source stage 
   assert.match(html, /<h3>Active deals<\/h3>/);
   assert.match(html, /reached out to 1 brand awaiting a first reply/);
   assert.match(html, /1 brand conversation is underway/);
-  assert.match(html, /1 brand has an active partnership discussion: 1 negotiating, 0 confirmed/);
+  assert.match(html, /2 brands have an active partnership discussion: 1 negotiating, 1 confirmed/);
   assert.equal((html.match(/<summary>Brand One<\/summary>/g) ?? []).length, 1);
   assert.match(html, /Earlier, paused or pending updates/);
   assert.doesNotMatch(html, /<details open/);
@@ -90,4 +90,14 @@ test('a newer pending thread suppresses an older active-deal count for the same 
   ]} />);
   assert.match(html, /No current active deals are shared yet/);
   assert.doesNotMatch(html, /1 brand has an active/);
+});
+
+test('a consolidated relationship determines the stage instead of a later unanswered follow-up', () => {
+  const html = renderToStaticMarkup(<CreatorBrandUpdatesView time={time} rows={[
+    row({ id: 'followup', stage: 'OUTREACH' }),
+    row({ id: 'synthesis', synthesized: true, stage: 'NEGOTIATING', summary: 'Scope is being negotiated.', evidenceAt: new Date(at.getTime() - 1000) }),
+  ]} />);
+  assert.match(html, /1 brand has an active partnership discussion: 1 negotiating, 0 confirmed/);
+  assert.match(html, /Consolidated across accepted authorized conversations/);
+  assert.doesNotMatch(html, /EMG has reached out to 1/);
 });

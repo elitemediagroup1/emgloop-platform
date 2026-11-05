@@ -13,6 +13,8 @@ type Row = Record<string, any>;
 
 // Delegates that carry a @@unique constraint (org-scoped composite, or global).
 const UNIQUE_KEYS: Record<string, string[]> = {
+  creatorMailEvidence: ['captureId', 'generation', 'threadId'],
+  creatorMailRelationship: ['organizationId', 'creatorProfileId', 'brandId'],
   // CallGrid ingestion. GLOBAL, not org-scoped, exactly as the schema declares them
   // (known tenancy debt): one row per provider call, and one per provider delivery.
   marketplaceCall: ['provider', 'externalId'],
@@ -322,7 +324,8 @@ const COLUMN_DEFAULTS: Record<string, Row> = {
   creatorBrandMailShare: { revokedAt: null, summary: null, sourceFingerprint: null, evidenceAt: null, generatedAt: null, checkedAt: null, leaseToken: null, leaseUntil: null, lastFailureClass: null, invocationId: null, providerId: null },
   managedGoogleMailbox: { creatorProfileId: null, googleSubject: null, activeGoogleSubject: null, status: 'PENDING', grantedScopes: [], refreshTokenSealed: null, sealVersion: null, keyRef: null, connectedAt: null, disconnectedAt: null, lastFailureClass: null },
   managedGoogleOAuthState: { consumedAt: null },
-  managedCreatorMailCapture: { enabled: true, pendingThreadIds: [], nextPageToken: null, listedCount: 0, searchComplete: false, capped: false, readings: [], lastCheckedAt: null, lastFailureClass: null, leaseToken: null, leaseUntil: null },
+  creatorMailRelationship: { processed: 0, update: null, history: [], generatedAt: null, nextCheckAt: new Date(0), leaseToken: null, leaseUntil: null, lastFailureClass: null },
+  managedCreatorMailCapture: { refreshActive: false, refreshSearchComplete: false, refreshPendingThreadIds: [], refreshNextPageToken: null, refreshStartedAt: null, lastRefreshAt: null, morningKey: null, enabled: true, pendingThreadIds: [], nextPageToken: null, listedCount: 0, searchComplete: false, capped: false, readings: [], lastCheckedAt: null, lastFailureClass: null, leaseToken: null, leaseUntil: null },
   creatorProfile: {
     userId: null, handle: null, bio: null, categories: [], socialAccounts: [], payoutState: 'NOT_SET_UP', rateInfo: {}, documents: [],
     preferences: {}, defaultEditorUserId: null, createdByUserId: null,
@@ -703,6 +706,8 @@ function condMatches(value: any, cond: any): boolean {
  * columns so a repository written against the real client works here unchanged.
  */
 const COMPOUND_UNIQUE_ALIASES: Record<string, string> = {
+  creatorMailEvidence: 'captureId_generation_threadId',
+  creatorMailRelationship: 'organizationId_creatorProfileId_brandId',
   marketplaceCall: 'provider_externalId',
   providerObservationDay: 'observation_day_identity',
   providerReconciliationDay: 'reconciliation_day_identity',

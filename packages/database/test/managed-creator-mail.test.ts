@@ -17,7 +17,7 @@ import { creatorMailText, creatorMailAttributionText } from '../src/creator/crea
 const T0 = new Date('2026-11-02T18:00:00Z');
 const READ = 'https://www.googleapis.com/auth/gmail.readonly';
 async function world(realRuntime?: { run(principal: { organizationId: string; userId: string }, request: AiRunRequest): Promise<AiRunResult> }) {
-  const db = makeCognitivePrisma({ also: ['creatorProfile', 'managedGoogleMailbox', 'managedCreatorMailCapture', 'managedGoogleOAuthState', 'googleConnection', 'googleOAuthState', 'organizationMembership'] }) as unknown as PrismaClient;
+  const db = makeCognitivePrisma({ also: ['creatorMailEvidence', 'creatorMailRelationship', 'creatorProfile', 'managedGoogleMailbox', 'managedCreatorMailCapture', 'managedGoogleOAuthState', 'googleConnection', 'googleOAuthState', 'organizationMembership'] }) as unknown as PrismaClient;
   const iam = new IamRepository(db), creators = new CreatorRepository(db), people = new PartyService(db), repo = new ManagedCreatorMailRepository(db);
   async function member(role: string, email: string, org = 'a') { const u = await iam.createUser({ organizationId: org, email, systemRole: role }); await iam.activateUser(org, u.id); return { organizationId: org, userId: u.id }; }
   const owner = await member('OWNER', 'matt@elitemediagroup.io'), recipient = await member('CREATOR', 'trevon@example.test'), second = await member('CREATOR', 'other@example.test'), foreign = await member('OWNER', 'foreign@example.test', 'b');
@@ -57,8 +57,7 @@ test('an ordinary body word cannot become the canonical brand Going in a Trevon 
   await w.db.cognitiveIdentity.update({ where: { id: w.brand }, data: { displayName: 'Going' } });
   w.threadHook(t => ({ ...t, messages: t.messages.map(m => ({ ...m, fact: { ...m.fact, subject: 'Trevon Hill x Cashion Rods Partnership' }, body: { ...m.body, text: 'Trevon Hill: I am going to have to pass at this time.' } })) }));
   await w.start(); await w.drain();
-  assert.equal(w.counts().modelCalls, 0);
-  assert.deepEqual(await w.repo.updates(w.recipient, w.profile.id, T0), []);
+  assert.ok((await w.repo.updates(w.recipient, w.profile.id, T0)).every(r => r.brandId !== w.brand && r.brand !== 'Going'));
 });
 
 test('HTML-only sent messages reach governed summarization without publishing source HTML', async () => {
@@ -100,6 +99,7 @@ test('unaccepted candidate brands never appear in the creator view or manager pr
   for (const state of ['MODEL_UNAVAILABLE', 'WITHHELD', 'SOURCE_UNAVAILABLE']) {
     const row = (await w.db.managedCreatorMailCapture.findMany())[0]!;
     await w.db.managedCreatorMailCapture.update({ where: { id: row.id }, data: { readings: [{ ...captureReadings(row.readings)[0], state }] } });
+    await w.db.creatorMailEvidence.updateMany({ where: { captureId: row.id }, data: { reading: { ...captureReadings(row.readings)[0], state } } });
     assert.deepEqual(await w.repo.updates(w.recipient, w.profile.id, T0), [], state);
     assert.deepEqual(await w.repo.updates(w.owner, w.profile.id, T0, true), [], state);
   }
@@ -172,9 +172,12 @@ test('unchanged evidence skips a second model call; later readings remain timest
 test('mixed creators, unreadable latest mail and missing brand mappings withhold activity without inventing deals', async () => {
   for (const mode of ['mixed', 'unreadable', 'unmapped']) {
     const w = await world(); w.setMode(mode);
-    if (mode === 'unmapped') await w.db.cognitiveIdentity.update({ where: { id: w.brand }, data: { archivedAt: T0 } });
+    if (mode === 'unmapped') {
+      await w.db.cognitiveIdentity.update({ where: { id: w.brand }, data: { archivedAt: T0 } });
+      w.threadHook(t => ({ ...t, messages: t.messages.map(m => ({ ...m, fact: { ...m.fact, from: m.fact.fromSelf ? m.fact.from : { address: 'person@gmail.com' }, to: m.fact.fromSelf ? [{ address: 'person@gmail.com' }] : m.fact.to } })) }));
+    }
     await w.start([w.staff.id]); await w.drain();
-    assert.equal(w.counts().modelCalls, 0, mode);
+    assert.equal(w.counts().modelCalls, mode === 'unmapped' ? 1 : 0, mode);
     assert.deepEqual(await w.repo.updates(w.recipient, w.profile.id, T0), [], mode);
     const captures = await w.db.managedCreatorMailCapture.findMany();
     assert.ok(captureReadings(captures[0]?.readings).every(r => r.state !== 'CURRENT'), mode);
@@ -370,7 +373,8 @@ test('the bounded reading cache retains validation cooldowns when other source c
   }
   row = (await w.db.managedCreatorMailCapture.findMany())[0]!;
   const kept = captureReadings(row.readings);
-  assert.equal(kept.length, 100);
+  assert.equal(kept.length, 102);
+  assert.equal((await w.repo.durableReadings(row)).length, 102);
   assert.equal(kept.find(r => r.threadId === failed.threadId)?.retryAfter, failed.retryAfter);
   assert.equal(runtime.requests.length, 2);
 });
@@ -447,4 +451,136 @@ test('keyword changes are scoped, validated and atomic with source authorization
   assert.deepEqual(await w.service.pass(), { CAPTURE_LISTED: 1 });
   await w.drain();
   assert.equal(w.counts().modelCalls, 2);
+});
+
+test('creator refresh queues only their bound sources, coalesces clicks and preserves backfill/cooldown', async () => {
+  const w = await world(); await w.start();
+  const rows = await w.db.managedCreatorMailCapture.findMany();
+  for (const row of rows) await w.db.managedCreatorMailCapture.update({ where: { id: row.id }, data: { nextPageToken: 'historical-page', pendingThreadIds: ['historical-thread'], lastFailureClass: 'MODEL_CALL_FAILED', nextCheckAt: new Date(T0.getTime() + 3600_000) } });
+  assert.equal(await w.repo.requestRefresh(w.second, w.profile.id, T0, true), false);
+  assert.equal(await w.repo.requestRefresh(w.foreign, w.profile.id, T0, true), false);
+  assert.equal(await w.repo.requestRefresh(w.recipient, w.profile.id, T0, true), true);
+  assert.equal(await w.repo.requestRefresh(w.recipient, w.profile.id, T0, true), true);
+  for (const row of await w.db.managedCreatorMailCapture.findMany()) {
+    assert.equal(row.refreshActive, true); assert.equal(row.nextPageToken, 'historical-page');
+    assert.deepEqual(row.pendingThreadIds, ['historical-thread']); assert.equal(row.nextCheckAt.getTime(), T0.getTime() + 3600_000);
+  }
+});
+
+test('7am America/New_York daily refresh handles daylight saving and queues once per local day', async () => {
+  for (const [before, after] of [['2026-11-05T11:59:00Z', '2026-11-05T12:00:00Z'], ['2026-07-05T10:59:00Z', '2026-07-05T11:00:00Z']]) {
+    const w = await world(); await w.start();
+    await w.repo.morningRefresh(new Date(before!));
+    assert.ok((await w.db.managedCreatorMailCapture.findMany()).every(r => !r.refreshActive));
+    await w.repo.morningRefresh(new Date(after!));
+    const rows = await w.db.managedCreatorMailCapture.findMany();
+    assert.ok(rows.every(r => r.refreshActive));
+    await w.repo.morningRefresh(new Date(new Date(after!).getTime() + 60_000));
+    assert.deepEqual((await w.db.managedCreatorMailCapture.findMany()).map(r => r.refreshStartedAt), rows.map(r => r.refreshStartedAt));
+  }
+});
+
+test('incremental refresh drains its cursor and resumes the original historical queue', async () => {
+  const w = await world(); await w.start([w.staff.id]);
+  let row = (await w.db.managedCreatorMailCapture.findMany())[0]!;
+  await w.db.managedCreatorMailCapture.update({ where: { id: row.id }, data: { pendingThreadIds: ['historical-next'], nextPageToken: 'older-page' } });
+  assert.equal(await w.repo.requestRefresh(w.recipient, w.profile.id, T0, true), true);
+  await w.service.pass(); await w.service.pass();
+  w.clock(new Date(T0.getTime() + 301_000)); await w.service.pass();
+  row = (await w.db.managedCreatorMailCapture.findMany())[0]!;
+  assert.equal(row.refreshActive, false); assert.equal(row.nextPageToken, 'older-page');
+  assert.deepEqual(row.pendingThreadIds, ['historical-next']); assert.equal(row.lastRefreshAt?.toISOString(), T0.toISOString());
+});
+
+test('cross-mailbox relationship synthesis publishes one version and revocation invalidates it', async () => {
+  const { CreatorRelationshipService } = await import('../src/creator/creator-relationship.service');
+  const w = await world(); await w.start(); await w.drain();
+  let calls = 0;
+  const service = new CreatorRelationshipService(w.db, { run: async (_actor, request) => {
+    calls++; assert.equal(request.templateId, 'creator-relationship-synthesis');
+    assert.ok(request.context.items.every(i => i.readUnder.resource === 'managedMailboxes'));
+    const ref = request.context.items.find(i => i.sourceRef.startsWith('mail_message:'))!.sourceRef;
+    return { outcome: 'ANSWERED', output: parseCreatorBrandUpdate({ schemaId: CREATOR_BRAND_UPDATE_SCHEMA_ID, publishable: true, stage: 'AWAITING_BRAND', summary: 'EMG has shared the portfolio and is awaiting the brand response.', nextStep: 'Await the brand response.', citations: [ref] })!, provenance: {} } as AiRunResult;
+  } }, () => T0);
+  assert.deepEqual(await service.pass(), { SYNTHESIZED: 1 });
+  const updates = await service.projections(w.recipient, w.profile.id);
+  assert.equal(updates.length, 1); assert.equal(updates[0]?.synthesized, true);
+  assert.deepEqual(await service.pass(), {}); assert.equal(calls, 1);
+  assert.deepEqual(await service.projections(w.second, w.profile.id), []);
+  await w.db.managedGoogleMailbox.update({ where: { id: w.staff.id }, data: { status: 'DISCONNECTED' } });
+  assert.deepEqual(await service.projections(w.recipient, w.profile.id), []);
+});
+
+test('relationship synthesis refusal remains private and backs off without repeated spend', async () => {
+  const { CreatorRelationshipService } = await import('../src/creator/creator-relationship.service');
+  const w = await world(); await w.start(); await w.drain(); let calls = 0;
+  const service = new CreatorRelationshipService(w.db, { run: async () => { calls++; return { outcome: 'REFUSED_BY_LOOP', refusals: ['BUDGET_BACKGROUND_DEFERRED'] }; } }, () => T0);
+  assert.deepEqual(await service.pass(), { NOT_PUBLISHED: 1 });
+  assert.deepEqual(await service.projections(w.recipient, w.profile.id), []);
+  assert.deepEqual(await service.pass(), {}); assert.equal(calls, 1);
+});
+
+test('historical pagination resumes beyond 500 without skipping the rest of a Gmail page', async () => {
+  const w = await world(); await w.start([w.staff.id]);
+  let clock = T0; const read: string[] = [], pages: string[] = [];
+  const ids = Array.from({ length: 551 }, (_, i) => `thread-${i}`);
+  const service = new ManagedCreatorMailService({ repository: w.repo, now: () => clock, runtime: { run: async () => { throw Error('unreadable sources cannot call AI'); } }, mailboxes: {
+    searchThreads: async (_principal, _mailbox, query, token) => {
+      assert.doesNotMatch(query, /after:/); const offset = token ? Number(token) : 0; pages.push(String(offset));
+      return { ok: true, threadIds: ids.slice(offset, offset + 87), nextPageToken: offset + 87 < ids.length ? String(offset + 87) : null };
+    },
+    readThread: async (_principal, _mailbox, id) => { read.push(id); return { ok: false, failure: 'UNAVAILABLE' }; },
+  } });
+  for (let step = 0; step < 600 && read.length < ids.length; step++) {
+    await service.pass(); clock = new Date(clock.getTime() + 1000); w.clock(clock);
+    const row = (await w.db.managedCreatorMailCapture.findMany())[0]!;
+    if (row.nextCheckAt > clock) { clock = row.nextCheckAt; w.clock(clock); }
+  }
+  assert.deepEqual(read, ids); assert.equal(new Set(read).size, 551);
+  assert.deepEqual(pages, ['0', '87', '174', '261', '348', '435', '522']);
+});
+
+test('multi-batch synthesis remains private until all evidence is folded, and new versions invalidate it', async () => {
+  const { CreatorRelationshipService } = await import('../src/creator/creator-relationship.service');
+  const w = await world(); await w.start([w.staff.id]); await w.drain();
+  const row = (await w.db.managedCreatorMailCapture.findMany())[0]!;
+  const reading = (await w.repo.durableReadings(row))[0]!;
+  for (let i = 0; i < 20; i++) await w.db.creatorMailEvidence.create({ data: { id: `extra-${i}`, captureId: row.id, generation: row.generation, threadId: `extra-${i}`, reading: { ...reading, threadId: `extra-${i}`, evidenceKey: `physical-${i}`, fingerprint: `version-${i}` } } });
+  let calls = 0;
+  const service = new CreatorRelationshipService(w.db, { run: async (_actor, request) => {
+    calls++; assert.ok(request.context.items.filter(i => i.sourceRef.startsWith('mail_message:')).length <= 17);
+    const ref = request.context.items.find(i => i.sourceRef.startsWith('mail_message:'))!.sourceRef;
+    return { outcome: 'ANSWERED', output: parseCreatorBrandUpdate({ schemaId: CREATOR_BRAND_UPDATE_SCHEMA_ID, publishable: true, stage: 'DISCUSSING', summary: 'The brand and EMG are discussing a collaboration.', nextStep: '', citations: [ref] })!, provenance: {} } as AiRunResult;
+  } }, () => T0);
+  assert.deepEqual(await service.pass(), { SYNTHESIS_PROGRESS: 1 });
+  assert.deepEqual(await service.projections(w.recipient, w.profile.id), []);
+  assert.deepEqual(await service.pass(), { SYNTHESIZED: 1 });
+  assert.equal((await service.projections(w.recipient, w.profile.id)).length, 1); assert.equal(calls, 2);
+  await w.db.creatorMailEvidence.update({ where: { id: 'extra-0' }, data: { reading: { ...reading, threadId: 'extra-0', evidenceKey: 'physical-0', fingerprint: 'new-version' } } });
+  assert.deepEqual(await service.projections(w.recipient, w.profile.id), []);
+});
+
+test('AI resolves an advertiser named in partnership evidence instead of publishing its agency domain', async () => {
+  const w = await world({ run: async (_principal, request) => {
+    const ref = request.context.items.find(i => i.sourceRef.startsWith('mail_message:'))!.sourceRef;
+    return { outcome: 'ANSWERED', output: parseCreatorBrandUpdate({ schemaId: CREATOR_BRAND_UPDATE_SCHEMA_ID, publishable: true, brandName: 'River Tackle', stage: 'DISCUSSING', summary: 'The brand and EMG are exploring a collaboration.', nextStep: '', citations: [ref] })!, provenance: {} } as AiRunResult;
+  } });
+  w.threadHook(t => ({ ...t, messages: t.messages.map(m => ({ ...m, fact: { ...m.fact, subject: 'Trevon Hill partnership', from: m.fact.fromSelf ? m.fact.from : { address: 'rep@agencyhouse.com' }, to: m.fact.fromSelf ? [{ address: 'rep@agencyhouse.com' }] : m.fact.to }, body: { ...m.body, text: 'Trevon Hill partnership with River Tackle: could EMG send the creator portfolio?' } })) }));
+  await w.start(); await w.drain();
+  const rows = await w.repo.updates(w.recipient, w.profile.id, T0);
+  assert.equal(rows.length, 1); assert.equal(rows[0]?.brand, 'River Tackle');
+  assert.doesNotMatch(JSON.stringify(rows), /agencyhouse|rep@|PRIVATE_/);
+});
+
+test('a personal-address representative can identify an explicit advertiser, but hallucinated names are withheld', async () => {
+  for (const actual of ['River Tackle', 'Invented Advertiser']) {
+    const w = await world({ run: async (_principal, request) => {
+      const ref = request.context.items.find(i => i.sourceRef.startsWith('mail_message:'))!.sourceRef;
+      return { outcome: 'ANSWERED', output: parseCreatorBrandUpdate({ schemaId: CREATOR_BRAND_UPDATE_SCHEMA_ID, publishable: true, brandName: actual, stage: 'DISCUSSING', summary: 'A creator collaboration is being discussed.', nextStep: '', citations: [ref] })!, provenance: {} } as AiRunResult;
+    } });
+    w.threadHook(t => ({ ...t, messages: t.messages.map(m => ({ ...m, fact: { ...m.fact, subject: 'Trevon Hill partnership', from: m.fact.fromSelf ? m.fact.from : { address: 'rep@gmail.com' }, to: m.fact.fromSelf ? [{ address: 'rep@gmail.com' }] : m.fact.to }, body: { ...m.body, text: 'Trevon Hill partnership with River Tackle: please send the creator portfolio.' } })) }));
+    await w.start(); await w.drain();
+    const rows = await w.repo.updates(w.recipient, w.profile.id, T0);
+    assert.equal(rows.length, actual === 'River Tackle' ? 1 : 0);
+  }
 });
