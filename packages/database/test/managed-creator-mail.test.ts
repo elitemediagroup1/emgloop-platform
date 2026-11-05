@@ -17,7 +17,7 @@ import { creatorMailText, creatorMailAttributionText } from '../src/creator/crea
 const T0 = new Date('2026-11-02T18:00:00Z');
 const READ = 'https://www.googleapis.com/auth/gmail.readonly';
 async function world(realRuntime?: { run(principal: { organizationId: string; userId: string }, request: AiRunRequest): Promise<AiRunResult> }) {
-  const db = makeCognitivePrisma({ also: ['creatorMailEvidence', 'creatorMailRelationship', 'creatorProfile', 'managedGoogleMailbox', 'managedCreatorMailCapture', 'managedGoogleOAuthState', 'googleConnection', 'googleOAuthState', 'organizationMembership'] }) as unknown as PrismaClient;
+  const db = makeCognitivePrisma({ also: ['aiControl', 'aiControlCurrent', 'creatorMailEvidence', 'creatorMailRelationship', 'creatorProfile', 'managedGoogleMailbox', 'managedCreatorMailCapture', 'managedGoogleOAuthState', 'googleConnection', 'googleOAuthState', 'organizationMembership'] }) as unknown as PrismaClient;
   const iam = new IamRepository(db), creators = new CreatorRepository(db), people = new PartyService(db), repo = new ManagedCreatorMailRepository(db);
   async function member(role: string, email: string, org = 'a') { const u = await iam.createUser({ organizationId: org, email, systemRole: role }); await iam.activateUser(org, u.id); return { organizationId: org, userId: u.id }; }
   const owner = await member('OWNER', 'matt@elitemediagroup.io'), recipient = await member('CREATOR', 'trevon@example.test'), second = await member('CREATOR', 'other@example.test'), foreign = await member('OWNER', 'foreign@example.test', 'b');
@@ -659,4 +659,37 @@ test('incremental synthesis reuses only an unchanged chronological and authorize
   assert.equal(relationshipContinuation(record, [{ ...first, reading: { ...reading, fingerprint: 'changed' } }, second, later]), 0);
   assert.equal(relationshipContinuation(record, [...old, { ...later, reading: { ...later.reading, evidenceAt: '2020-01-01T12:00:00Z' } }]), 0, 'older backfill must rebuild chronology');
   assert.equal(relationshipContinuation({ ...record, history: [{ fingerprint }] }, [...old, later]), 0, 'legacy aggregates have no verifiable reuse basis');
+});
+
+test('new recorded budgets wake old quota retries once, preserving cursors, leases and unrelated backoffs', async () => {
+  const { AI_OPERATING_BUDGET_INITIAL } = await import('@emgloop/shared');
+  const w = await world(); await w.start();
+  const rows = await w.db.managedCreatorMailCapture.findMany();
+  const changedAt = new Date(T0.getTime() + 120_000), wakeAt = new Date(changedAt.getTime() + 60_000);
+  for (const row of rows) await w.db.managedCreatorMailCapture.update({ where: { id: row.id }, data: { lastCheckedAt: T0, lastFailureClass: 'MODEL_POLICY_REFUSED:BUDGET_TASK_EXHAUSTED', nextCheckAt: new Date(T0.getTime() + 3600_000), pendingThreadIds: ['kept-thread'], nextPageToken: 'kept-page' } });
+  await w.repo.resumeAfterBudgetChange(wakeAt);
+  assert.ok((await w.db.managedCreatorMailCapture.findMany()).every(r => r.nextCheckAt > wakeAt), 'no recorded budget never wakes retries');
+  await w.db.aiControl.create({ data: { id: 'budget-change', controlKey: 'BUDGET|-|operating', version: 1, scope: 'BUDGET', value: 'operating', state: 'ACTIVE', reason: 'Authorized capacity increase', actorKind: 'OPERATIONS', settings: AI_OPERATING_BUDGET_INITIAL as unknown as Prisma.InputJsonValue, recordedAt: changedAt } });
+  await w.db.aiControlCurrent.create({ data: { controlKey: 'BUDGET|-|operating', version: 1, scope: 'BUDGET', value: 'operating' } });
+  await w.db.creatorMailRelationship.create({ data: { id: 'waiting-fold', organizationId: 'a', creatorProfileId: w.profile.id, brandId: w.brand, fingerprint: 'unchanged', updatedAt: T0, nextCheckAt: new Date(T0.getTime() + 3600_000), lastFailureClass: 'REFUSED_BY_LOOP' } });
+  await w.repo.resumeAfterBudgetChange(new Date(changedAt.getTime() + 59_000));
+  assert.ok((await w.db.managedCreatorMailCapture.findMany()).every(r => r.nextCheckAt > wakeAt), 'wait for gateway cache expiry');
+  await w.db.managedCreatorMailCapture.update({ where: { id: rows[1]!.id }, data: { leaseToken: 'active', leaseUntil: new Date(wakeAt.getTime() + 60_000) } });
+  await w.repo.resumeAfterBudgetChange(wakeAt);
+  assert.equal((await w.db.creatorMailRelationship.findMany())[0]!.nextCheckAt.getTime(), wakeAt.getTime());
+  let live = (await w.db.managedCreatorMailCapture.findMany()).find(r => r.id === rows[0]!.id)!;
+  assert.equal(live.nextCheckAt.getTime(), wakeAt.getTime()); assert.deepEqual(live.pendingThreadIds, ['kept-thread']); assert.equal(live.nextPageToken, 'kept-page');
+  assert.ok((await w.db.managedCreatorMailCapture.findMany()).find(r => r.id === rows[1]!.id)!.nextCheckAt > wakeAt, 'active lease untouched');
+  // An admission refusal after the new budget must retain its own cooldown.
+  await w.db.managedCreatorMailCapture.update({ where: { id: live.id }, data: { lastCheckedAt: wakeAt, nextCheckAt: new Date(wakeAt.getTime() + 3600_000) } });
+  await w.repo.resumeAfterBudgetChange(new Date(wakeAt.getTime() + 1000));
+  live = (await w.db.managedCreatorMailCapture.findMany()).find(r => r.id === live.id)!;
+  assert.ok(live.nextCheckAt > wakeAt);
+  await w.db.managedCreatorMailCapture.update({ where: { id: live.id }, data: { lastCheckedAt: T0, lastFailureClass: 'MODEL_CALL_FAILED' } });
+  await w.repo.resumeAfterBudgetChange(wakeAt);
+  assert.ok((await w.db.managedCreatorMailCapture.findMany()).find(r => r.id === live.id)!.nextCheckAt > wakeAt, 'provider/model errors keep backoff');
+  await w.db.aiControl.update({ where: { id: 'budget-change' }, data: { settings: { invalid: true } } });
+  await w.db.managedCreatorMailCapture.update({ where: { id: live.id }, data: { lastFailureClass: 'MODEL_POLICY_REFUSED:BUDGET_TASK_EXHAUSTED' } });
+  await w.repo.resumeAfterBudgetChange(wakeAt);
+  assert.ok((await w.db.managedCreatorMailCapture.findMany()).find(r => r.id === live.id)!.nextCheckAt > wakeAt, 'unreadable control never wakes work');
 });

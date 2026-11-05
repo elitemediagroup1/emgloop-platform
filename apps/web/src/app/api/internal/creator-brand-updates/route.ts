@@ -11,6 +11,7 @@ export async function POST(request: Request) {
   if (!creatorMailSharingEnabled()) return NextResponse.json({ ok: true, enabled: false });
   try {
     if (!await managedCreatorMailRepository().ready()) return NextResponse.json({ ok: true, enabled: false, reason: 'MIGRATION_REQUIRED' });
+    await managedCreatorMailRepository().resumeAfterBudgetChange(new Date());
     await managedCreatorMailRepository().morningRefresh(new Date());
     // Alternate capture and relationship work so neither can starve the other.
     const synthesisTurn = Math.floor(Date.now() / 60_000) % 2 === 0;
