@@ -171,10 +171,13 @@ export class ManagedCreatorMailRepository {
         if ((!r.brandId && !r.candidateBrandName) || !r.evidenceAt || !Number.isFinite(Date.parse(r.evidenceAt)) || Date.parse(r.evidenceAt) > now.getTime() || now.getTime() - Date.parse(r.evidenceAt) > 365 * DAY) continue;
         const brand = r.brandId ? await new PartyReadModelRepository(this.prisma).establishedOne(row.organizationId, 'COMPANY', r.brandId) : null;
         if (!brand && !r.candidateBrandName) continue;
-        const brandId = brand?.id ?? `candidate:${mailEvidenceHash(r.candidateBrandName!.toLowerCase())}`;
+        const normalizedCandidate = r.candidateBrandName?.normalize('NFKC').toLowerCase().replace(/[^a-z0-9]/g, '') ?? '';
+        const brandId = brand?.id ?? `candidate:${mailEvidenceHash(normalizedCandidate)}`;
         const brandName = brand?.displayName ?? r.candidateBrandName!;
         const valid = accepted(r), checked = new Date(r.checkedAt), evidenceAt = new Date(r.evidenceAt);
         const item = { id: mailEvidenceHash(`${row.creatorProfileId}:${r.evidenceKey}:${brandId}`), brand: brandName, brandId, stage: valid ? r.update!.stage : null, summary: valid ? r.update!.summary : null, nextStep: valid ? r.update!.nextStep : null, generatedAt: valid && r.generatedAt ? new Date(r.generatedAt) : null, checkedAt: checked, evidenceAt, current: valid && checked <= now && now.getTime() - checked.getTime() < 600_000, messageCount: r.messageCount };
+        // The same Gmail message can be read from several authorized mailboxes.
+        // Deduplicate by stable source message evidence, not by mailbox-specific thread ID.
         const key = `${brandId}:${r.evidenceKey}`, old = out.get(key);
         if (!old || item.messageCount > old.messageCount || item.messageCount === old.messageCount && checked.getTime() > (old.checkedAt?.getTime() ?? 0)) out.set(key, item);
       }
