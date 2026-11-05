@@ -10,6 +10,7 @@ export async function POST(request: Request) {
   if (body !== '{"purpose":"creator-brand-updates","version":1}' || !expected || !verifyWorkerRequest(expected, { body, signature: request.headers.get(WORKER_SIGNATURE_HEADER), timestamp: request.headers.get(WORKER_TIMESTAMP_HEADER), toleranceMs: 60_000 })) return NextResponse.json({ ok: false }, { status: 401 });
   if (!creatorMailSharingEnabled()) return NextResponse.json({ ok: true, enabled: false });
   try {
+    if (!await managedCreatorMailRepository().ready()) return NextResponse.json({ ok: true, enabled: false, reason: 'MIGRATION_REQUIRED' });
     await managedCreatorMailRepository().morningRefresh(new Date());
     // Alternate capture and relationship work so neither can starve the other.
     const synthesisTurn = Math.floor(Date.now() / 60_000) % 2 === 0;

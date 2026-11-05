@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { PrismaClient } from '@prisma/client';
+import { Prisma, type PrismaClient } from '@prisma/client';
 import { parseCreatorBrandUpdate, CREATOR_BRAND_UPDATE_SCHEMA_ID, type GmailThreadView, type AiModelRequest, type AiModelResult } from '@emgloop/shared';
 import { IamRepository } from '../src/repositories/iam.repository';
 import { PartyService } from '../src/services/party.service';
@@ -583,4 +583,17 @@ test('a personal-address representative can identify an explicit advertiser, but
     const rows = await w.repo.updates(w.recipient, w.profile.id, T0);
     assert.equal(rows.length, actual === 'River Tackle' ? 1 : 0);
   }
+});
+
+test('migration rollout preserves existing creator summaries while new queues report not ready', async () => {
+  const w = await world(); await w.start(); await w.drain();
+  const evidenceDelegate = w.db.creatorMailEvidence;
+  const original = evidenceDelegate.findMany;
+  evidenceDelegate.findMany = async () => { throw new Prisma.PrismaClientKnownRequestError('table absent', { code: 'P2021', clientVersion: '5.22.0' }); };
+  assert.equal((await w.repo.updates(w.recipient, w.profile.id, T0)).length, 1);
+  evidenceDelegate.findMany = original;
+  const captures = w.db.managedCreatorMailCapture, originalFind = captures.findMany;
+  captures.findMany = async () => { throw new Prisma.PrismaClientKnownRequestError('column absent', { code: 'P2022', clientVersion: '5.22.0' }); };
+  assert.equal(await w.repo.ready(), false);
+  captures.findMany = originalFind;
 });

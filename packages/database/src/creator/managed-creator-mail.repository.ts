@@ -28,7 +28,10 @@ export class ManagedCreatorMailRepository {
   constructor(private readonly prisma: PrismaClient) {}
   private mailboxes() { return new ManagedMailboxRepository(this.prisma); }
   async present(organizationId: string): Promise<boolean> {
-    return (await absentUntilMigrated(this.prisma.managedCreatorMailCapture.findMany({ where: { organizationId }, select: { id: true }, take: 1 }))) !== null;
+    return (await absentUntilMigrated(this.prisma.managedCreatorMailCapture.findMany({ where: { organizationId }, select: { id: true, refreshActive: true }, take: 1 }))) !== null;
+  }
+  async ready(): Promise<boolean> {
+    return await absentUntilMigrated(this.prisma.managedCreatorMailCapture.findMany({ select: { id: true, refreshActive: true }, take: 1 })) !== null;
   }
   async allowed(db: Db, row: CaptureScope) {
     const principal = { organizationId: row.organizationId, userId: row.ownerUserId };
@@ -186,10 +189,10 @@ export class ManagedCreatorMailRepository {
     const evidence = await this.prisma.creatorMailEvidence.findFirst({ where: { captureId: row.id, generation: row.generation, threadId } });
     return captureReadings(evidence ? [evidence.reading] : row.readings).find(r => r.threadId === threadId);
   }
-  async durableReadings(row: ManagedCreatorMailCapture): Promise<ManagedCaptureReading[]> {
-    const evidence = await this.prisma.creatorMailEvidence.findMany({ where: { captureId: row.id, generation: row.generation }, orderBy: { id: 'asc' } });
+  async durableReadings(row: Pick<ManagedCreatorMailCapture, 'id' | 'generation' | 'readings'>): Promise<ManagedCaptureReading[]> {
+    const evidence = await absentUntilMigrated(this.prisma.creatorMailEvidence.findMany({ where: { captureId: row.id, generation: row.generation }, orderBy: { id: 'asc' } }));
     const all = new Map(captureReadings(row.readings).map(r => [r.threadId, r]));
-    for (const item of evidence) { const reading = captureReadings([item.reading])[0]; if (reading) all.set(reading.threadId, reading); }
+    for (const item of evidence ?? []) { const reading = captureReadings([item.reading])[0]; if (reading) all.set(reading.threadId, reading); }
     return [...all.values()];
   }
   async status(principal: WorkPrincipal, profileId: string) {
@@ -201,7 +204,7 @@ export class ManagedCreatorMailRepository {
     else { const recipient = await membershipAuthority(this.prisma, principal.organizationId, principal.userId); if (!recipient.granted || recipient.systemRole !== 'CREATOR') return []; }
     const profile = await this.prisma.creatorProfile.findFirst({ where: { organizationId: principal.organizationId, id: profileId, ...(!manager ? { userId: principal.userId } : {}) }, select: { id: true } });
     if (!profile) return [];
-    const rows = await absentUntilMigrated(this.prisma.managedCreatorMailCapture.findMany({ where: { organizationId: principal.organizationId, creatorProfileId: profile.id, enabled: true }, take: 4 }));
+    const rows = await absentUntilMigrated(this.prisma.managedCreatorMailCapture.findMany({ where: { organizationId: principal.organizationId, creatorProfileId: profile.id, enabled: true }, take: 4, select: { id: true, organizationId: true, creatorProfileId: true, recipientUserId: true, ownerUserId: true, mailboxId: true, mailboxRevision: true, scopeHash: true, enabled: true, generation: true, readings: true } }));
     const out = new Map<string, PublishedCreatorBrandUpdate & { messageCount: number }>();
     for (const row of rows ?? []) {
       if (!(await this.allowed(this.prisma, row))) continue;
