@@ -147,7 +147,7 @@ export class ManagedCreatorMailRepository {
       await tx.managedCreatorMailCapture.update({ where: { id: live.id }, data: { leaseToken: null, leaseUntil: null, nextCheckAt: new Date(now.getTime() + (patch.delayMs ?? 0)), lastCheckedAt: now, lastFailureClass: patch.failure ?? null,
         readings: JSON.parse(JSON.stringify(readings)) as Prisma.InputJsonValue,
         ...(patch.pending ? { pendingThreadIds: [...patch.pending].slice(0, 100) } : {}), ...(patch.pageToken !== undefined ? { nextPageToken: patch.pageToken } : {}), ...(patch.listed !== undefined ? { listedCount: patch.listed } : {}), ...(patch.complete !== undefined ? { searchComplete: patch.complete } : {}), ...(patch.capped !== undefined ? { capped: patch.capped } : {}),
-        ...(patch.resetCycle ? { cycleStartedAt: now, listedCount: 0, searchComplete: false, nextPageToken: null, pendingThreadIds: [] } : {}),
+        ...(patch.resetCycle ? { cycleStartedAt: now, listedCount: 0, searchComplete: false, nextPageToken: live.capped ? live.nextPageToken : null, capped: false, pendingThreadIds: [] } : {}),
       } }); return true;
     }, { isolationLevel: 'Serializable' });
   }
