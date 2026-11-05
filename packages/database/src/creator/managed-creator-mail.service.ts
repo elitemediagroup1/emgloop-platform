@@ -91,14 +91,16 @@ export class ManagedCreatorMailService {
     const latest = [...external].sort((a, b) => b.fact.internalDate.getTime() - a.fact.internalDate.getTime())[0]!;
     const evidenceAt = latest.fact.internalDate;
     if (!Number.isFinite(evidenceAt.getTime()) || evidenceAt > now() || now().getTime() - evidenceAt.getTime() > 30 * 86400_000) return finish();
-    reading = { ...reading, evidenceAt: evidenceAt.toISOString(), evidenceKey: mailEvidenceHash(latest.fact.headerMessageId?.trim() || `${row.id}:${threadId}:${latest.fact.messageId}`), messageCount: external.length, incomplete: external.length > 8 || external.some(m => m.body.truncated || (m.body.text?.length ?? 0) > 1800 || !m.body.text?.trim() && !!m.body.html) };
+    reading = { ...reading, evidenceAt: evidenceAt.toISOString(), evidenceKey: mailEvidenceHash(latest.fact.headerMessageId?.trim() || `${row.id}:${threadId}:${latest.fact.messageId}`), messageCount: external.length, incomplete: external.length > 12 || external.some(m => m.body.truncated || (m.body.text?.length ?? 0) > 2400 || !m.body.text?.trim() && !!m.body.html) };
     if (!creatorMailText(latest.body)) return finish();
     const human = external.filter(m => !m.fact.automationClass);
-    const messages = human.slice(-8).flatMap(m => {
+    // Include more chronological context, retaining a bounded gateway input budget.
+    // Historical cross-thread synthesis and paginated backfill are tracked separately in #423.
+    const messages = human.slice(-12).flatMap(m => {
       const raw = creatorMailText(m.body) ?? '';
       const substantive = creatorMailAttributionText(raw);
       if (substantive !== raw) reading = { ...reading, incomplete: true };
-      const text = substantive.slice(0, 1800);
+      const text = substantive.slice(0, 2400);
       return text ? [{ direction: (internal.has(m.fact.from?.address.toLowerCase() ?? '') || m.fact.fromSelf ? 'OUTBOUND' : 'INBOUND') as 'OUTBOUND' | 'INBOUND', occurredAt: m.fact.internalDate, fromLabel: null, text }] : [];
     });
     if (!messages.length) { reading = { ...reading, state: 'WITHHELD' }; return finish(); }
@@ -115,7 +117,7 @@ export class ManagedCreatorMailService {
     const brands = scope.brands.filter(b => b.displayName && b.displayName.trim().length >= 4 && (exactMailPhrase(subject, b.displayName) || companyMailDomainMatch(b.displayName, participants)));
     if (brands.length !== 1) { reading = { ...reading, state: 'UNMAPPED_BRAND' }; return finish(); }
     const brand = brands[0]!;
-    reading = { ...reading, brandId: brand.id, fingerprint: mailEvidenceHash(JSON.stringify({ template: 6, creator: row.creatorProfileId, brand: brand.id, messages, incomplete: reading.incomplete })) };
+    reading = { ...reading, brandId: brand.id, fingerprint: mailEvidenceHash(JSON.stringify({ template: 7, creator: row.creatorProfileId, brand: brand.id, messages, incomplete: reading.incomplete })) };
     const previous = captureReadings(row.readings).find(r => r.threadId === threadId && r.fingerprint === reading.fingerprint && ['CURRENT', 'WITHHELD'].includes(r.state));
     if (previous) { reading = { ...previous, evidenceAt: reading.evidenceAt, evidenceKey: reading.evidenceKey, checkedAt: now().toISOString() }; return finish(0, false, true); }
     const contextId = mailEvidenceHash(`${row.id}:${threadId}`);
@@ -123,7 +125,7 @@ export class ManagedCreatorMailService {
     const built = buildMailTriageContext({ ...principal, organizationId: row.organizationId, viewerUserId: row.ownerUserId, threadId: contextId, subject, messages, truncated: reading.incomplete, lane: null });
     const authority = { resource: 'managedMailboxes', action: 'view' as const };
     const context = { ...built.context, taskId: AI_TASK_CREATOR_BRAND_UPDATE.taskId, items: [...built.context.items.map(item => ({ ...item, readUnder: authority })), { blockId: `${row.organizationId}::creator_scope:${row.id}`, kind: 'TEXT' as const, trust: 'UNTRUSTED_INPUT' as const, sourceRef: `creator_scope:${row.id}`, content: `SCOPE: creator=${JSON.stringify(scope.profile.displayName)}; brand or agency=${JSON.stringify(brand.displayName)}; source=${scope.source.kind === 'CREATOR' ? 'assigned creator mailbox' : 'shared staff mailbox'}; evidence ${reading.incomplete ? 'is incomplete' : 'is included'}.`, sensitivity: 'CONTACT_IDENTIFIER' as const, readUnder: authority }] };
-    const request: AiRunRequest = { task: AI_TASK_CREATOR_BRAND_UPDATE, context, evidence: built.evidence, instructions: INSTRUCTIONS, schema: CREATOR_BRAND_UPDATE_SCHEMA, templateId: 'managed-creator-brand-mail', templateVersion: '6', signal: AbortSignal.timeout(45_000) };
+    const request: AiRunRequest = { task: AI_TASK_CREATOR_BRAND_UPDATE, context, evidence: built.evidence, instructions: INSTRUCTIONS, schema: CREATOR_BRAND_UPDATE_SCHEMA, templateId: 'managed-creator-brand-mail', templateVersion: '7', signal: AbortSignal.timeout(45_000) };
     let result = await runtime.run(principal, request);
     // At most one validation repair, with original evidence only. Refusals/failures stop.
     // Each run uses the governed gateway and its own reservation; rejected prose is never fed back.
@@ -132,7 +134,7 @@ export class ManagedCreatorMailService {
       if (codes.length) {
         if (!(await repo.scope(row))) { await repo.finish(row, now(), { failure: 'SCOPE_ENDED', delayMs: 300_000 }); return { CAPTURE_WAITING: 1 }; }
         if (!request.signal?.aborted) result = await runtime.run(principal, {
-          ...request, templateVersion: '6.repair1',
+          ...request, templateVersion: '7.repair1',
           instructions: `${INSTRUCTIONS}\nOne validation repair. Previous validation codes: ${codes.join(', ')}. Generate a fresh response from the supplied source evidence. Do not copy source sentences or invent facts to satisfy validation. Use short paraphrases, no numbers, dates, quotes or private commercial details. Cite exact supplied mail_message references only. If a safe, attributable summary is not possible, use publishable false with empty summary, nextStep and citations.`,
         });
       }
