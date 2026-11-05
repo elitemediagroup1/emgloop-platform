@@ -65,7 +65,7 @@ export function externalBrandCandidate(addresses: readonly string[]): string | n
   const names = new Set<string>();
   for (const address of addresses) {
     const domain = address.trim().toLowerCase().split('@')[1];
-    if (!domain || !/^[a-z0-9-]+(?:\\.[a-z0-9-]+)+$/.test(domain)) return null;
+    if (!domain || !/^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/.test(domain)) return null;
     const labels = domain.split('.');
     if (excluded.has(labels.slice(-2).join('.'))) continue;
     if (labels.length > 2 && ['co', 'com', 'org', 'net'].includes(labels.at(-2)!)) return null;
