@@ -55,8 +55,9 @@ export class ManagedCreatorMailService {
       const page = await mailboxes.searchThreads(principal, row.mailboxId, row.query, row.nextPageToken);
       if (!page.ok) { await repo.finish(row, now(), { failure: 'SEARCH_UNAVAILABLE', delayMs: 300_000, resetCycle: !!row.nextPageToken }); return { CAPTURE_WAITING: 1 }; }
       const seen = new Set(captureReadings(row.readings).filter(r => Date.parse(r.checkedAt) >= row.cycleStartedAt.getTime()).map(r => r.threadId));
-      const room = Math.max(0, 100 - row.listedCount), ids = [...new Set(page.threadIds)].filter(id => !seen.has(id)).slice(0, room);
-      const listed = row.listedCount + ids.length, capped = !!page.nextPageToken && listed >= 100;
+      // Bound each cycle while allowing multiple Gmail result pages and a deeper backfill.
+      const room = Math.max(0, 500 - row.listedCount), ids = [...new Set(page.threadIds)].filter(id => !seen.has(id)).slice(0, room);
+      const listed = row.listedCount + ids.length, capped = !!page.nextPageToken && listed >= 500;
       await repo.finish(row, now(), { pending: ids, pageToken: capped ? null : page.nextPageToken, listed, complete: capped || !page.nextPageToken, capped, delayMs: ids.length || page.nextPageToken && !capped ? 0 : 300_000 });
       return { CAPTURE_LISTED: 1 };
     }
@@ -90,7 +91,8 @@ export class ManagedCreatorMailService {
     if (!external.length) { reading = { ...reading, state: 'WITHHELD' }; return finish(); }
     const latest = [...external].sort((a, b) => b.fact.internalDate.getTime() - a.fact.internalDate.getTime())[0]!;
     const evidenceAt = latest.fact.internalDate;
-    if (!Number.isFinite(evidenceAt.getTime()) || evidenceAt > now() || now().getTime() - evidenceAt.getTime() > 30 * 86400_000) return finish();
+    // Do not discard older valid messages when a historical Gmail query is authorized.
+    if (!Number.isFinite(evidenceAt.getTime()) || evidenceAt > now() || evidenceAt.getTime() <= 0) return finish();
     reading = { ...reading, evidenceAt: evidenceAt.toISOString(), evidenceKey: mailEvidenceHash(latest.fact.headerMessageId?.trim() || `${row.id}:${threadId}:${latest.fact.messageId}`), messageCount: external.length, incomplete: external.length > 12 || external.some(m => m.body.truncated || (m.body.text?.length ?? 0) > 2400 || !m.body.text?.trim() && !!m.body.html) };
     if (!creatorMailText(latest.body)) return finish();
     const human = external.filter(m => !m.fact.automationClass);
