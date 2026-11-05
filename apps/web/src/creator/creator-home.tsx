@@ -57,7 +57,15 @@ export async function CreatorHome({ seat, time }: { seat: CreatorSeat; time: Tim
 
   return (
     <LoopPage label="Loop Home">
-      <PageHead trail={[{ label: 'Your Loop' }]} title={`${time.greeting()}, ${seat.displayName}`} subtitle="Your content, the opportunities EMG is working on for you, and what needs you." />
+      <div className="ch-studio-welcome">
+        <div className="ch-studio-welcome__meta"><span>Creator Hub</span><span>{time.date(time.now)}</span></div>
+        <PageHead trail={[{ label: 'Your Loop' }]} title={`${time.greeting()}, ${seat.displayName}`} subtitle="Your partnerships, your content, and what comes next." actions={
+          <div className="loop-btnrow">
+            <Link className="loop-btn" href={CREATOR_HREFS.tasks}>Your tasks <span aria-hidden="true">↗</span></Link>
+            <Link className="loop-btn loop-btn--primary" href={CREATOR_HREFS.content}>Open content <span aria-hidden="true">↗</span></Link>
+          </div>
+        } />
+      </div>
 
       {needsHandles ? <StateBlock kind="attention" title="Welcome — add your social handles" body="Finish your profile so EMG can review the right accounts for you." action={{ label: 'Complete your profile', href: CREATOR_HREFS.profile }} /> : null}
       <SummaryStrip
@@ -79,7 +87,6 @@ export async function CreatorHome({ seat, time }: { seat: CreatorSeat; time: Tim
       />
 
       <CreatorBrandUpdates seat={seat} time={time} />
-      {profile.ok ? <ObservedTikTokReport preferences={profile.value?.preferences} time={time} /> : null}
       <Panel title="Things that need you">
         {!tasks.ok ? <Failed what="your tasks" /> : needs.length === 0 ? <StateBlock kind="empty" compact title="Nothing needs you right now." body="A returned edit or a deliverable due soon lands here." action={{ label: 'All tasks', href: CREATOR_HREFS.tasks }} /> : <TaskList tasks={needs} time={time} />}
       </Panel>
@@ -143,6 +150,8 @@ export async function CreatorHome({ seat, time }: { seat: CreatorSeat; time: Tim
           </p>
         </Panel>
       </div>
+
+      {profile.ok ? <ObservedTikTokReport preferences={profile.value?.preferences} time={time} /> : null}
 
       {notice && !notice.ok ? (
         <Panel title="What Loop noticed">

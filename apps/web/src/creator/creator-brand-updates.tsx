@@ -1,6 +1,7 @@
 // The creator sees only published, scoped paraphrases. No mailbox IDs, private subjects or citations
 // leave the repository projection. Grouping by brand is presentation, not another model invocation.
 import 'server-only';
+import type { ReactNode } from 'react';
 import { CreatorBrandMailRepository, prisma, type PublishedCreatorBrandUpdate } from '@emgloop/database';
 import type { TimeView } from '@emgloop/shared';
 import { CreatorUpdatesRefresh } from './CreatorUpdatesRefresh';
@@ -17,8 +18,15 @@ const BUCKETS = [
   { title: 'Conversations', stages: ['DISCUSSING', 'AWAITING_EMG', 'AWAITING_BRAND', 'AWAITING_CREATOR'], empty: 'No current brand conversations are shared yet.', description: 'Two-way discussions with brands and agencies.' },
   { title: 'Active deals', stages: ['NEGOTIATING', 'CONFIRMED'], empty: 'No current active deals are shared yet.', description: 'Specific partnerships being negotiated or confirmed.' },
 ] as const;
+function StageSymbol({ title }: { title: string }) {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    {title === 'Outreach' ? <><path d="m21 3-7 18-4-7-7-4L21 3Z"/><path d="m10 14 6-6"/></>
+      : title === 'Conversations' ? <><path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H8l-5 3 1.5-5.5A7.5 7.5 0 1 1 20 11.5Z"/><path d="M8 11h8M8 8h5"/></>
+      : <><rect x="3" y="7" width="18" height="14" rx="3"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12a23 23 0 0 0 18 0M10 13h4v3h-4z"/></>}
+  </svg>;
+}
 function Update({ update, time }: { update: PublishedCreatorBrandUpdate; time: TimeView }) {
-  return <div className="loop-stack" style={{ gap: 6, marginBottom: 16 }}>
+  return <div className="loop-stack ch-brand-event" style={{ gap: 6, marginBottom: 16 }}>
     {update.summary ? <>
       <span className="loop-label">{STAGES[update.stage ?? ''] ?? 'Update'}{update.current ? '' : ' · earlier reading'}</span>
       <p>{update.summary}</p>
@@ -40,8 +48,8 @@ function Brand({ group, time }: { group: BrandGroup; time: TimeView }) {
     const identity = [update.evidenceAt?.toISOString() ?? '', update.stage ?? '', update.summary ?? ''].join('|');
     if (!distinct.has(identity)) distinct.set(identity, update);
   }
-  return <details className="loop-card"><summary>{group.brand}</summary>
-    {latest ? <div className="loop-stack" style={{ gap: 6, marginBottom: 12 }}>
+  return <details className="loop-card ch-brand-relationship"><summary><span className="ch-brand-name">{group.brand}</span>{latest ? <span className="ch-brand-status">{STAGES[latest.stage ?? ''] ?? 'Update'}{latest.current ? '' : ' · earlier'}</span> : null}</summary>
+    {latest ? <div className="loop-stack ch-brand-position" style={{ gap: 6, marginBottom: 12 }}>
       <span className="loop-label">Latest known position · {STAGES[latest.stage ?? ''] ?? 'Update'}</span>
       <p>{latest.summary}</p>
       {latest.nextStep ? <p><strong>Next:</strong> {latest.nextStep}</p> : null}
@@ -52,7 +60,7 @@ function Brand({ group, time }: { group: BrandGroup; time: TimeView }) {
     </details>
   </details>;
 }
-export function CreatorBrandUpdatesView({ rows, time, sourceNote }: { rows: readonly PublishedCreatorBrandUpdate[]; time: TimeView; sourceNote?: string }) {
+export function CreatorBrandUpdatesView({ rows, time, sourceNote, actions }: { rows: readonly PublishedCreatorBrandUpdate[]; time: TimeView; sourceNote?: string; actions?: ReactNode }) {
   const brands = new Map<string, BrandGroup>();
   for (const row of rows) {
     const group = brands.get(row.brandId) ?? { brandId: row.brandId, brand: row.brand, updates: [] };
@@ -69,32 +77,35 @@ export function CreatorBrandUpdatesView({ rows, time, sourceNote }: { rows: read
   };
   const groups = [...brands.values()].sort((a, b) => a.brand.localeCompare(b.brand) || a.brandId.localeCompare(b.brandId));
   const other = groups.filter(g => !BUCKETS.some(b => (b.stages as readonly string[]).includes(latest(g)?.stage ?? '')));
-  return <Panel title="Brand updates" lead="Your outreach, conversations and active deals at a glance.">
-    <div className="loop-stack">
+  return <section className="loop-panel ch-brand-board" aria-label="Brand updates">
+    <header className="ch-brand-board__head"><div><h2 className="loop-panel__title">Brand updates</h2><p className="loop-panel__lead">Your outreach, conversations and active deals at a glance.</p></div>{actions}</header>
+    <div className="ch-brand-grid">
       {BUCKETS.map(bucket => {
         const selected = groups.filter(g => (bucket.stages as readonly string[]).includes(latest(g)?.stage ?? ''));
         const needsYou = selected.filter(g => latest(g)?.stage === 'AWAITING_CREATOR').length;
         const waiting = selected.filter(g => latest(g)?.stage === 'AWAITING_BRAND').length;
         const negotiating = selected.filter(g => latest(g)?.stage === 'NEGOTIATING').length;
         const count = selected.length;
-        return <section className="loop-card" key={bucket.title} aria-label={bucket.title}>
+        return <section className="loop-card ch-brand-stage" key={bucket.title} aria-label={bucket.title} data-brand-stage={bucket.title}>
+          <div className="ch-brand-stage__top"><span className="ch-brand-stage__symbol" aria-hidden="true"><StageSymbol title={bucket.title} /></span><span className="ch-brand-stage__count" aria-hidden="true">{count}</span></div>
           <h3>{bucket.title}</h3>
           <p>{count ? bucket.title === 'Outreach' ? `EMG has reached out to ${count} ${count === 1 ? 'brand' : 'brands'} awaiting a first reply.`
             : bucket.title === 'Conversations' ? `${count} ${count === 1 ? 'brand conversation is' : 'brand conversations are'} underway. ${waiting} waiting on the brand; ${needsYou} need you.`
             : `${count} ${count === 1 ? 'brand has' : 'brands have'} an active partnership discussion: ${negotiating} negotiating, ${count - negotiating} confirmed.`
             : bucket.empty}</p>
-          {count ? <details><summary>View {bucket.title.toLowerCase()} · {count} {count === 1 ? 'brand' : 'brands'}</summary>
+          {count ? <details className="ch-brand-expand"><summary>View {bucket.title.toLowerCase()} · {count} {count === 1 ? 'brand' : 'brands'}</summary>
             <p className="loop-note">{bucket.description} Open a brand for its summaries and next steps.</p>
             {selected.map(group => <Brand key={group.brandId} group={group} time={time} />)}
           </details> : null}
         </section>;
       })}
-      {other.length ? <details><summary>Earlier, paused or pending updates · {other.length} {other.length === 1 ? 'brand' : 'brands'}</summary>
+      {other.length ? <details className="ch-brand-archive"><summary>Earlier, paused or pending updates · {other.length} {other.length === 1 ? 'brand' : 'brands'}</summary>
         {other.map(group => <Brand key={group.brandId} group={group} time={time} />)}
       </details> : null}
     </div>
-    <p className="loop-note">{sourceNote ?? 'Counts cover currently summarized, explicitly shared Gmail conversations only, not your entire outreach history. Managed capture is bounded and may omit older or unmatched threads.'} Each brand is counted once by its latest accepted stage; older readings are labeled and may no longer reflect the current relationship. An empty list does not mean no outreach has happened. AI interpretations can be wrong; private emails and internal commercial details are not shown.</p>
-  </Panel>;
+    <p className="loop-note ch-brand-caption">Counts reflect accepted, authorized conversations. Historical review may still be in progress.</p>
+    <details className="ch-brand-coverage"><summary>Coverage and privacy</summary><p className="loop-note">{sourceNote ?? 'Counts cover currently summarized, explicitly shared Gmail conversations only, not your entire outreach history. Managed capture is bounded and may omit older or unmatched threads.'} Each brand is counted once by its latest accepted stage; older readings are labeled and may no longer reflect the current relationship. An empty list does not mean no outreach has happened. AI interpretations can be wrong; private emails and internal commercial details are not shown.</p></details>
+  </section>;
 }
 export async function CreatorBrandUpdates({ seat, time }: { seat: CreatorSeat; time: TimeView }) {
   if (!creatorMailSharingEnabled()) return null;
@@ -103,5 +114,5 @@ export async function CreatorBrandUpdates({ seat, time }: { seat: CreatorSeat; t
   if (!result.ok || result.value === null) return <Panel title="Brand updates"><StateBlock kind="unavailable" compact title="Brand updates are not available right now." body="This is not a finding that there are no brand conversations." /></Panel>;
   const managed = await settle(() => managedCreatorMailRepository().updates({ organizationId: seat.actor.organizationId, userId: seat.actor.userId }, seat.profileId, time.now));
   const synthesized = await settle(() => creatorRelationshipService().projections({ organizationId: seat.actor.organizationId, userId: seat.actor.userId }, seat.profileId));
-  return <><CreatorUpdatesRefresh /><CreatorRefreshButton />{!managed.ok ? <p className="loop-note">Managed mailbox updates could not be read. Counts may be incomplete.</p> : null}<CreatorBrandUpdatesView rows={[...result.value, ...(managed.ok ? managed.value : []), ...(synthesized.ok ? synthesized.value : [])]} time={time} sourceNote="Counts cover accepted explicit thread shares and analyzed managed-mailbox pilot conversations, not your entire outreach history. Accepted historical evidence is retained durably. Historical discovery continues in bounded pages; withheld or unprocessed conversations are excluded. Refresh runs daily at 7:00 a.m. Eastern and when requested." /></>;
+  return <><CreatorUpdatesRefresh />{!managed.ok ? <p className="loop-note">Managed mailbox updates could not be read. Counts may be incomplete.</p> : null}<CreatorBrandUpdatesView actions={<CreatorRefreshButton />} rows={[...result.value, ...(managed.ok ? managed.value : []), ...(synthesized.ok ? synthesized.value : [])]} time={time} sourceNote="Counts cover accepted explicit thread shares and analyzed managed-mailbox pilot conversations, not your entire outreach history. Accepted historical evidence is retained durably. Historical discovery continues in bounded pages; withheld or unprocessed conversations are excluded. Refresh runs daily at 7:00 a.m. Eastern and when requested." /></>;
 }
