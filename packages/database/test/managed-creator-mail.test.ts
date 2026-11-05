@@ -597,3 +597,16 @@ test('migration rollout preserves existing creator summaries while new queues re
   assert.equal(await w.repo.ready(), false);
   captures.findMany = originalFind;
 });
+
+test('legacy domain-only agency readings cannot publish or enter synthesis without an advertiser resolution', async () => {
+  const w = await world(); await w.start([w.staff.id]); await w.drain();
+  const capture = (await w.db.managedCreatorMailCapture.findMany())[0]!;
+  const reading = captureReadings(capture.readings)[0]!;
+  const legacy = { ...reading, brandId: null, candidateBrandName: 'agencyhouse' };
+  await w.db.managedCreatorMailCapture.update({ where: { id: capture.id }, data: { readings: [legacy] } });
+  await w.db.creatorMailEvidence.updateMany({ where: { captureId: capture.id }, data: { reading: legacy } });
+  assert.deepEqual(await w.repo.updates(w.recipient, w.profile.id, T0), []);
+  const { CreatorRelationshipService } = await import('../src/creator/creator-relationship.service');
+  const service = new CreatorRelationshipService(w.db, { run: async () => { throw Error('unresolved legacy advertiser cannot call synthesis'); } }, () => T0);
+  assert.deepEqual(await service.pass(), {});
+});

@@ -21,6 +21,8 @@ export function captureReadings(value: unknown): ManagedCaptureReading[] {
 }
 export function accepted(r: ManagedCaptureReading): boolean {
   if (!r.update?.publishable || (!r.brandId && !r.candidateBrandName) || r.state !== 'CURRENT') return false;
+  // Legacy domain-only candidates have not resolved an advertiser. Re-read them before publication.
+  if (!r.brandId && (!r.update.brandName || r.update.brandName.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '') !== r.candidateBrandName!.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]/gu, ''))) return false;
   const output = parseCreatorBrandUpdate({ schemaId: CREATOR_BRAND_UPDATE_SCHEMA_ID, ...r.update });
   return !!output && !validateCreatorBrandUpdate(output, AI_TASK_CREATOR_BRAND_UPDATE, new Set(r.update.citations), { figures: new Map(), dates: new Set() }).length;
 }
