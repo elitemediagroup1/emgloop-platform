@@ -29,7 +29,7 @@ function Update({ update, time }: { update: PublishedCreatorBrandUpdate; time: T
 }
 function Brand({ group, time }: { group: BrandGroup; time: TimeView }) {
   return <details className="loop-card"><summary>{group.brand}</summary>
-    {group.updates.map(update => <Update key={update.id} update={update} time={time} />)}
+    {[...group.updates].sort((a, b) => (b.evidenceAt?.getTime() ?? 0) - (a.evidenceAt?.getTime() ?? 0)).map(update => <Update key={update.id} update={update} time={time} />)}
   </details>;
 }
 export function CreatorBrandUpdatesView({ rows, time, sourceNote }: { rows: readonly PublishedCreatorBrandUpdate[]; time: TimeView; sourceNote?: string }) {
