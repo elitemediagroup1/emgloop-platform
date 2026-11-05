@@ -234,7 +234,7 @@ export class ManagedCreatorMailRepository {
     for (const row of rows ?? []) {
       if (!(await this.allowed(this.prisma, row))) continue;
       for (const r of await this.durableReadings(row)) {
-        if ((r.brandId || r.candidateBrandName) && r.evidenceAt) {
+        if ((accepted(r) || r.state === 'MODEL_UNAVAILABLE') && (r.brandId || r.candidateBrandName) && r.evidenceAt) {
           const key = r.brandId ?? `candidate:${mailEvidenceHash(r.candidateBrandName!.normalize('NFKC').toLowerCase().replace(/[^a-z0-9]/g, ''))}`;
           const at = Date.parse(r.evidenceAt), old = latestEvidence.get(key);
           if (Number.isFinite(at) && at <= now.getTime() && (!old || at > old.at || at === old.at && accepted(r))) latestEvidence.set(key, { at, pending: !accepted(r) });

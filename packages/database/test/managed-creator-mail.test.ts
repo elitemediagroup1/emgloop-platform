@@ -765,4 +765,7 @@ test('a newer known-brand conversation awaiting validation holds an older qualif
   const updates = await w.repo.updates(w.recipient, w.profile.id, new Date(T0.getTime() + 120_000));
   assert.ok(updates.length > 0, 'accepted history remains visible');
   assert.ok(updates.every(r => r.stage === 'DISCUSSING' && r.dealQualification === 'NONE'));
+  await w.db.creatorMailEvidence.updateMany({ where: { captureId: second.id }, data: { reading: { ...qualified, threadId: 'NEWER_THREAD', evidenceKey: 'newer-distinct-message', state: 'WITHHELD', evidenceAt: new Date(T0.getTime() + 60_000).toISOString() } } });
+  const afterScreening = await w.repo.updates(w.recipient, w.profile.id, new Date(T0.getTime() + 120_000));
+  assert.ok(afterScreening.some(r => r.stage === 'NEGOTIATING'), 'an unrelated or un-attributable withheld discovery does not erase accepted paid-deal evidence');
 });
