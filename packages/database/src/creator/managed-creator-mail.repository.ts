@@ -1,4 +1,6 @@
 import { randomUUID } from 'crypto';
+import { AI_BUDGET_POLICY } from '@emgloop/providers';
+import { AiControlRepository } from '../repositories/brain/ai-control.repository';
 import { Prisma, type PrismaClient, type ManagedCreatorMailCapture } from '@prisma/client';
 import { AI_OUTPUT_REJECTIONS, AI_TASK_CREATOR_BRAND_UPDATE, CREATOR_BRAND_UPDATE_SCHEMA_ID, parseCreatorBrandUpdate, validateCreatorBrandUpdate } from '@emgloop/shared';
 import type { WorkPrincipal } from '../repositories/work-state/work-principal';
@@ -99,6 +101,26 @@ export class ManagedCreatorMailRepository {
       if (result.count) await new AuditRepository(this.prisma).record({ ...principal, action: 'creator.capture.paused', entityType: 'creator_profile', entityId: profileId }, tx);
       return true;
     });
+  }
+  /** A newly recorded operating budget may release old quota cooldowns, never bypass admission.
+   * Wait out the gateway control cache; unrelated failures and active leases remain untouched.
+   */
+  async resumeAfterBudgetChange(now: Date): Promise<void> {
+    let budget;
+    try { budget = await new AiControlRepository(this.prisma).operatingBudget(Object.keys(AI_BUDGET_POLICY.classes)); }
+    catch { return; }
+    if (budget.state !== 'RECORDED' || budget.recordedAtMs > now.getTime() - 60_000) return;
+    const recordedAt = new Date(budget.recordedAtMs);
+    const lease = [{ leaseUntil: null }, { leaseUntil: { lt: now } }];
+    await this.prisma.managedCreatorMailCapture.updateMany({ where: {
+      enabled: true, nextCheckAt: { gt: now }, lastCheckedAt: { lt: recordedAt },
+      lastFailureClass: { startsWith: 'MODEL_POLICY_REFUSED:BUDGET_' }, OR: lease,
+    }, data: { nextCheckAt: now } });
+    // Relationship refusals previously retained only the gateway outcome. A new budget permits
+    // one admission recheck; updatedAt then prevents repeated wakeups against that budget version.
+    await this.prisma.creatorMailRelationship.updateMany({ where: {
+      nextCheckAt: { gt: now }, updatedAt: { lt: recordedAt }, lastFailureClass: 'REFUSED_BY_LOOP', OR: lease,
+    }, data: { nextCheckAt: now } });
   }
   async due(now: Date, principal?: WorkPrincipal, profileId?: string) {
     if (principal && !(await this.mailboxes().permittedFor(principal, 'update'))) return [];
