@@ -56,10 +56,31 @@ export function creatorMailQuery(profile: MailCreatorIdentity, assigned: boolean
   const q = `after:${Math.floor(since.getTime() / 1000)} -in:spam -in:trash -in:drafts${assigned ? '' : ` {${terms.map(s => `"${s}"`).join(' ')}}`}`;
   return q.length <= 1500 ? q : null;
 }
+
+/** Conservative fallback for companies not yet entered in CRM.
+ * The candidate is never published without creator-specific model approval.
+ */
+export function externalBrandCandidate(addresses: readonly string[]): string | null {
+  const excluded = new Set(['gmail.com', 'googlemail.com', 'outlook.com', 'hotmail.com', 'live.com', 'yahoo.com', 'icloud.com', 'aol.com', 'proton.me', 'protonmail.com', 'mail.com', 'google.com', 'microsoft.com', 'sendgrid.net', 'mailchimp.com']);
+  const names = new Set<string>();
+  for (const address of addresses) {
+    const domain = address.trim().toLowerCase().split('@')[1];
+    if (!domain || !/^[a-z0-9-]+(?:\\.[a-z0-9-]+)+$/.test(domain)) return null;
+    const labels = domain.split('.');
+    if (excluded.has(labels.slice(-2).join('.'))) continue;
+    if (labels.length > 2 && ['co', 'com', 'org', 'net'].includes(labels.at(-2)!)) return null;
+    const name = labels.at(-2)!.replace(/-/g, ' ');
+    if (name.length < 4 || name.length > 80) return null;
+    names.add(name);
+  }
+  return names.size === 1 ? [...names][0]! : null;
+}
+
 export type CaptureReadingState = 'CURRENT' | 'WITHHELD' | 'UNMATCHED_CREATOR' | 'MIXED_CREATORS' | 'UNMAPPED_BRAND' | 'SOURCE_UNAVAILABLE' | 'MODEL_UNAVAILABLE';
 export interface ManagedCaptureReading {
   readonly threadId: string;
   readonly brandId: string | null;
+  readonly candidateBrandName?: string;
   readonly evidenceKey: string;
   readonly fingerprint: string;
   readonly evidenceAt: string | null;

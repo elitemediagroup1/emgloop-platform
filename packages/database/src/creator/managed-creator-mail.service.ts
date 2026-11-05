@@ -8,7 +8,7 @@ import { creatorCapturePolicyFailure, creatorCaptureOutputFailure } from './crea
 import { creatorMailText, creatorMailAttributionText } from './creator-mail-text';
 import { CREATOR_BRAND_MAIL_INSTRUCTIONS } from './creator-brand-mail.service';
 import { ManagedCreatorMailRepository, captureReadings } from './managed-creator-mail.repository';
-import { creatorMailAliases, exactMailPhrase, companyMailDomainMatch, mailEvidenceHash, type ManagedCaptureReading } from './creator-mail-matching';
+import { creatorMailAliases, exactMailPhrase, companyMailDomainMatch, externalBrandCandidate, mailEvidenceHash, type ManagedCaptureReading } from './creator-mail-matching';
 
 const INSTRUCTIONS = CREATOR_BRAND_MAIL_INSTRUCTIONS
   .replace('Interpret one explicitly owner-authorized brand email thread', 'Interpret one manager-authorized managed-mailbox brand conversation')
@@ -117,17 +117,19 @@ export class ManagedCreatorMailService {
     // Never match a company from ordinary body words. An exact company/domain correspondence
     // is another provisional candidate, not confirmation of a creator-brand relationship.
     const brands = scope.brands.filter(b => b.displayName && b.displayName.trim().length >= 4 && (exactMailPhrase(subject, b.displayName) || companyMailDomainMatch(b.displayName, participants)));
-    if (brands.length !== 1) { reading = { ...reading, state: 'UNMAPPED_BRAND' }; return finish(); }
-    const brand = brands[0]!;
-    reading = { ...reading, brandId: brand.id, fingerprint: mailEvidenceHash(JSON.stringify({ template: 7, creator: row.creatorProfileId, brand: brand.id, messages, incomplete: reading.incomplete })) };
+    const candidate = brands.length === 0 ? externalBrandCandidate(participants) : null;
+    if (brands.length > 1 || (!brands.length && !candidate)) { reading = { ...reading, state: 'UNMAPPED_BRAND' }; return finish(); }
+    const brand = brands[0];
+    const brandName = brand?.displayName ?? candidate!;
+    reading = { ...reading, brandId: brand?.id ?? null, ...(candidate ? { candidateBrandName: candidate } : {}), fingerprint: mailEvidenceHash(JSON.stringify({ template: 7, creator: row.creatorProfileId, brand: brand?.id ?? candidate, messages, incomplete: reading.incomplete })) };
     const previous = captureReadings(row.readings).find(r => r.threadId === threadId && r.fingerprint === reading.fingerprint && ['CURRENT', 'WITHHELD'].includes(r.state));
     if (previous) { reading = { ...previous, evidenceAt: reading.evidenceAt, evidenceKey: reading.evidenceKey, checkedAt: now().toISOString() }; return finish(0, false, true); }
     const contextId = mailEvidenceHash(`${row.id}:${threadId}`);
     if (!(await repo.scope(row))) { await repo.finish(row, now(), { failure: 'SCOPE_ENDED', delayMs: 300_000 }); return { CAPTURE_WAITING: 1 }; }
     const built = buildMailTriageContext({ ...principal, organizationId: row.organizationId, viewerUserId: row.ownerUserId, threadId: contextId, subject, messages, truncated: reading.incomplete, lane: null });
     const authority = { resource: 'managedMailboxes', action: 'view' as const };
-    const context = { ...built.context, taskId: AI_TASK_CREATOR_BRAND_UPDATE.taskId, items: [...built.context.items.map(item => ({ ...item, readUnder: authority })), { blockId: `${row.organizationId}::creator_scope:${row.id}`, kind: 'TEXT' as const, trust: 'UNTRUSTED_INPUT' as const, sourceRef: `creator_scope:${row.id}`, content: `SCOPE: creator=${JSON.stringify(scope.profile.displayName)}; brand or agency=${JSON.stringify(brand.displayName)}; source=${scope.source.kind === 'CREATOR' ? 'assigned creator mailbox' : 'shared staff mailbox'}; evidence ${reading.incomplete ? 'is incomplete' : 'is included'}.`, sensitivity: 'CONTACT_IDENTIFIER' as const, readUnder: authority }] };
-    const request: AiRunRequest = { task: AI_TASK_CREATOR_BRAND_UPDATE, context, evidence: built.evidence, instructions: INSTRUCTIONS, schema: CREATOR_BRAND_UPDATE_SCHEMA, templateId: 'managed-creator-brand-mail', templateVersion: '7', signal: AbortSignal.timeout(45_000) };
+    const context = { ...built.context, taskId: AI_TASK_CREATOR_BRAND_UPDATE.taskId, items: [...built.context.items.map(item => ({ ...item, readUnder: authority })), { blockId: `${row.organizationId}::creator_scope:${row.id}`, kind: 'TEXT' as const, trust: 'UNTRUSTED_INPUT' as const, sourceRef: `creator_scope:${row.id}`, content: `SCOPE: creator=${JSON.stringify(scope.profile.displayName)}; brand or agency=${JSON.stringify(brandName)}; source=${scope.source.kind === 'CREATOR' ? 'assigned creator mailbox' : 'shared staff mailbox'}; evidence ${reading.incomplete ? 'is incomplete' : 'is included'}.`, sensitivity: 'CONTACT_IDENTIFIER' as const, readUnder: authority }] };
+    const request: AiRunRequest = { task: AI_TASK_CREATOR_BRAND_UPDATE, context, evidence: built.evidence, instructions: INSTRUCTIONS, schema: CREATOR_BRAND_UPDATE_SCHEMA, templateId: 'managed-creator-brand-mail', templateVersion: '8', signal: AbortSignal.timeout(45_000) };
     let result = await runtime.run(principal, request);
     // At most one validation repair, with original evidence only. Refusals/failures stop.
     // Each run uses the governed gateway and its own reservation; rejected prose is never fed back.
@@ -136,7 +138,7 @@ export class ManagedCreatorMailService {
       if (codes.length) {
         if (!(await repo.scope(row))) { await repo.finish(row, now(), { failure: 'SCOPE_ENDED', delayMs: 300_000 }); return { CAPTURE_WAITING: 1 }; }
         if (!request.signal?.aborted) result = await runtime.run(principal, {
-          ...request, templateVersion: '7.repair1',
+          ...request, templateVersion: '8.repair1',
           instructions: `${INSTRUCTIONS}\nOne validation repair. Previous validation codes: ${codes.join(', ')}. Generate a fresh response from the supplied source evidence. Do not copy source sentences or invent facts to satisfy validation. Use short paraphrases, no numbers, dates, quotes or private commercial details. Cite exact supplied mail_message references only. If a safe, attributable summary is not possible, use publishable false with empty summary, nextStep and citations.`,
         });
       }
