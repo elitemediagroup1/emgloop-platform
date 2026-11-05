@@ -5,6 +5,7 @@ import { SidebarIcon } from '../app/crm/_brand/SidebarIcon';
 import type { AuthSession } from '../auth/auth';
 import { LOOP_NAV, myWorkHref } from './config';
 import { navFor } from './nav-access';
+import { resolveWorkspaceRole } from './role-router';
 import { AreaBar, ShellCrumb, ShellNav } from './ShellNav';
 import { viewerTime } from '../time/viewer-time';
 import { LoopAssistant } from '../intelligence/LoopAssistant';
@@ -49,7 +50,7 @@ export default async function WorkspaceShell({
   const time = viewerTime();
 
   return (
-    <div className="loop-os">
+    <div className="loop-os" data-creator-studio={resolveWorkspaceRole(session) === 'CREATOR' ? 'true' : undefined}>
       {/* Without this, a keyboard user tabs through every nav item on every page. */}
       <a className="loop-skip" href="#loop-main">Skip to content</a>
       <TimeZoneSync timeZone={time.timeZone} source={time.source} />

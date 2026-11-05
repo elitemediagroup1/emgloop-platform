@@ -11,7 +11,7 @@ const time = createTimeView({ timeZone: 'America/New_York', source: 'device' }, 
 const row = (patch: Partial<PublishedCreatorBrandUpdate> = {}): PublishedCreatorBrandUpdate => ({ id: 'shared1', brandId: 'brand1', brand: 'Brand One', stage: 'AWAITING_BRAND', summary: 'The brand is considering the proposed collaboration.', nextStep: 'EMG is waiting for its reply.', generatedAt: at, evidenceAt: at, checkedAt: at, current: true, ...patch });
 test('creator brand cards group canonical brands, stamp evidence times and label earlier readings', () => {
   const html = renderToStaticMarkup(<CreatorBrandUpdatesView rows={[row(), row({ id: 'shared2', current: false, nextStep: '', summary: 'An earlier conversation is awaiting review.' }), row({ id: 'shared3', brandId: 'different-brand', brand: 'Brand Two', summary: null, generatedAt: null, current: false })]} time={time} />);
-  assert.equal((html.match(/<summary>Brand /g) ?? []).length, 2);
+  assert.equal((html.match(/class="ch-brand-name">Brand /g) ?? []).length, 2);
   assert.match(html, /earlier reading/);
   assert.match(html, /Source conversation through/);
   assert.match(html, /shareable summary is not available yet/);
@@ -21,7 +21,7 @@ test('creator brand cards group canonical brands, stamp evidence times and label
 test('no shared update never claims no outreach, and separate canonical brands with identical labels stay separate', () => {
   assert.match(renderToStaticMarkup(<CreatorBrandUpdatesView rows={[]} time={time} />), /does not mean no outreach/);
   const html = renderToStaticMarkup(<CreatorBrandUpdatesView rows={[row(), row({ id: 'other', brandId: 'other-company' })]} time={time} />);
-  assert.equal((html.match(/<summary>Brand One<\/summary>/g) ?? []).length, 2);
+  assert.equal((html.match(/class="ch-brand-name">Brand One<\/span>/g) ?? []).length, 2);
 });
 test('publication routes are fixed-purpose signed calls and the browser only refreshes stored views', () => {
   const read = (path: string) => readFileSync(fileURLToPath(new URL(`../src/${path}`, import.meta.url)), 'utf8');
@@ -78,7 +78,7 @@ test('three collapsed tiles count canonical brands once and newest source stage 
   assert.match(html, /reached out to 1 brand awaiting a first reply/);
   assert.match(html, /1 brand conversation is underway/);
   assert.match(html, /2 brands have an active partnership discussion: 1 negotiating, 1 confirmed/);
-  assert.equal((html.match(/<summary>Brand One<\/summary>/g) ?? []).length, 1);
+  assert.equal((html.match(/class="ch-brand-name">Brand One<\/span>/g) ?? []).length, 1);
   assert.match(html, /Earlier, paused or pending updates/);
   assert.doesNotMatch(html, /<details open/);
 });
