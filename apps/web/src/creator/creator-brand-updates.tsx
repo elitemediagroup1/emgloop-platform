@@ -15,8 +15,8 @@ const STAGES: Record<string, string> = { OUTREACH: 'Awaiting first reply', DISCU
 type BrandGroup = { brandId: string; brand: string; updates: PublishedCreatorBrandUpdate[] };
 const BUCKETS = [
   { title: 'Outreach', stages: ['OUTREACH'], empty: 'No current unanswered outreach is shared yet.', description: 'Brands contacted on your behalf that have not yet given a substantive reply.' },
-  { title: 'Conversations', stages: ['DISCUSSING', 'AWAITING_EMG', 'AWAITING_BRAND', 'AWAITING_CREATOR'], empty: 'No current brand conversations are shared yet.', description: 'Two-way discussions with brands and agencies.' },
-  { title: 'Active deals', stages: ['NEGOTIATING', 'CONFIRMED'], empty: 'No current active deals are shared yet.', description: 'Specific partnerships being negotiated or confirmed.' },
+  { title: 'Conversations', stages: ['NEGOTIATING', 'DISCUSSING', 'AWAITING_EMG', 'AWAITING_BRAND', 'AWAITING_CREATOR'], empty: 'No current brand conversations are shared yet.', description: 'Two-way discussions with brands and agencies.' },
+  { title: 'Active deals', stages: ['CONFIRMED'], empty: 'No current active deals are shared yet.', description: 'Agreed partnerships supported by an accepted brief or contract, or an approved partnership payable.' },
 ] as const;
 function StageSymbol({ title }: { title: string }) {
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -84,14 +84,13 @@ export function CreatorBrandUpdatesView({ rows, time, sourceNote, actions }: { r
         const selected = groups.filter(g => (bucket.stages as readonly string[]).includes(latest(g)?.stage ?? ''));
         const needsYou = selected.filter(g => latest(g)?.stage === 'AWAITING_CREATOR').length;
         const waiting = selected.filter(g => latest(g)?.stage === 'AWAITING_BRAND').length;
-        const negotiating = selected.filter(g => latest(g)?.stage === 'NEGOTIATING').length;
         const count = selected.length;
         return <section className="loop-card ch-brand-stage" key={bucket.title} aria-label={bucket.title} data-brand-stage={bucket.title}>
           <div className="ch-brand-stage__top"><span className="ch-brand-stage__symbol" aria-hidden="true"><StageSymbol title={bucket.title} /></span><span className="ch-brand-stage__count" aria-hidden="true">{count}</span></div>
           <h3>{bucket.title}</h3>
           <p>{count ? bucket.title === 'Outreach' ? `EMG has reached out to ${count} ${count === 1 ? 'brand' : 'brands'} awaiting a first reply.`
             : bucket.title === 'Conversations' ? `${count} ${count === 1 ? 'brand conversation is' : 'brand conversations are'} underway. ${waiting} waiting on the brand; ${needsYou} need you.`
-            : `${count} ${count === 1 ? 'brand has' : 'brands have'} an active partnership discussion: ${negotiating} negotiating, ${count - negotiating} confirmed.`
+            : `${count} ${count === 1 ? 'brand has' : 'brands have'} an agreed partnership underway.`
             : bucket.empty}</p>
           {count ? <details className="ch-brand-expand"><summary>View {bucket.title.toLowerCase()} · {count} {count === 1 ? 'brand' : 'brands'}</summary>
             <p className="loop-note">{bucket.description} Open a brand for its summaries and next steps.</p>

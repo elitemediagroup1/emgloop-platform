@@ -86,9 +86,9 @@ GOING is absent, staff capture controls are hidden, and manager access redirects
 The uploader is available, but no artificial production media was created.
 
 Matt identified the active-deal labels as incorrect. The follow-through gates active
-publication on an explicit current paid negotiation/agreement qualification. Legacy
+publication on an explicit accepted paid partnership qualification. Legacy
 unqualified labels fall back to Conversations; original evidence/history is retained.
-Introductory calls, requests for scope/budget, unsolicited offers and affiliate-only
+Active Deals requires an accepted brief or contract, or an approved payable tied to the agreed partnership. Negotiations remain in Conversations. Introductory calls, requests for scope/budget, unsolicited offers and affiliate-only
 arrangements do not establish an active deal. Later cancellations/deferments supersede
 old offers. Existing unchanged outreach skips reanalysis; only old active labels need
 the classifier upgrade. Synthesized relationships cannot invent qualification absent

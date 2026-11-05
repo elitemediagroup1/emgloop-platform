@@ -16,8 +16,8 @@ These observations establish UI and authorization behavior, not a completed Gmai
 **Correction in progress:** Matt flagged the active deals as incorrect. Gmail evidence
 confirms inquiry-only, affiliate-only and older/deferred proposals were admitted too
 readily. Unqualified legacy active-deal labels must fall back to Conversations until a
-stricter current paid negotiation/agreement classification is accepted. Preserve every
-brand's history and existing AI caps/cooldowns; do not rerun all unchanged outreach to
+stricter accepted paid partnership classification is accepted. Preserve every
+brand's history and existing AI caps/cooldowns. Active Deals requires an accepted brief or contract, or an approved payable tied to the agreed partnership; negotiations stay in Conversations; do not rerun all unchanged outreach to
 repair four active labels. Later campaign-window closures supersede earlier proposals. Model reanalysis and live corrected counts remain acceptance checks.
 
 The same follow-through connects the existing Work OS creator review notifications to

@@ -42,9 +42,10 @@ test('legacy, inquiry-only and affiliate-only negotiation labels cannot publish 
     assert.equal(publishedCreatorBrandStage({ stage }), 'DISCUSSING');
     assert.equal(publishedCreatorBrandStage({ stage, dealQualification: 'NONE' }), 'DISCUSSING');
   }
-  assert.equal(publishedCreatorBrandStage({ stage: 'NEGOTIATING', dealQualification: 'CURRENT_PAID_NEGOTIATION' }), 'NEGOTIATING');
-  assert.equal(publishedCreatorBrandStage({ stage: 'CONFIRMED', dealQualification: 'CURRENT_PAID_AGREEMENT' }), 'CONFIRMED');
+  assert.equal(publishedCreatorBrandStage({ stage: 'NEGOTIATING', dealQualification: 'CURRENT_PAID_NEGOTIATION' }), 'DISCUSSING');
+  assert.equal(publishedCreatorBrandStage({ stage: 'CONFIRMED', dealQualification: 'ACCEPTED_PAID_PARTNERSHIP' }), 'CONFIRMED');
   assert.equal(publishedCreatorBrandStage({ stage: 'CONFIRMED', dealQualification: 'CURRENT_PAID_NEGOTIATION' }), 'DISCUSSING');
+  assert.equal(publishedCreatorBrandStage({ stage: 'CONFIRMED', dealQualification: 'CURRENT_PAID_AGREEMENT' }), 'DISCUSSING');
   assert.equal(publishedCreatorBrandStage({ stage: 'OUTREACH' }), 'OUTREACH');
 });
 
@@ -54,4 +55,9 @@ test('qualification is validated and preserved without admitting private financi
   const parsed = parseCreatorBrandUpdate(update({ stage: 'NEGOTIATING', dealQualification: 'CURRENT_PAID_NEGOTIATION' }));
   assert.equal(parsed?.creatorBrandUpdate?.dealQualification, 'CURRENT_PAID_NEGOTIATION');
   assert.ok(rejections({ stage: 'NEGOTIATING', dealQualification: 'CURRENT_PAID_NEGOTIATION', summary: 'They offered $500.' }).includes('VERBATIM_CONTENT'));
+});
+
+test('accepted partnership qualification requires confirmed status; negotiations remain conversations', () => {
+  assert.ok(rejections({ stage: 'NEGOTIATING', dealQualification: 'ACCEPTED_PAID_PARTNERSHIP' }).includes('WRONG_SCHEMA'));
+  assert.deepEqual(rejections({ stage: 'CONFIRMED', dealQualification: 'ACCEPTED_PAID_PARTNERSHIP' }), []);
 });

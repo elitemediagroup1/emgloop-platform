@@ -730,9 +730,9 @@ test('unqualified historic deals stay visible as conversations until the stricte
   const published = await w.repo.updates(w.recipient, w.profile.id, T0);
   assert.ok(published.length > 0);
   assert.ok(published.every(r => r.stage === 'DISCUSSING'));
-  const qualified = { ...legacy, update: { ...legacy.update, dealQualification: 'CURRENT_PAID_NEGOTIATION' as const } };
+  const qualified = { ...legacy, update: { ...legacy.update, stage: 'CONFIRMED' as const, dealQualification: 'ACCEPTED_PAID_PARTNERSHIP' as const } };
   await w.db.creatorMailEvidence.updateMany({ where: { captureId: capture.id }, data: { reading: qualified } });
-  assert.ok((await w.repo.updates(w.recipient, w.profile.id, T0)).every(r => r.stage === 'NEGOTIATING'));
+  assert.ok((await w.repo.updates(w.recipient, w.profile.id, T0)).every(r => r.stage === 'CONFIRMED'));
 });
 
 test('cross-thread synthesis cannot invent paid-deal qualification from unqualified accepted conversations', async () => {
@@ -741,7 +741,7 @@ test('cross-thread synthesis cannot invent paid-deal qualification from unqualif
   w.threadHook((thread, id) => ({ ...thread, messages: thread.messages.map(m => ({ ...m, fact: { ...m.fact, headerMessageId: `<${id}-${m.fact.messageId}@brand.example>` } })) }));
   await w.start([w.staff.id]); await w.drain();
   const { CreatorRelationshipService } = await import('../src/creator/creator-relationship.service');
-  const output = parseCreatorBrandUpdate({ schemaId: CREATOR_BRAND_UPDATE_SCHEMA_ID, publishable: true, stage: 'CONFIRMED', dealQualification: 'CURRENT_PAID_AGREEMENT', brandName: 'Brand Bravo', summary: 'The brand and EMG are discussing a collaboration.', nextStep: '', citations: ['mail_message:fixture:1'] });
+  const output = parseCreatorBrandUpdate({ schemaId: CREATOR_BRAND_UPDATE_SCHEMA_ID, publishable: true, stage: 'CONFIRMED', dealQualification: 'ACCEPTED_PAID_PARTNERSHIP', brandName: 'Brand Bravo', summary: 'The brand and EMG are discussing a collaboration.', nextStep: '', citations: ['mail_message:fixture:1'] });
   assert.ok(output);
   const service = new CreatorRelationshipService(w.db, { run: async () => ({ outcome: 'ANSWERED', output, provenance: {} } as AiRunResult) }, () => T0);
   await service.pass(w.owner, w.profile.id);
@@ -759,7 +759,7 @@ test('a newer known-brand conversation awaiting validation holds an older qualif
   const captures = await w.db.managedCreatorMailCapture.findMany();
   const first = captures[0]!, second = captures[1]!;
   const reading = captureReadings(first.readings)[0]!;
-  const qualified = { ...reading, update: { ...reading.update!, stage: 'NEGOTIATING' as const, dealQualification: 'CURRENT_PAID_NEGOTIATION' as const } };
+  const qualified = { ...reading, update: { ...reading.update!, stage: 'CONFIRMED' as const, dealQualification: 'ACCEPTED_PAID_PARTNERSHIP' as const } };
   await w.db.creatorMailEvidence.updateMany({ where: { captureId: first.id }, data: { reading: qualified } });
   await w.db.creatorMailEvidence.updateMany({ where: { captureId: second.id }, data: { reading: { ...qualified, threadId: 'NEWER_THREAD', evidenceKey: 'newer-distinct-message', fingerprint: 'newer-source-fingerprint', state: 'MODEL_UNAVAILABLE', evidenceAt: new Date(T0.getTime() + 60_000).toISOString() } } });
   const updates = await w.repo.updates(w.recipient, w.profile.id, new Date(T0.getTime() + 120_000));
@@ -767,5 +767,5 @@ test('a newer known-brand conversation awaiting validation holds an older qualif
   assert.ok(updates.every(r => r.stage === 'DISCUSSING' && r.dealQualification === 'NONE'));
   await w.db.creatorMailEvidence.updateMany({ where: { captureId: second.id }, data: { reading: { ...qualified, threadId: 'NEWER_THREAD', evidenceKey: 'newer-distinct-message', state: 'WITHHELD', evidenceAt: new Date(T0.getTime() + 60_000).toISOString() } } });
   const afterScreening = await w.repo.updates(w.recipient, w.profile.id, new Date(T0.getTime() + 120_000));
-  assert.ok(afterScreening.some(r => r.stage === 'NEGOTIATING'), 'an unrelated or un-attributable withheld discovery does not erase accepted paid-deal evidence');
+  assert.ok(afterScreening.some(r => r.stage === 'CONFIRMED'), 'an unrelated or un-attributable withheld discovery does not erase accepted paid-deal evidence');
 });
