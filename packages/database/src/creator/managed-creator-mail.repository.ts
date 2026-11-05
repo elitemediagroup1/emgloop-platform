@@ -17,7 +17,7 @@ const DAY = 86400_000;
 const READ = 'https://www.googleapis.com/auth/gmail.readonly';
 export function captureReadings(value: unknown): ManagedCaptureReading[] {
   if (!Array.isArray(value)) return [];
-  return value.filter((r): r is ManagedCaptureReading => !!r && typeof r === 'object' && typeof r.threadId === 'string' && typeof r.evidenceKey === 'string' && typeof r.fingerprint === 'string' && typeof r.checkedAt === 'string' && typeof r.state === 'string').slice(-100);
+  return value.filter((r): r is ManagedCaptureReading => !!r && typeof r === 'object' && typeof r.threadId === 'string' && typeof r.evidenceKey === 'string' && typeof r.fingerprint === 'string' && typeof r.checkedAt === 'string' && typeof r.state === 'string').slice(-500);
 }
 function accepted(r: ManagedCaptureReading): boolean {
   if (!r.update?.publishable || !r.brandId || r.state !== 'CURRENT') return false;
@@ -67,9 +67,9 @@ export class ManagedCreatorMailRepository {
       for (const mailboxId of ids) {
         const source = await tx.managedGoogleMailbox.findFirst({ where: { organizationId: principal.organizationId, id: mailboxId, status: 'CONNECTED' } });
         if (!source) return 'NOT_ALLOWED';
-        const query = creatorMailQuery(updatedProfile, source.kind === 'CREATOR', new Date(now.getTime() - 30 * DAY));
+        const query = creatorMailQuery(updatedProfile, source.kind === 'CREATOR', new Date(now.getTime() - 365 * DAY));
         if (!query) return 'INVALID';
-        const data = { organizationId: principal.organizationId, creatorProfileId: profile.id, recipientUserId: profile.userId, ownerUserId: principal.userId, mailboxId, mailboxRevision: source.revision, scopeHash: creatorCaptureScopeHash(profile), generation: randomUUID(), enabled: true, windowStart: new Date(now.getTime() - 30 * DAY), cycleStartedAt: now, query, pendingThreadIds: [], nextPageToken: null, listedCount: 0, searchComplete: false, capped: false, readings: [] as Prisma.InputJsonValue, lastCheckedAt: null, lastFailureClass: null, nextCheckAt: now, leaseToken: null, leaseUntil: null };
+        const data = { organizationId: principal.organizationId, creatorProfileId: profile.id, recipientUserId: profile.userId, ownerUserId: principal.userId, mailboxId, mailboxRevision: source.revision, scopeHash: creatorCaptureScopeHash(profile), generation: randomUUID(), enabled: true, windowStart: new Date(now.getTime() - 365 * DAY), cycleStartedAt: now, query, pendingThreadIds: [], nextPageToken: null, listedCount: 0, searchComplete: false, capped: false, readings: [] as Prisma.InputJsonValue, lastCheckedAt: null, lastFailureClass: null, nextCheckAt: now, leaseToken: null, leaseUntil: null };
         if (!(await this.allowed(tx, data))) return 'NOT_ALLOWED';
         rows.push({ ...data, scopeHash: creatorCaptureScopeHash(updatedProfile) });
       }
@@ -83,7 +83,7 @@ export class ManagedCreatorMailRepository {
         if (existing) await tx.managedCreatorMailCapture.update({ where: { id: existing.id }, data });
         else await tx.managedCreatorMailCapture.create({ data });
       }
-      await new AuditRepository(this.prisma).record({ ...principal, action: 'creator.capture.started', entityType: 'creator_profile', entityId: profile.id, metadata: { sourceCount: ids.length, windowDays: 30, decisionRef: 'managed-creator-capture:2026-11-02:v1' } }, tx);
+      await new AuditRepository(this.prisma).record({ ...principal, action: 'creator.capture.started', entityType: 'creator_profile', entityId: profile.id, metadata: { sourceCount: ids.length, windowDays: 365, decisionRef: 'managed-creator-capture:2026-11-02:v1' } }, tx);
       return 'STARTED';
     }, { isolationLevel: 'Serializable' });
   }
@@ -135,14 +135,14 @@ export class ManagedCreatorMailRepository {
         reading = { ...validationRetry, threadId: reading.threadId, brandId: reading.brandId, evidenceKey: reading.evidenceKey, fingerprint: reading.fingerprint, evidenceAt: reading.evidenceAt, checkedAt: now.toISOString(), generatedAt: reading.generatedAt, messageCount: reading.messageCount, incomplete: reading.incomplete, state: reading.state, ...(update ? { update } : {}) };
         readings = [...readings.filter(r => r.threadId !== reading.threadId), reading];
       }
-      readings = readings.filter(r => !r.evidenceAt || Number.isFinite(Date.parse(r.evidenceAt)) && now.getTime() - Date.parse(r.evidenceAt) <= 30 * DAY);
+      readings = readings.filter(r => !r.evidenceAt || Number.isFinite(Date.parse(r.evidenceAt)) && now.getTime() - Date.parse(r.evidenceAt) <= 365 * DAY);
       // Retain active validation cooldowns inside the same 100-reading bound so queue churn
       // cannot erase a failed attempt's wait time and trigger another model call early.
       const cooling = readings.filter(r => r.state === 'MODEL_UNAVAILABLE' && Date.parse(r.retryAfter ?? '') > now.getTime() &&
         Date.parse(r.retryAfter ?? '') <= Date.parse(r.checkedAt) + 3600_000 &&
-        AI_OUTPUT_REJECTIONS.some(code => Array.isArray(r.rejections) && r.rejections.includes(code))).slice(-100);
+        AI_OUTPUT_REJECTIONS.some(code => Array.isArray(r.rejections) && r.rejections.includes(code))).slice(-500);
       const coolingIds = new Set(cooling.map(r => r.threadId));
-      const room = 100 - cooling.length;
+      const room = 500 - cooling.length;
       readings = [...cooling, ...(room ? readings.filter(r => !coolingIds.has(r.threadId)).slice(-room) : [])];
       await tx.managedCreatorMailCapture.update({ where: { id: live.id }, data: { leaseToken: null, leaseUntil: null, nextCheckAt: new Date(now.getTime() + (patch.delayMs ?? 0)), lastCheckedAt: now, lastFailureClass: patch.failure ?? null,
         readings: JSON.parse(JSON.stringify(readings)) as Prisma.InputJsonValue,
@@ -168,7 +168,7 @@ export class ManagedCreatorMailRepository {
         // A discovered brand is private candidate data until a shareable reading is accepted.
         // Never turn model refusal/withholding into a creator-visible brand association.
         if (!accepted(r)) continue;
-        if (!r.brandId || !r.evidenceAt || !Number.isFinite(Date.parse(r.evidenceAt)) || Date.parse(r.evidenceAt) > now.getTime() || now.getTime() - Date.parse(r.evidenceAt) > 30 * DAY) continue;
+        if (!r.brandId || !r.evidenceAt || !Number.isFinite(Date.parse(r.evidenceAt)) || Date.parse(r.evidenceAt) > now.getTime() || now.getTime() - Date.parse(r.evidenceAt) > 365 * DAY) continue;
         const brand = await new PartyReadModelRepository(this.prisma).establishedOne(row.organizationId, 'COMPANY', r.brandId);
         if (!brand) continue;
         const valid = accepted(r), checked = new Date(r.checkedAt), evidenceAt = new Date(r.evidenceAt);
