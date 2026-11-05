@@ -70,11 +70,11 @@ export class CreatorRelationshipService {
           const proposed = result.outcome === 'ANSWERED' ? result.output.creatorBrandUpdate : null;
           // Synthesis may combine facts, never invent a paid-deal qualification absent from its basis.
           const qualifications = new Set([...batch.map(e => e.reading.update?.dealQualification), previous?.dealQualification]);
-          const update = proposed && proposed.dealQualification && proposed.dealQualification !== 'NONE' && !qualifications.has(proposed.dealQualification)
-            ? { ...proposed, dealQualification: 'NONE' as const } : proposed;
+          const unsupportedDeal = !!proposed?.dealQualification && proposed.dealQualification !== 'NONE' && !qualifications.has(proposed.dealQualification);
+          const update = unsupportedDeal ? null : proposed;
           const complete = offset + batch.length === events.length;
           const history = Array.isArray(record.history) ? record.history : [];
-          await this.db.creatorMailRelationship.updateMany({ where: { id, leaseToken: token }, data: { leaseToken: null, leaseUntil: null, fingerprint, ...(update?.publishable ? { processed: offset + batch.length, update: JSON.parse(JSON.stringify(update)), generatedAt: this.now(), history: complete ? [...history, { generatedAt: this.now().toISOString(), fingerprint, ...relationshipBasis(sources), update: JSON.parse(JSON.stringify(update)) }].slice(-50) : history, lastFailureClass: null, nextCheckAt: this.now() } : { processed: same ? record.processed : 0, update: same ? record.update ?? Prisma.DbNull : Prisma.DbNull, lastFailureClass: result.outcome, nextCheckAt: new Date(this.now().getTime() + 3600_000) }) } });
+          await this.db.creatorMailRelationship.updateMany({ where: { id, leaseToken: token }, data: { leaseToken: null, leaseUntil: null, fingerprint, ...(update?.publishable ? { processed: offset + batch.length, update: JSON.parse(JSON.stringify(update)), generatedAt: this.now(), history: complete ? [...history, { generatedAt: this.now().toISOString(), fingerprint, ...relationshipBasis(sources), update: JSON.parse(JSON.stringify(update)) }].slice(-50) : history, lastFailureClass: null, nextCheckAt: this.now() } : { processed: same ? record.processed : 0, update: same ? record.update ?? Prisma.DbNull : Prisma.DbNull, lastFailureClass: unsupportedDeal ? 'UNSUPPORTED_DEAL_QUALIFICATION' : result.outcome, nextCheckAt: new Date(this.now().getTime() + 3600_000) }) } });
           return { [update?.publishable ? complete ? 'SYNTHESIZED' : 'SYNTHESIS_PROGRESS' : 'NOT_PUBLISHED']: 1 };
         } catch {
           await this.db.creatorMailRelationship.updateMany({ where: { id, leaseToken: token }, data: { leaseToken: null, leaseUntil: null, lastFailureClass: 'SYNTHESIS_FAILED', nextCheckAt: new Date(this.now().getTime() + 300_000) } });
@@ -94,6 +94,7 @@ export class CreatorRelationshipService {
       const items = groups.get(row.brandId), thread = threads.find(t => t.brandId === row.brandId);
       const update = row.update ? parseCreatorBrandUpdate({ schemaId: CREATOR_BRAND_UPDATE_SCHEMA_ID, ...(row.update as object) })?.creatorBrandUpdate : null;
       if (!items || relationshipEvents(items).length < 2 || !thread || !update?.publishable || row.fingerprint !== relationshipVersion(items) || row.processed !== relationshipEvents(items).length) return [];
+      if (update.dealQualification && update.dealQualification !== 'NONE' && !items.some(e => e.reading.update?.dealQualification === update.dealQualification)) return [];
       return [{ ...thread, id: row.id, stage: publishedCreatorBrandStage(update), summary: update.summary, nextStep: update.nextStep, generatedAt: row.generatedAt, evidenceAt: new Date(Math.max(...items.map(e => Date.parse(e.reading.evidenceAt!)))), current: !row.lastFailureClass, synthesized: true }];
     });
   }

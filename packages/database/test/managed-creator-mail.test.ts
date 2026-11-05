@@ -746,8 +746,9 @@ test('cross-thread synthesis cannot invent paid-deal qualification from unqualif
   const service = new CreatorRelationshipService(w.db, { run: async () => ({ outcome: 'ANSWERED', output, provenance: {} } as AiRunResult) }, () => T0);
   await service.pass(w.owner, w.profile.id);
   const rows = await service.projections(w.recipient, w.profile.id);
-  assert.ok(rows.length > 0);
-  assert.ok(rows.every(r => r.stage === 'DISCUSSING'));
+  assert.deepEqual(rows, [], 'unsupported consolidated prose is withheld, not merely relabeled');
+  assert.ok((await w.repo.updates(w.recipient, w.profile.id, T0)).every(r => r.stage === 'DISCUSSING'));
   const stored = await w.db.creatorMailRelationship.findMany();
-  assert.equal((stored[0]?.update as Record<string, unknown>)?.dealQualification, 'NONE');
+  assert.equal(stored[0]?.lastFailureClass, 'UNSUPPORTED_DEAL_QUALIFICATION');
+  assert.equal(parseCreatorBrandUpdate({ schemaId: CREATOR_BRAND_UPDATE_SCHEMA_ID, ...(stored[0]?.update as object) }), null);
 });
