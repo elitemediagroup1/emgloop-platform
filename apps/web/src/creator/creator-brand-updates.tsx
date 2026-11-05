@@ -69,7 +69,7 @@ export function CreatorBrandUpdatesView({ rows, time, sourceNote }: { rows: read
         {other.map(group => <Brand key={group.brandId} group={group} time={time} />)}
       </details> : null}
     </div>
-    <p className="loop-note">{sourceNote ?? 'Counts cover currently summarized, explicitly shared Gmail conversations only, not your entire outreach history. This view includes up to 100 shared threads.'} Each brand is counted once in its latest stage. An empty list does not mean no outreach has happened. AI interpretations can be wrong; private emails and internal commercial details are not shown.</p>
+    <p className="loop-note">{sourceNote ?? 'Counts cover currently summarized, explicitly shared Gmail conversations only, not your entire outreach history. Managed capture is bounded and may omit older or unmatched threads.'} Each brand is counted once in its latest stage. An empty list does not mean no outreach has happened. AI interpretations can be wrong; private emails and internal commercial details are not shown.</p>
   </Panel>;
 }
 export async function CreatorBrandUpdates({ seat, time }: { seat: CreatorSeat; time: TimeView }) {
@@ -78,5 +78,5 @@ export async function CreatorBrandUpdates({ seat, time }: { seat: CreatorSeat; t
   const result = await settle(async () => await repo.present({ organizationId: seat.actor.organizationId, userId: seat.actor.userId }) ? repo.forCreator({ organizationId: seat.actor.organizationId, userId: seat.actor.userId }, seat.profileId, time.now) : null);
   if (!result.ok || result.value === null) return <Panel title="Brand updates"><StateBlock kind="unavailable" compact title="Brand updates are not available right now." body="This is not a finding that there are no brand conversations." /></Panel>;
   const managed = await settle(() => managedCreatorMailRepository().updates({ organizationId: seat.actor.organizationId, userId: seat.actor.userId }, seat.profileId, time.now));
-  return <><CreatorUpdatesRefresh />{!managed.ok ? <p className="loop-note">Managed mailbox updates could not be read. Counts may be incomplete.</p> : null}<CreatorBrandUpdatesView rows={[...result.value, ...(managed.ok ? managed.value : [])]} time={time} sourceNote="Counts cover accepted explicit thread shares and analyzed managed-mailbox pilot conversations, not your entire outreach history. Capture examines up to 100 threads per selected source in its pilot window; missing, held or pending readings are not current activity." /></>;
+  return <><CreatorUpdatesRefresh />{!managed.ok ? <p className="loop-note">Managed mailbox updates could not be read. Counts may be incomplete.</p> : null}<CreatorBrandUpdatesView rows={[...result.value, ...(managed.ok ? managed.value : [])]} time={time} sourceNote="Counts cover accepted explicit thread shares and analyzed managed-mailbox pilot conversations, not your entire outreach history. Capture examines up to 500 threads per selected source over the past 365 days; missing, held or pending readings are not current activity." /></>;
 }
