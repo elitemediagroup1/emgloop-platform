@@ -211,7 +211,7 @@ test('creator summaries can pass 24 calls without raising other domain tasks or 
     // Measured failure point: 24 creator calls, 291 organization calls, 52 BACKGROUND calls.
     spend: { organization: { ...AI_NO_SPEND, invocations: 291 }, task: { ...AI_NO_SPEND, invocations: 24 }, global: { ...AI_NO_SPEND, invocations: 291 } },
     estimatedInputTokens: 12_000, registeredProviders: ['anthropic', 'openai'], contextRefusals: [], tools: [],
-    providerPolicies: [{ providerId: 'anthropic', state: 'ACTIVE' as const, ceiling: AI_TASK_CREATOR_BRAND_UPDATE.sensitivityCeiling, version: 1, recordedAtMs: 0 }],
+    providerPolicies: [{ providerId: 'openai', state: 'ACTIVE' as const, ceiling: AI_TASK_CREATOR_BRAND_UPDATE.sensitivityCeiling, version: 1, recordedAtMs: 0 }],
     sensitivityCeiling: AI_TASK_CREATOR_BRAND_UPDATE.sensitivityCeiling,
   };
   assert.equal(admitAiInvocation(request).ok, true);
@@ -238,4 +238,11 @@ test('creator summaries can pass 24 calls without raising other domain tasks or 
   assert.equal(operating.emergencyCostMicros, 25_000_000);
   assert.equal(budget.classes['domain-reading']!.taskDaily.maxInvocations, 24);
   assert.equal(budget.organizationDaily.maxInputTokens, AI_BUDGET_POLICY.organizationDaily.maxInputTokens);
+});
+
+test('creator Gmail interpretation and relationship synthesis use OpenAI without provider fallback', () => {
+  const route = AI_ROUTING_POLICY.tasks['creator.brand.update']!;
+  assert.equal(route.primary.providerId, 'openai');
+  assert.equal(route.fallbackPermitted, false);
+  assert.equal(AI_BUDGET_POLICY.classes['creator-brand-update']!.taskDaily.maxInvocations, 60);
 });

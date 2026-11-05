@@ -5984,6 +5984,14 @@ model ManagedGoogleMailbox {
 
 /// One bounded source-to-creator capture; only minimized readings and keyed provenance, never bodies.
 model ManagedCreatorMailCapture {
+  evidence CreatorMailEvidence[]
+  refreshSearchComplete Boolean @default(false)
+  refreshActive Boolean @default(false)
+  refreshPendingThreadIds String[] @default([])
+  refreshNextPageToken String?
+  refreshStartedAt DateTime?
+  lastRefreshAt DateTime?
+  morningKey String?
   id String @id @default(cuid())
   organizationId String
   creatorProfileId String
@@ -8297,4 +8305,37 @@ model CreatorBrandMailShare {
   @@index([nextCheckAt, leaseUntil], map: "creator_brand_mail_shares_due_idx")
   @@index([organizationId, creatorProfileId, recipientUserId], map: "creator_brand_mail_shares_recipient_idx")
   @@map("creator_brand_mail_shares")
+}
+
+/// Durable minimized evidence. Raw Gmail content is never retained here.
+model CreatorMailEvidence {
+  id String @id
+  captureId String
+  generation String
+  threadId String
+  reading Json
+  updatedAt DateTime @updatedAt
+  capture ManagedCreatorMailCapture @relation(fields: [captureId], references: [id], onDelete: Cascade)
+  @@unique([captureId, generation, threadId])
+  @@map("creator_mail_evidence")
+}
+
+/// Source-version-bound synthesis. Publication always rechecks every contributing authorization.
+model CreatorMailRelationship {
+  id String @id
+  organizationId String
+  creatorProfileId String
+  brandId String
+  fingerprint String
+  processed Int @default(0)
+  update Json?
+  history Json @default("[]")
+  generatedAt DateTime?
+  nextCheckAt DateTime @default(now())
+  leaseToken String?
+  leaseUntil DateTime?
+  lastFailureClass String?
+  updatedAt DateTime @updatedAt
+  @@unique([organizationId, creatorProfileId, brandId])
+  @@map("creator_mail_relationships")
 }

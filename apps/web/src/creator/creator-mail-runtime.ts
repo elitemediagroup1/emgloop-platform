@@ -1,5 +1,5 @@
 import 'server-only';
-import { CreatorBrandMailRepository, CreatorBrandMailService, ManagedCreatorMailRepository, ManagedCreatorMailService, gmailMailReadThrough, prisma } from '@emgloop/database';
+import { CreatorRelationshipService, CreatorBrandMailRepository, CreatorBrandMailService, ManagedCreatorMailRepository, ManagedCreatorMailService, gmailMailReadThrough, prisma } from '@emgloop/database';
 import { CREATOR_MAIL_SHARING_DECISION } from '@emgloop/shared';
 import { governedGateway } from '../ai/governed-gateway';
 import { GMAIL_CONFIG } from '../daily-loop/mail';
@@ -15,3 +15,5 @@ export function managedCreatorMailService() {
 export function creatorMailService() {
   return new CreatorBrandMailService({ repository: creatorMailRepository(), runtime: governedGateway().gateway, readThread: gmailMailReadThrough(prisma, GMAIL_CONFIG(), { excludeLabels: ['SPAM', 'TRASH', 'DRAFT'] }), now: () => new Date() });
 }
+
+export function creatorRelationshipService() { return new CreatorRelationshipService(prisma, governedGateway().gateway); }

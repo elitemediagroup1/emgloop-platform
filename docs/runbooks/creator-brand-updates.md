@@ -124,3 +124,17 @@ workflow after the code is deployed. Nothing automatically records a budget on m
 Sixty model calls are not sixty published summaries: validation repairs, refusals, withholding and
 shared background work affect throughput. This is finite pilot capacity, not evidence of full-roster
 or unbounded continuous service. Budget availability never weakens attribution or publication validation.
+
+## November 2026 relationship intelligence commissioning
+
+The coordinated relationship update requires migration `20261105140000_creator_relationship_intelligence` BEFORE the new application code is published. It copies existing minimized readings into a durable evidence table and replaces the original `creator_capture_bounds` CHECK (which still limited production to 100 readings/listed IDs) with the actual bounded-cycle limits. It does not raise any AI budget.
+
+The existing signed AWS worker endpoint performs two independent queues: Gmail capture and creator-brand synthesis. Even-minute calls prioritize synthesis; odd-minute calls prioritize capture. Existing AI admission, provider authorization, task allowance, background allowance and recorded money ceiling remain authoritative. Creator interpretation/synthesis uses OpenAI with availability failures deferred rather than provider fallback.
+
+Every accepted source reading is stored by capture, generation and Gmail thread. No source body, subject or email address is stored in the evidence or relationship tables. Synthesis deduplicates copies using hashed Message-ID evidence, orders accepted readings chronologically, and folds at most 16 readings per governed call. Partial folds remain private; only a complete fold whose exact source version still matches can publish. The current source authorizations and creator login binding are checked again for every projection. Disconnect, reassignment, permission revocation or changed evidence invalidates the projection immediately. Stored history remains manager-side and is never projected without its source scope.
+
+The creator has one **Refresh updates** button. Its server action derives the creator/profile from the authenticated seat; it accepts no mailbox, organization or profile argument. Clicks enqueue a separate incremental Gmail cursor and coalesce; they preserve historical backfill cursors, leases and AI retry waits. Incremental discovery overlaps the last completed refresh by one day. First refresh covers the previous day while historical discovery continues separately.
+
+The existing AWS minute worker also checks the local `America/New_York` day. At/after 07:00 it atomically enqueues each enabled, authorized source once for that day (including catch-up after downtime); daylight-saving changes follow Eastern local time. A queued refresh is not a guarantee that all summaries complete at 07:00: the authorized budget and retry rules still apply.
+
+Release verification must include migration status, deployed SHA, actual source counts, accepted/withheld states, OpenAI invocation records and an authenticated creator-seat check. A manager preview alone does not certify creator-seat behavior. Advertiser discovery can resolve an explicit brand in agency or consumer-address correspondence; a new advertiser name must match substantive evidence or a supported known identity. It still withholds ambiguous cases and source readings explicitly mark bounded/incomplete evidence; do not describe coverage as exhaustive until reconciliation accounts for held items.

@@ -8,7 +8,8 @@ import { creatorMailSharingEnabled } from './creator-mail-runtime';
 import { type CreatorSeat } from './creator-runtime';
 import { Panel, StateBlock } from '../app/app/_loop-os/record';
 import { settle } from '../app/app/_home/settle';
-import { managedCreatorMailRepository } from './creator-mail-runtime';
+import { managedCreatorMailRepository, creatorRelationshipService } from './creator-mail-runtime';
+import { CreatorRefreshButton } from './CreatorRefreshButton';
 const STAGES: Record<string, string> = { OUTREACH: 'Awaiting first reply', DISCUSSING: 'In discussion', AWAITING_EMG: 'Waiting on EMG', AWAITING_BRAND: 'Waiting on the brand', AWAITING_CREATOR: 'Needs you', NEGOTIATING: 'Negotiating', CONFIRMED: 'Confirmed', DECLINED: 'Did not go ahead', PAUSED: 'Paused' };
 type BrandGroup = { brandId: string; brand: string; updates: PublishedCreatorBrandUpdate[] };
 const BUCKETS = [
@@ -31,7 +32,7 @@ function Brand({ group, time }: { group: BrandGroup; time: TimeView }) {
   const ordered = [...group.updates].sort((a, b) =>
     (b.evidenceAt?.getTime() ?? 0) - (a.evidenceAt?.getTime() ?? 0) ||
     (b.generatedAt?.getTime() ?? 0) - (a.generatedAt?.getTime() ?? 0));
-  const latest = ordered.find(u => u.summary && u.stage);
+  const latest = ordered.find(u => u.synthesized && u.summary && u.stage) ?? ordered.find(u => u.summary && u.stage);
   const distinct = new Map<string, PublishedCreatorBrandUpdate>();
   for (const update of ordered) {
     // Cross-mailbox copies of a single accepted reading should not look like
@@ -44,7 +45,7 @@ function Brand({ group, time }: { group: BrandGroup; time: TimeView }) {
       <span className="loop-label">Latest known position · {STAGES[latest.stage ?? ''] ?? 'Update'}</span>
       <p>{latest.summary}</p>
       {latest.nextStep ? <p><strong>Next:</strong> {latest.nextStep}</p> : null}
-      <p className="loop-note">Based on the most recent accepted source conversation, {latest.evidenceAt ? time.dateTime(latest.evidenceAt) : 'date unavailable'}. This is not a synthesized assessment of all threads.</p>
+      <p className="loop-note">{latest.synthesized ? 'Consolidated across accepted authorized conversations through' : 'Based on the most recent accepted source conversation,'} {latest.evidenceAt ? time.dateTime(latest.evidenceAt) : 'date unavailable'}. {latest.synthesized ? 'Updates when source evidence changes.' : 'Cross-thread synthesis is pending.'}</p>
     </div> : null}
     <details><summary>Conversation history · {distinct.size} {distinct.size === 1 ? 'update' : 'updates'}</summary>
       {[...distinct.values()].map(update => <Update key={update.id} update={update} time={time} />)}
@@ -59,6 +60,8 @@ export function CreatorBrandUpdatesView({ rows, time, sourceNote }: { rows: read
   }
   // One current stage per canonical brand. Latest source activity wins, not input order or generation time.
   const latest = (group: BrandGroup) => {
+    const synthesized = group.updates.find(u => u.synthesized);
+    if (synthesized) return synthesized;
     const newest = [...group.updates].sort((a, b) => (b.evidenceAt?.getTime() ?? b.checkedAt?.getTime() ?? 0) - (a.evidenceAt?.getTime() ?? a.checkedAt?.getTime() ?? 0) || a.id.localeCompare(b.id))[0];
     // The most recent evidence establishes the last known stage even when its check is stale.
     // Staleness remains visible on each update; do not erase historical outreach from counts.
@@ -99,5 +102,6 @@ export async function CreatorBrandUpdates({ seat, time }: { seat: CreatorSeat; t
   const result = await settle(async () => await repo.present({ organizationId: seat.actor.organizationId, userId: seat.actor.userId }) ? repo.forCreator({ organizationId: seat.actor.organizationId, userId: seat.actor.userId }, seat.profileId, time.now) : null);
   if (!result.ok || result.value === null) return <Panel title="Brand updates"><StateBlock kind="unavailable" compact title="Brand updates are not available right now." body="This is not a finding that there are no brand conversations." /></Panel>;
   const managed = await settle(() => managedCreatorMailRepository().updates({ organizationId: seat.actor.organizationId, userId: seat.actor.userId }, seat.profileId, time.now));
-  return <><CreatorUpdatesRefresh />{!managed.ok ? <p className="loop-note">Managed mailbox updates could not be read. Counts may be incomplete.</p> : null}<CreatorBrandUpdatesView rows={[...result.value, ...(managed.ok ? managed.value : [])]} time={time} sourceNote="Counts cover accepted explicit thread shares and analyzed managed-mailbox pilot conversations, not your entire outreach history. Capture pages through authorized Gmail history in bounded 500-thread cycles and retains up to 2,000 readings per source; older or withheld items may be absent from counts." /></>;
+  const synthesized = await settle(() => creatorRelationshipService().projections({ organizationId: seat.actor.organizationId, userId: seat.actor.userId }, seat.profileId));
+  return <><CreatorUpdatesRefresh /><CreatorRefreshButton />{!managed.ok ? <p className="loop-note">Managed mailbox updates could not be read. Counts may be incomplete.</p> : null}<CreatorBrandUpdatesView rows={[...result.value, ...(managed.ok ? managed.value : []), ...(synthesized.ok ? synthesized.value : [])]} time={time} sourceNote="Counts cover accepted explicit thread shares and analyzed managed-mailbox pilot conversations, not your entire outreach history. Accepted historical evidence is retained durably. Historical discovery continues in bounded pages; withheld or unprocessed conversations are excluded. Refresh runs daily at 7:00 a.m. Eastern and when requested." /></>;
 }
