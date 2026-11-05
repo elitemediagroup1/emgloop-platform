@@ -18,8 +18,7 @@ confirms inquiry-only, affiliate-only and older/deferred proposals were admitted
 readily. Unqualified legacy active-deal labels must fall back to Conversations until a
 stricter current paid negotiation/agreement classification is accepted. Preserve every
 brand's history and existing AI caps/cooldowns; do not rerun all unchanged outreach to
-repair four active labels. Ventral's later campaign-window closure supersedes the earlier
-proposal. Model reanalysis and live corrected counts remain acceptance checks.
+repair four active labels. Later campaign-window closures supersede earlier proposals. Model reanalysis and live corrected counts remain acceptance checks.
 
 The same follow-through connects the existing Work OS creator review notifications to
 Tasks and the shell bell, with creator/profile/content ownership checks, a working read
