@@ -53,7 +53,8 @@ export const creatorCaptureScopeHash = (profile: MailCreatorIdentity) => mailEvi
 export function creatorMailQuery(profile: MailCreatorIdentity, assigned: boolean, since: Date): string | null {
   const terms = creatorMailAliases(profile).map(s => s.replace(/["{}\\:\r\n]/g, ' ').trim()).filter(Boolean);
   if (!assigned && !terms.length) return null;
-  const q = `after:${Math.floor(since.getTime() / 1000)} -in:spam -in:trash -in:drafts${assigned ? '' : ` {${terms.map(s => `"${s}"`).join(' ')}}`}`;
+  const timeFilter = since.getTime() > 0 ? `after:${Math.floor(since.getTime() / 1000)} ` : '';
+  const q = `${timeFilter}-in:spam -in:trash -in:drafts${assigned ? '' : ` {${terms.map(s => `"${s}"`).join(' ')}}`}`;
   return q.length <= 1500 ? q : null;
 }
 
