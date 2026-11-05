@@ -56,7 +56,7 @@ export class ManagedCreatorMailService {
       if (!page.ok) { await repo.finish(row, now(), { failure: 'SEARCH_UNAVAILABLE', delayMs: 300_000, resetCycle: !!row.nextPageToken }); return { CAPTURE_WAITING: 1 }; }
       const seen = new Set(captureReadings(row.readings).filter(r => Date.parse(r.checkedAt) >= row.cycleStartedAt.getTime()).map(r => r.threadId));
       // Bound each cycle while allowing multiple Gmail result pages and a deeper backfill.
-      const room = Math.max(0, 500 - row.listedCount), ids = [...new Set(page.threadIds)].filter(id => !seen.has(id)).slice(0, room);
+      const room = Math.max(0, 500 - row.listedCount), ids = [...new Set(page.threadIds)].filter(id => !seen.has(id)).slice(0, Math.min(room, 100));
       const listed = row.listedCount + ids.length, capped = !!page.nextPageToken && listed >= 500;
       await repo.finish(row, now(), { pending: ids, pageToken: capped ? null : page.nextPageToken, listed, complete: capped || !page.nextPageToken, capped, delayMs: ids.length || page.nextPageToken && !capped ? 0 : 300_000 });
       return { CAPTURE_LISTED: 1 };
