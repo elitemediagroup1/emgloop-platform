@@ -41,7 +41,9 @@ export function CreatorBrandUpdatesView({ rows, time, sourceNote }: { rows: read
   // One current stage per canonical brand. Latest source activity wins, not input order or generation time.
   const latest = (group: BrandGroup) => {
     const newest = [...group.updates].sort((a, b) => (b.evidenceAt?.getTime() ?? b.checkedAt?.getTime() ?? 0) - (a.evidenceAt?.getTime() ?? a.checkedAt?.getTime() ?? 0) || a.id.localeCompare(b.id))[0];
-    return newest?.current && newest.summary && newest.stage ? newest : undefined;
+    // The most recent evidence establishes the last known stage even when its check is stale.
+    // Staleness remains visible on each update; do not erase historical outreach from counts.
+    return newest?.summary && newest.stage ? newest : undefined;
   };
   const groups = [...brands.values()].sort((a, b) => a.brand.localeCompare(b.brand) || a.brandId.localeCompare(b.brandId));
   const other = groups.filter(g => !BUCKETS.some(b => (b.stages as readonly string[]).includes(latest(g)?.stage ?? '')));
@@ -69,7 +71,7 @@ export function CreatorBrandUpdatesView({ rows, time, sourceNote }: { rows: read
         {other.map(group => <Brand key={group.brandId} group={group} time={time} />)}
       </details> : null}
     </div>
-    <p className="loop-note">{sourceNote ?? 'Counts cover currently summarized, explicitly shared Gmail conversations only, not your entire outreach history. Managed capture is bounded and may omit older or unmatched threads.'} Each brand is counted once in its latest stage. An empty list does not mean no outreach has happened. AI interpretations can be wrong; private emails and internal commercial details are not shown.</p>
+    <p className="loop-note">{sourceNote ?? 'Counts cover currently summarized, explicitly shared Gmail conversations only, not your entire outreach history. Managed capture is bounded and may omit older or unmatched threads.'} Each brand is counted once by its latest accepted stage; older readings are labeled and may no longer reflect the current relationship. An empty list does not mean no outreach has happened. AI interpretations can be wrong; private emails and internal commercial details are not shown.</p>
   </Panel>;
 }
 export async function CreatorBrandUpdates({ seat, time }: { seat: CreatorSeat; time: TimeView }) {
