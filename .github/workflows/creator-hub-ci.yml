@@ -10,6 +10,8 @@ on:
       - 'apps/web/src/workspaces/**'
       - 'apps/web/src/app/loop-os.css'
       - 'packages/database/src/creator/**'
+      - 'packages/database/test/creator-*.test.ts'
+      - 'packages/database/prisma/**'
       - 'packages/shared/src/creator/**'
       - 'apps/web/test/creator-*.test.tsx'
       - '.github/workflows/creator-hub-ci.yml'
@@ -34,3 +36,36 @@ jobs:
         run: npm install --no-audit --no-fund
       - name: Creator UI and access contracts
         run: node --import tsx --test apps/web/test/creator-*.test.tsx apps/web/test/one-loop-shell.test.tsx
+
+  creator-production:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: creator_hub
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d creator_hub"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # Disposable runner-local database only. No production secrets or seed data.
+      DATABASE_URL: 'postgresql://ci:ci@127.0.0.1:5432/creator_hub?schema=public'
+      LOOP_TEST_POSTGRES_URL: 'postgresql://ci:ci@127.0.0.1:5432/creator_hub?schema=public'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Apply migrations to disposable database
+        run: npm run -w @emgloop/database migrate:deploy
+      - name: Creator production lifecycle and isolation
+        run: node --import tsx --test packages/database/test/creator-production.postgres.test.ts
