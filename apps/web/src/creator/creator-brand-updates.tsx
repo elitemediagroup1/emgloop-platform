@@ -28,8 +28,27 @@ function Update({ update, time }: { update: PublishedCreatorBrandUpdate; time: T
   </div>;
 }
 function Brand({ group, time }: { group: BrandGroup; time: TimeView }) {
+  const ordered = [...group.updates].sort((a, b) =>
+    (b.evidenceAt?.getTime() ?? 0) - (a.evidenceAt?.getTime() ?? 0) ||
+    (b.generatedAt?.getTime() ?? 0) - (a.generatedAt?.getTime() ?? 0));
+  const latest = ordered.find(u => u.summary && u.stage);
+  const distinct = new Map<string, PublishedCreatorBrandUpdate>();
+  for (const update of ordered) {
+    // Cross-mailbox copies of a single accepted reading should not look like
+    // independent brand conversations. Preserve distinct historical events.
+    const identity = [update.evidenceAt?.toISOString() ?? '', update.stage ?? '', update.summary ?? ''].join('|');
+    if (!distinct.has(identity)) distinct.set(identity, update);
+  }
   return <details className="loop-card"><summary>{group.brand}</summary>
-    {[...group.updates].sort((a, b) => (b.evidenceAt?.getTime() ?? 0) - (a.evidenceAt?.getTime() ?? 0)).map(update => <Update key={update.id} update={update} time={time} />)}
+    {latest ? <div className="loop-stack" style={{ gap: 6, marginBottom: 12 }}>
+      <span className="loop-label">Latest known position · {STAGES[latest.stage ?? ''] ?? 'Update'}</span>
+      <p>{latest.summary}</p>
+      {latest.nextStep ? <p><strong>Next:</strong> {latest.nextStep}</p> : null}
+      <p className="loop-note">Based on the most recent accepted source conversation, {latest.evidenceAt ? time.dateTime(latest.evidenceAt) : 'date unavailable'}. This is not a synthesized assessment of all threads.</p>
+    </div> : null}
+    <details><summary>Conversation history · {distinct.size} {distinct.size === 1 ? 'update' : 'updates'}</summary>
+      {[...distinct.values()].map(update => <Update key={update.id} update={update} time={time} />)}
+    </details>
   </details>;
 }
 export function CreatorBrandUpdatesView({ rows, time, sourceNote }: { rows: readonly PublishedCreatorBrandUpdate[]; time: TimeView; sourceNote?: string }) {
