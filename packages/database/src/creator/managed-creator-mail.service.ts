@@ -52,7 +52,7 @@ export class ManagedCreatorMailService {
         await repo.finish(row, now(), { resetCycle: true, delayMs: 0 });
         return { CAPTURE_LISTED: 1 };
       }
-      const page = await mailboxes.searchThreads(principal, row.mailboxId, row.query.replace(/^after:\\d+\\s+/, ''), row.nextPageToken);
+      const page = await mailboxes.searchThreads(principal, row.mailboxId, row.query.replace(/^after:\d+\s+/, ''), row.nextPageToken);
       if (!page.ok) { await repo.finish(row, now(), { failure: 'SEARCH_UNAVAILABLE', delayMs: 300_000, resetCycle: !!row.nextPageToken }); return { CAPTURE_WAITING: 1 }; }
       const seen = new Set(captureReadings(row.readings).filter(r => Date.parse(r.checkedAt) >= row.cycleStartedAt.getTime()).map(r => r.threadId));
       // Bound each cycle while allowing multiple Gmail result pages and a deeper backfill.
