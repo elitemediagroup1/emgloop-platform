@@ -112,7 +112,7 @@ function target(
 // was not Claude; no fallback to the subject's own provider -- with OpenAI uncommissioned a Claude-written
 // situation is simply not independently verified, and says so), and the Briefing (SYNTHESIS lane). One model
 // per call: no task calls both providers for the same answer. Existing entries are UNCHANGED.
-export const AI_ROUTING_POLICY_VERSION = 'routing.2026-10-29.15';
+export const AI_ROUTING_POLICY_VERSION = 'routing.2026-11-04.16';
 
 function situationRoute(taskId: string) {
   return Object.freeze({
@@ -235,7 +235,7 @@ export const AI_ROUTING_POLICY: AiRoutingPolicy = Object.freeze({
       taskId: 'creator.brand.update', taskVersion: '1.0.0',
       primary: target('anthropic', 'claude-opus-5', { reasoningEffort: 'low', timeoutMs: 20_000, maxOutputTokens: 1200 }),
       fallback: target('openai', 'gpt-6-astra', { reasoningEffort: 'low', timeoutMs: 20_000, maxOutputTokens: 1200 }),
-      fallbackPermitted: true, budgetClass: 'domain-reading', lane: 'BACKGROUND',
+      fallbackPermitted: true, budgetClass: 'creator-brand-update', lane: 'BACKGROUND',
       providerChoiceReason: 'Anthropic interprets explicitly shared creator threads; OpenAI is the availability fallback under the same validated publication contract.',
     }),
     'loop.question.answer': Object.freeze({
@@ -280,7 +280,7 @@ export const AI_ROUTING_POLICY: AiRoutingPolicy = Object.freeze({
 // .6 (2026-09-26, Loop Intelligence Phases F-G): adds situation-synthesis, situation-verification and
 // loop-briefing, again WITHOUT raising the organization or global ceilings. A synthesis runs only for a
 // CHANGED cluster. Briefings reuse matching fresh evidence and pace model refreshes per viewer.
-export const AI_BUDGET_POLICY_VERSION = 'budget.2026-10-16.9';
+export const AI_BUDGET_POLICY_VERSION = 'budget.2026-11-04.10';
 
 export const AI_BUDGET_POLICY: AiBudgetPolicy = Object.freeze({
   version: AI_BUDGET_POLICY_VERSION,
@@ -322,6 +322,13 @@ export const AI_BUDGET_POLICY: AiBudgetPolicy = Object.freeze({
       maxInputTokensPerCall: 12_000,
       maxOutputTokensPerCall: 2_000,
       taskDaily: Object.freeze({ maxInvocations: 24, maxInputTokens: 288_000, maxOutputTokens: 48_000 }),
+    }),
+    // Creator capture sweeps many conversations; domain-reading's 24 calls is too small.
+    // Repairs/fallbacks spend the same finite allowance. Recorded lane/cost and shared caps still bind.
+    'creator-brand-update': Object.freeze({
+      maxInputTokensPerCall: 12_000,
+      maxOutputTokensPerCall: 1_200,
+      taskDaily: Object.freeze({ maxInvocations: 60, maxInputTokens: 720_000, maxOutputTokens: 72_000 }),
     }),
     // Phase F: a changed cluster in, a NEW/UPDATE/NONE with cited claims out.
     'situation-synthesis': Object.freeze({
