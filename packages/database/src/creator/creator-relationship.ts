@@ -15,3 +15,20 @@ export function relationshipEvents(items: readonly RelationshipEvidence[]): Rela
   }
   return [...unique.values()].sort((a,b) => (a.reading.evidenceAt ?? '').localeCompare(b.reading.evidenceAt ?? '') || a.reading.evidenceKey.localeCompare(b.reading.evidenceKey));
 }
+
+/** Minimized hashes of the complete authorization/evidence basis, not private email content. */
+export function relationshipBasis(items: readonly RelationshipEvidence[]) {
+  const version = (e: RelationshipEvidence) => relationshipVersion([e]);
+  return { sourceVersions: items.map(version).sort(), eventVersions: relationshipEvents(items).map(version) };
+}
+/** Reuse a completed fold only for a strictly append-only chronological extension.
+ * Changed messages, removed sources, reassignment, or older backfill require rebuilding.
+ */
+export function relationshipContinuation(record: { fingerprint: string; processed: number; history: unknown }, items: readonly RelationshipEvidence[]): number {
+  if (!Array.isArray(record.history)) return 0;
+  const latest = record.history.at(-1);
+  if (!latest || latest.fingerprint !== record.fingerprint || !Array.isArray(latest.sourceVersions) || !latest.sourceVersions.length || !Array.isArray(latest.eventVersions) || latest.eventVersions.length !== record.processed) return 0;
+  const basis = relationshipBasis(items), sources = new Set(basis.sourceVersions);
+  if (record.processed >= basis.eventVersions.length || !latest.sourceVersions.every((v: unknown) => typeof v === 'string' && sources.has(v))) return 0;
+  return latest.eventVersions.every((v: unknown, i: number) => v === basis.eventVersions[i]) ? record.processed : 0;
+}

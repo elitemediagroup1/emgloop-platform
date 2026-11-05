@@ -492,9 +492,30 @@ test('incremental refresh drains its cursor and resumes the original historical 
   assert.deepEqual(row.pendingThreadIds, ['historical-next']); assert.equal(row.lastRefreshAt?.toISOString(), T0.toISOString());
 });
 
+async function distinctRelationshipConversation(w: Awaited<ReturnType<typeof world>>) {
+  const row = (await w.db.managedCreatorMailCapture.findMany())[0]!;
+  const reading = (await w.repo.durableReadings(row))[0]!;
+  await w.db.creatorMailEvidence.create({ data: { id: 'distinct-conversation', captureId: row.id, generation: row.generation, threadId: 'distinct-conversation', reading: { ...reading, threadId: 'distinct-conversation', evidenceKey: 'distinct-message', fingerprint: 'distinct-version' } } });
+}
+
+test('single conversations and duplicate mailbox copies use existing summaries without synthesis calls', async () => {
+  const { CreatorRelationshipService } = await import('../src/creator/creator-relationship.service');
+  for (const copies of [false, true]) {
+    const w = await world(); await w.start(copies ? undefined : [w.staff.id]); await w.drain();
+    let calls = 0;
+    const service = new CreatorRelationshipService(w.db, { run: async () => { calls++; throw Error('unnecessary synthesis'); } }, () => T0);
+    assert.deepEqual(await service.pass(), {});
+    assert.equal(calls, 0);
+    assert.equal((await w.repo.updates(w.recipient, w.profile.id, T0)).length, 1);
+    assert.deepEqual(await service.projections(w.recipient, w.profile.id), []);
+    assert.equal((await w.db.creatorMailRelationship.findMany()).length, 0);
+  }
+});
+
 test('cross-mailbox relationship synthesis publishes one version and revocation invalidates it', async () => {
   const { CreatorRelationshipService } = await import('../src/creator/creator-relationship.service');
   const w = await world(); await w.start(); await w.drain();
+  await distinctRelationshipConversation(w);
   let calls = 0;
   const service = new CreatorRelationshipService(w.db, { run: async (_actor, request) => {
     calls++; assert.equal(request.templateId, 'creator-relationship-synthesis');
@@ -513,7 +534,7 @@ test('cross-mailbox relationship synthesis publishes one version and revocation 
 
 test('relationship synthesis refusal remains private and backs off without repeated spend', async () => {
   const { CreatorRelationshipService } = await import('../src/creator/creator-relationship.service');
-  const w = await world(); await w.start(); await w.drain(); let calls = 0;
+  const w = await world(); await w.start(); await w.drain(); await distinctRelationshipConversation(w); let calls = 0;
   const service = new CreatorRelationshipService(w.db, { run: async () => { calls++; return { outcome: 'REFUSED_BY_LOOP', refusals: ['BUDGET_BACKGROUND_DEFERRED'] }; } }, () => T0);
   assert.deepEqual(await service.pass(), { NOT_PUBLISHED: 1 });
   assert.deepEqual(await service.projections(w.recipient, w.profile.id), []);
@@ -556,6 +577,15 @@ test('multi-batch synthesis remains private until all evidence is folded, and ne
   assert.deepEqual(await service.projections(w.recipient, w.profile.id), []);
   assert.deepEqual(await service.pass(), { SYNTHESIZED: 1 });
   assert.equal((await service.projections(w.recipient, w.profile.id)).length, 1); assert.equal(calls, 2);
+  // A later distinct conversation folds only the new reading plus the prior aggregate.
+  await w.db.creatorMailEvidence.create({ data: { id: 'later', captureId: row.id, generation: row.generation, threadId: 'later', reading: { ...reading, threadId: 'later', evidenceKey: 'later-message', fingerprint: 'later-version', evidenceAt: '2026-11-06T12:00:00.000Z' } } });
+  const incremental = new CreatorRelationshipService(w.db, { run: async (_actor, request) => {
+    assert.equal(request.context.items.filter(i => i.sourceRef.startsWith('mail_message:')).length, 2);
+    const ref = request.context.items.find(i => i.sourceRef.startsWith('mail_message:'))!.sourceRef;
+    return { outcome: 'ANSWERED', output: parseCreatorBrandUpdate({ schemaId: CREATOR_BRAND_UPDATE_SCHEMA_ID, publishable: true, stage: 'DISCUSSING', summary: 'EMG and the brand continue discussing a collaboration.', nextStep: '', citations: [ref] })!, provenance: {} } as AiRunResult;
+  } }, () => T0);
+  assert.deepEqual(await incremental.pass(), { SYNTHESIZED: 1 });
+  assert.equal((await incremental.projections(w.recipient, w.profile.id)).length, 1);
   await w.db.creatorMailEvidence.update({ where: { id: 'extra-0' }, data: { reading: { ...reading, threadId: 'extra-0', evidenceKey: 'physical-0', fingerprint: 'new-version' } } });
   assert.deepEqual(await service.projections(w.recipient, w.profile.id), []);
 });
@@ -609,4 +639,24 @@ test('legacy domain-only agency readings cannot publish or enter synthesis witho
   const { CreatorRelationshipService } = await import('../src/creator/creator-relationship.service');
   const service = new CreatorRelationshipService(w.db, { run: async () => { throw Error('unresolved legacy advertiser cannot call synthesis'); } }, () => T0);
   assert.deepEqual(await service.pass(), {});
+});
+
+test('incremental synthesis reuses only an unchanged chronological and authorized prefix', async () => {
+  const { relationshipBasis, relationshipContinuation, relationshipVersion } = await import('../src/creator/creator-relationship');
+  const w = await world(); await w.start([w.staff.id]); await w.drain();
+  const row = (await w.db.managedCreatorMailCapture.findMany())[0]!;
+  const reading = (await w.repo.durableReadings(row))[0]!;
+  const first = { captureId: row.id, generation: row.generation, scopeHash: row.scopeHash, reading };
+  const second = { ...first, reading: { ...reading, threadId: 'second', fingerprint: 'second', evidenceKey: 'second', evidenceAt: '2026-11-04T12:00:00Z' } };
+  const old = [first, second];
+  const fingerprint = relationshipVersion(old);
+  const record = { fingerprint, processed: 2, history: [{ fingerprint, ...relationshipBasis(old) }] };
+  const later = { ...first, reading: { ...reading, threadId: 'later', fingerprint: 'later', evidenceKey: 'later', evidenceAt: '2026-11-06T12:00:00Z' } };
+  assert.equal(relationshipContinuation(record, [...old, later]), 2);
+  assert.equal(relationshipContinuation(record, [second, later]), 0, 'withdrawn source cannot reuse its summary');
+  assert.equal(relationshipContinuation(record, [{ ...first, generation: 'reassigned' }, second, later]), 0);
+  assert.equal(relationshipContinuation(record, [{ ...first, scopeHash: 'revoked' }, second, later]), 0);
+  assert.equal(relationshipContinuation(record, [{ ...first, reading: { ...reading, fingerprint: 'changed' } }, second, later]), 0);
+  assert.equal(relationshipContinuation(record, [...old, { ...later, reading: { ...later.reading, evidenceAt: '2020-01-01T12:00:00Z' } }]), 0, 'older backfill must rebuild chronology');
+  assert.equal(relationshipContinuation({ ...record, history: [{ fingerprint }] }, [...old, later]), 0, 'legacy aggregates have no verifiable reuse basis');
 });
