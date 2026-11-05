@@ -20,6 +20,7 @@ export interface PublishedCreatorBrandUpdate {
   readonly brand: string;
   readonly brandId: string;
   readonly stage: string | null;
+  readonly dealQualification?: CreatorBrandUpdate['dealQualification'];
   readonly summary: string | null;
   readonly nextStep: string | null;
   readonly generatedAt: Date | null;
@@ -161,7 +162,7 @@ export class CreatorBrandMailRepository {
       if (!(await this.allowed(this.prisma, row))) continue;
       const raw = row.summary as unknown as CreatorBrandUpdate | null;
       const valid = raw?.publishable === true && typeof raw.summary === 'string' && typeof raw.nextStep === 'string' && row.generatedAt && row.evidenceAt && now.getTime() - row.evidenceAt.getTime() <= 30 * 86400_000;
-      out.push({ id: row.id, brandId: row.brandPartyId, brand: (await this.company(this.prisma, row.organizationId, row.brandPartyId))!, stage: valid ? publishedCreatorBrandStage(raw) : null, summary: valid ? raw.summary : null, nextStep: valid ? raw.nextStep : null, generatedAt: valid ? row.generatedAt : null, evidenceAt: row.evidenceAt, checkedAt: row.checkedAt, current: !!valid && !row.lastFailureClass && !!row.checkedAt && now.getTime() - row.checkedAt.getTime() < CREATOR_BRAND_FRESH_MS });
+      out.push({ id: row.id, brandId: row.brandPartyId, brand: (await this.company(this.prisma, row.organizationId, row.brandPartyId))!, stage: valid ? publishedCreatorBrandStage(raw) : null, dealQualification: valid ? raw.dealQualification : undefined, summary: valid ? raw.summary : null, nextStep: valid ? raw.nextStep : null, generatedAt: valid ? row.generatedAt : null, evidenceAt: row.evidenceAt, checkedAt: row.checkedAt, current: !!valid && !row.lastFailureClass && !!row.checkedAt && now.getTime() - row.checkedAt.getTime() < CREATOR_BRAND_FRESH_MS });
     }
     return out;
   }

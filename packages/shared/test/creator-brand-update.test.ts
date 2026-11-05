@@ -50,6 +50,7 @@ test('legacy, inquiry-only and affiliate-only negotiation labels cannot publish 
 
 test('qualification is validated and preserved without admitting private financial prose', () => {
   assert.equal(parseCreatorBrandUpdate(update({ dealQualification: 'GUESSED' })), null);
+  assert.ok(rejections({ stage: 'OUTREACH', dealQualification: 'CURRENT_PAID_AGREEMENT' }).includes('WRONG_SCHEMA'));
   const parsed = parseCreatorBrandUpdate(update({ stage: 'NEGOTIATING', dealQualification: 'CURRENT_PAID_NEGOTIATION' }));
   assert.equal(parsed?.creatorBrandUpdate?.dealQualification, 'CURRENT_PAID_NEGOTIATION');
   assert.ok(rejections({ stage: 'NEGOTIATING', dealQualification: 'CURRENT_PAID_NEGOTIATION', summary: 'They offered $500.' }).includes('VERBATIM_CONTENT'));

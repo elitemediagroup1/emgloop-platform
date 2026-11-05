@@ -35,6 +35,7 @@ export function validateCreatorBrandUpdate(output: AiTaskOutput, task: AiTaskDef
   const out: AiOutputRejection[] = [];
   if (!u.publishable) return u.summary === '' && u.nextStep === '' && u.citations.length === 0 ? [] : ['WRONG_SCHEMA'];
   if (u.brandName !== undefined && u.brandName !== null && (!/^[\p{L}\p{N}][\p{L}\p{N} &.'’+()-]{1,99}$/u.test(u.brandName) || /https?|www|@/i.test(u.brandName))) out.push('WRONG_SCHEMA');
+  if (u.dealQualification === 'CURRENT_PAID_NEGOTIATION' && u.stage !== 'NEGOTIATING' || u.dealQualification === 'CURRENT_PAID_AGREEMENT' && u.stage !== 'CONFIRMED') out.push('WRONG_SCHEMA');
   if (!u.summary.trim()) out.push('EMPTY_ANSWER');
   if (u.summary.length > 600 || u.nextStep.length > 200 || u.citations.length > 8) out.push('ANSWER_TOO_LONG');
   if (!u.citations.length) out.push('UNCITED_CLAIM');

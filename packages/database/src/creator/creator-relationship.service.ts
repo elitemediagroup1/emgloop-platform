@@ -94,8 +94,8 @@ export class CreatorRelationshipService {
       const items = groups.get(row.brandId), thread = threads.find(t => t.brandId === row.brandId);
       const update = row.update ? parseCreatorBrandUpdate({ schemaId: CREATOR_BRAND_UPDATE_SCHEMA_ID, ...(row.update as object) })?.creatorBrandUpdate : null;
       if (!items || relationshipEvents(items).length < 2 || !thread || !update?.publishable || row.fingerprint !== relationshipVersion(items) || row.processed !== relationshipEvents(items).length) return [];
-      if (update.dealQualification && update.dealQualification !== 'NONE' && !items.some(e => e.reading.update?.dealQualification === update.dealQualification)) return [];
-      return [{ ...thread, id: row.id, stage: publishedCreatorBrandStage(update), summary: update.summary, nextStep: update.nextStep, generatedAt: row.generatedAt, evidenceAt: new Date(Math.max(...items.map(e => Date.parse(e.reading.evidenceAt!)))), current: !row.lastFailureClass, synthesized: true }];
+      if (update.dealQualification && update.dealQualification !== 'NONE' && (!items.some(e => e.reading.update?.dealQualification === update.dealQualification) || !threads.some(t => t.brandId === row.brandId && t.dealQualification === update.dealQualification))) return [];
+      return [{ ...thread, id: row.id, stage: publishedCreatorBrandStage(update), dealQualification: update.dealQualification, summary: update.summary, nextStep: update.nextStep, generatedAt: row.generatedAt, evidenceAt: new Date(Math.max(...items.map(e => Date.parse(e.reading.evidenceAt!)))), current: !row.lastFailureClass, synthesized: true }];
     });
   }
 }

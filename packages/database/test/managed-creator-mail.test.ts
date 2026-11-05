@@ -752,3 +752,17 @@ test('cross-thread synthesis cannot invent paid-deal qualification from unqualif
   assert.equal(stored[0]?.lastFailureClass, 'UNSUPPORTED_DEAL_QUALIFICATION');
   assert.equal(parseCreatorBrandUpdate({ schemaId: CREATOR_BRAND_UPDATE_SCHEMA_ID, ...(stored[0]?.update as object) }), null);
 });
+
+
+test('a newer known-brand conversation awaiting validation holds an older qualified active deal without erasing its history', async () => {
+  const w = await world(); await w.start(); await w.drain();
+  const captures = await w.db.managedCreatorMailCapture.findMany();
+  const first = captures[0]!, second = captures[1]!;
+  const reading = captureReadings(first.readings)[0]!;
+  const qualified = { ...reading, update: { ...reading.update!, stage: 'NEGOTIATING' as const, dealQualification: 'CURRENT_PAID_NEGOTIATION' as const } };
+  await w.db.creatorMailEvidence.updateMany({ where: { captureId: first.id }, data: { reading: qualified } });
+  await w.db.creatorMailEvidence.updateMany({ where: { captureId: second.id }, data: { reading: { ...qualified, threadId: 'NEWER_THREAD', evidenceKey: 'newer-distinct-message', fingerprint: 'newer-source-fingerprint', state: 'MODEL_UNAVAILABLE', evidenceAt: new Date(T0.getTime() + 60_000).toISOString() } } });
+  const updates = await w.repo.updates(w.recipient, w.profile.id, new Date(T0.getTime() + 120_000));
+  assert.ok(updates.length > 0, 'accepted history remains visible');
+  assert.ok(updates.every(r => r.stage === 'DISCUSSING' && r.dealQualification === 'NONE'));
+});
