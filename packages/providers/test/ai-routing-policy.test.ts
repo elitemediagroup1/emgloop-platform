@@ -48,12 +48,13 @@ test('every catalog model is documented, pinned, sourced and dated', () => {
   }
 });
 
-test('the verified choices, as recorded on 2026-09-16', () => {
+test('the verified choices, including the efficient creator model reviewed on 2026-11-05', () => {
   assert.deepEqual(
     AI_MODEL_CATALOG.map((m) => [m.providerId, m.modelId, m.pricing.inputMicrosPerToken, m.pricing.outputMicrosPerToken]),
     [
       ['anthropic', 'claude-opus-5', 5, 25],
       ['openai', 'gpt-6-astra', 10, 50],
+      ['openai', 'gpt-6.1-terra', 1, 5],
     ],
   );
 });
@@ -243,6 +244,9 @@ test('creator summaries can pass 24 calls without raising other domain tasks or 
 test('creator Gmail interpretation and relationship synthesis use OpenAI without provider fallback', () => {
   const route = AI_ROUTING_POLICY.tasks['creator.brand.update']!;
   assert.equal(route.primary.providerId, 'openai');
+  assert.equal(route.primary.modelId, 'gpt-6.1-terra');
+  assert.equal(route.primary.pricing.inputMicrosPerToken, 1);
+  assert.equal(route.primary.pricing.outputMicrosPerToken, 5);
   assert.equal(route.fallbackPermitted, false);
   assert.equal(AI_BUDGET_POLICY.classes['creator-brand-update']!.taskDaily.maxInvocations, 60);
 });

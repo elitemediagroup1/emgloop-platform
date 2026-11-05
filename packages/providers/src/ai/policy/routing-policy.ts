@@ -112,7 +112,7 @@ function target(
 // was not Claude; no fallback to the subject's own provider -- with OpenAI uncommissioned a Claude-written
 // situation is simply not independently verified, and says so), and the Briefing (SYNTHESIS lane). One model
 // per call: no task calls both providers for the same answer. Existing entries are UNCHANGED.
-export const AI_ROUTING_POLICY_VERSION = 'routing.2026-11-05.17';
+export const AI_ROUTING_POLICY_VERSION = 'routing.2026-11-05.18';
 
 function situationRoute(taskId: string) {
   return Object.freeze({
@@ -233,10 +233,10 @@ export const AI_ROUTING_POLICY: AiRoutingPolicy = Object.freeze({
     'situation.verify.private': verificationRoute('situation.verify.private'),
     'creator.brand.update': Object.freeze({
       taskId: 'creator.brand.update', taskVersion: '1.0.0',
-      primary: target('openai', 'gpt-6-astra', { reasoningEffort: 'low', timeoutMs: 20_000, maxOutputTokens: 1200 }),
+      primary: target('openai', 'gpt-6.1-terra', { reasoningEffort: 'low', timeoutMs: 20_000, maxOutputTokens: 1200 }),
       fallback: target('anthropic', 'claude-opus-5', { reasoningEffort: 'low', timeoutMs: 20_000, maxOutputTokens: 1200 }),
       fallbackPermitted: false, budgetClass: 'creator-brand-update', lane: 'BACKGROUND',
-      providerChoiceReason: 'OpenAI interprets and synthesizes creator Gmail evidence under the existing publication and spending controls; unavailable calls remain pending.',
+      providerChoiceReason: 'The efficient OpenAI model interprets and synthesizes creator Gmail evidence under the existing publication and spending controls; unavailable calls remain pending.',
     }),
     'loop.question.answer': Object.freeze({
       taskId: 'loop.question.answer', taskVersion: '1.1.0',

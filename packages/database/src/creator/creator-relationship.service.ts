@@ -6,7 +6,7 @@ import type { WorkPrincipal } from '../repositories/work-state/work-principal';
 import { buildMailTriageContext } from '../services/ai-runtime/mail-content-triage-context';
 import { ManagedCreatorMailRepository, accepted } from './managed-creator-mail.repository';
 import { CREATOR_BRAND_MAIL_INSTRUCTIONS } from './creator-brand-mail.service';
-import { relationshipBrandKey, relationshipEvents, relationshipVersion, type RelationshipEvidence } from './creator-relationship';
+import { relationshipBasis, relationshipBrandKey, relationshipContinuation, relationshipEvents, relationshipVersion, type RelationshipEvidence } from './creator-relationship';
 import { mailEvidenceHash } from './creator-mail-matching';
 
 /** Folds bounded chronological batches of validated paraphrases through the existing AI gateway.
@@ -42,6 +42,10 @@ export class CreatorRelationshipService {
       const groups = await this.evidence(target.organizationId, target.creatorProfileId);
       for (const [brandId, sources] of groups) {
         const fingerprint = relationshipVersion(sources), events = relationshipEvents(sources);
+        // A single validated conversation already has a safe summary. Copies of the same
+        // conversation in other mailboxes do not justify another paid interpretation.
+        // Continue scanning so singleton brands cannot starve real cross-thread work.
+        if (events.length < 2) continue;
         const id = mailEvidenceHash(`${key}:${brandId}`);
         const record = await this.db.creatorMailRelationship.upsert({ where: { id }, create: { id, organizationId: target.organizationId, creatorProfileId: target.creatorProfileId, brandId, fingerprint }, update: {} });
         if (record.leaseUntil && record.leaseUntil > now || record.fingerprint === fingerprint && (record.processed >= events.length || record.nextCheckAt > now)) continue;
@@ -50,8 +54,9 @@ export class CreatorRelationshipService {
         if (!claimed.count) continue;
         try {
           const same = record.fingerprint === fingerprint;
-          const previous = same && record.update ? parseCreatorBrandUpdate({ schemaId: CREATOR_BRAND_UPDATE_SCHEMA_ID, ...(record.update as object) })?.creatorBrandUpdate : null;
-          const offset = same ? record.processed : 0, batch = events.slice(offset, offset + 16);
+          const continuation = same ? 0 : relationshipContinuation(record, sources);
+          const previous = (same || continuation > 0) && record.update ? parseCreatorBrandUpdate({ schemaId: CREATOR_BRAND_UPDATE_SCHEMA_ID, ...(record.update as object) })?.creatorBrandUpdate : null;
+          const offset = same ? record.processed : previous ? continuation : 0, batch = events.slice(offset, offset + 16);
           const messages = batch.map(e => ({ direction: 'INBOUND' as const, occurredAt: new Date(e.reading.evidenceAt!), fromLabel: null, text: `Accepted conversation reading (${e.reading.incomplete ? 'partial evidence' : 'bounded evidence'}): stage=${e.reading.update!.stage}. ${e.reading.update!.summary} Next: ${e.reading.update!.nextStep}` }));
           if (previous) messages.unshift({ direction: 'INBOUND', occurredAt: new Date(events[Math.max(0, offset - 1)]!.reading.evidenceAt!), fromLabel: null, text: `Earlier consolidated position: stage=${previous.stage}. ${previous.summary} Next: ${previous.nextStep}` });
           const built = buildMailTriageContext({ ...actor, viewerUserId: actor.userId, threadId: id, subject: null, messages, truncated: batch.some(e => e.reading.incomplete), lane: null });
@@ -65,7 +70,7 @@ export class CreatorRelationshipService {
           const update = result.outcome === 'ANSWERED' ? result.output.creatorBrandUpdate : null;
           const complete = offset + batch.length === events.length;
           const history = Array.isArray(record.history) ? record.history : [];
-          await this.db.creatorMailRelationship.updateMany({ where: { id, leaseToken: token }, data: { leaseToken: null, leaseUntil: null, fingerprint, ...(update?.publishable ? { processed: offset + batch.length, update: JSON.parse(JSON.stringify(update)), generatedAt: this.now(), history: complete ? [...history, { generatedAt: this.now().toISOString(), fingerprint, update: JSON.parse(JSON.stringify(update)) }].slice(-50) : history, lastFailureClass: null, nextCheckAt: this.now() } : { processed: same ? record.processed : 0, update: same ? record.update ?? Prisma.DbNull : Prisma.DbNull, lastFailureClass: result.outcome, nextCheckAt: new Date(this.now().getTime() + 3600_000) }) } });
+          await this.db.creatorMailRelationship.updateMany({ where: { id, leaseToken: token }, data: { leaseToken: null, leaseUntil: null, fingerprint, ...(update?.publishable ? { processed: offset + batch.length, update: JSON.parse(JSON.stringify(update)), generatedAt: this.now(), history: complete ? [...history, { generatedAt: this.now().toISOString(), fingerprint, ...relationshipBasis(sources), update: JSON.parse(JSON.stringify(update)) }].slice(-50) : history, lastFailureClass: null, nextCheckAt: this.now() } : { processed: same ? record.processed : 0, update: same ? record.update ?? Prisma.DbNull : Prisma.DbNull, lastFailureClass: result.outcome, nextCheckAt: new Date(this.now().getTime() + 3600_000) }) } });
           return { [update?.publishable ? complete ? 'SYNTHESIZED' : 'SYNTHESIS_PROGRESS' : 'NOT_PUBLISHED']: 1 };
         } catch {
           await this.db.creatorMailRelationship.updateMany({ where: { id, leaseToken: token }, data: { leaseToken: null, leaseUntil: null, lastFailureClass: 'SYNTHESIS_FAILED', nextCheckAt: new Date(this.now().getTime() + 300_000) } });
@@ -84,7 +89,7 @@ export class CreatorRelationshipService {
     return rows.flatMap(row => {
       const items = groups.get(row.brandId), thread = threads.find(t => t.brandId === row.brandId);
       const update = row.update ? parseCreatorBrandUpdate({ schemaId: CREATOR_BRAND_UPDATE_SCHEMA_ID, ...(row.update as object) })?.creatorBrandUpdate : null;
-      if (!items || !thread || !update?.publishable || row.fingerprint !== relationshipVersion(items) || row.processed !== relationshipEvents(items).length) return [];
+      if (!items || relationshipEvents(items).length < 2 || !thread || !update?.publishable || row.fingerprint !== relationshipVersion(items) || row.processed !== relationshipEvents(items).length) return [];
       return [{ ...thread, id: row.id, stage: update.stage, summary: update.summary, nextStep: update.nextStep, generatedAt: row.generatedAt, evidenceAt: new Date(Math.max(...items.map(e => Date.parse(e.reading.evidenceAt!)))), current: !row.lastFailureClass, synthesized: true }];
     });
   }

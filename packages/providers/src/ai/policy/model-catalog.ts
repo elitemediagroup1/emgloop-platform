@@ -106,6 +106,29 @@ export const AI_MODEL_CATALOG: readonly AiCatalogModel[] = Object.freeze([
     ]),
     verifiedOn: '2026-09-16',
   }),
+  Object.freeze({
+    providerId: 'openai',
+    modelId: 'gpt-6.1-terra',
+    displayName: 'GPT-6.1 Terra',
+    pinned: true,
+    status: 'Current efficient reasoning model',
+    contextWindowTokens: 1_050_000,
+    maxOutputTokens: 128_000,
+    knowledgeCutoff: '2026-06-01',
+    retirement: null,
+    pricing: Object.freeze({ listVersion: 'openai-api-pricing-2026-11-05', inputMicrosPerToken: 1, outputMicrosPerToken: 5 }),
+    reasoningEfforts: Object.freeze(['none', 'low', 'medium', 'high', 'xhigh', 'max']),
+    structuredOutputs: 'NATIVE_JSON_SCHEMA',
+    dataHandlingPublished:
+      'API data not used for training unless the customer opts in; abuse-monitoring logs retained up to 30 days; ' +
+      'Loop sends store=false. Organizational provider-policy approval remains required.',
+    sources: Object.freeze([
+      'https://developers.openai.com/api/docs/models/gpt-6.1-terra',
+      'https://developers.openai.com/api/docs/pricing',
+      'https://developers.openai.com/api/docs/guides/your-data',
+    ]),
+    verifiedOn: '2026-11-05',
+  }),
 ]);
 
 export function aiCatalogModel(providerId: string, modelId: string): AiCatalogModel | null {
