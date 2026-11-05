@@ -58,7 +58,7 @@ export class ManagedCreatorMailService {
       // Bound each cycle while allowing multiple Gmail result pages and a deeper backfill.
       const room = Math.max(0, 500 - row.listedCount), ids = [...new Set(page.threadIds)].filter(id => !seen.has(id)).slice(0, Math.min(room, 100));
       const listed = row.listedCount + ids.length, capped = !!page.nextPageToken && listed >= 500;
-      await repo.finish(row, now(), { pending: ids, pageToken: capped ? null : page.nextPageToken, listed, complete: capped || !page.nextPageToken, capped, delayMs: ids.length || page.nextPageToken && !capped ? 0 : 300_000 });
+      await repo.finish(row, now(), { pending: ids, pageToken: page.nextPageToken, listed, complete: capped || !page.nextPageToken, capped, delayMs: ids.length || page.nextPageToken && !capped ? 0 : 300_000 });
       return { CAPTURE_LISTED: 1 };
     }
     const threadId = row.pendingThreadIds[0]!;
