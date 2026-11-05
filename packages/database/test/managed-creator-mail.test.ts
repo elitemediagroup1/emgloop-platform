@@ -693,3 +693,29 @@ test('new recorded budgets wake old quota retries once, preserving cursors, leas
   await w.repo.resumeAfterBudgetChange(wakeAt);
   assert.ok((await w.db.managedCreatorMailCapture.findMany()).find(r => r.id === live.id)!.nextCheckAt > wakeAt, 'unreadable control never wakes work');
 });
+
+test('a pending draft never hides sent history or enters AI evidence, including other excluded labels', async () => {
+  for (const label of ['DRAFT', 'SPAM', 'TRASH']) {
+    let calls = 0;
+    const w = await world({ run: async (_actor, request) => {
+      calls++;
+      assert.doesNotMatch(JSON.stringify(request.context), /EXCLUDED_PRIVATE_MESSAGE/);
+      const ref = request.context.items.find(i => i.sourceRef.startsWith('mail_message:'))!.sourceRef;
+      return { outcome: 'ANSWERED', output: parseCreatorBrandUpdate({ schemaId: CREATOR_BRAND_UPDATE_SCHEMA_ID, publishable: true, stage: 'DISCUSSING', summary: 'The brand requested more information about the partnership.', nextStep: '', citations: [ref] })!, provenance: {} } as AiRunResult;
+    } });
+    w.threadHook(t => ({ ...t, messages: [...t.messages, { ...t.messages[0]!, fact: { ...t.messages[0]!.fact, messageId: 'excluded', headerMessageId: '<excluded@example.test>', labels: [label], internalDate: T0 }, body: { ...t.messages[0]!.body, text: 'EXCLUDED_PRIVATE_MESSAGE Other Creator confirmed a deal.' } }] }));
+    await w.start([w.staff.id]); await w.drain();
+    assert.equal(calls, 1, label);
+    const reading = (await w.repo.durableReadings((await w.db.managedCreatorMailCapture.findMany())[0]!))[0]!;
+    assert.equal(reading.messageCount, 2); assert.equal(reading.evidenceAt, new Date(T0.getTime() - 1000).toISOString());
+    assert.equal((await w.repo.updates(w.recipient, w.profile.id, T0)).length, 1);
+    assert.doesNotMatch(JSON.stringify(reading), /EXCLUDED_PRIVATE_MESSAGE/);
+  }
+});
+
+test('draft-only conversations never invoke a model or publish', async () => {
+  const w = await world();
+  w.threadHook(t => ({ ...t, messages: t.messages.map(m => ({ ...m, fact: { ...m.fact, labels: ['DRAFT'] } })) }));
+  await w.start([w.staff.id]); await w.drain();
+  assert.equal(w.counts().modelCalls, 0); assert.deepEqual(await w.repo.updates(w.recipient, w.profile.id, T0), []);
+});

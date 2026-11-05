@@ -45,7 +45,7 @@ function Brand({ group, time }: { group: BrandGroup; time: TimeView }) {
       <span className="loop-label">Latest known position · {STAGES[latest.stage ?? ''] ?? 'Update'}</span>
       <p>{latest.summary}</p>
       {latest.nextStep ? <p><strong>Next:</strong> {latest.nextStep}</p> : null}
-      <p className="loop-note">{latest.synthesized ? 'Consolidated across accepted authorized conversations through' : 'Based on the most recent accepted source conversation,'} {latest.evidenceAt ? time.dateTime(latest.evidenceAt) : 'date unavailable'}. {latest.synthesized ? 'Updates when source evidence changes.' : 'Cross-thread synthesis is pending.'}</p>
+      <p className="loop-note">{latest.synthesized ? 'Consolidated across accepted authorized conversations through' : 'Based on the most recent accepted source conversation,'} {latest.evidenceAt ? time.dateTime(latest.evidenceAt) : 'date unavailable'}. {latest.synthesized ? 'Updates when source evidence changes.' : 'Additional accepted correspondence can update this position.'}</p>
     </div> : null}
     <details><summary>Conversation history · {distinct.size} {distinct.size === 1 ? 'update' : 'updates'}</summary>
       {[...distinct.values()].map(update => <Update key={update.id} update={update} time={time} />)}

@@ -90,9 +90,13 @@ export class ManagedCreatorMailService {
       return { CAPTURE_CHECKED: 1, [unchanged ? 'UNCHANGED' : reading.state === 'CURRENT' ? 'PUBLISHED' : reading.state === 'SOURCE_UNAVAILABLE' ? 'SOURCE_UNAVAILABLE' : 'WITHHELD']: 1 };
     };
     const answer = await mailboxes.readThread(principal, row.mailboxId, threadId);
-    if (!answer.ok || !answer.thread.messages.length || answer.thread.messages.some(m => m.fact.labels.some(l => ['SPAM', 'TRASH', 'DRAFT'].includes(l)))) return finish();
+    if (!answer.ok) return finish();
+    // Gmail returns whole conversations, including unsent replies. Exclude individual
+    // draft/spam/trash messages before any matching, fingerprinting or AI context.
+    const eligible = answer.thread.messages.filter(m => !m.fact.labels.some(l => ['SPAM', 'TRASH', 'DRAFT'].includes(l)));
+    if (!eligible.length) return finish();
     const internal = new Set(scope.internalAddresses.map(a => a.toLowerCase()));
-    const external = answer.thread.messages.filter(m => {
+    const external = eligible.filter(m => {
       const from = m.fact.from?.address.toLowerCase();
       if (!from) return false;
       return internal.has(from) || m.fact.fromSelf ? [...m.fact.to, ...m.fact.cc].some(a => !internal.has(a.address.toLowerCase())) : true;
