@@ -212,6 +212,45 @@ export class CreatorRepository {
     return this.prisma.creatorProfile.findFirst({ where: { organizationId, userId } });
   }
 
+  /** Existing Work OS updates, resolved through the current creator login and content ownership.
+   * Notification bodies/titles may contain internal work text, so they are never selected.
+   */
+  async notificationsForCreator(organizationId: string, userId: string, creatorProfileId: string) {
+    const authority = await membershipAuthority(this.prisma, organizationId, userId);
+    if (!authority.granted || authority.systemRole !== 'CREATOR') return [];
+    const profile = await this.prisma.creatorProfile.findFirst({ where: { organizationId, id: creatorProfileId, userId } });
+    if (!profile || (profile.preferences as Record<string, unknown> | null)?.notifyOnReturn === false) return [];
+    const notifications = await this.prisma.workNotification.findMany({
+      where: { organizationId, userId, type: 'next_action_ready' },
+      select: { id: true, workInstanceId: true, workStageId: true, readAt: true, createdAt: true,
+        workInstance: { select: { stages: { select: { id: true, name: true, ownerUserId: true } } } } },
+      orderBy: { createdAt: 'desc' }, take: 50,
+    });
+    const productions = await this.prisma.contentProduction.findMany({
+      where: { organizationId, workInstanceId: { in: notifications.map(n => n.workInstanceId) }, content: { organizationId, creatorProfileId, archivedAt: null } },
+      select: { workInstanceId: true, content: { select: { id: true, title: true } } },
+    });
+    return notifications.flatMap(n => {
+      const production = productions.find(p => p.workInstanceId === n.workInstanceId);
+      const stage = n.workInstance.stages.find(s => s.id === n.workStageId && s.ownerUserId === userId);
+      return production && stage ? [{ id: n.id, contentId: production.content.id, contentTitle: production.content.title, stageName: stage.name, at: n.createdAt, readAt: n.readAt }] : [];
+    });
+  }
+
+  async markCreatorNotificationRead(organizationId: string, userId: string, creatorProfileId: string, notificationId: string): Promise<boolean> {
+    return this.prisma.$transaction(async tx => {
+      const authority = await membershipAuthority(tx, organizationId, userId);
+      if (!authority.granted || authority.systemRole !== 'CREATOR') return false;
+      if (!await tx.creatorProfile.findFirst({ where: { organizationId, id: creatorProfileId, userId }, select: { id: true } })) return false;
+      const notification = await tx.workNotification.findFirst({ where: { id: notificationId, organizationId, userId, type: 'next_action_ready' } });
+      if (!notification) return false;
+      const production = await tx.contentProduction.findFirst({ where: { organizationId, workInstanceId: notification.workInstanceId, content: { organizationId, creatorProfileId, archivedAt: null } }, select: { id: true } });
+      if (!production) return false;
+      await tx.workNotification.updateMany({ where: { id: notificationId, organizationId, userId, readAt: null }, data: { readAt: new Date() } });
+      return true;
+    });
+  }
+
   async profileById(organizationId: string, id: string): Promise<CreatorProfile | null> {
     return this.prisma.creatorProfile.findFirst({ where: { organizationId, id } });
   }

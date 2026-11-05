@@ -1,20 +1,39 @@
 # EMG Loop — Project Status (where we left off)
 
-## Managed creator mail pilot — November 4, 2026
+## Creator Hub completion — November 5, 2026
 
-#412–#421 are merged. Production web #421 b7f866809d255a074fcd829af2bce72a970ec3fa published Nov 4 at 4:45 PM Eastern (Netlify 6aeba71949181a5dda32fe63). Trevon’s exact staff keywords are saved and verified after reload: Trevon Hill, Trevon, trevonbassmaster. Matt, Charlie and Trevon’s assigned mailbox remain enabled; Francesca stays excluded. Assigned mailbox queries require no creator keywords. Going belongs to Hope Holcer, never Trevon.
+Production #442 is deployed at `6ce04e0078927f1eca47c7810392e866a21ae15d`
+(Netlify `6aecc2dc294c05b237c37dde`). #441 supplies the studio presentation;
+#442 supplies upload recovery. No further migration is required for the current follow-through.
 
-Accepted live model publication is now verified in the manager preview: BRUNT Workwear under Outreach / Awaiting first reply after the new-keyword scan. Cashion Rods appeared as a declined earlier discussion before that fresh scan. Creator-login UI has not separately been verified. Do not claim there have never been accepted live summaries. At the later live check, BRUNT had moved under earlier/pending because its current check was delayed; it was not live status.
+Trevon's actual CREATOR login has been verified. Home shows 93 outreach brands,
+7 conversations and 4 negotiating labels, plus 5 earlier/paused brands. The one refresh
+button queued a review successfully. Brand/history expansion works; GOING is absent;
+the manager Creator Hub route redirects this creator to their own Home. Content upload
+UI and profile load; no production test media was uploaded and no email was sent.
+These observations establish UI and authorization behavior, not a completed Gmail inventory.
 
-Current blocker: Matt and Charlie report BUDGET_TASK_EXHAUSTED, with 126 stored source checks and 47 queued at the signed-in check. Intelligence status shows 24 creator task runs today: 4 answered, 20 OUTPUT_INVALID. BACKGROUND is at 52/60 calls and $1.50/$2; live 65 calls/$3.10, synthesis 174 calls/$9.93; total organization 291 calls/$14.54 of $25. Trailing organization 24-hour cost is $14.81. No operating cost stop was shown. Admission is exhausting the 24-call domain-reading task ceiling; merely raising it would soon meet the background/shared invocation caps.
+**Correction in progress:** Matt flagged the active deals as incorrect. Gmail evidence
+confirms inquiry-only, affiliate-only and older/deferred proposals were admitted too
+readily. Unqualified legacy active-deal labels must fall back to Conversations until a
+stricter accepted paid partnership classification is accepted. Preserve every
+brand's history and existing AI caps/cooldowns. Active Deals requires an accepted brief or contract, or an approved payable tied to the agreed partnership; negotiations stay in Conversations; do not rerun all unchanged outreach to
+repair four active labels. Later campaign-window closures supersede earlier proposals. Model reanalysis and live corrected counts remain acceptance checks.
 
-Matt requested a fix within the existing approved $25/day. Branch fix/creator-summary-task-budget gives creator.brand.update its own creator-brand-update budget class: 60 calls, 720,000 input / 72,000 output tokens per organization business day, 12,000 input / 1,200 output per call. Repair/fallback calls count. Other domain-reading tasks retain 24 calls. No provider, activation, output validation, attribution, mailbox selection, scope hash, fingerprint, queue or schema changes.
+The same follow-through connects the existing Work OS creator review notifications to
+Tasks and the shell bell, with creator/profile/content ownership checks, a working read
+marker and a preference that hides the feed without hiding required review tasks.
+Notification text is projected from creator-visible content; private work titles/bodies
+are never published. No parallel notification system, email or push delivery is added.
 
-Production operating.creator-pilot.25 version 3 remains recorded; it has NOT yet been changed by this batch. After Matt merges and Netlify deploys the budget-class change, record the reviewed candidate JSON in docs/runbooks/creator-mail-pilot-budget.json via the existing Record AI Budget production workflow. It keeps organization/emergency at $25 and other lane money/reserve/defer/breaker settings unchanged, allocates previously unassigned room to BACKGROUND ($6.50 / 120 calls), sets creator task calls to 60 and shared organization/global calls to 400/480. Lanes plus reserve total $24.50. Existing shared token caps remain. The workflow still validates and checks the version read. No new authorization question is needed for this already requested recovery within $25; never raise the total ceiling without Matt’s instruction. Do not reapply the old version-3 payload.
+Matt confirmed TikTok connection is awaiting developer approval. Treat this as an external
+approval dependency, not an application failure. No OAuth scopes or credentials change.
+Payouts still have no payment rail; no funds move and no bank details are collected.
 
-After code deployment and successful control recording, advance normally due source steps without restarting or clearing readings. Old source-level waits retain their deadlines. Verify a current accepted summary and actual remaining capacity. This remains a bounded pilot; 60 calls do not imply 60 summaries or full-roster continuous throughput.
-
-Validation: 274 provider tests and 1,907 database tests pass (215 database integration tests skipped without a test Postgres URL). Provider, database and web app/test typechecks, production web build and diff check pass. Lint remains blocked by the existing missing ESLint configuration. No production configuration write in this batch yet. Matt merges. See docs/runbooks/creator-brand-updates.md for the concrete recovery order and controls.
+Current branch: `codex/creator-hub-completion-validation`. Validation and review are pending.
+Matt merges per the repository workflow. Whole-hub completion still requires corrected
+stage acceptance, real storage workflow evidence, refresh completion, cross-thread/source
+reconciliation and the explicitly external TikTok/payout decisions.
 
 ## Headlines — #405 live; feed diagnostics and length repair follow-up (2026-10-19)
 

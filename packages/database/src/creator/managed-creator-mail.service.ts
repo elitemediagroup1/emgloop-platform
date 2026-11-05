@@ -20,7 +20,7 @@ const INSTRUCTIONS = CREATOR_BRAND_MAIL_INSTRUCTIONS
     'Other creators may not exist in Loop yet. Withhold their discussions even when they are absent from the supplied roster.',
     'Withhold uncertain, internal, mixed-creator or contradicted matches. Cite the actual partnership evidence.',
   ].join(' '))
-  .concat('\nReturn exactly one JSON object with seven keys: schemaId, publishable, stage, summary, nextStep, citations, brandName. brandName is the actual advertiser explicitly supported by the correspondence, or null if uncertain. When the provisional brand is unresolved, identify the actual brand from substantive correspondence; do not treat the provisional label as a real company. No Markdown or extra keys. Paraphrase in your own words; never copy eight consecutive source words. Aim for a summary under 300 characters. citations must be an array of exact supplied mail_message sourceRef strings, at least one and at most eight when publishable.');
+  .concat('\nReturn exactly one JSON object with eight keys: schemaId, publishable, stage, summary, nextStep, citations, brandName, dealQualification. brandName is the actual advertiser explicitly supported by the correspondence, or null if uncertain. When the provisional brand is unresolved, identify the actual brand from substantive correspondence; do not treat the provisional label as a real company. No Markdown or extra keys. Paraphrase in your own words; never copy eight consecutive source words. Aim for a summary under 300 characters. citations must be an array of exact supplied mail_message sourceRef strings, at least one and at most eight when publishable.');
 export class ManagedCreatorMailService {
   constructor(private readonly ports: {
     repository: ManagedCreatorMailRepository;
@@ -134,7 +134,8 @@ export class ManagedCreatorMailService {
     if (brands.length > 1 || (!brands.length && !candidate && !/\b(?:partnership|collaborat\w*|sponsor\w*|campaign|deliverables?|influencer|brand)\b/i.test(text))) { reading = { ...reading, state: 'UNMAPPED_BRAND' }; return finish(); }
     const brand = brands[0];
     const brandName = brand?.displayName ?? candidate ?? 'UNRESOLVED_ADVERTISER';
-    reading = { ...reading, brandId: brand?.id ?? null, ...(candidate ? { candidateBrandName: candidate } : {}), fingerprint: mailEvidenceHash(JSON.stringify({ template: 9, creator: row.creatorProfileId, brand: brand?.id ?? candidate, messages, incomplete: reading.incomplete })) };
+    const classificationVersion = !prior || prior.classificationVersion === 10 || ['NEGOTIATING', 'CONFIRMED'].includes(prior.update?.stage ?? '') ? 10 : 9;
+    reading = { ...reading, classificationVersion, brandId: brand?.id ?? null, ...(candidate ? { candidateBrandName: candidate } : {}), fingerprint: mailEvidenceHash(JSON.stringify({ template: classificationVersion, creator: row.creatorProfileId, brand: brand?.id ?? candidate, messages, incomplete: reading.incomplete })) };
     const previous = prior?.fingerprint === reading.fingerprint && ['CURRENT', 'WITHHELD'].includes(prior.state) ? prior : undefined;
     if (previous) { reading = { ...previous, evidenceAt: reading.evidenceAt, evidenceKey: reading.evidenceKey, checkedAt: now().toISOString() }; return finish(0, false, true); }
     const contextId = mailEvidenceHash(`${row.id}:${threadId}`);
@@ -142,7 +143,7 @@ export class ManagedCreatorMailService {
     const built = buildMailTriageContext({ ...principal, organizationId: row.organizationId, viewerUserId: row.ownerUserId, threadId: contextId, subject, messages, truncated: reading.incomplete, lane: null });
     const authority = { resource: 'managedMailboxes', action: 'view' as const };
     const context = { ...built.context, taskId: AI_TASK_CREATOR_BRAND_UPDATE.taskId, items: [...built.context.items.map(item => ({ ...item, readUnder: authority })), { blockId: `${row.organizationId}::creator_scope:${row.id}`, kind: 'TEXT' as const, trust: 'UNTRUSTED_INPUT' as const, sourceRef: `creator_scope:${row.id}`, content: `SCOPE: creator=${JSON.stringify(scope.profile.displayName)}; provisional advertiser=${JSON.stringify(brandName)}; external participant domains=${JSON.stringify([...new Set(participants.map(p => p.split('@')[1]))].slice(0, 12))}; source=${scope.source.kind === 'CREATOR' ? 'assigned creator mailbox' : 'shared staff mailbox'}; evidence ${reading.incomplete ? 'is incomplete' : 'is included'}.`, sensitivity: 'CONTACT_IDENTIFIER' as const, readUnder: authority }] };
-    const request: AiRunRequest = { task: AI_TASK_CREATOR_BRAND_UPDATE, context, evidence: built.evidence, instructions: INSTRUCTIONS, schema: CREATOR_BRAND_UPDATE_SCHEMA, templateId: 'managed-creator-brand-mail', templateVersion: '9', signal: AbortSignal.timeout(45_000) };
+    const request: AiRunRequest = { task: AI_TASK_CREATOR_BRAND_UPDATE, context, evidence: built.evidence, instructions: `${INSTRUCTIONS}\nReview date: ${now().toISOString().slice(0, 10)}.`, schema: CREATOR_BRAND_UPDATE_SCHEMA, templateId: 'managed-creator-brand-mail', templateVersion: '10', signal: AbortSignal.timeout(45_000) };
     let result = await runtime.run(principal, request);
     // At most one validation repair, with original evidence only. Refusals/failures stop.
     // Each run uses the governed gateway and its own reservation; rejected prose is never fed back.
@@ -151,8 +152,8 @@ export class ManagedCreatorMailService {
       if (codes.length) {
         if (!(await repo.scope(row))) { await repo.finish(row, now(), { failure: 'SCOPE_ENDED', delayMs: 300_000 }); return { CAPTURE_WAITING: 1 }; }
         if (!request.signal?.aborted) result = await runtime.run(principal, {
-          ...request, templateVersion: '9.repair1',
-          instructions: `${INSTRUCTIONS}\nOne validation repair. Previous validation codes: ${codes.join(', ')}. Generate a fresh response from the supplied source evidence. Do not copy source sentences or invent facts to satisfy validation. Use short paraphrases, no numbers, dates, quotes or private commercial details. Cite exact supplied mail_message references only. If a safe, attributable summary is not possible, use publishable false with empty summary, nextStep and citations.`,
+          ...request, templateVersion: '10.repair1',
+          instructions: `${request.instructions}\nOne validation repair. Previous validation codes: ${codes.join(', ')}. Generate a fresh response from the supplied source evidence. Do not copy source sentences or invent facts to satisfy validation. Use short paraphrases, no numbers, dates, quotes or private commercial details. Cite exact supplied mail_message references only. If a safe, attributable summary is not possible, use publishable false with empty summary, nextStep and citations.`,
         });
       }
     }

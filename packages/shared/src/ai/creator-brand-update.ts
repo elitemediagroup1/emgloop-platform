@@ -6,15 +6,18 @@ export interface CreatorBrandUpdate {
   readonly publishable: boolean;
   readonly brandName?: string | null;
   readonly stage: typeof CREATOR_BRAND_STAGES[number];
+  /** Absent on legacy readings, which cannot establish an active deal. */
+  readonly dealQualification?: 'NONE' | 'CURRENT_PAID_NEGOTIATION' | 'CURRENT_PAID_AGREEMENT' | 'ACCEPTED_PAID_PARTNERSHIP';
   readonly summary: string;
   readonly nextStep: string;
   readonly citations: readonly string[];
 }
 export const CREATOR_BRAND_UPDATE_SCHEMA = Object.freeze({
   type: 'object', additionalProperties: false,
-  required: ['schemaId', 'publishable', 'stage', 'summary', 'nextStep', 'citations', 'brandName'],
+  required: ['schemaId', 'publishable', 'stage', 'summary', 'nextStep', 'citations', 'brandName', 'dealQualification'],
   properties: {
     brandName: { type: ['string', 'null'] },
+    dealQualification: { type: 'string', enum: ['NONE', 'ACCEPTED_PAID_PARTNERSHIP'] },
     schemaId: { type: 'string', enum: [CREATOR_BRAND_UPDATE_SCHEMA_ID] }, publishable: { type: 'boolean' },
     stage: { type: 'string', enum: [...CREATOR_BRAND_STAGES] }, summary: { type: 'string' }, nextStep: { type: 'string' },
     citations: { type: 'array', items: { type: 'string' } },
@@ -22,8 +25,8 @@ export const CREATOR_BRAND_UPDATE_SCHEMA = Object.freeze({
 });
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 export function parseCreatorBrandUpdate(v: unknown): AiTaskOutput | null {
-  if (!object(v) || Object.keys(v).some(k => !['schemaId', 'publishable', 'stage', 'summary', 'nextStep', 'citations', 'brandName'].includes(k)) || v.schemaId !== CREATOR_BRAND_UPDATE_SCHEMA_ID || (v.brandName !== undefined && v.brandName !== null && typeof v.brandName !== 'string') || typeof v.publishable !== 'boolean' || !CREATOR_BRAND_STAGES.includes(v.stage as never) || typeof v.summary !== 'string' || typeof v.nextStep !== 'string' || !Array.isArray(v.citations) || !v.citations.every(r => typeof r === 'string')) return null;
-  const update: CreatorBrandUpdate = { ...(v.brandName !== undefined ? { brandName: v.brandName as string | null } : {}), publishable: v.publishable, stage: v.stage as CreatorBrandUpdate['stage'], summary: v.summary, nextStep: v.nextStep, citations: v.citations };
+  if (!object(v) || Object.keys(v).some(k => !['schemaId', 'publishable', 'stage', 'summary', 'nextStep', 'citations', 'brandName', 'dealQualification'].includes(k)) || (v.dealQualification !== undefined && !['NONE', 'CURRENT_PAID_NEGOTIATION', 'CURRENT_PAID_AGREEMENT', 'ACCEPTED_PAID_PARTNERSHIP'].includes(v.dealQualification as string)) || v.schemaId !== CREATOR_BRAND_UPDATE_SCHEMA_ID || (v.brandName !== undefined && v.brandName !== null && typeof v.brandName !== 'string') || typeof v.publishable !== 'boolean' || !CREATOR_BRAND_STAGES.includes(v.stage as never) || typeof v.summary !== 'string' || typeof v.nextStep !== 'string' || !Array.isArray(v.citations) || !v.citations.every(r => typeof r === 'string')) return null;
+  const update: CreatorBrandUpdate = { ...(v.dealQualification !== undefined ? { dealQualification: v.dealQualification as CreatorBrandUpdate['dealQualification'] } : {}), ...(v.brandName !== undefined ? { brandName: v.brandName as string | null } : {}), publishable: v.publishable, stage: v.stage as CreatorBrandUpdate['stage'], summary: v.summary, nextStep: v.nextStep, citations: v.citations };
   return { schemaId: CREATOR_BRAND_UPDATE_SCHEMA_ID, summary: update.summary, claims: [], limitations: [], creatorBrandUpdate: update };
 }
 export function validateCreatorBrandUpdate(output: AiTaskOutput, task: AiTaskDefinition, refs: ReadonlySet<string>, evidence: AiSupportedEvidence): AiOutputRejection[] {
@@ -32,6 +35,7 @@ export function validateCreatorBrandUpdate(output: AiTaskOutput, task: AiTaskDef
   const out: AiOutputRejection[] = [];
   if (!u.publishable) return u.summary === '' && u.nextStep === '' && u.citations.length === 0 ? [] : ['WRONG_SCHEMA'];
   if (u.brandName !== undefined && u.brandName !== null && (!/^[\p{L}\p{N}][\p{L}\p{N} &.'’+()-]{1,99}$/u.test(u.brandName) || /https?|www|@/i.test(u.brandName))) out.push('WRONG_SCHEMA');
+  if (u.dealQualification === 'CURRENT_PAID_NEGOTIATION' && u.stage !== 'NEGOTIATING' || ['CURRENT_PAID_AGREEMENT', 'ACCEPTED_PAID_PARTNERSHIP'].includes(u.dealQualification ?? '') && u.stage !== 'CONFIRMED') out.push('WRONG_SCHEMA');
   if (!u.summary.trim()) out.push('EMPTY_ANSWER');
   if (u.summary.length > 600 || u.nextStep.length > 200 || u.citations.length > 8) out.push('ANSWER_TOO_LONG');
   if (!u.citations.length) out.push('UNCITED_CLAIM');
@@ -49,3 +53,12 @@ export const CREATOR_MAIL_SHARING_DECISION = 'creator-mail-sharing:2026-10-29:v1
 
 export const CREATOR_BRAND_REFRESH_MS = 5 * 60_000;
 export const CREATOR_BRAND_FRESH_MS = 10 * 60_000;
+
+/** Publication fails conservatively for old or unqualified active-deal labels.
+ * A conversation remains visible while the stricter classification awaits review.
+ */
+export function publishedCreatorBrandStage(update: Pick<CreatorBrandUpdate, 'stage' | 'dealQualification'>): CreatorBrandUpdate['stage'] {
+  if (update.stage === 'NEGOTIATING') return 'DISCUSSING';
+  if (update.stage === 'CONFIRMED' && update.dealQualification !== 'ACCEPTED_PAID_PARTNERSHIP') return 'DISCUSSING';
+  return update.stage;
+}

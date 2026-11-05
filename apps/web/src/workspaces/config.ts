@@ -429,10 +429,11 @@ export function visibleNav(
     .filter((group) => group.items.some((item) => !item.soon));
 }
 
-/** Where this person's work notifications live, if they have a Work OS queue. */
+/** Where this person's work notifications live: their existing work queue or creator Tasks. */
 export function myWorkHref(groups: readonly NavGroup[]): string | null {
   const item = groups.flatMap((g) => g.items).find((i) => i.label === 'My Work' && !i.soon);
-  return item?.href ?? null;
+  const creatorTasks = groups.flatMap(g => g.items).find(i => i.workspace === 'CREATOR' && i.area === 'TASKS' && !i.soon);
+  return item?.href ?? (creatorTasks ? `${creatorTasks.href}#updates` : null);
 }
 
 // ---------------------------------------------------------------------------

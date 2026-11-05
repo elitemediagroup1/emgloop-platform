@@ -426,12 +426,12 @@ describe('Navigation follows the authority each page enforces', () => {
     assert.deepEqual(visibleNav([{ label: 'Later', items: [soon] }], { workspace: 'ADMIN', permitted: () => true }), []);
   });
 
-  it('a creator sees Home and the creator seat, nothing of the organization, and has no Work OS queue', () => {
+  it('a creator sees only their seat and routes notifications to creator Tasks', () => {
     assert.deepEqual(labels(navForRole('CREATOR')), [
       ['', ['Home']],
       ['Creator', ['Content', 'Opportunities', 'Analytics', 'Tasks', 'Earnings', 'Profile']],
     ]);
-    assert.equal(myWorkHref(navForRole('CREATOR')), null, 'no My Work item, so no notifications bell');
+    assert.equal(myWorkHref(navForRole('CREATOR')), '/app/creator/tasks#updates', 'creator updates use the existing authorized Tasks route');
     // The creator's five-area phone bar: Home, then the four items that are areas of their own.
     assert.deepEqual(config.areaEntries(navForRole('CREATOR')), [
       { area: 'HOME', label: 'Home', href: '/app' },

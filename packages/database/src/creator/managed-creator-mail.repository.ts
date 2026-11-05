@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto';
 import { AI_BUDGET_POLICY } from '@emgloop/providers';
 import { AiControlRepository } from '../repositories/brain/ai-control.repository';
 import { Prisma, type PrismaClient, type ManagedCreatorMailCapture } from '@prisma/client';
-import { AI_OUTPUT_REJECTIONS, AI_TASK_CREATOR_BRAND_UPDATE, CREATOR_BRAND_UPDATE_SCHEMA_ID, parseCreatorBrandUpdate, validateCreatorBrandUpdate } from '@emgloop/shared';
+import { AI_OUTPUT_REJECTIONS, publishedCreatorBrandStage, AI_TASK_CREATOR_BRAND_UPDATE, CREATOR_BRAND_UPDATE_SCHEMA_ID, parseCreatorBrandUpdate, validateCreatorBrandUpdate } from '@emgloop/shared';
 import type { WorkPrincipal } from '../repositories/work-state/work-principal';
 import { membershipAuthority } from '../repositories/membership.repository';
 import { PartyReadModelRepository } from '../repositories/party-read-model.repository';
@@ -159,7 +159,7 @@ export class ManagedCreatorMailRepository {
         const retryAt = Date.parse(reading.retryAfter ?? '');
         const validationRetry = reading.state === 'MODEL_UNAVAILABLE' && codes.length && retryAt >= now.getTime() && retryAt <= now.getTime() + 3600_000
           ? { retryAfter: new Date(retryAt).toISOString(), rejections: codes } : {};
-        reading = { ...validationRetry, threadId: reading.threadId, brandId: reading.brandId, ...(reading.candidateBrandName ? { candidateBrandName: reading.candidateBrandName } : {}), evidenceKey: reading.evidenceKey, fingerprint: reading.fingerprint, evidenceAt: reading.evidenceAt, checkedAt: now.toISOString(), generatedAt: reading.generatedAt, messageCount: reading.messageCount, incomplete: reading.incomplete, state: reading.state, ...(update ? { update } : {}) };
+        reading = { ...validationRetry, threadId: reading.threadId, brandId: reading.brandId, ...(reading.candidateBrandName ? { candidateBrandName: reading.candidateBrandName } : {}), evidenceKey: reading.evidenceKey, fingerprint: reading.fingerprint, ...([9, 10].includes(reading.classificationVersion ?? 0) ? { classificationVersion: reading.classificationVersion } : {}), evidenceAt: reading.evidenceAt, checkedAt: now.toISOString(), generatedAt: reading.generatedAt, messageCount: reading.messageCount, incomplete: reading.incomplete, state: reading.state, ...(update ? { update } : {}) };
         await tx.creatorMailEvidence.upsert({ where: { captureId_generation_threadId: { captureId: live.id, generation: live.generation, threadId: reading.threadId } },
           create: { id: `${live.id}:${live.generation}:${reading.threadId}`, captureId: live.id, generation: live.generation, threadId: reading.threadId, reading: JSON.parse(JSON.stringify(reading)) },
           update: { reading: JSON.parse(JSON.stringify(reading)) } });
@@ -230,9 +230,15 @@ export class ManagedCreatorMailRepository {
     if (!profile) return [];
     const rows = await absentUntilMigrated(this.prisma.managedCreatorMailCapture.findMany({ where: { organizationId: principal.organizationId, creatorProfileId: profile.id, enabled: true }, take: 4, select: { id: true, organizationId: true, creatorProfileId: true, recipientUserId: true, ownerUserId: true, mailboxId: true, mailboxRevision: true, scopeHash: true, enabled: true, generation: true, readings: true } }));
     const out = new Map<string, PublishedCreatorBrandUpdate & { messageCount: number }>();
+    const latestEvidence = new Map<string, { at: number; pending: boolean }>();
     for (const row of rows ?? []) {
       if (!(await this.allowed(this.prisma, row))) continue;
       for (const r of await this.durableReadings(row)) {
+        if ((accepted(r) || r.state === 'MODEL_UNAVAILABLE') && (r.brandId || r.candidateBrandName) && r.evidenceAt) {
+          const key = r.brandId ?? `candidate:${mailEvidenceHash(r.candidateBrandName!.normalize('NFKC').toLowerCase().replace(/[^a-z0-9]/g, ''))}`;
+          const at = Date.parse(r.evidenceAt), old = latestEvidence.get(key);
+          if (Number.isFinite(at) && at <= now.getTime() && (!old || at > old.at || at === old.at && accepted(r))) latestEvidence.set(key, { at, pending: !accepted(r) });
+        }
         // A discovered brand is private candidate data until a shareable reading is accepted.
         // Never turn model refusal/withholding into a creator-visible brand association.
         if (!accepted(r)) continue;
@@ -243,13 +249,20 @@ export class ManagedCreatorMailRepository {
         const brandId = brand?.id ?? `candidate:${mailEvidenceHash(normalizedCandidate)}`;
         const brandName = brand?.displayName ?? r.candidateBrandName!;
         const valid = accepted(r), checked = new Date(r.checkedAt), evidenceAt = new Date(r.evidenceAt);
-        const item = { id: mailEvidenceHash(`${row.creatorProfileId}:${r.evidenceKey}:${brandId}`), brand: brandName, brandId, stage: valid ? r.update!.stage : null, summary: valid ? r.update!.summary : null, nextStep: valid ? r.update!.nextStep : null, generatedAt: valid && r.generatedAt ? new Date(r.generatedAt) : null, checkedAt: checked, evidenceAt, current: valid && checked <= now && now.getTime() - checked.getTime() < 600_000, messageCount: r.messageCount };
+        const item = { id: mailEvidenceHash(`${row.creatorProfileId}:${r.evidenceKey}:${brandId}`), brand: brandName, brandId, stage: valid ? publishedCreatorBrandStage(r.update!) : null, dealQualification: r.update?.dealQualification, summary: valid ? r.update!.summary : null, nextStep: valid ? r.update!.nextStep : null, generatedAt: valid && r.generatedAt ? new Date(r.generatedAt) : null, checkedAt: checked, evidenceAt, current: valid && checked <= now && now.getTime() - checked.getTime() < 600_000, messageCount: r.messageCount };
         // The same Gmail message can be read from several authorized mailboxes.
         // Deduplicate by stable source message evidence, not by mailbox-specific thread ID.
         const key = `${brandId}:${r.evidenceKey}`, old = out.get(key);
         if (!old || item.messageCount > old.messageCount || item.messageCount === old.messageCount && checked.getTime() > (old.checkedAt?.getTime() ?? 0)) out.set(key, item);
       }
     }
-    return [...out.values()].map(({ messageCount: _count, ...item }) => item);
+    return [...out.values()].map(({ messageCount: _count, ...item }) => {
+      const newest = latestEvidence.get(item.brandId);
+      // A newer known-brand conversation awaiting validation can supersede an old offer.
+      // Preserve history, but do not advertise that older offer as a current paid deal.
+      return newest?.pending && newest.at > (item.evidenceAt?.getTime() ?? 0)
+        ? { ...item, dealQualification: 'NONE' as const, stage: ['NEGOTIATING', 'CONFIRMED'].includes(item.stage ?? '') ? 'DISCUSSING' : item.stage }
+        : item;
+    });
   }
 }

@@ -84,6 +84,7 @@ export interface ManagedCaptureReading {
   readonly candidateBrandName?: string;
   readonly evidenceKey: string;
   readonly fingerprint: string;
+  readonly classificationVersion?: number;
   readonly evidenceAt: string | null;
   readonly checkedAt: string;
   readonly generatedAt: string | null;

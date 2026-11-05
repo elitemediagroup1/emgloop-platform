@@ -196,5 +196,14 @@ export async function updatePreferencesAction(formData: FormData): Promise<void>
   type Patch = Parameters<typeof domain.creator.updateProfile>[2];
   await domain.creator.updateProfile(seat.actor.organizationId, seat.profileId, { preferences: merged as unknown as NonNullable<Patch['preferences']> });
   revalidatePath(back);
+  revalidatePath(CREATOR_HREFS.tasks);
   redirect(`${back}?saved=preferences`);
+}
+
+
+export async function markCreatorUpdateReadAction(formData: FormData): Promise<void> {
+  const seat = await requireCreator();
+  const id = String(formData.get('notificationId') ?? '').slice(0, 200);
+  if (!id || !await creatorDomain().records.markUpdateRead(seat.actor, id)) refused(CREATOR_HREFS.tasks, 'NOT_FOUND');
+  revalidatePath(CREATOR_HREFS.tasks);
 }

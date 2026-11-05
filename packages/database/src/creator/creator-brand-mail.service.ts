@@ -32,8 +32,10 @@ export const CREATOR_BRAND_MAIL_INSTRUCTIONS = [
   'Avoid numbers and dates. Cite only supplied mail_message references, at least one for a publishable update.',
   'OUTREACH means outbound pitches/follow-ups with no substantive brand reply in the supplied evidence. Automated replies do not count.',
   'DISCUSSING and AWAITING_* require an actual substantive two-way conversation. Do not infer a reply from a follow-up.',
-  'NEGOTIATING requires explicit discussion of a specific partnership scope, deliverables or agreement. Interest alone is DISCUSSING.',
-  'CONFIRMED requires explicit agreement; never turn a pitch or a request for information into a deal.',
+  'NEGOTIATING describes ongoing discussions only and belongs in Conversations, never Active Deals. Return dealQualification NONE for negotiations, proposals, rate or scope discussions, introductory calls and unsolicited offers.',
+  'CONFIRMED requires ACCEPTED_PAID_PARTNERSHIP: cited evidence that both sides agreed to a paid partnership still underway, supported by a reviewed and accepted campaign brief or contract, or an approved payable explicitly tied to the agreed creator-brand partnership. A draft, a document merely sent for review, an unsigned unaccepted contract, an invoice request or an unrelated payable is insufficient.',
+  'Return dealQualification NONE unless those acceptance requirements are met. Email may explicitly document the reviewed brief or contract acceptance or approved partnership payable; do not claim to have read an attachment whose contents were not supplied. Gifted-only, product-supported affiliate-only or commission-only arrangements never qualify. A subject containing collaboration confirmation is not proof of acceptance. Expired, deferred, cancelled, completed or abandoned campaigns are not active.',
+  'Use later correspondence across the available evidence to resolve earlier proposals. If the evidence is old and does not establish that a partnership is still underway as of the supplied review date, do not label it CURRENT. Withhold uncertain active-deal conclusions; keep the brand as a conversation when appropriate.',
   'brandName should be the actual advertiser supported by substantive evidence, or null if unresolved. Never identify an agency as its client brand.',
   'Use schemaId creator-brand-update.v1. stage is OUTREACH, DISCUSSING, AWAITING_EMG, AWAITING_BRAND,',
   'AWAITING_CREATOR, NEGOTIATING, CONFIRMED, DECLINED or PAUSED. No tools. Do not send email or change any other record.',
@@ -56,7 +58,7 @@ export class CreatorBrandMailService {
         await repository.finish(row, { now: now(), update: null, failure: 'SOURCE_UNAVAILABLE' });
         return 'SOURCE_UNAVAILABLE';
       }
-      const fingerprint = createHash('sha256').update(JSON.stringify({ decision: CREATOR_MAIL_SHARING_DECISION, template: '1', scope, thread })).digest('hex');
+      const fingerprint = createHash('sha256').update(JSON.stringify({ decision: CREATOR_MAIL_SHARING_DECISION, template: '3', scope, thread })).digest('hex');
       const evidenceAt = new Date(Math.max(...thread.messages.map(m => m.occurredAt.getTime())));
       if (!Number.isFinite(evidenceAt.getTime()) || evidenceAt > now()) throw new Error('Invalid evidence clock');
       if (now().getTime() - evidenceAt.getTime() > 30 * 86400_000) {
@@ -69,7 +71,7 @@ export class CreatorBrandMailService {
       const messages = thread.messages.slice(-8).map(m => ({ ...m, text: m.text.slice(0, 1800) }));
       const built = buildMailTriageContext({ organizationId: row.organizationId, viewerUserId: row.ownerUserId, threadId: row.threadId, subject: thread.subject, messages, truncated: thread.truncated || thread.messages.length > messages.length, lane: null });
       const context = { ...built.context, taskId: AI_TASK_CREATOR_BRAND_UPDATE.taskId, items: [...built.context.items, { blockId: `${row.organizationId}::creator_scope:${row.id}`, kind: 'TEXT' as const, trust: 'UNTRUSTED_INPUT' as const, sourceRef: `creator_scope:${row.id}`, content: `SCOPE: creator=${JSON.stringify(scope.creatorName)}; brand or agency=${JSON.stringify(scope.brandName)}; earlier context ${thread.truncated || thread.messages.length > messages.length ? 'is incomplete' : 'is included'}.`, sensitivity: 'CONTACT_IDENTIFIER' as const, readUnder: { resource: 'identityResolution', action: 'view' as const } }] };
-      const result = await this.ports.runtime.run(principal, { task: AI_TASK_CREATOR_BRAND_UPDATE, context, evidence: built.evidence, instructions: CREATOR_BRAND_MAIL_INSTRUCTIONS, schema: CREATOR_BRAND_UPDATE_SCHEMA, templateId: 'creator-brand-mail', templateVersion: '2' });
+      const result = await this.ports.runtime.run(principal, { task: AI_TASK_CREATOR_BRAND_UPDATE, context, evidence: built.evidence, instructions: `${CREATOR_BRAND_MAIL_INSTRUCTIONS}\nReview date: ${now().toISOString().slice(0, 10)}.`, schema: CREATOR_BRAND_UPDATE_SCHEMA, templateId: 'creator-brand-mail', templateVersion: '3' });
       if (result.outcome !== 'ANSWERED' || !result.output.creatorBrandUpdate) {
         await repository.finish(row, { now: now(), update: null, failure: result.outcome === 'ANSWERED' ? 'OUTPUT_INVALID' : result.outcome });
         return 'NOT_PUBLISHED';

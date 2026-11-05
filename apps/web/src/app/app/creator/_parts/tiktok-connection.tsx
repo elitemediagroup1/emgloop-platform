@@ -104,7 +104,7 @@ export function readTikTokEntry(raw: unknown): TikTokEntryView | null {
 }
 
 const STATE_PILL: Readonly<Record<TikTokConnectionState, { readonly tone: Tone; readonly label: string }>> = {
-  NOT_CONFIGURED: { tone: 'neutral', label: 'Unavailable' },
+  NOT_CONFIGURED: { tone: 'neutral', label: 'Connection pending' },
   NOT_CONNECTED: { tone: 'neutral', label: 'Not connected' },
   CONNECTED: { tone: 'good', label: 'Connected' },
   PARTIAL: { tone: 'attention', label: 'Partly connected' },
@@ -173,14 +173,16 @@ export function TikTokConnectionRow(props: {
         </span>
         <span className="ch-row__side">
           {state === 'NOT_CONFIGURED' ? (
-            <span className="loop-btn" role="link" aria-disabled="true" title="TikTok connections are not set up on this deployment">
-              Connect TikTok<span className="loop-sr-only">. TikTok connections are not set up on this deployment</span>
+            <span className="loop-btn" role="link" aria-disabled="true" title="Available after TikTok developer approval and platform setup">
+              Connect TikTok<span className="loop-sr-only">. Available after TikTok developer approval and platform setup</span>
             </span>
           ) : state === 'CONNECTED' ? null : (
             <ConnectLink label={connectLabel} />
           )}
         </span>
       </div>
+
+      {state === 'NOT_CONFIGURED' ? <p className="loop-note">Account connection requires TikTok developer approval and platform setup. Your saved handle and observed audience figures remain available in your profile.</p> : null}
 
       {state === 'NOT_CONNECTED' || state === 'EXPIRED' ? (
         <div className="loop-panel__lead" data-tiktok-consent>

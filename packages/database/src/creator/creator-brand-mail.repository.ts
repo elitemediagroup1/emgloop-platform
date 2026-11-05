@@ -2,7 +2,7 @@
 // thread's minimized update is readable by its one snapshotted creator login. No raw mail is stored.
 import { Prisma, type PrismaClient, type CreatorBrandMailShare } from '@prisma/client';
 import { randomUUID } from 'crypto';
-import { AI_TASK_CREATOR_BRAND_UPDATE, CREATOR_BRAND_UPDATE_SCHEMA_ID, parseCreatorBrandUpdate, validateCreatorBrandUpdate, CREATOR_MAIL_SHARING_DECISION, CREATOR_BRAND_REFRESH_MS, CREATOR_BRAND_FRESH_MS, type CreatorBrandUpdate } from '@emgloop/shared';
+import { publishedCreatorBrandStage, AI_TASK_CREATOR_BRAND_UPDATE, CREATOR_BRAND_UPDATE_SCHEMA_ID, parseCreatorBrandUpdate, validateCreatorBrandUpdate, CREATOR_MAIL_SHARING_DECISION, CREATOR_BRAND_REFRESH_MS, CREATOR_BRAND_FRESH_MS, type CreatorBrandUpdate } from '@emgloop/shared';
 import { membershipAuthority } from '../repositories/membership.repository';
 import { IamRepository } from '../repositories/iam.repository';
 import { PartyRepository } from '../repositories/cognitive/party.repository';
@@ -20,6 +20,7 @@ export interface PublishedCreatorBrandUpdate {
   readonly brand: string;
   readonly brandId: string;
   readonly stage: string | null;
+  readonly dealQualification?: CreatorBrandUpdate['dealQualification'];
   readonly summary: string | null;
   readonly nextStep: string | null;
   readonly generatedAt: Date | null;
@@ -161,7 +162,7 @@ export class CreatorBrandMailRepository {
       if (!(await this.allowed(this.prisma, row))) continue;
       const raw = row.summary as unknown as CreatorBrandUpdate | null;
       const valid = raw?.publishable === true && typeof raw.summary === 'string' && typeof raw.nextStep === 'string' && row.generatedAt && row.evidenceAt && now.getTime() - row.evidenceAt.getTime() <= 30 * 86400_000;
-      out.push({ id: row.id, brandId: row.brandPartyId, brand: (await this.company(this.prisma, row.organizationId, row.brandPartyId))!, stage: valid ? raw.stage : null, summary: valid ? raw.summary : null, nextStep: valid ? raw.nextStep : null, generatedAt: valid ? row.generatedAt : null, evidenceAt: row.evidenceAt, checkedAt: row.checkedAt, current: !!valid && !row.lastFailureClass && !!row.checkedAt && now.getTime() - row.checkedAt.getTime() < CREATOR_BRAND_FRESH_MS });
+      out.push({ id: row.id, brandId: row.brandPartyId, brand: (await this.company(this.prisma, row.organizationId, row.brandPartyId))!, stage: valid ? publishedCreatorBrandStage(raw) : null, dealQualification: valid ? raw.dealQualification : undefined, summary: valid ? raw.summary : null, nextStep: valid ? raw.nextStep : null, generatedAt: valid ? row.generatedAt : null, evidenceAt: row.evidenceAt, checkedAt: row.checkedAt, current: !!valid && !row.lastFailureClass && !!row.checkedAt && now.getTime() - row.checkedAt.getTime() < CREATOR_BRAND_FRESH_MS });
     }
     return out;
   }

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { AI_TASK_CREATOR_BRAND_UPDATE } from '../src/ai/intelligence-tasks';
 import { aiTaskContractViolations } from '../src/ai/task';
-import { CREATOR_BRAND_UPDATE_SCHEMA_ID, parseCreatorBrandUpdate, validateCreatorBrandUpdate } from '../src/ai/creator-brand-update';
+import { CREATOR_BRAND_UPDATE_SCHEMA_ID, publishedCreatorBrandStage, parseCreatorBrandUpdate, validateCreatorBrandUpdate } from '../src/ai/creator-brand-update';
 import { aiOutputContract } from '../src/ai/output-contracts';
 const ref = 'mail_message:thread:1';
 const evidence = { figures: new Map(), dates: new Set<string>(), verbatimRuns: new Set<string>() };
@@ -34,4 +34,30 @@ test('publication rejects private financial details, contact values, invented nu
 test('negotiating is an admitted stage distinct from a pitch or a confirmed agreement', () => {
   assert.ok(parseCreatorBrandUpdate(update({ stage: 'NEGOTIATING' })));
   assert.deepEqual(rejections({ stage: 'NEGOTIATING' }), []);
+});
+
+
+test('legacy, inquiry-only and affiliate-only negotiation labels cannot publish as active deals', () => {
+  for (const stage of ['NEGOTIATING', 'CONFIRMED'] as const) {
+    assert.equal(publishedCreatorBrandStage({ stage }), 'DISCUSSING');
+    assert.equal(publishedCreatorBrandStage({ stage, dealQualification: 'NONE' }), 'DISCUSSING');
+  }
+  assert.equal(publishedCreatorBrandStage({ stage: 'NEGOTIATING', dealQualification: 'CURRENT_PAID_NEGOTIATION' }), 'DISCUSSING');
+  assert.equal(publishedCreatorBrandStage({ stage: 'CONFIRMED', dealQualification: 'ACCEPTED_PAID_PARTNERSHIP' }), 'CONFIRMED');
+  assert.equal(publishedCreatorBrandStage({ stage: 'CONFIRMED', dealQualification: 'CURRENT_PAID_NEGOTIATION' }), 'DISCUSSING');
+  assert.equal(publishedCreatorBrandStage({ stage: 'CONFIRMED', dealQualification: 'CURRENT_PAID_AGREEMENT' }), 'DISCUSSING');
+  assert.equal(publishedCreatorBrandStage({ stage: 'OUTREACH' }), 'OUTREACH');
+});
+
+test('qualification is validated and preserved without admitting private financial prose', () => {
+  assert.equal(parseCreatorBrandUpdate(update({ dealQualification: 'GUESSED' })), null);
+  assert.ok(rejections({ stage: 'OUTREACH', dealQualification: 'CURRENT_PAID_AGREEMENT' }).includes('WRONG_SCHEMA'));
+  const parsed = parseCreatorBrandUpdate(update({ stage: 'NEGOTIATING', dealQualification: 'CURRENT_PAID_NEGOTIATION' }));
+  assert.equal(parsed?.creatorBrandUpdate?.dealQualification, 'CURRENT_PAID_NEGOTIATION');
+  assert.ok(rejections({ stage: 'NEGOTIATING', dealQualification: 'CURRENT_PAID_NEGOTIATION', summary: 'They offered $500.' }).includes('VERBATIM_CONTENT'));
+});
+
+test('accepted partnership qualification requires confirmed status; negotiations remain conversations', () => {
+  assert.ok(rejections({ stage: 'NEGOTIATING', dealQualification: 'ACCEPTED_PAID_PARTNERSHIP' }).includes('WRONG_SCHEMA'));
+  assert.deepEqual(rejections({ stage: 'CONFIRMED', dealQualification: 'ACCEPTED_PAID_PARTNERSHIP' }), []);
 });

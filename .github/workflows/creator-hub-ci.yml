@@ -15,6 +15,8 @@ on:
       - 'packages/database/prisma/**'
       - 'packages/shared/src/creator/**'
       - 'apps/web/test/creator-*.test.tsx'
+      - 'apps/web/test/tiktok-login-kit.test.tsx'
+      - 'packages/shared/src/ai/creator-brand-update.ts'
       - '.github/workflows/creator-hub-ci.yml'
 
 permissions:
@@ -36,7 +38,7 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
       - name: Creator UI and access contracts
-        run: node --import tsx --test apps/web/test/creator-*.test.tsx apps/web/test/one-loop-shell.test.tsx
+        run: node --import tsx --test apps/web/test/creator-*.test.tsx apps/web/test/one-loop-shell.test.tsx apps/web/test/tiktok-login-kit.test.tsx
 
   creator-production:
     runs-on: ubuntu-latest
