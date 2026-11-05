@@ -60,6 +60,8 @@ export type CaptureReadingState = 'CURRENT' | 'WITHHELD' | 'UNMATCHED_CREATOR' |
 export interface ManagedCaptureReading {
   readonly threadId: string;
   readonly brandId: string | null;
+  /** Verified by the model, non-CRM candidate; never a raw email address. */
+  readonly candidateBrandName?: string;
   readonly evidenceKey: string;
   readonly fingerprint: string;
   readonly evidenceAt: string | null;
