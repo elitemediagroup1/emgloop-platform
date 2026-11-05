@@ -6,6 +6,7 @@ on:
     paths:
       - 'apps/web/src/creator/**'
       - 'apps/web/src/app/app/creator/**'
+      - 'apps/web/src/app/api/creator/**'
       - 'apps/web/src/app/app/admin/creator-hub/**'
       - 'apps/web/src/workspaces/**'
       - 'apps/web/src/app/loop-os.css'

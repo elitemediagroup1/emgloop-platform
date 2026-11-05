@@ -121,6 +121,8 @@ function putFile(target: Reserved, file: File, onProgress: (percent: number) => 
       if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
     };
     xhr.onload = () => (xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`Storage answered ${xhr.status}.`)));
+    xhr.timeout = 30 * 60 * 1000;
+    xhr.ontimeout = () => reject(new Error('The upload timed out. Retry to send it again.'));
     xhr.onerror = () => reject(new Error('The upload was interrupted.'));
     xhr.onabort = () => reject(new Error('The upload was cancelled.'));
     xhr.send(file);
@@ -146,20 +148,23 @@ export function Uploader(props: Props) {
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' });
   const reserved = useRef<Reserved | null>(null);
   const facts = useRef<Facts | null>(null);
+  const uploaded = useRef(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const kind: 'VIDEO' | 'PHOTO' | null = file ? (file.type.startsWith('video/') ? 'VIDEO' : 'PHOTO') : null;
   const busy = phase.kind === 'reading' || phase.kind === 'reserving' || phase.kind === 'uploading' || phase.kind === 'completing';
-  const fileRefused = file ? !props.acceptedTypes.includes(file.type) || file.size > (kind === 'VIDEO' ? props.videoLimitBytes : props.imageLimitBytes) : true;
+  const fileRefused = file ? file.size <= 0 || !props.acceptedTypes.includes(file.type) || file.size > (kind === 'VIDEO' ? props.videoLimitBytes : props.imageLimitBytes) : true;
 
   function choose(next: File | null) {
     setFile(next);
     reserved.current = null;
+    uploaded.current = false;
     facts.current = null;
     setPhase({ kind: 'idle' });
     if (next) {
       if (!title) setTitle(titleFromName(next.name));
-      if (!props.acceptedTypes.includes(next.type)) setPhase({ kind: 'failed', message: `That file type (${next.type || 'unknown'}) is not accepted. Accepted: ${props.acceptedTypes.join(', ')}.`, retryable: false });
+      if (next.size <= 0) setPhase({ kind: 'failed', message: 'That file is empty. Choose a file with content.', retryable: false });
+      else if (!props.acceptedTypes.includes(next.type)) setPhase({ kind: 'failed', message: `That file type (${next.type || 'unknown'}) is not accepted. Accepted: ${props.acceptedTypes.join(', ')}.`, retryable: false });
       else if (next.size > (next.type.startsWith('video/') ? props.videoLimitBytes : props.imageLimitBytes)) {
         setPhase({ kind: 'failed', message: `That file is larger than the ${megabytes(next.type.startsWith('video/') ? props.videoLimitBytes : props.imageLimitBytes)} limit.`, retryable: false });
       }
@@ -168,6 +173,7 @@ export function Uploader(props: Props) {
 
   async function complete(target: Reserved): Promise<void> {
     setPhase({ kind: 'completing' });
+    try {
     const res = await fetch(`/api/creator/uploads/${encodeURIComponent(target.versionId)}/complete`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -180,22 +186,39 @@ export function Uploader(props: Props) {
       return;
     }
     if (body.reason === 'NOT_UPLOADED') {
+      uploaded.current = false;
       setPhase({ kind: 'failed', message: 'Storage has not received the file yet. Retry to send it again.', retryable: true });
       return;
     }
-    setPhase({ kind: 'failed', message: BEGIN_REASONS[body.reason ?? ''] ?? 'The upload could not be confirmed.', retryable: body.reason === 'UNREACHABLE' });
+    setPhase({ kind: 'failed', message: BEGIN_REASONS[body.reason ?? ''] ?? 'The upload could not be confirmed.', retryable: body.reason === 'UNREACHABLE' || res.status >= 500 });
+    } catch {
+      setPhase({ kind: 'failed', message: 'The connection was interrupted while confirming. Retry to check the uploaded file.', retryable: true });
+    }
   }
 
   async function send(target: Reserved): Promise<void> {
     if (!file) return;
-    if (Date.parse(target.expiresAt) < Date.now()) {
-      setPhase({ kind: 'failed', message: 'The upload link expired before the file was sent. Choose the file again to start over.', retryable: false });
-      reserved.current = null;
-      return;
+    if (uploaded.current) { await complete(target); return; }
+    if (!Number.isFinite(Date.parse(target.expiresAt)) || Date.parse(target.expiresAt) <= Date.now()) {
+      setPhase({ kind: 'reserving' });
+      try {
+        const res = await fetch(`/api/creator/uploads/${encodeURIComponent(target.versionId)}/resume`, { method: 'POST' });
+        const body = await res.json();
+        if (!res.ok || !body.ok || !body.upload) {
+          setPhase({ kind: 'failed', message: BEGIN_REASONS[body.reason] ?? 'Loop could not renew this upload.', retryable: res.status >= 500 });
+          return;
+        }
+        target = { ...target, url: body.upload.url, headers: body.upload.headers, expiresAt: body.upload.expiresAt };
+        reserved.current = target;
+      } catch {
+        setPhase({ kind: 'failed', message: 'The connection was interrupted. Retry to resume this upload.', retryable: true });
+        return;
+      }
     }
     setPhase({ kind: 'uploading', percent: 0 });
     try {
       await putFile(target, file, (percent) => setPhase({ kind: 'uploading', percent }));
+      uploaded.current = true;
     } catch (e) {
       setPhase({ kind: 'failed', message: e instanceof Error ? e.message : 'The upload failed.', retryable: true });
       return;
@@ -205,11 +228,13 @@ export function Uploader(props: Props) {
 
   async function start(): Promise<void> {
     if (!file || !kind) return;
+    if (reserved.current) { await send(reserved.current); return; }
     const name = title.trim();
     if (!name) {
       setPhase({ kind: 'failed', message: 'Give the content a name.', retryable: false });
       return;
     }
+    try {
     setPhase({ kind: 'reading' });
     facts.current = await readFacts(file, kind);
     setPhase({ kind: 'reserving' });
@@ -225,6 +250,9 @@ export function Uploader(props: Props) {
     }
     reserved.current = { contentId: body.contentId, versionId: body.versionId, url: body.upload.url, headers: body.upload.headers, expiresAt: body.upload.expiresAt };
     await send(reserved.current);
+    } catch {
+      setPhase({ kind: 'failed', message: 'The connection was interrupted while preparing the upload. Try again.', retryable: true });
+    }
   }
 
   function retry() {
@@ -237,6 +265,7 @@ export function Uploader(props: Props) {
     setTitle('');
     setPhase({ kind: 'idle' });
     reserved.current = null;
+    uploaded.current = false;
     facts.current = null;
     if (inputRef.current) inputRef.current.value = '';
   }
@@ -265,19 +294,19 @@ export function Uploader(props: Props) {
         <div className="ch-form">
           <label className="loop-field">
             <span className="loop-label">File</span>
-            <input ref={inputRef} className="loop-input" type="file" accept={props.accept} disabled={busy} onChange={(e) => choose(e.target.files?.[0] ?? null)} />
+            <input ref={inputRef} className="loop-input" type="file" accept={props.accept} disabled={busy || reserved.current !== null} onChange={(e) => choose(e.target.files?.[0] ?? null)} />
             <span className="loop-note">
               Video up to {megabytes(props.videoLimitBytes)}; photo up to {megabytes(props.imageLimitBytes)}. {kind ? `This is a ${kind === 'VIDEO' ? 'video' : 'photo'}.` : ''}
             </span>
           </label>
           <label className="loop-field">
             <span className="loop-label">Name</span>
-            <input className="loop-input" type="text" value={title} maxLength={140} disabled={busy} placeholder="What you call this piece" onChange={(e) => setTitle(e.target.value)} />
+            <input className="loop-input" type="text" value={title} maxLength={140} disabled={busy || reserved.current !== null} placeholder="What you call this piece" onChange={(e) => setTitle(e.target.value)} />
           </label>
           {props.deliverables.length > 0 ? (
             <label className="loop-field">
               <span className="loop-label">For a deliverable</span>
-              <select className="loop-select" value={deliverableId} disabled={busy} onChange={(e) => setDeliverableId(e.target.value)}>
+              <select className="loop-select" value={deliverableId} disabled={busy || reserved.current !== null} onChange={(e) => setDeliverableId(e.target.value)}>
                 <option value="">Not for a deliverable (independent content)</option>
                 {props.deliverables.map((d) => (
                   <option key={d.id} value={d.id}>
@@ -304,7 +333,8 @@ export function Uploader(props: Props) {
                   Retry
                 </button>
               ) : null}
-              <button type="button" className="loop-btn loop-btn--primary" disabled={fileRefused || busy} onClick={() => void start()}>
+              {phase.kind === 'failed' && !phase.retryable ? <button type="button" className="loop-btn" onClick={reset}>Start another upload</button> : null}
+              <button type="button" className="loop-btn loop-btn--primary" disabled={fileRefused || busy || (phase.kind === 'failed' && !phase.retryable && reserved.current !== null)} onClick={() => void start()}>
                 Upload
               </button>
             </span>
