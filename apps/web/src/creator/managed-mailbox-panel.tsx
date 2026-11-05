@@ -201,9 +201,9 @@ export function ManagedMailboxPanelView({
               </p>
             ) : null}
             <p className="loop-note">
-              Authorization is separate from capture. Background ingestion and creator-summary
-              attribution from these sources are not commissioned yet. Existing creator tiles still
-              use explicitly shared threads. Disconnect removes Loop’s credential; you can also
+              Authorization is separate from capture. Select the authorized sources in the creator email
+              pilot to enable background review and creator-safe brand summaries. Disconnect removes
+              Loop’s credential and withdraws summaries that depend on this source; you can also
               remove the Google app grant from the mailbox’s Google Account settings.
             </p>
           </>

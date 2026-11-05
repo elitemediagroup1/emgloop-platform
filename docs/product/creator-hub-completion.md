@@ -48,3 +48,30 @@ Do not mark complete from CI, a preview, a merge or a green deployment alone.
 The local execution environment and live browser were unavailable when this
 design work started. GitHub CI and Netlify previews can validate committed code;
 rendered visual acceptance and live workflow checks still require restored access.
+
+
+## November 5 verification and reliability follow-through
+
+- Main `2932a74ead3b62a3b0058fd7d475d3d6540b3e7f` deployed successfully on
+  Netlify deploy `6aecbb36403e232ca423d81a`.
+- PR #441 passed 107 creator/shell contracts and 11 actual Postgres lifecycle,
+  isolation and constraint tests (none skipped).
+- The live manager board renders and expands relationship summaries and history.
+  Expanded stages need the full board width to remain readable in manager layouts.
+- Capture observed 553 source-thread checks, 57 queued, and 76 outreach / 6 conversation /
+  4 negotiation brands, plus 5 earlier/paused brands. These are an incomplete historical
+  snapshot from a manager preview, not reconciled creator acceptance.
+- Budget version 6 (`operating.creator-pilot.25.4`) was recorded at 12:04 p.m. Eastern.
+  At 12:48 p.m. Eastern the status page reported $2.02 organization spend today and
+  271 creator task runs (240 answered, 31 output-invalid). The $25 ceiling remains.
+  Capture reported TASK_CIRCUIT_OPEN. Do not bypass validation or raise this safeguard
+  to force a backfill through rejected model output.
+- Upload reliability changes renew the existing pending reservation after expiry,
+  recheck creator ownership/current editor assignment, preserve the reservation during
+  retries, retry confirmation without resending confirmed bytes, refuse invalid stored
+  files and prevent sequential resurrection of failed uploads. Failed URL signing no
+  longer attaches the deliverable. Matching pending deliverable reservations can be
+  recovered after a lost response. Concurrent reservations and browser reload recovery
+  for independent content remain separate verification concerns.
+- Creator login, mobile rendering, real configured storage, notifications, platform
+  integrations and payment setup still require the acceptance work listed above.

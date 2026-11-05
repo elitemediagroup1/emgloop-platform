@@ -10,7 +10,9 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: Request, { params }: { params: { versionId: string } }): Promise<Response> {
   const caller = await apiCaller();
   if (caller.kind === 'NONE') return json({ ok: false, reason: caller.reason }, caller.status);
-  const raw = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+  const parsed: unknown = await request.json().catch(() => null);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return json({ ok: false, reason: 'INVALID' }, 400);
+  const raw = parsed as Record<string, unknown>;
   const num = (k: string) => (typeof raw[k] === 'number' ? (raw[k] as number) : null);
   const result = await completeUpload(
     { organizationId: caller.actor.organizationId, userId: caller.actor.userId, canActOnAny: caller.kind === 'EMG' && caller.actor.canActOnAnyStep },

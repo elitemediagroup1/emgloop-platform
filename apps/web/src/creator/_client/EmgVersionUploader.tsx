@@ -49,12 +49,12 @@ const REFUSAL_TEXT: Record<string, string> = {
   NOT_ALLOWED: 'This work is not on an Edit step you may act on.',
   NOT_FOUND: 'Loop could not find this production in your workspace.',
   NOT_CONFIGURED: 'Media storage is not configured on this deployment, so nothing can be uploaded.',
-  UNREACHABLE: 'Storage could not be reached. Nothing was saved; try again shortly.',
+  UNREACHABLE: 'Storage could not be reached. Retry to continue the upload.',
   BAD_TYPE: 'That file type is not accepted. Upload a video or an image.',
   TOO_LARGE: 'That file is larger than Loop accepts.',
-  NOT_UPLOADED: 'The bytes did not arrive in storage. Nothing was saved; try again.',
+  NOT_UPLOADED: 'The file has not been confirmed in storage. Retry to continue.',
   UNAUTHENTICATED: 'Your session has ended. Sign in again.',
-  FAILED: 'The upload failed. Nothing was saved.',
+  FAILED: 'The upload could not be confirmed. Retry to continue.',
 };
 
 function mmss(seconds: number): string {
@@ -118,7 +118,10 @@ function putWithProgress(url: string, headers: Record<string, string>, file: Fil
     };
     xhr.onload = () => resolve(xhr.status >= 200 && xhr.status < 300);
     xhr.onerror = () => resolve(false);
-    xhr.send(file);
+    xhr.onabort = () => resolve(false);
+    xhr.timeout = 30 * 60 * 1000;
+    xhr.ontimeout = () => resolve(false);
+    try { xhr.send(file); } catch { resolve(false); }
   });
 }
 
@@ -134,6 +137,8 @@ export function EmgVersionUploader(props: EmgVersionUploaderProps) {
   const versionIdRef = useRef<HTMLInputElement>(null);
   const addressedRef = useRef<HTMLInputElement>(null);
   const noteOutRef = useRef<HTMLInputElement>(null);
+  const pending = useRef<{ ok: true; versionId: string; upload: { url: string; headers: Record<string, string>; expiresAt: string } } | null>(null);
+  const uploaded = useRef(false);
 
   if (media.state !== 'CONFIGURED') {
     return (
@@ -165,8 +170,15 @@ export function EmgVersionUploader(props: EmgVersionUploaderProps) {
     const noteToCreator = (noteRef.current?.value ?? '').trim();
     const internalNote = (internalRef.current?.value ?? '').trim();
     setPhase({ kind: 'RESERVING' });
-    let begin: { ok: true; versionId: string; upload: { url: string; headers: Record<string, string> } } | { ok: false; reason: string };
+    let begin: { ok: true; versionId: string; upload: { url: string; headers: Record<string, string>; expiresAt: string } } | { ok: false; reason: string };
     try {
+      if (pending.current) {
+        begin = pending.current;
+        if (!uploaded.current && (!Number.isFinite(Date.parse(begin.upload.expiresAt)) || Date.parse(begin.upload.expiresAt) <= Date.now())) {
+          const res = await fetch(`/api/creator/uploads/${encodeURIComponent(begin.versionId)}/resume`, { method: 'POST' });
+          begin = await res.json() as typeof begin;
+        }
+      } else {
       const res = await fetch('/api/creator/uploads', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -182,6 +194,7 @@ export function EmgVersionUploader(props: EmgVersionUploaderProps) {
         }),
       });
       begin = (await res.json()) as typeof begin;
+      }
     } catch {
       begin = { ok: false, reason: 'FAILED' };
     }
@@ -189,11 +202,15 @@ export function EmgVersionUploader(props: EmgVersionUploaderProps) {
       setPhase({ kind: 'REFUSED', text: REFUSAL_TEXT[begin.reason] ?? REFUSAL_TEXT.FAILED! });
       return;
     }
+    pending.current = begin;
+    if (!uploaded.current) {
     setPhase({ kind: 'UPLOADING', percent: 0 });
     const put = await putWithProgress(begin.upload.url, begin.upload.headers, file, (percent) => setPhase({ kind: 'UPLOADING', percent }));
     if (!put) {
       setPhase({ kind: 'REFUSED', text: REFUSAL_TEXT.NOT_UPLOADED! });
       return;
+    }
+    uploaded.current = true;
     }
     setPhase({ kind: 'CONFIRMING' });
     const facts = await readMediaFacts(file);
@@ -209,6 +226,7 @@ export function EmgVersionUploader(props: EmgVersionUploaderProps) {
       complete = { ok: false, reason: 'FAILED' };
     }
     if (!complete.ok) {
+      if (complete.reason === 'NOT_UPLOADED') uploaded.current = false;
       setPhase({ kind: 'REFUSED', text: REFUSAL_TEXT[complete.reason] ?? REFUSAL_TEXT.FAILED! });
       return;
     }
@@ -235,7 +253,7 @@ export function EmgVersionUploader(props: EmgVersionUploaderProps) {
         </p>
         <label className="loop-field">
           <span className="loop-label">File</span>
-          <input ref={fileRef} className="loop-input" type="file" name="file" accept="video/*,image/*" disabled={busy} required />
+          <input ref={fileRef} className="loop-input" type="file" name="file" accept="video/*,image/*" disabled={busy || pending.current !== null} required />
         </label>
 
         {answers && answers.notes.length > 0 ? (
@@ -271,11 +289,11 @@ export function EmgVersionUploader(props: EmgVersionUploaderProps) {
 
         <label className="loop-field">
           <span className="loop-label">Note to {creatorFirstName} · visible to them</span>
-          <textarea ref={noteRef} className="loop-textarea" rows={2} maxLength={2000} disabled={busy} placeholder="What changed, in a line or two." />
+          <textarea ref={noteRef} className="loop-textarea" rows={2} maxLength={2000} disabled={busy || pending.current !== null} placeholder="What changed, in a line or two." />
         </label>
         <label className="loop-field">
           <span className="loop-label">Internal note · EMG only</span>
-          <textarea ref={internalRef} className="loop-textarea" rows={2} maxLength={2000} disabled={busy} placeholder="e.g. rendered from the 4K master; colour untouched" />
+          <textarea ref={internalRef} className="loop-textarea" rows={2} maxLength={2000} disabled={busy || pending.current !== null} placeholder="e.g. rendered from the 4K master; colour untouched" />
         </label>
 
         <fieldset className="loop-stack" style={{ border: 0, margin: 0, padding: 0, gap: 6 }}>
