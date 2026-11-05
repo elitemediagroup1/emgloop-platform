@@ -20,7 +20,7 @@ export function captureReadings(value: unknown): ManagedCaptureReading[] {
   return value.filter((r): r is ManagedCaptureReading => !!r && typeof r === 'object' && typeof r.threadId === 'string' && typeof r.evidenceKey === 'string' && typeof r.fingerprint === 'string' && typeof r.checkedAt === 'string' && typeof r.state === 'string').slice(-500);
 }
 function accepted(r: ManagedCaptureReading): boolean {
-  if (!r.update?.publishable || !r.brandId || r.state !== 'CURRENT') return false;
+  if (!r.update?.publishable || (!r.brandId && !r.candidateBrandName) || r.state !== 'CURRENT') return false;
   const output = parseCreatorBrandUpdate({ schemaId: CREATOR_BRAND_UPDATE_SCHEMA_ID, ...r.update });
   return !!output && !validateCreatorBrandUpdate(output, AI_TASK_CREATOR_BRAND_UPDATE, new Set(r.update.citations), { figures: new Map(), dates: new Set() }).length;
 }
@@ -132,7 +132,7 @@ export class ManagedCreatorMailRepository {
         const retryAt = Date.parse(reading.retryAfter ?? '');
         const validationRetry = reading.state === 'MODEL_UNAVAILABLE' && codes.length && retryAt >= now.getTime() && retryAt <= now.getTime() + 3600_000
           ? { retryAfter: new Date(retryAt).toISOString(), rejections: codes } : {};
-        reading = { ...validationRetry, threadId: reading.threadId, brandId: reading.brandId, evidenceKey: reading.evidenceKey, fingerprint: reading.fingerprint, evidenceAt: reading.evidenceAt, checkedAt: now.toISOString(), generatedAt: reading.generatedAt, messageCount: reading.messageCount, incomplete: reading.incomplete, state: reading.state, ...(update ? { update } : {}) };
+        reading = { ...validationRetry, threadId: reading.threadId, brandId: reading.brandId, ...(reading.candidateBrandName ? { candidateBrandName: reading.candidateBrandName } : {}), evidenceKey: reading.evidenceKey, fingerprint: reading.fingerprint, evidenceAt: reading.evidenceAt, checkedAt: now.toISOString(), generatedAt: reading.generatedAt, messageCount: reading.messageCount, incomplete: reading.incomplete, state: reading.state, ...(update ? { update } : {}) };
         readings = [...readings.filter(r => r.threadId !== reading.threadId), reading];
       }
       readings = readings.filter(r => !r.evidenceAt || Number.isFinite(Date.parse(r.evidenceAt)) && now.getTime() - Date.parse(r.evidenceAt) <= 365 * DAY);
@@ -168,12 +168,14 @@ export class ManagedCreatorMailRepository {
         // A discovered brand is private candidate data until a shareable reading is accepted.
         // Never turn model refusal/withholding into a creator-visible brand association.
         if (!accepted(r)) continue;
-        if (!r.brandId || !r.evidenceAt || !Number.isFinite(Date.parse(r.evidenceAt)) || Date.parse(r.evidenceAt) > now.getTime() || now.getTime() - Date.parse(r.evidenceAt) > 365 * DAY) continue;
-        const brand = await new PartyReadModelRepository(this.prisma).establishedOne(row.organizationId, 'COMPANY', r.brandId);
-        if (!brand) continue;
+        if ((!r.brandId && !r.candidateBrandName) || !r.evidenceAt || !Number.isFinite(Date.parse(r.evidenceAt)) || Date.parse(r.evidenceAt) > now.getTime() || now.getTime() - Date.parse(r.evidenceAt) > 365 * DAY) continue;
+        const brand = r.brandId ? await new PartyReadModelRepository(this.prisma).establishedOne(row.organizationId, 'COMPANY', r.brandId) : null;
+        if (!brand && !r.candidateBrandName) continue;
+        const brandId = brand?.id ?? `candidate:${mailEvidenceHash(r.candidateBrandName!.toLowerCase())}`;
+        const brandName = brand?.displayName ?? r.candidateBrandName!;
         const valid = accepted(r), checked = new Date(r.checkedAt), evidenceAt = new Date(r.evidenceAt);
-        const item = { id: mailEvidenceHash(`${row.creatorProfileId}:${r.evidenceKey}:${r.brandId}`), brand: brand.displayName || 'Brand or agency', brandId: brand.id, stage: valid ? r.update!.stage : null, summary: valid ? r.update!.summary : null, nextStep: valid ? r.update!.nextStep : null, generatedAt: valid && r.generatedAt ? new Date(r.generatedAt) : null, checkedAt: checked, evidenceAt, current: valid && checked <= now && now.getTime() - checked.getTime() < 600_000, messageCount: r.messageCount };
-        const key = `${r.brandId}:${r.evidenceKey}`, old = out.get(key);
+        const item = { id: mailEvidenceHash(`${row.creatorProfileId}:${r.evidenceKey}:${brandId}`), brand: brandName, brandId, stage: valid ? r.update!.stage : null, summary: valid ? r.update!.summary : null, nextStep: valid ? r.update!.nextStep : null, generatedAt: valid && r.generatedAt ? new Date(r.generatedAt) : null, checkedAt: checked, evidenceAt, current: valid && checked <= now && now.getTime() - checked.getTime() < 600_000, messageCount: r.messageCount };
+        const key = `${brandId}:${r.evidenceKey}`, old = out.get(key);
         if (!old || item.messageCount > old.messageCount || item.messageCount === old.messageCount && checked.getTime() > (old.checkedAt?.getTime() ?? 0)) out.set(key, item);
       }
     }
