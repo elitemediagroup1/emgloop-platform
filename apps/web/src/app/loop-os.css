@@ -4841,8 +4841,8 @@ a.xb__focuscard:hover { border-color: var(--loop-line-strong); transform: transl
 .ch-studio-welcome h1 { font-size: clamp(28px, 3vw, 40px); font-weight: 550; letter-spacing: -.04em; line-height: 1.1; margin: 0; color: var(--loop-on-primary); overflow-wrap: anywhere; }
 .ch-studio-welcome__intro { color: var(--loop-rail-text); line-height: 1.6; font-size: 12px; margin: 8px 0 0; }
 .ch-studio-welcome__actions { display: flex; align-items: center; flex-wrap: wrap; gap: 20px; }
-.ch-studio-task-link { font-size: 12px; color: var(--loop-rail-text); text-decoration: none; }
-.ch-studio-task-link:hover { color: var(--loop-on-primary); }
+.loop-os[data-creator-studio="true"] .ch-studio-task-link { font-size: 12px; color: var(--loop-rail-text); text-decoration: none; }
+.loop-os[data-creator-studio="true"] .ch-studio-task-link:hover { color: var(--loop-on-primary); }
 .loop-os[data-creator-studio="true"] .ch-studio-cta { background: var(--loop-rail-active); color: var(--loop-ink); border-color: var(--loop-rail-active); gap: 24px; }
 .loop-os[data-creator-studio="true"] .ch-studio-cta:hover { background: var(--loop-accent-soft); }
 .ch-studio-section-label { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: .14em; color: var(--loop-accent-strong); margin-bottom: 8px; font-weight: 700; }
