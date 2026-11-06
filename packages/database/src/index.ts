@@ -1030,3 +1030,10 @@ export { refreshPublicNews } from './services/public-news-sync';
 
 export { creatorCapturePolicyReasons, creatorCaptureOutputReasons } from './creator/creator-capture-failure';
 export { CreatorRelationshipService } from './creator/creator-relationship.service';
+
+export { MetaConnectionRepository } from './repositories/meta-connection.repository';
+export type { MetaPrincipal } from './repositories/meta-connection.repository';
+export { MetaTokenSealer } from './services/meta/meta-token-sealer';
+export { MetaService } from './services/meta/meta.service';
+export { verifyMetaSignedRequest, metaDeletionReceipt, verifyMetaDeletionReceipt } from './services/meta/meta-signed-request';
+export { MetaAnalyticsService, metaAnalyticsContext, metaAnalyticsFingerprint } from './services/meta/meta-analytics.service';

@@ -182,10 +182,21 @@ export const AI_TASK_CREATOR_BRAND_UPDATE: AiTaskDefinition = Object.freeze({
   invokerRoles: OPERATORS, outputSchemaId: 'creator-brand-update.v1', maxOutputTokens: 1200,
 });
 
+/** A creator's own numerical analytics. Admission resolves their bound profile, not org IAM. */
+export const AI_TASK_CREATOR_ANALYTICS_READING: AiTaskDefinition = Object.freeze({
+  ...AI_TASK_CREATORS_DOMAIN_READING,
+  taskId: 'creator.analytics.reading', version: '1.0.0',
+  invokerRoles: Object.freeze(['CREATOR']),
+  requires: Object.freeze([{ resource: 'ownCreatorProfile', action: 'view' } as const]),
+  resultOwner: Object.freeze({ authority: 'LOOP_INTELLIGENCE', subjectType: 'CREATOR_ANALYTICS' } as const),
+  maxOutputTokens: 1200, timeoutMs: 20_000,
+});
+
 /** Every Loop Intelligence task, in phase order. */
 export const AI_INTELLIGENCE_TASKS: readonly AiTaskDefinition[] = Object.freeze([
   AI_TASK_MAIL_CONTENT_TRIAGE,
   AI_TASK_CREATOR_BRAND_UPDATE,
+  AI_TASK_CREATOR_ANALYTICS_READING,
   AI_TASK_MAIL_DOMAIN_READING,
   AI_TASK_CALENDAR_DOMAIN_READING,
   AI_TASK_CALLGRID_DOMAIN_READING,

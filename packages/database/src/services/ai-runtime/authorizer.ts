@@ -16,9 +16,10 @@
 // Any error is a refusal. A check that could not be completed did not pass.
 
 import type { PrismaClient } from '@prisma/client';
-import type { AiTaskDefinition } from '@emgloop/shared';
+import { AI_TASK_CREATOR_ANALYTICS_READING, type AiTaskDefinition } from '@emgloop/shared';
 
 import { IamRepository, type Action, type Resource } from '../../repositories/iam.repository';
+import { CreatorRepository } from '../../creator/creator.repository';
 import { membershipAuthority } from '../../repositories/membership.repository';
 import type { AiAuthorizer, AiPrincipal } from './gateway';
 
@@ -34,6 +35,12 @@ export function iamAiAuthorizer(prisma: PrismaClient, iam: Pick<IamRepository, '
       const role = authority.systemRole;
       if (!role || AI_INVOKER_FORBIDDEN_ROLES.includes(role)) return false;
       if (!task.invokerRoles.includes(role)) return false;
+      // This exact registered task spends only on the invoking creator's bound profile.
+      // It grants no organization permission, and its producer rechecks the same profile on publication.
+      if (task.taskId === AI_TASK_CREATOR_ANALYTICS_READING.taskId) {
+        if (task !== AI_TASK_CREATOR_ANALYTICS_READING || role !== 'CREATOR') return false;
+        return !!await new CreatorRepository(prisma).profileForUser(principal.organizationId, principal.userId);
+      }
       if (task.requires.length === 0) return false;
       for (const requirement of task.requires) {
         const allowed = await iam.can({

@@ -341,6 +341,10 @@ model Organization {
 
   /// Creator Hub (2026-09-22): the creator domain and the CRM commercial records it composes.
   workInstructions            WorkInstruction[]
+  metaConnections            MetaConnection[]
+  metaOAuthStates            MetaOAuthState[]
+  metaObservations           MetaAnalyticsObservation[]
+  metaReadings               MetaAnalyticsReading[]
   creatorProfiles             CreatorProfile[]
   creatorContents             CreatorContent[]
   crmOpportunities            CrmOpportunity[]
@@ -7207,6 +7211,10 @@ model CreatorProfile {
   updatedAt       DateTime @updatedAt
 
   organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  metaConnection MetaConnection?
+  metaOAuthStates MetaOAuthState[]
+  metaObservations MetaAnalyticsObservation[]
+  metaReadings MetaAnalyticsReading[]
   contents     CreatorContent[]
   brandMailShares CreatorBrandMailShare[]
   managedGoogleMailboxes ManagedGoogleMailbox[]
@@ -8338,4 +8346,99 @@ model CreatorMailRelationship {
   updatedAt DateTime @updatedAt
   @@unique([organizationId, creatorProfileId, brandId])
   @@map("creator_mail_relationships")
+}
+
+
+/// Session-bound, single-use OAuth state followed by a short-lived account-selection grant.
+model MetaOAuthState {
+  id String @id @default(cuid())
+  organizationId String
+  creatorProfileId String
+  userId String
+  sessionId String
+  stateHash String @unique
+  expiresAt DateTime
+  consumedAt DateTime?
+  tokenSealed Bytes?
+  metaUserId String?
+  tokenExpiresAt DateTime?
+  scopes String[] @default([])
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  creator CreatorProfile @relation(fields: [organizationId, creatorProfileId], references: [organizationId, id], onDelete: Cascade)
+  @@index([organizationId, userId, sessionId])
+  @@map("meta_oauth_states")
+}
+
+/// A creator's explicitly selected Facebook Page and linked professional Instagram account.
+model MetaConnection {
+  id String @id @default(cuid())
+  organizationId String
+  creatorProfileId String @unique
+  userId String
+  metaUserId String
+  pageId String
+  activePageId String?
+  instagramId String?
+  pageName String
+  tokenSealed Bytes?
+  tokenExpiresAt DateTime
+  scopes String[]
+  status String @default("CONNECTED")
+  connectedAt DateTime @default(now())
+  lastAttemptAt DateTime?
+  lastSyncedAt DateTime?
+  nextSyncAt DateTime @default(now())
+  leaseUntil DateTime?
+  leaseId String?
+  lastFailure String?
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  creator CreatorProfile @relation(fields: [organizationId, creatorProfileId], references: [organizationId, id], onDelete: Cascade)
+  observations MetaAnalyticsObservation[]
+  readings MetaAnalyticsReading[]
+  analysisNextAt DateTime @default(now())
+  analysisLeaseId String?
+  analysisLeaseUntil DateTime?
+  analysisFailure String?
+  @@unique([organizationId, id])
+  @@unique([organizationId, creatorProfileId])
+  @@unique([organizationId, activePageId])
+  @@index([status, nextSyncAt])
+  @@map("meta_connections")
+}
+
+/// Append-only readings. Repeated rolling windows are never added together.
+model MetaAnalyticsObservation {
+  id String @id @default(cuid())
+  organizationId String
+  creatorProfileId String
+  connectionId String
+  platform String
+  observedAt DateTime @default(now())
+  report Json
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  creator CreatorProfile @relation(fields: [organizationId, creatorProfileId], references: [organizationId, id], onDelete: Cascade)
+  connection MetaConnection @relation(fields: [organizationId, connectionId], references: [organizationId, id], onDelete: Cascade)
+  @@index([organizationId, creatorProfileId, platform, observedAt])
+  @@map("meta_analytics_observations")
+}
+
+
+/// Validated AI interpretation with the exact immutable observations it used.
+model MetaAnalyticsReading {
+  id String @id @default(cuid())
+  organizationId String
+  creatorProfileId String
+  connectionId String
+  sourceFingerprint String
+  observationIds String[]
+  reading Json
+  invocationId String
+  providerId String
+  observedAt DateTime @default(now())
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  creator CreatorProfile @relation(fields: [organizationId, creatorProfileId], references: [organizationId, id], onDelete: Cascade)
+  connection MetaConnection @relation(fields: [organizationId, connectionId], references: [organizationId, id], onDelete: Cascade)
+  @@unique([organizationId, connectionId, sourceFingerprint])
+  @@index([organizationId, creatorProfileId, observedAt])
+  @@map("meta_analytics_readings")
 }

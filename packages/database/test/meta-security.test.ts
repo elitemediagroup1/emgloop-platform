@@ -1,0 +1,43 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { createHmac } from 'crypto';
+import { MetaTokenSealer } from '../src/services/meta/meta-token-sealer';
+import { verifyMetaSignedRequest, metaDeletionReceipt, verifyMetaDeletionReceipt } from '../src/services/meta/meta-signed-request';
+import { MetaService } from '../src/services/meta/meta.service';
+import type { MetaConnectionRepository } from '../src/repositories/meta-connection.repository';
+import { MetaApi } from '@emgloop/providers';
+const p = { organizationId: 'org-a', userId: 'user-a', creatorProfileId: 'creator-a' };
+test('Meta credentials cannot be opened under another creator, tenant, purpose or key', () => {
+  const sealer = new MetaTokenSealer(new Uint8Array(32).fill(1));
+  const bytes = sealer.seal(p, 'grant:1:2', 'private-token');
+  assert.equal(sealer.open(p, 'grant:1:2', bytes), 'private-token');
+  for (const other of [{ ...p, organizationId: 'org-b' }, { ...p, userId: 'user-b' }, { ...p, creatorProfileId: 'creator-b' }]) assert.throws(() => sealer.open(other, 'grant:1:2', bytes));
+  assert.throws(() => sealer.open(p, 'attempt:state', bytes));
+  assert.throws(() => new MetaTokenSealer(new Uint8Array(32).fill(2)).open(p, 'grant:1:2', bytes));
+  const altered = Buffer.from(bytes); altered[altered.length - 1]! ^= 1;
+  assert.throws(() => sealer.open(p, 'grant:1:2', altered));
+});
+test('Meta callbacks reject forged, stale and future signed requests', () => {
+  const now = Date.parse('2026-11-06T12:00:00Z');
+  const sign = (data: unknown, secret = 'secret') => { const payload = Buffer.from(JSON.stringify(data)).toString('base64url'); return `${createHmac('sha256', secret).update(payload).digest('base64url')}.${payload}`; };
+  const data = { algorithm: 'HMAC-SHA256', user_id: '123', issued_at: now / 1000 };
+  assert.equal(verifyMetaSignedRequest(sign(data), 'secret', now), '123');
+  assert.equal(verifyMetaSignedRequest(sign(data, 'wrong'), 'secret', now), null);
+  assert.equal(verifyMetaSignedRequest(sign({ ...data, issued_at: data.issued_at - 86401 }), 'secret', now), null);
+  assert.equal(verifyMetaSignedRequest(sign({ ...data, issued_at: data.issued_at + 61 }), 'secret', now), null);
+  assert.equal(verifyMetaSignedRequest(sign({ ...data, algorithm: 'none' }), 'secret', now), null);
+  const receipt = '12345678-1234-1234-1234-123456789012';
+  assert.equal(verifyMetaDeletionReceipt('secret', receipt, metaDeletionReceipt('secret', receipt)), true);
+  assert.equal(verifyMetaDeletionReceipt('wrong', receipt, metaDeletionReceipt('secret', receipt)), false);
+});
+test('invalid/replayed state is rejected before token exchange; declined consent still consumes state', async () => {
+  let consumed = 0, exchanged = 0;
+  const repo = { consumeState: async () => ++consumed === 1 } as unknown as MetaConnectionRepository;
+  const api = new MetaApi({ appId: '123', appSecret: 'secret', version: 'v25.0', redirectUri: 'https://app.emgloop.com/api/integrations/meta/callback' }, async () => { exchanged++; throw new Error('must not call'); });
+  const service = new MetaService(repo, { api, sealer: new MetaTokenSealer(new Uint8Array(32).fill(1)) });
+  const input = { state: 'a'.repeat(43), code: 'code', error: 'access_denied' };
+  assert.equal(await service.callback(p, 'session-a', input), 'CONSENT_DECLINED');
+  assert.equal(await service.callback(p, 'session-a', { ...input, error: null }), 'STATE_INVALID');
+  assert.equal(await service.callback(p, 'session-a', { ...input, state: 'invalid' }), 'STATE_INVALID');
+  assert.equal(exchanged, 0);
+});

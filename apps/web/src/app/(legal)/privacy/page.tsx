@@ -92,6 +92,31 @@ export default function PrivacyPage() {
         used only to make the reads described above, and are never written to logs.
       </p>
 
+      <h2>Instagram and Facebook analytics</h2>
+      <p>
+        When Meta connections are enabled, you may authorize a Facebook Page and its linked professional Instagram account
+        from your Profile. Meta asks for pages_show_list, pages_read_engagement, read_insights, instagram_basic and
+        instagram_manage_insights. Loop uses these permissions to list eligible Pages, let you select your account, and read
+        its profile, follower counts, account insights and a bounded sample of recent content insights. Loop does not request
+        permission to publish posts, read direct messages or manage advertisements through this connection.
+      </p>
+      <p>
+        Loop stores encrypted authorization tokens, the selected account identifiers and timestamped analytics observations.
+        Tokens are bound to your organization, login and creator profile. A scheduled worker checks due accounts with a target
+        interval of fifteen minutes; Meta may update the underlying insights less frequently. Missing metrics are not treated
+        as zero. Historical observations support comparisons, and repeated reporting windows are not added together.
+        When enabled, Loop sends numerical observations and their source timestamps to its configured AI provider to produce
+        a creator-private performance interpretation. Account names, captions, profile links and authorization tokens are not
+        included in that analysis context. The interpretation is stored with references to the observations it used.
+      </p>
+      <p>
+        Disconnect Instagram &amp; Facebook on Profile to delete Loop’s token and stop collection. Existing observations remain
+        in your profile history until you request deletion. You may also remove the app in Meta’s Business Integrations
+        settings. Meta’s signed deauthorization callback stops collection; its signed data-deletion callback removes this
+        connection and its imported Meta analytics and returns a confirmation receipt. You can also request deletion by
+        contacting us below. Disabling or removing your Loop membership clears the stored Meta credential.
+      </p>
+
       <h2>4. How we use this information</h2>
       <ul>
         <li>to run Loop for you: sign you in, show you your work, and show you your connected account and what it reported;</li>

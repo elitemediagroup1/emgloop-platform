@@ -1,3 +1,4 @@
+import { metaTablesPresent, disconnectMetaInTx } from './meta-connection.repository';
 // IamRepository — Sprint 7 (Identity, Authentication & Organizations).
 //
 // Identity & Access Management persistence: human users, roles, the
@@ -803,6 +804,7 @@ export class IamRepository {
     let googleRevocation: GoogleRevocation | null = null;
     const endSources = await sourceConnectionTablesPresent(this.prisma, organizationId, userId);
     const endManaged = await managedMailboxTablesPresent(this.prisma, organizationId);
+    const endMeta = await metaTablesPresent(this.prisma, organizationId, userId);
     const digests = await intelligenceDigestsPresent(this.prisma, { organizationId, userId });
     const fabric = await intelligenceFabricPresent(this.prisma);
     const changed = await this.setStatus(organizationId, userId, 'DISABLED', async (tx) => {
@@ -814,6 +816,7 @@ export class IamRepository {
       });
       if (endSources) await endSourceConnectionsInTx(this.prisma, tx, organizationId, userId, 'MEMBER_DISABLED', actor, now, digests);
       if (endManaged) await endManagedMailboxesInTx(tx, organizationId, userId, now);
+      if (endMeta) await disconnectMetaInTx(tx, organizationId, userId);
       await eraseWorkStateInTx(this.prisma, tx, organizationId, userId, 'MEMBER_DISABLED', actor, digests, fabric);
     });
     return { changed, googleRevocation: changed ? googleRevocation : null };
@@ -863,6 +866,7 @@ export class IamRepository {
     const m = meta(user);
     const endSources = await sourceConnectionTablesPresent(this.prisma, organizationId, userId);
     const endManaged = await managedMailboxTablesPresent(this.prisma, organizationId);
+    const endMeta = await metaTablesPresent(this.prisma, organizationId, userId);
     const digests = await intelligenceDigestsPresent(this.prisma, { organizationId, userId });
     const fabric = await intelligenceFabricPresent(this.prisma);
     const googleRevocation = await this.prisma.$transaction(async (tx) => {
@@ -882,6 +886,7 @@ export class IamRepository {
       });
       if (endSources) await endSourceConnectionsInTx(this.prisma, tx, organizationId, userId, 'MEMBER_REMOVED', actor, now, digests);
       if (endManaged) await endManagedMailboxesInTx(tx, organizationId, userId, now);
+      if (endMeta) await disconnectMetaInTx(tx, organizationId, userId);
       await eraseWorkStateInTx(this.prisma, tx, organizationId, userId, 'MEMBER_REMOVED', actor, digests, fabric);
       return revocation;
     });

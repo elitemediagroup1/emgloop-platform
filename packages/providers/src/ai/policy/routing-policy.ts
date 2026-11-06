@@ -112,7 +112,7 @@ function target(
 // was not Claude; no fallback to the subject's own provider -- with OpenAI uncommissioned a Claude-written
 // situation is simply not independently verified, and says so), and the Briefing (SYNTHESIS lane). One model
 // per call: no task calls both providers for the same answer. Existing entries are UNCHANGED.
-export const AI_ROUTING_POLICY_VERSION = 'routing.2026-11-05.18';
+export const AI_ROUTING_POLICY_VERSION = 'routing.2026-11-06.19';
 
 function situationRoute(taskId: string) {
   return Object.freeze({
@@ -231,6 +231,12 @@ export const AI_ROUTING_POLICY: AiRoutingPolicy = Object.freeze({
     'situation.synthesis.private': situationRoute('situation.synthesis.private'),
     'situation.verify': verificationRoute('situation.verify'),
     'situation.verify.private': verificationRoute('situation.verify.private'),
+    'creator.analytics.reading': Object.freeze({
+      taskId: 'creator.analytics.reading', taskVersion: '1.0.0',
+      primary: target('openai', 'gpt-6.1-terra', { reasoningEffort: 'low', timeoutMs: 20_000, maxOutputTokens: 1200 }),
+      fallback: null, fallbackPermitted: false, budgetClass: 'domain-reading', lane: 'BACKGROUND',
+      providerChoiceReason: 'OpenAI interprets only the creator’s numerical analytics under existing domain-reading and total spending limits. No call is made for an unchanged report.',
+    }),
     'creator.brand.update': Object.freeze({
       taskId: 'creator.brand.update', taskVersion: '1.0.0',
       primary: target('openai', 'gpt-6.1-terra', { reasoningEffort: 'low', timeoutMs: 20_000, maxOutputTokens: 1200 }),

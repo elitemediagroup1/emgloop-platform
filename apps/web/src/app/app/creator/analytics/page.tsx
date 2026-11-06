@@ -1,3 +1,4 @@
+import { MetaAnalyticsPanel } from '../../../../meta/meta-panels';
 import Link from 'next/link';
 import { EVIDENCE_SOURCE_LABELS, type EvidenceSource, SOCIAL_PLATFORMS, SOCIAL_PLATFORM_LABELS } from '@emgloop/shared';
 import { requireWorkspace } from '../../../../workspaces/guard';
@@ -44,13 +45,14 @@ export default async function CreatorAnalyticsPage({ searchParams }: { searchPar
       {all.seeded ? (
         <StateBlock kind="attention" compact title="Seeded demo data" body="Some or all of what is shown here was seeded to demonstrate the surface. It is not a platform report and says nothing about your real audience." />
       ) : null}
-      {!all.connected ? <p className="loop-note">No platform is connected. Connect TikTok from Profile; any existing reports retain their recorded source.</p> : null}
+      {!all.connected ? <p className="loop-note">Connect social accounts from Profile. Meta reports appear in their own timestamped panel below; existing reports retain their recorded source.</p> : null}
 
       <p className="loop-note"><Link href={CREATOR_HREFS.profile}>Manage social connections</Link>. TikTok’s last-read account and recent-video counts are on Profile. They are lifetime observations, not totals for the reporting window below.</p>
       {latest.some(a => a.source === 'PUBLIC_PROFILE' || a.source === 'TIKTOK_ONE_MANUAL') ? <p className="loop-note">Public and manually collected audience counts can be rounded; their observation timestamps do not imply an API connection or a unique combined audience.</p> : null}
+      <MetaAnalyticsPanel principal={{ organizationId: seat.actor.organizationId, userId: seat.actor.userId, creatorProfileId: seat.profileId }} outcome={param(searchParams.meta) ?? undefined} />
       <ObservedTikTokReport preferences={profile?.preferences} time={time} />
       {nothing ? (
-        <StateBlock kind="unavailable" title="Not connected" body="Connect TikTok from Profile to begin recording audience observations. Performance appears when a report is recorded; unavailable metrics remain unreported." />
+        <StateBlock kind="unavailable" title="No additional platform reports" body="Meta reports appear in their own panel above. Other performance appears here when a report is recorded; unavailable metrics remain unreported." />
       ) : (
         <>
           <nav className="loop-filters" aria-label="Platform">

@@ -41,13 +41,13 @@ test('23: no external HTTP/API call and no vendor SDK is introduced on the websi
   }
 });
 
-test('24: no additional AI task -- the website reading keeps its one existing task, and no source has its own', () => {
-  assert.equal(AI_TASKS.filter(t => t.taskId !== 'loop.question.answer').length, 19);
+test('24: the website reading keeps its one existing task and no website source has its own', () => {
+  assert.equal(AI_TASKS.filter(t => t.taskId !== 'loop.question.answer').length, 20); // Includes creator.analytics.reading; website inventory below is unchanged.
   assert.equal(AI_TASKS.filter(t => t.taskId === 'loop.question.answer').length, 1);
   const ids = AI_TASKS.map((t) => t.taskId);
   assert.equal(ids.filter((id) => id.startsWith('website.')).length, 1);
   assert.ok(ids.includes('website.domain.reading'));
-  assert.equal(ids.some((id) => /ga4|analytics|search_console|searchconsole|bing|clarity|webmaster/i.test(id)), false);
+  assert.equal(ids.filter(id => id !== 'creator.analytics.reading').some((id) => /ga4|analytics|search_console|searchconsole|bing|clarity|webmaster/i.test(id)), false);
 });
 
 test('the catalog carries exactly one website producer, website.domain@2, and no reading names an external website source', () => {

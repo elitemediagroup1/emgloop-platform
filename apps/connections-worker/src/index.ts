@@ -1,3 +1,4 @@
+import { metaAnalyticsHost } from './meta-analytics-host';
 // The connections worker entrypoint. A long-lived staging process that:
 //   1. runs a live observation sweep on an interval (OBSERVE -> NORMALIZE -> sink),
 //   2. runs a GOVERNED HISTORICAL BASELINE sweep on its own interval -- walking each connection's
@@ -529,6 +530,9 @@ async function main(): Promise<void> {
   const creatorMail = creatorMailHost(creatorMailConfig, { fetch, now: () => new Date(), log });
   const creatorMailTimer = creatorMail.scheduled ? setInterval(() => void creatorMail.pass(), CREATOR_MAIL_TICK_MS) : null;
   if (creatorMail.scheduled) void creatorMail.pass();
+  const metaAnalytics = metaAnalyticsHost(creatorMailConfig, { fetch, now: () => new Date(), log });
+  const metaAnalyticsTimer = metaAnalytics.scheduled ? setInterval(() => void metaAnalytics.pass(), CREATOR_MAIL_TICK_MS) : null;
+  if (metaAnalytics.scheduled) void metaAnalytics.pass();
   void sweep();
   void purge();
   void baseline();
@@ -546,8 +550,9 @@ async function main(): Promise<void> {
     if (intelligenceTimer) clearInterval(intelligenceTimer);
     if (callgridTimer) clearInterval(callgridTimer);
     if (creatorMailTimer) clearInterval(creatorMailTimer);
+    if (metaAnalyticsTimer) clearInterval(metaAnalyticsTimer);
     server.close();
-    void Promise.all([callgrid.stop(), creatorMail.stop()]).finally(() => prisma.$disconnect());
+    void Promise.all([callgrid.stop(), creatorMail.stop(), metaAnalytics.stop()]).finally(() => prisma.$disconnect());
     log('worker_stopping');
   };
   process.on('SIGTERM', shutdown);
