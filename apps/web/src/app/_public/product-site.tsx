@@ -37,7 +37,7 @@ function WorkspaceIllustration() {
 export function ProductHome({ signInHref = SIGN_IN }: { signInHref?: string }) {
   return <ProductFrame signInHref={signInHref}>
     <section className="lp-hero lp-container">
-      <div className="lp-hero__copy"><p className="lp-eyebrow">Elite Media Group · Creator workspace</p><h1>Your talent.<br />Our team.<br /><em>One Loop.</em></h1><p className="lp-lead">A clearer view of your brand partnerships, your content and what needs you next. Built for creators working with EMG.</p><div className="lp-actions"><Link className="lp-button" href="/creator-hub">Explore the Creator Hub <span aria-hidden="true">↗</span></Link><Link className="lp-text-link" href={signInHref}>Open your workspace →</Link></div><p className="lp-caption">Creator access is by invitation from EMG.</p></div>
+      <div className="lp-hero__copy"><p className="lp-eyebrow">EMG Loop · Creator Hub</p><h1>Your partnerships.<br />Your content.<br /><em>Everything in one place.</em></h1><p className="lp-lead">See which brands EMG has contacted, follow ongoing conversations, review content and know what needs your attention.</p><div className="lp-actions"><Link className="lp-button" href="/creator-hub">See how Loop works <span aria-hidden="true">↗</span></Link><Link className="lp-text-link" href={signInHref}>Sign in</Link></div><p className="lp-caption">For creators represented by EMG Talent Group. Access by invitation.</p></div>
       <WorkspaceIllustration />
     </section>
     <div className="lp-ribbon"><span>Partnership visibility</span><span>Content collaboration</span><span>Creator-controlled connections</span></div>

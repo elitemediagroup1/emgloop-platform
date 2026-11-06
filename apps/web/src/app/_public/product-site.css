@@ -20,7 +20,7 @@
 .lp-button--small { min-height:40px; padding:10px 20px; }
 .lp-eyebrow { font-size:10px; font-weight:700; letter-spacing:.2em; text-transform:uppercase; line-height:1.6; margin-bottom:24px!important; }
 .lp-hero { display:grid; grid-template-columns:1fr 1fr; align-items:center; gap:70px; padding-top:100px; padding-bottom:100px; }
-.lp-hero h1 { margin-bottom:30px; }
+.lp-hero h1 { margin-bottom:30px; font-size:clamp(42px,4.5vw,64px); }
 .lp-lead { font-size:17px; color:var(--loop-muted); max-width:570px; margin-top:28px!important; line-height:1.75; }
 .lp-actions { display:flex; align-items:center; flex-wrap:wrap; gap:22px; margin-top:32px; }
 .lp-text-link { font-size:12px; font-weight:600; text-decoration:underline; text-underline-offset:5px; }
@@ -96,7 +96,7 @@
 @media (max-width:1050px) {
   .lp-container { padding-left:32px; padding-right:32px; }
   .lp-header { padding:22px 30px; gap:24px; }.lp-header nav { gap:22px; }
-  .lp-hero { gap:35px; padding-top:70px; padding-bottom:70px; }.lp-hero h1 { font-size:72px; }
+  .lp-hero { gap:35px; padding-top:70px; padding-bottom:70px; }.lp-hero h1 { font-size:52px; }
   .lp-workspace { padding:0 20px; transform:none; }.lp-workspace__stages h3 { font-size:18px; }.lp-workspace__intro h2 { font-size:30px; }
   .lp-actions { align-items:flex-start; flex-direction:column; }
   .lp-ribbon { gap:40px; }.lp-feature-detail,.lp-faq,.lp-section-heading,.lp-statement>.lp-container { column-gap:50px; }
@@ -104,7 +104,7 @@
 @media (max-width:720px) {
   .lp-container { padding-left:24px; padding-right:24px; }.lp-header { padding:20px 24px; gap:20px; flex-wrap:wrap; }.lp-header .emg-wordmark { width:160px; height:auto; }
   .lp-header nav { order:3; width:100%; margin:0; justify-content:space-between; font-size:11px; gap:15px; }.lp-header>.lp-button { margin-left:auto; font-size:11px; }
-  .lp-hero { grid-template-columns:1fr; padding-top:48px; padding-bottom:48px; gap:45px; }.lp-hero h1 { font-size:64px; }.lp-lead { font-size:15px; }
+  .lp-hero { grid-template-columns:1fr; padding-top:48px; padding-bottom:48px; gap:45px; }.lp-hero h1 { font-size:44px; }.lp-lead { font-size:15px; }
   .lp-actions { gap:20px; }.lp-workspace { width:100%; max-width:500px; }.lp-workspace__intro { padding-top:35px; }.lp-workspace__stages h3 { font-size:18px; }
   .lp-workspace__stages { grid-template-columns:1fr; gap:0; }.lp-workspace__stages>div { display:grid; grid-template-columns:24px 1fr 40px; align-items:center; gap:8px; padding:15px 0; }.lp-workspace__stages h3 { margin:0; font-size:22px; }.lp-workspace__stages .lp-stage-line { width:100%; }
   .lp-ribbon { padding:20px 24px; justify-content:flex-start; gap:12px; flex-direction:column; font-size:9px; }
