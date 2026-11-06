@@ -1,39 +1,21 @@
 # EMG Loop — Project Status (where we left off)
 
-## Creator Hub completion — November 5, 2026
+## Creator Hub design refinement — November 5, 2026
 
-Production #442 is deployed at `6ce04e0078927f1eca47c7810392e866a21ae15d`
-(Netlify `6aecc2dc294c05b237c37dde`). #441 supplies the studio presentation;
-#442 supplies upload recovery. No further migration is required for the current follow-through.
+Production #443 is verified at `a34707b1bb1a96c25670f43cedf30b06836264a1`.
+Trevon's actual creator login shows 93 Outreach, 11 Conversations, 0 Active Deals,
+and 5 earlier/paused brands. The four previously active labels moved to Conversations
+with expandable history intact. Manual refresh queued successfully; fresh AI completion
+and the full historical inventory remain unverified. A transient connection reset on
+first post-deploy load recovered on reload. No migration was needed.
 
-Trevon's actual CREATOR login has been verified. Home shows 93 outreach brands,
-7 conversations and 4 negotiating labels, plus 5 earlier/paused brands. The one refresh
-button queued a review successfully. Brand/history expansion works; GOING is absent;
-the manager Creator Hub route redirects this creator to their own Home. Content upload
-UI and profile load; no production test media was uploaded and no email was sent.
-These observations establish UI and authorization behavior, not a completed Gmail inventory.
-
-**Correction in progress:** Matt flagged the active deals as incorrect. Gmail evidence
-confirms inquiry-only, affiliate-only and older/deferred proposals were admitted too
-readily. Unqualified legacy active-deal labels must fall back to Conversations until a
-stricter accepted paid partnership classification is accepted. Preserve every
-brand's history and existing AI caps/cooldowns. Active Deals requires an accepted brief or contract, or an approved payable tied to the agreed partnership; negotiations stay in Conversations; do not rerun all unchanged outreach to
-repair four active labels. Later campaign-window closures supersede earlier proposals. Model reanalysis and live corrected counts remain acceptance checks.
-
-The same follow-through connects the existing Work OS creator review notifications to
-Tasks and the shell bell, with creator/profile/content ownership checks, a working read
-marker and a preference that hides the feed without hiding required review tasks.
-Notification text is projected from creator-visible content; private work titles/bodies
-are never published. No parallel notification system, email or push delivery is added.
-
-Matt confirmed TikTok connection is awaiting developer approval. Treat this as an external
-approval dependency, not an application failure. No OAuth scopes or credentials change.
-Payouts still have no payment rail; no funds move and no bank details are collected.
-
-Current branch: `codex/creator-hub-completion-validation`. Validation and review are pending.
-Matt merges per the repository workflow. Whole-hub completion still requires corrected
-stage acceptance, real storage workflow evidence, refresh completion, cross-thread/source
-reconciliation and the explicitly external TikTok/payout decisions.
+The current design refinement replaces the generic welcome with a personalized studio
+hero, adds evidence-dated partnership previews, compacts the real account metrics and
+arranges tasks, content and insights into supporting grids. Existing tokens, permission
+boundaries, native disclosures, stale labels and the single refresh action are preserved.
+No new provider, scope, financial action or fabricated activity is introduced.
+Local file previews are blocked by the browser URL policy; visual QA against the
+actual Netlify preview remains required before calling the design verified.
 
 ## Headlines — #405 live; feed diagnostics and length repair follow-up (2026-10-19)
 

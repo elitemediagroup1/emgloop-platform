@@ -12,9 +12,10 @@ import Link from 'next/link';
 import type { ContentNotice, LibraryItem } from '@emgloop/database';
 import { creatorDeclaredSocialHandles, type TimeView } from '@emgloop/shared';
 import { ObservedTikTokReport } from './observed-tiktok-report';
+import { CreatorStudioWelcome } from './creator-studio-welcome';
 import { CreatorBrandUpdates } from './creator-brand-updates';
 import { settle } from '../app/app/_home/settle';
-import { LoopPage, PageHead, Panel, StateBlock, SummaryStrip } from '../app/app/_loop-os/record';
+import { LoopPage, Panel, StateBlock, SummaryStrip } from '../app/app/_loop-os/record';
 import { CreatorNoticePanel } from '../app/app/creator/_parts/notice-panel';
 import { CONTENT_STATE_TONES, OPPORTUNITY_TONES, Pill, compactNumber, moneyMinor } from '../app/app/creator/_parts/vocabulary';
 import { TaskList } from '../app/app/creator/_parts/task-list';
@@ -57,15 +58,7 @@ export async function CreatorHome({ seat, time }: { seat: CreatorSeat; time: Tim
 
   return (
     <LoopPage label="Loop Home">
-      <div className="ch-studio-welcome">
-        <div className="ch-studio-welcome__meta"><span>Creator Hub</span><span>{time.date(time.now)}</span></div>
-        <PageHead trail={[{ label: 'Your Loop' }]} title={`${time.greeting()}, ${seat.displayName}`} subtitle="Your partnerships, your content, and what comes next." actions={
-          <div className="loop-btnrow">
-            <Link className="loop-btn" href={CREATOR_HREFS.tasks}>Your tasks <span aria-hidden="true">↗</span></Link>
-            <Link className="loop-btn loop-btn--primary" href={CREATOR_HREFS.content}>Open content <span aria-hidden="true">↗</span></Link>
-          </div>
-        } />
-      </div>
+      <CreatorStudioWelcome displayName={seat.displayName} greeting={time.greeting()} date={time.date(time.now)} taskCount={tasks.ok ? needs.length : null} />
 
       {needsHandles ? <StateBlock kind="attention" title="Welcome — add your social handles" body="Finish your profile so EMG can review the right accounts for you." action={{ label: 'Complete your profile', href: CREATOR_HREFS.profile }} /> : null}
       <SummaryStrip
@@ -87,11 +80,11 @@ export async function CreatorHome({ seat, time }: { seat: CreatorSeat; time: Tim
       />
 
       <CreatorBrandUpdates seat={seat} time={time} />
+      <div className="ch-home ch-home--work">
       <Panel title="Things that need you">
         {!tasks.ok ? <Failed what="your tasks" /> : needs.length === 0 ? <StateBlock kind="empty" compact title="Nothing needs you right now." body="A returned edit or a deliverable due soon lands here." action={{ label: 'All tasks', href: CREATOR_HREFS.tasks }} /> : <TaskList tasks={needs} time={time} />}
       </Panel>
 
-      <div className="ch-home">
         <Panel title="Active opportunities">
           {!opportunities.ok ? (
             <Failed what="your opportunities" />
@@ -151,6 +144,7 @@ export async function CreatorHome({ seat, time }: { seat: CreatorSeat; time: Tim
         </Panel>
       </div>
 
+      <div className="ch-home ch-home--insights">
       {profile.ok ? <ObservedTikTokReport preferences={profile.value?.preferences} time={time} /> : null}
 
       {notice && !notice.ok ? (
@@ -160,6 +154,7 @@ export async function CreatorHome({ seat, time }: { seat: CreatorSeat; time: Tim
       ) : (
         <CreatorNoticePanel notice={notice?.ok ? notice.value : null} when={(iso) => time.dateTime(iso)} title={subject ? `What Loop noticed · ${subject.title}` : 'What Loop noticed'} />
       )}
+      </div>
     </LoopPage>
   );
 }

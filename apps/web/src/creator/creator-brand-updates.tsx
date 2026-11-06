@@ -78,13 +78,14 @@ export function CreatorBrandUpdatesView({ rows, time, sourceNote, actions }: { r
   const groups = [...brands.values()].sort((a, b) => a.brand.localeCompare(b.brand) || a.brandId.localeCompare(b.brandId));
   const other = groups.filter(g => !BUCKETS.some(b => (b.stages as readonly string[]).includes(latest(g)?.stage ?? '')));
   return <section className="loop-panel ch-brand-board" aria-label="Brand updates">
-    <header className="ch-brand-board__head"><div><h2 className="loop-panel__title">Brand updates</h2><p className="loop-panel__lead">Your outreach, conversations and active deals at a glance.</p></div>{actions}</header>
+    <header className="ch-brand-board__head"><div><span className="ch-studio-section-label">Your partnership pipeline</span><h2 className="loop-panel__title">Brand updates</h2><p className="loop-panel__lead">From first hello to agreed partnership.</p></div>{actions}</header>
     <div className="ch-brand-grid">
       {BUCKETS.map(bucket => {
         const selected = groups.filter(g => (bucket.stages as readonly string[]).includes(latest(g)?.stage ?? ''));
         const needsYou = selected.filter(g => latest(g)?.stage === 'AWAITING_CREATOR').length;
         const waiting = selected.filter(g => latest(g)?.stage === 'AWAITING_BRAND').length;
         const count = selected.length;
+        const recent = selected.map(g => ({ group: g, update: latest(g)! })).sort((a, b) => (b.update.evidenceAt?.getTime() ?? b.update.checkedAt?.getTime() ?? 0) - (a.update.evidenceAt?.getTime() ?? a.update.checkedAt?.getTime() ?? 0) || a.group.brandId.localeCompare(b.group.brandId))[0];
         return <section className="loop-card ch-brand-stage" key={bucket.title} aria-label={bucket.title} data-brand-stage={bucket.title}>
           <div className="ch-brand-stage__top"><span className="ch-brand-stage__symbol" aria-hidden="true"><StageSymbol title={bucket.title} /></span><span className="ch-brand-stage__count" aria-hidden="true">{count}</span></div>
           <h3>{bucket.title}</h3>
@@ -92,6 +93,12 @@ export function CreatorBrandUpdatesView({ rows, time, sourceNote, actions }: { r
             : bucket.title === 'Conversations' ? `${count} ${count === 1 ? 'brand conversation is' : 'brand conversations are'} underway. ${waiting} waiting on the brand; ${needsYou} need you.`
             : `${count} ${count === 1 ? 'brand has' : 'brands have'} an agreed partnership underway.`
             : bucket.empty}</p>
+          {recent ? <div className="ch-brand-glance">
+            <span className="ch-brand-glance__label">{recent.update.current ? 'Latest development' : 'Latest known development'}</span>
+            <strong>{recent.group.brand}</strong>
+            <p>{recent.update.summary}</p>
+            <span className="ch-brand-glance__date">{recent.update.evidenceAt ? time.date(recent.update.evidenceAt) : 'Source date unavailable'}{recent.update.current ? '' : ' · Awaiting updated review'}</span>
+          </div> : <div className="ch-brand-glance ch-brand-glance--empty"><span className="ch-brand-glance__label">{bucket.title === 'Active deals' ? 'Built on an agreement' : 'Your next chapter'}</span><p>{bucket.title === 'Active deals' ? 'Accepted partnerships appear here once supported by a brief, contract or approved partnership payable.' : 'Your team’s accepted updates will appear here.'}</p></div>}
           {count ? <details className="ch-brand-expand"><summary>View {bucket.title.toLowerCase()} · {count} {count === 1 ? 'brand' : 'brands'}</summary>
             <p className="loop-note">{bucket.description} Open a brand for its summaries and next steps.</p>
             {selected.map(group => <Brand key={group.brandId} group={group} time={time} />)}

@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createTimeView } from '@emgloop/shared';
+import { CreatorStudioWelcome } from '../src/creator/creator-studio-welcome';
 import { CreatorBrandUpdatesView } from '../src/creator/creator-brand-updates';
 import type { PublishedCreatorBrandUpdate } from '@emgloop/database';
 const at = new Date('2026-10-29T18:00:00Z');
@@ -101,4 +102,27 @@ test('a consolidated relationship determines the stage instead of a later unansw
   assert.match(html, /No current active deals are shared yet/);
   assert.match(html, /Consolidated across accepted authorized conversations/);
   assert.doesNotMatch(html, /EMG has reached out to 1/);
+});
+
+
+test('stage previews use source chronology and explicitly mark stale accepted evidence', () => {
+  const html = renderToStaticMarkup(<CreatorBrandUpdatesView time={time} rows={[
+    row({ id: 'older', brand: 'Earlier Brand', summary: 'Earlier accepted development.', evidenceAt: new Date(at.getTime() - 1000), generatedAt: new Date(at.getTime() + 1000) }),
+    row({ id: 'newer', brandId: 'newer', brand: 'Recent Brand', current: false, summary: 'Most recent accepted development.' }),
+    row({ id: 'pending', brandId: 'pending', brand: 'Pending Brand', stage: null, summary: null }),
+  ]} />);
+  const glance = html.match(/class="ch-brand-glance">([\s\S]*?)<\/div>/)?.[1] ?? '';
+  assert.match(glance, /Recent Brand/);
+  assert.match(glance, /Latest known development/);
+  assert.match(glance, /Awaiting updated review/);
+  assert.doesNotMatch(glance, /Earlier Brand|Pending Brand|mail_message:/);
+});
+
+
+test('studio welcome distinguishes unknown tasks from caught-up and actionable states', () => {
+  const welcome = (taskCount: number | null) => renderToStaticMarkup(<CreatorStudioWelcome displayName="Creator" greeting="Good afternoon" date="Nov 5, 2026" taskCount={taskCount} />);
+  assert.match(welcome(null), /Check your tasks/);
+  assert.doesNotMatch(welcome(null), /all caught up/);
+  assert.match(welcome(0), /all caught up/);
+  assert.match(welcome(2), /2 things need/);
 });
