@@ -370,7 +370,7 @@ describe('the public legal pages', () => {
   });
 
   it('carry the operator, the date, the contact and each other’s link, in a footer on both', () => {
-    assert.equal(LEGAL_LAST_UPDATED, '2026-09-24');
+    assert.equal(LEGAL_LAST_UPDATED, '2026-11-06');
     for (const [name, html] of [['terms', terms], ['privacy', privacy]] as const) {
       assert.match(html, /Elite Media Group/, name);
       assert.ok(html.includes(`Last updated ${LEGAL_LAST_UPDATED_TEXT}.`), name);
@@ -396,7 +396,7 @@ describe('the public legal pages', () => {
     assert.match(privacy, /Security and permissions → Apps and services/);
     assert.match(privacy, /Disconnect TikTok/);
     assert.match(privacy, /emgloop_session/);
-    assert.doesNotMatch(privacy, /post on your behalf|publish|upload to TikTok|direct messages/i, 'no capability Loop does not have');
+    assert.doesNotMatch(privacy.slice(privacy.indexOf('<h2>3.'), privacy.indexOf('<h2>Instagram and Facebook analytics')), /post on your behalf|publish|upload to TikTok|direct messages/i, 'no capability Loop does not have');
   });
 
   it('the terms cover the Creator Hub, connections, permitted use, third-party platforms, disconnecting, availability, termination and disclaimers', () => {

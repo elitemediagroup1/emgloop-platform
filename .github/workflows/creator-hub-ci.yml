@@ -16,6 +16,14 @@ on:
       - 'packages/shared/src/creator/**'
       - 'apps/web/test/creator-*.test.tsx'
       - 'apps/web/test/tiktok-login-kit.test.tsx'
+      - 'apps/web/src/meta/**'
+      - 'apps/web/test/meta-*.test.tsx'
+      - 'apps/connections-worker/src/meta-analytics-host.ts'
+      - 'apps/web/src/app/api/integrations/meta/**'
+      - 'packages/providers/src/meta/**'
+      - 'packages/database/src/services/meta/**'
+      - 'packages/database/src/repositories/meta-connection.repository.ts'
+      - 'packages/database/test/meta-*.test.ts'
       - 'packages/shared/src/ai/creator-brand-update.ts'
       - '.github/workflows/creator-hub-ci.yml'
 
@@ -38,7 +46,7 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
       - name: Creator UI and access contracts
-        run: node --import tsx --test apps/web/test/creator-*.test.tsx apps/web/test/one-loop-shell.test.tsx apps/web/test/tiktok-login-kit.test.tsx
+        run: node --import tsx --test apps/web/test/creator-*.test.tsx apps/web/test/one-loop-shell.test.tsx apps/web/test/tiktok-login-kit.test.tsx apps/web/test/meta-*.test.tsx
 
   creator-production:
     runs-on: ubuntu-latest
@@ -72,3 +80,6 @@ jobs:
         run: npm run -w @emgloop/database migrate:deploy
       - name: Creator production lifecycle and isolation
         run: node --import tsx --test packages/database/test/creator-production.postgres.test.ts
+
+      - name: Meta OAuth isolation and lifecycle
+        run: node --import tsx --test packages/database/test/meta-*.test.ts packages/providers/test/meta-api.test.ts

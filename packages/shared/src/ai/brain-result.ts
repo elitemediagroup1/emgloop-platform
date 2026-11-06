@@ -100,6 +100,7 @@ export const BRAIN_RESULT_SUBJECT_TYPES = [
   // is the CRM's shared record of the business talking to a customer, and this is somebody's
   // private correspondence, which never becomes the other by being drafted against.
   'CREATOR_BRAND_THREAD',
+  'CREATOR_ANALYTICS',
   'EMPLOYEE_MAIL_THREAD',
   // One conversation in one employee's own background source (e.g. Telegram). Deliberately not
   // EMPLOYEE_MAIL_THREAD (that is mail) and not CUSTOMER_CONVERSATION (that is the CRM's shared
@@ -161,6 +162,7 @@ export const BRAIN_OWNERSHIP_RULES: readonly BrainOwnershipRule[] = Object.freez
   // Loop Intelligence (2026-09-26). Each lands in exactly one governed store and proposes nothing.
   rule('TRIAGE', 'EMPLOYEE_INTELLIGENCE', 'EMPLOYEE_MAIL_THREAD', 'a mail thread reading held privately as the employee\'s own MAIL digest'),
   rule('ANALYSIS', 'EMPLOYEE_INTELLIGENCE', 'EMPLOYEE_DOMAIN', 'a person\'s own domain reading, stored as their PRINCIPAL digest'),
+  rule('ANALYSIS', 'LOOP_INTELLIGENCE', 'CREATOR_ANALYTICS', 'a creator-private reading citing their immutable Meta analytics observations'),
   rule('ANALYSIS', 'LOOP_INTELLIGENCE', 'ORGANIZATION_DOMAIN', 'an organization domain reading over Loop records, stored as an ORGANIZATION digest'),
   rule('ANALYSIS', 'LOOP_INTELLIGENCE', 'SITUATION', 'a connected situation, stored as a Case with the evidence it cites'),
   rule('ANALYSIS', 'LOOP_INTELLIGENCE', 'SITUATION_CLAIMS', 'an independent check of a situation\'s claims, recorded on that Case'),

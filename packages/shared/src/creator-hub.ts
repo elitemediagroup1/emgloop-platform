@@ -96,10 +96,11 @@ export const COMPENSATION_STATE_LABELS: Record<CompensationState, string> = {
 export const PAYABLE_COMPENSATION_STATE: CompensationState = 'AVAILABLE';
 
 /** Where a piece of evidence came from. SEEDED_DEMO is labelled wherever it appears. */
-export const EVIDENCE_SOURCES = ['PLATFORM', 'PUBLIC_PROFILE', 'TIKTOK_ONE_MANUAL', 'SEEDED_DEMO'] as const;
+export const EVIDENCE_SOURCES = ['PLATFORM', 'META_GRAPH', 'PUBLIC_PROFILE', 'TIKTOK_ONE_MANUAL', 'SEEDED_DEMO'] as const;
 export type EvidenceSource = (typeof EVIDENCE_SOURCES)[number];
 export const EVIDENCE_SOURCE_LABELS: Record<EvidenceSource, string> = {
   PLATFORM: 'from the platform',
+  META_GRAPH: 'Meta Graph API',
   PUBLIC_PROFILE: 'public profile observation (counts may be rounded)',
   TIKTOK_ONE_MANUAL: 'TikTok One observation (not an API connection)',
   SEEDED_DEMO: 'seeded demo data',

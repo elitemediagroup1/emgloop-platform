@@ -1,0 +1,75 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { randomUUID } from 'crypto';
+import { PrismaClient } from '@prisma/client';
+import { MetaConnectionRepository } from '../src/repositories/meta-connection.repository';
+import { MetaTokenSealer } from '../src/services/meta/meta-token-sealer';
+import { IamRepository } from '../src/repositories/iam.repository';
+const url = process.env.LOOP_TEST_POSTGRES_URL ?? '';
+const local = /^postgres(ql)?:\/\/[^@]*@(localhost|127\.0\.0\.1)(:\d+)?\//.test(url);
+test('Meta session replay, creator isolation, grant ownership, withdrawal barrier and offboarding', { skip: !local ? 'requires disposable localhost PostgreSQL' : false }, async () => {
+  const db = new PrismaClient({ datasources: { db: { url } } });
+  const org = `meta-${randomUUID()}`;
+  const foreign = `meta-${randomUUID()}`;
+  try {
+    for (const id of [org, foreign]) await db.organization.create({ data: { id, name: id, slug: id } });
+    const make = async (organizationId: string) => {
+      const userId = randomUUID();
+      await db.user.create({ data: { id: userId, organizationId, name: 'Creator', email: `${userId}@example.test`, status: 'ACTIVE', metadata: { systemRole: 'CREATOR' } } });
+      await db.organizationMembership.create({ data: { organizationId, userId, systemRole: 'CREATOR', status: 'ACTIVE' } });
+      const creator = await db.creatorProfile.create({ data: { organizationId, userId, partyId: randomUUID(), displayName: 'Creator' } });
+      return { organizationId, userId, creatorProfileId: creator.id };
+    };
+    const a = await make(org), b = await make(org), other = await make(foreign);
+    const repo = new MetaConnectionRepository(db);
+    const sealer = new MetaTokenSealer(new Uint8Array(32).fill(1));
+    const now = new Date();
+    assert.equal(await repo.openState(a, 'session-a', 'state-a', now), true);
+    assert.equal(await repo.consumeState(a, 'session-b', 'state-a', now), false);
+    assert.equal(await repo.consumeState(b, 'session-a', 'state-a', now), false);
+    assert.equal(await repo.consumeState(other, 'session-a', 'state-a', now), false);
+    assert.equal(await repo.consumeState(a, 'session-a', 'state-a', now), true);
+    assert.equal(await repo.consumeState(a, 'session-a', 'state-a', now), false);
+    await repo.stage(a, 'session-a', 'state-a', { tokenSealed: sealer.seal(a, 'attempt:state-a', 'token'), metaUserId: '99', tokenExpiresAt: new Date(+now + 3600_000), scopes: ['read_insights'] });
+    const pending = await repo.pending(a, 'session-a');
+    assert.ok(pending);
+    const grant = { metaUserId: '99', pageId: '111', instagramId: '222', pageName: 'Chosen page', tokenSealed: sealer.seal(a, 'grant:99:111', 'token'), tokenExpiresAt: new Date(+now + 3600_000), scopes: ['read_insights'] };
+    assert.equal(await repo.connect(a, 'session-a', pending.id, grant), true);
+    await repo.openState(b, 'session-b', 'state-other', new Date());
+    await repo.consumeState(b, 'session-b', 'state-other', new Date());
+    await repo.stage(b, 'session-b', 'state-other', { tokenSealed: sealer.seal(b, 'attempt:state-other', 'token'), metaUserId: '88', tokenExpiresAt: grant.tokenExpiresAt, scopes: grant.scopes });
+    const otherPending = await repo.pending(b, 'session-b');
+    assert.ok(otherPending);
+    await assert.rejects(repo.connect(b, 'session-b', otherPending.id, { ...grant, metaUserId: '88', tokenSealed: sealer.seal(b, 'grant:88:111', 'token') }), (error: unknown) => (error as { code?: string }).code === 'P2002');
+    assert.equal(await repo.status({ ...a, organizationId: foreign }), null);
+    assert.equal(await repo.status(b), null);
+    const claimed = await repo.claim(a);
+    assert.ok(claimed?.leaseId);
+    assert.equal(await repo.claim(a), null);
+    const report = { platform: 'INSTAGRAM' as const, accountId: '222', name: 'Chosen account', followers: 10, windowStart: '2026-10-09T00:00:00Z', windowEnd: '2026-11-06T00:00:00Z', metrics: [], media: [], limitations: [] };
+    assert.equal(await repo.publish(a, claimed.id, claimed.leaseId, [report], new Date()), true);
+    assert.equal((await repo.observations(a)).length, 1);
+    assert.equal((await repo.observations(b)).length, 0);
+    await db.metaConnection.update({ where: { id: claimed.id }, data: { nextSyncAt: now } });
+    const inflight = await repo.claim(a);
+    assert.ok(inflight?.leaseId);
+    assert.equal(await repo.disconnect(a), true);
+    assert.equal(await repo.publish(a, inflight.id, inflight.leaseId, [report], new Date()), false);
+    assert.equal((await db.metaConnection.findUnique({ where: { id: claimed.id } }))?.tokenSealed, null);
+    // Reconnect, then disable via the real membership lifecycle: credential ends in that transaction.
+    await repo.openState(a, 'session-a', 'state-b', new Date());
+    await repo.consumeState(a, 'session-a', 'state-b', new Date());
+    await repo.stage(a, 'session-a', 'state-b', { tokenSealed: sealer.seal(a, 'attempt:state-b', 'token'), metaUserId: '99', tokenExpiresAt: grant.tokenExpiresAt, scopes: grant.scopes });
+    const again = await repo.pending(a, 'session-a');
+    assert.ok(again);
+    await repo.connect(a, 'session-a', again.id, grant);
+    await new IamRepository(db).disableMember(org, a.userId);
+    assert.equal((await db.metaConnection.findUnique({ where: { id: claimed.id } }))?.tokenSealed, null);
+    await repo.eraseVerifiedMetaUser('99', true);
+    assert.equal(await db.metaAnalyticsObservation.count({ where: { organizationId: org } }), 0);
+    assert.equal(await db.creatorAudienceSnapshot.count({ where: { organizationId: org, source: 'META_GRAPH' } }), 0);
+  } finally {
+    await db.organization.deleteMany({ where: { id: { in: [org, foreign] } } });
+    await db.$disconnect();
+  }
+});

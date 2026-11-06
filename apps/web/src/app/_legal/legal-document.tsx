@@ -19,8 +19,8 @@ export const LEGAL_OPERATOR = 'Elite Media Group';
 export const LEGAL_PRODUCT = 'EMG Loop';
 export const LEGAL_CONTACT_EMAIL = 'hello@elitemediagroup.io';
 /** ISO date of the current text of both documents. A change to either updates this. */
-export const LEGAL_LAST_UPDATED = '2026-09-24';
-export const LEGAL_LAST_UPDATED_TEXT = '24 September 2026';
+export const LEGAL_LAST_UPDATED = '2026-11-06';
+export const LEGAL_LAST_UPDATED_TEXT = '6 November 2026';
 
 export const LEGAL_PATHS = Object.freeze({ terms: '/terms', privacy: '/privacy' } as const);
 

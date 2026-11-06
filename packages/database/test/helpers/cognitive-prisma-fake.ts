@@ -521,6 +521,9 @@ const DELEGATES = [
   // TikTok Login Kit connection (Creator Hub): the creator seat's own connection and attempts.
   'tikTokConnection',
   'tikTokOAuthState',
+  // Meta grants end atomically with membership, like Google and source connections.
+  'metaConnection',
+  'metaOAuthState',
   // A person's work state. Always present for the same reason: ending a membership
   // deletes the person's work rows in the same transaction (WorkErasureRepository).
   'workSourceCursor',

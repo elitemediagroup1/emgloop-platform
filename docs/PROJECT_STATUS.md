@@ -1,3 +1,7 @@
+## Meta creator analytics — implemented for review, not live (2026-11-06)
+
+Branch `feat/meta-creator-analytics` adds creator-bound Facebook Login, explicit Page/linked Instagram selection, encrypted grants, source-labelled analytics observations, a scheduled refresh channel in the existing worker, creator-private OpenAI interpretations through the governed runtime, and signed deauthorization/deletion callbacks. The new task uses existing domain-reading and global AI limits. Additive migration `20261106000000_meta_creator_analytics` is not applied to production. Meta app creation is prepared under verified `elite_media_group_`; its final terms-accepting button is pending. Credentials, task activation, worker deployment, App Review and real-account acceptance remain. See `docs/runbooks/meta-creator-analytics.md`.
+
 # EMG Loop — Project Status (where we left off)
 
 ## Public product website and TikTok review — November 6, 2026

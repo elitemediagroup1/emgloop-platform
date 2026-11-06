@@ -1,3 +1,4 @@
+import { MetaConnectionPanel } from '../../../../meta/meta-panels';
 import { EVIDENCE_SOURCE_LABELS, type EvidenceSource, SOCIAL_PLATFORMS, SOCIAL_PLATFORM_LABELS, creatorDeclaredSocialHandles, tiktokSocialAccountOf } from '@emgloop/shared';
 import { requireWorkspace } from '../../../../workspaces/guard';
 import { creatorDomain, requireCreator } from '../../../../creator/creator-runtime';
@@ -11,7 +12,7 @@ import { Pill, compactNumber, param, refusalText } from '../_parts/vocabulary';
 import { TikTokConnectionRow, readTikTokEntry, tiktokOutcomeParam, type TikTokReadProblem } from '../_parts/tiktok-connection';
 
 // Profile (Creator Hub): what the creator maintains about themselves, and the honest state of
-// everything Loop cannot do yet. TikTok is the one platform a creator can connect (Login Kit);
+// everything Loop cannot do yet. TikTok and Meta have separate consent connections;
 // the other platforms' controls are labelled and inert, never a button that pretends. Payouts
 // are not built. Rate information appears only when EMG designated it visible to the creator.
 //
@@ -127,6 +128,8 @@ export default async function CreatorProfilePage({ searchParams }: { searchParam
         </form>
       </Panel>
 
+      <MetaConnectionPanel principal={{ organizationId: seat.actor.organizationId, userId: seat.actor.userId, creatorProfileId: seat.profileId }} outcome={param(searchParams.meta) ?? undefined} />
+
       <Panel title="Social accounts">
         {tiktokStatus.ok ? (
           <TikTokConnectionRow status={tiktokStatus.value} entry={tiktokEntry} outcome={tiktokOutcomeParam(searchParams.tiktok)} readProblem={readProblem} time={time} />
@@ -135,7 +138,7 @@ export default async function CreatorProfilePage({ searchParams }: { searchParam
         )}
         {social.length === 0 ? null : (
           <ul className="ch-list" aria-label="Other social accounts" style={{ marginTop: 12 }}>
-            {social.map((s) => (
+            {social.filter(s => !['INSTAGRAM', 'FACEBOOK'].includes(s.platform)).map((s) => (
               <li key={`${s.platform}:${s.handle ?? ''}`} className="ch-row ch-row--static" data-social-state={s.state}>
                 <span className="ch-row__main">
                   <span className="ch-row__title">{(SOCIAL_PLATFORM_LABELS as Record<string, string>)[s.platform] ?? s.platform}</span>
