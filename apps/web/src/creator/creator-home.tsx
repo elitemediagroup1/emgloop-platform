@@ -12,6 +12,7 @@ import Link from 'next/link';
 import type { ContentNotice, LibraryItem } from '@emgloop/database';
 import { creatorDeclaredSocialHandles, type TimeView } from '@emgloop/shared';
 import { ObservedTikTokReport } from './observed-tiktok-report';
+import { CreatorPublicContent, creatorPublicMedia } from './creator-public-media';
 import { CreatorStudioWelcome } from './creator-studio-welcome';
 import { CreatorBrandUpdates } from './creator-brand-updates';
 import { settle } from '../app/app/_home/settle';
@@ -32,6 +33,7 @@ export async function CreatorHome({ seat, time }: { seat: CreatorSeat; time: Tim
   const domain = creatorDomain();
   const s = seatOf(seat);
   const profile = await settle(() => domain.creator.profileById(seat.actor.organizationId, seat.profileId));
+  const publicMedia = profile.ok ? creatorPublicMedia(profile.value?.preferences) : null;
   const needsHandles = profile.ok && Object.keys(creatorDeclaredSocialHandles(profile.value?.preferences)).length === 0;
   const [tasks, opportunities, library, earnings, analytics] = await Promise.all([
     settle(() => domain.records.tasks(seat.actor, { content: CREATOR_HREFS.contentRecord, profile: CREATOR_HREFS.profile })),
@@ -59,11 +61,13 @@ export async function CreatorHome({ seat, time }: { seat: CreatorSeat; time: Tim
   return (
     <LoopPage label="Loop Home">
       <div className="ch-studio-home">
-      <CreatorStudioWelcome displayName={seat.displayName} greeting={time.greeting()} date={time.date(time.now)} taskCount={tasks.ok ? needs.length : null} />
+      <div className={`ch-editorial-top${publicMedia ? ' ch-editorial-top--portrait' : ''}`}>
+      <CreatorStudioWelcome media={publicMedia} displayName={seat.displayName} greeting={time.greeting()} date={time.date(time.now)} taskCount={tasks.ok ? needs.length : null} />
 
       {needsHandles ? <StateBlock kind="attention" title="Welcome — add your social handles" body="Finish your profile so EMG can review the right accounts for you." action={{ label: 'Complete your profile', href: CREATOR_HREFS.profile }} /> : null}
       <CreatorBrandUpdates seat={seat} time={time} />
-      <SummaryStrip
+      </div>
+      <div className="ch-editorial-metrics"><SummaryStrip
         label="At a glance"
         items={[
           {
@@ -79,9 +83,10 @@ export async function CreatorHome({ seat, time }: { seat: CreatorSeat; time: Tim
           },
           { label: 'Content in progress', value: library.ok ? String(inMotion.length) : null, unknownText: 'Could not read' },
         ]}
-      />
+      /></div>
 
       <div className="ch-home ch-home--work">
+      {publicMedia ? <CreatorPublicContent media={publicMedia} /> : null}
       <Panel title="Things that need you">
         {!tasks.ok ? <Failed what="your tasks" /> : needs.length === 0 ? <StateBlock kind="empty" compact title="Nothing needs you right now." body="A returned edit or a deliverable due soon lands here." action={{ label: 'All tasks', href: CREATOR_HREFS.tasks }} /> : <TaskList tasks={needs} time={time} />}
       </Panel>
@@ -115,7 +120,7 @@ export async function CreatorHome({ seat, time }: { seat: CreatorSeat; time: Tim
           </p>
         </Panel>
 
-        <Panel title="Content in progress">
+        {!library.ok || inMotion.length > 0 ? <Panel title="Content in progress">
           {!library.ok ? (
             <Failed what="your content" />
           ) : inMotion.length === 0 ? (
@@ -142,7 +147,7 @@ export async function CreatorHome({ seat, time }: { seat: CreatorSeat; time: Tim
           <p className="loop-note" style={{ marginTop: 10 }}>
             <Link href={CREATOR_HREFS.content}>All content →</Link>
           </p>
-        </Panel>
+        </Panel> : null}
       </div>
 
       <div className="ch-home ch-home--insights">

@@ -135,3 +135,15 @@ test('unavailable sharing retains all three tiles without fabricating zero count
   assert.match(html, /Counts and summaries cannot be loaded here/);
   assert.doesNotMatch(html, /View outreach|View conversations|View active deals|ch-brand-stage__count" aria-hidden="true">0/);
 });
+
+
+test('reviewed public imagery follows the bound profile handles, never a matching display name', async () => {
+  const { creatorPublicMedia } = await import('../src/creator/creator-public-media');
+  assert.equal(creatorPublicMedia(null), null);
+  assert.equal(creatorPublicMedia({ socialHandles: { INSTAGRAM: '@someoneelse' } }), null);
+  assert.equal(creatorPublicMedia({ socialHandles: { INSTAGRAM: 'https://evil.test/trevonbassmaster/' } }), null);
+  const media = creatorPublicMedia({ socialHandles: { INSTAGRAM: 'https://www.instagram.com/trevonbassmaster/' } });
+  assert.ok(media);
+  assert.equal(media.videos.length, 3);
+  assert.match(media.portraitSource, /instagram.com\/trevonbassmaster\/p\//);
+});

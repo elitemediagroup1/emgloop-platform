@@ -77,7 +77,7 @@ export function CreatorBrandUpdatesView({ rows, time, sourceNote, actions, avail
   const groups = [...brands.values()].sort((a, b) => a.brand.localeCompare(b.brand) || a.brandId.localeCompare(b.brandId));
   const other = groups.filter(g => !BUCKETS.some(b => (b.stages as readonly string[]).includes(latest(g)?.stage ?? '')));
   return <section className="loop-panel ch-brand-board" aria-label="Brand updates">
-    <header className="ch-brand-board__head"><div><span className="ch-studio-section-label">Your partnership pipeline</span><h2 className="loop-panel__title">Brand updates</h2><p className="loop-panel__lead">From first hello to agreed partnership.</p></div>{actions}</header>
+    <header className="ch-brand-board__head"><div><span className="ch-studio-section-label">Your partnership activity</span><h2 className="loop-panel__title">Brand updates</h2><p className="loop-panel__lead">From first hello to agreed partnership.</p></div>{actions}</header>
     <div className="ch-brand-grid">
       {BUCKETS.map(bucket => {
         const selected = groups.filter(g => (bucket.stages as readonly string[]).includes(latest(g)?.stage ?? ''));

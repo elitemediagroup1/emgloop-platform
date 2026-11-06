@@ -9,13 +9,18 @@ with expandable history intact. Manual refresh queued successfully; fresh AI com
 and the full historical inventory remain unverified. A transient connection reset on
 first post-deploy load recovered on reload. No migration was needed.
 
-Draft #444 is being revised after Matt rejected the banner-led design. The revision
-removes slogan copy and the oversized welcome, puts the three partnership tiles first,
-and applies a consistent dark treatment to Creator Home only. The preview was observed
-with Trevon's real creator account: the brand section was absent because the sharing-disabled
-path returned null. Disabled/unavailable reads now retain all three tiles with explicitly
-unknown counts, without enabling email access, fabricating zeroes or exposing stored mail.
-The actual preview environment authorization value has not been changed.
+Draft #444 now implements Matt’s selected porcelain editorial mockup with the existing
+EMG navy/teal tokens, serif typography, fine rules, a horizontal desktop treatment of
+the existing navigation registry, and three expandable partnership columns. The compact
+mobile navigation remains unchanged. Real public photos were verified and downloaded
+from Trevon’s Instagram plus three thumbnails from his actual YouTube channel; source
+provenance lives beside the assets. The reviewed selection is bound to the current
+profile’s declared Instagram handle and is explicitly labeled as selected, not synced.
+TikTok’s public profile was verified, but its video grid failed to load. No fake photos,
+generated likeness, stock images, new OAuth scopes or fabricated feed activity are used.
+Automatic multi-platform discovery is not implemented by this presentation change.
+The existing sharing-disabled preview keeps three visible unavailable tiles without
+bypassing publication permission. Production was last verified at 93/11/0.
 
 ## Headlines — #405 live; feed diagnostics and length repair follow-up (2026-10-19)
 
