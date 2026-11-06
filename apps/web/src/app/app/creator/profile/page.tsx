@@ -128,7 +128,7 @@ export default async function CreatorProfilePage({ searchParams }: { searchParam
         </form>
       </Panel>
 
-      <MetaConnectionPanel principal={{ organizationId: seat.actor.organizationId, userId: seat.actor.userId, creatorProfileId: seat.profileId }} outcome={param(searchParams.meta) ?? undefined} />
+      <MetaConnectionPanel principal={{ organizationId: seat.actor.organizationId, userId: seat.actor.userId, creatorProfileId: seat.profileId }} outcome={param(searchParams.meta) ?? undefined} reference={param(searchParams.meta_ref) ?? undefined} />
 
       <Panel title="Social accounts">
         {tiktokStatus.ok ? (

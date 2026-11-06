@@ -24,6 +24,30 @@ test('code exchange is server-side, exchanges long-lived token and records actua
   const body = new URLSearchParams(String(calls[1]!.init?.body));
   assert.equal(body.get('grant_type'), 'fb_exchange_token');
 });
+test('authorization failures identify the failing exchange without retaining provider text or credentials', async () => {
+  for (const [stage, prefix] of [
+    ['CODE_EXCHANGE', []],
+    ['LONG_LIVED_EXCHANGE', [{ access_token: 'private-short-token' }]],
+    ['IDENTITY_READ', [{ access_token: 'private-short-token' }, { access_token: 'private-long-token', expires_in: 5000 }]],
+    ['PERMISSIONS_READ', [{ access_token: 'private-short-token' }, { access_token: 'private-long-token', expires_in: 5000 }, { id: '999' }]],
+  ] as const) {
+    const { api } = network([...prefix, { error: { code: 190, error_subcode: 467, message: 'private-provider-body', fbtrace_id: 'private-trace' } }]);
+    await assert.rejects(api.exchange('private-authorization-code'), (error: unknown) => {
+      assert.ok(error instanceof MetaApiError);
+      assert.deepEqual(error.diagnostic, { stage, httpStatus: 200, graphCode: 190, graphSubcode: 467 });
+      assert.equal(error.failure, 'TOKEN_EXPIRED');
+      assert.doesNotMatch(JSON.stringify(error), /private-|secret-test-only/);
+      return true;
+    });
+  }
+});
+test('missing expiry and malformed permission response fail closed with distinct diagnostics', async () => {
+  const missingExpiry = network([{ access_token: 'short' }, { access_token: 'long' }]);
+  await assert.rejects(missingExpiry.api.exchange('code'), (error: unknown) => error instanceof MetaApiError && error.diagnostic.stage === 'LONG_LIVED_EXCHANGE' && error.diagnostic.invalidResponse === 'EXPIRY_MISSING');
+  assert.equal(missingExpiry.calls.length, 2);
+  const missingPermissions = network([{ access_token: 'short' }, { access_token: 'long', expires_in: 5000 }, { id: '999' }, {}]);
+  await assert.rejects(missingPermissions.api.exchange('code'), (error: unknown) => error instanceof MetaApiError && error.diagnostic.stage === 'PERMISSIONS_READ' && error.diagnostic.invalidResponse === 'PERMISSIONS_MISSING');
+});
 test('page enumeration uses cursors on fixed origin and filters pages without ANALYZE/MANAGE tasks', async () => {
   const { api, calls } = network([{ data: [{ id: '1', name: 'Allowed', access_token: 'page-token', tasks: ['ANALYZE'], instagram_business_account: { id: '3' } }, { id: '2', access_token: 'other-token', tasks: ['MESSAGING'] }], paging: { next: 'https://attacker.test/?access_token=secret', cursors: { after: 'cursor-a' } } }, { data: [] }]);
   const pages = await api.pages('user-token');

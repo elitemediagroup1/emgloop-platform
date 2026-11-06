@@ -5,7 +5,7 @@ import { MetaTokenSealer } from '../src/services/meta/meta-token-sealer';
 import { verifyMetaSignedRequest, metaDeletionReceipt, verifyMetaDeletionReceipt } from '../src/services/meta/meta-signed-request';
 import { MetaService } from '../src/services/meta/meta.service';
 import type { MetaConnectionRepository } from '../src/repositories/meta-connection.repository';
-import { MetaApi } from '@emgloop/providers';
+import { MetaApi, META_SCOPES } from '@emgloop/providers';
 const p = { organizationId: 'org-a', userId: 'user-a', creatorProfileId: 'creator-a' };
 test('Meta credentials cannot be opened under another creator, tenant, purpose or key', () => {
   const sealer = new MetaTokenSealer(new Uint8Array(32).fill(1));
@@ -40,4 +40,18 @@ test('invalid/replayed state is rejected before token exchange; declined consent
   assert.equal(await service.callback(p, 'session-a', { ...input, error: null }), 'STATE_INVALID');
   assert.equal(await service.callback(p, 'session-a', { ...input, state: 'invalid' }), 'STATE_INVALID');
   assert.equal(exchanged, 0);
+});
+test('OAuth callback completes before Page or Instagram discovery; account linkage cannot cause an exchange failure', async () => {
+  let staged = false, calls = 0;
+  const repo = { consumeState: async () => true, stage: async () => { staged = true; return true; } } as unknown as MetaConnectionRepository;
+  const responses = [{ access_token: 'short' }, { access_token: 'long', expires_in: 5000 }, { id: '999' }, { data: META_SCOPES.map(permission => ({ permission, status: 'granted' })) }];
+  const api = new MetaApi({ appId: '123', appSecret: 'secret', version: 'v25.0', redirectUri: 'https://app.emgloop.com/api/integrations/meta/callback' }, async url => {
+    assert.ok(!String(url).includes('/accounts'));
+    calls++;
+    return new Response(JSON.stringify(responses.shift()));
+  });
+  const service = new MetaService(repo, { api, sealer: new MetaTokenSealer(new Uint8Array(32).fill(1)) });
+  assert.equal(await service.callback(p, 'session-a', { state: 'a'.repeat(43), code: 'code', error: null }), 'SELECT_ACCOUNT');
+  assert.equal(staged, true);
+  assert.equal(calls, 4);
 });
