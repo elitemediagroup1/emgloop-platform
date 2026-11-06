@@ -103,9 +103,10 @@ describe('Every sign-in path uses the landing authority', () => {
     assert.match(page, /\{next \? <input type="hidden" name="next" value=\{next\} \/> : null\}/);
   });
 
-  it('the root sends a signed-in visitor to Loop Home and keeps a safe destination for sign-in', () => {
+  it('the root sends a signed-in visitor to Loop Home and offers signed-out visitors the public website with a safe sign-in link', () => {
     const root = code(read('app/page.tsx'));
-    assert.match(root, /redirect\(session \? LOOP_HOME : loginPathFor\(searchParams\?\.next\)\);/);
+    assert.match(root, /if \(session\) redirect\(LOOP_HOME\);/);
+    assert.match(root, /return <ProductHome signInHref=\{loginPathFor\(searchParams\?\.next\)\} \/>;/);
   });
 
   it('session guards go straight to login with the page actually requested, never via the root', () => {
@@ -216,7 +217,7 @@ describe('No redirect loops', () => {
   type Session = 'signed-in' | 'signed-out';
   const next = (url: string, s: Session, workspace: string): string => {
     const { pathname, searchParams } = new URL(url, 'https://app.emgloop.com');
-    if (pathname === '/') return s === 'signed-in' ? LOOP_HOME : loginPathFor(searchParams.get('next'));
+    if (pathname === '/') return s === 'signed-in' ? LOOP_HOME : 'RENDER';
     if (pathname === LOGIN_PATH) return s === 'signed-in' ? postLoginDestination(searchParams.get('next')) : 'RENDER';
     if (pathname === '/app') return s === 'signed-in' ? 'RENDER' : loginPathFor(LOOP_HOME);
     if (pathname === '/dashboard') return LOOP_HOME;

@@ -104,6 +104,8 @@ export default async function LoginPage({
           </section>
 
           <footer className="loop-auth__footer" aria-label="Legal">
+            <Link href="/creator-hub">About EMG Loop</Link>
+            <span aria-hidden="true">·</span>
             <Link href="/terms">Terms of Service</Link>
             <span aria-hidden="true">·</span>
             <Link href="/privacy">Privacy Policy</Link>

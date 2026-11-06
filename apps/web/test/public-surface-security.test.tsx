@@ -114,7 +114,8 @@ describe('Every page reachable without a session reads no tenant data', () => {
   // /terms and /privacy are the public legal documents (Terms of Service, Privacy Policy):
   // static server components in the (legal) route group, whose layout only loads the design
   // system's stylesheet. They must stay reachable without a session and must read nothing.
-  const PUBLIC_PAGES = new Set(['page.tsx', 'login/page.tsx', 'status/page.tsx', 'dashboard/page.tsx', '(legal)/terms/page.tsx', '(legal)/privacy/page.tsx']);
+  // Product detail pages are static descriptions, never a public projection of creator records.
+  const PUBLIC_PAGES = new Set(['page.tsx', 'login/page.tsx', 'status/page.tsx', 'dashboard/page.tsx', '(legal)/terms/page.tsx', '(legal)/privacy/page.tsx', '(public)/creator-hub/page.tsx', '(public)/integrations/tiktok/page.tsx']);
   const DATA = /@emgloop\/database|crm\/crm-data|repositories|prisma|crmRepos/;
 
   const pages = walk(join(SRC, 'app'))

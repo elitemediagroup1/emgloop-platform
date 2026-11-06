@@ -1,26 +1,31 @@
 # EMG Loop — Project Status (where we left off)
 
-## Creator Hub design refinement — November 5, 2026
+## Public product website and TikTok review — November 6, 2026
 
-Production #443 is verified at `a34707b1bb1a96c25670f43cedf30b06836264a1`.
-Trevon's actual creator login shows 93 Outreach, 11 Conversations, 0 Active Deals,
-and 5 earlier/paused brands. The four previously active labels moved to Conversations
-with expandable history intact. Manual refresh queued successfully; fresh AI completion
-and the full historical inventory remain unverified. A transient connection reset on
-first post-deploy load recovered on reload. No migration was needed.
+The public website branch replaces the signed-out root login redirect with a developed
+product overview, adds static `/creator-hub` and `/integrations/tiktok` descriptions,
+and exposes existing Privacy Policy and Terms links in the public footer. The login page
+links back to the product overview. Signed-in root visitors still go to `/app`; safe
+requested sign-in destinations and all private guards are preserved. No private creator
+records, real creator images, credentials, OAuth changes or new data access are published.
+The homepage workspace illustration is explicitly labeled and contains no live metrics.
 
-Draft #444 now implements Matt’s selected porcelain editorial mockup with the existing
-EMG navy/teal tokens, serif typography, fine rules, a horizontal desktop treatment of
-the existing navigation registry, and three expandable partnership columns. The compact
-mobile navigation remains unchanged. Real public photos were verified and downloaded
-from Trevon’s Instagram plus three thumbnails from his actual YouTube channel; source
-provenance lives beside the assets. The reviewed selection is bound to the current
-profile’s declared Instagram handle and is explicitly labeled as selected, not synced.
-TikTok’s public profile was verified, but its video grid failed to load. No fake photos,
-generated likeness, stock images, new OAuth scopes or fabricated feed activity are used.
-Automatic multi-platform discovery is not implemented by this presentation change.
-The existing sharing-disabled preview keeps three visible unavailable tiles without
-bypassing publication permission. Production was last verified at 93/11/0.
+The TikTok guide documents the actual read-only scope/field behavior, consent, Profile
+refresh, disconnect and production approval pending. Automatic social onboarding media
+import remains unimplemented. Website review deployment does not establish TikTok API
+approval: Matt must provide a dedicated creator test login privately and demonstrate the
+actual sandbox flow, then resubmit. See `docs/runbooks/tiktok-review-resubmission.md`.
+No migration, environment variable or spending change is needed for this website release.
+
+## Creator Hub design — live November 6, 2026
+
+PR #444 is merged and production deployed at `e2462cf9ce91df8b2a4543aa75e7070ce99d40c9`
+(Netlify `6aed36b84029a5562bdf2d11`). Trevon's authorized production login verified the
+editorial layout, five loaded real Instagram/YouTube assets, 93 Outreach, 11 Conversations,
+0 Active Deals and 5 earlier/paused brands. BassForecast expands to a consolidated summary,
+next action and three historical updates. Refresh updates returned a successful request;
+fresh AI completion and the full historical evidence inventory remain unverified.
+The images are a reviewed curated selection with provenance, not an automatic social feed.
 
 ## Headlines — #405 live; feed diagnostics and length repair follow-up (2026-10-19)
 
