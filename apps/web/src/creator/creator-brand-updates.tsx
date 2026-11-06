@@ -7,7 +7,6 @@ import type { TimeView } from '@emgloop/shared';
 import { CreatorUpdatesRefresh } from './CreatorUpdatesRefresh';
 import { creatorMailSharingEnabled } from './creator-mail-runtime';
 import { type CreatorSeat } from './creator-runtime';
-import { Panel, StateBlock } from '../app/app/_loop-os/record';
 import { settle } from '../app/app/_home/settle';
 import { managedCreatorMailRepository, creatorRelationshipService } from './creator-mail-runtime';
 import { CreatorRefreshButton } from './CreatorRefreshButton';
@@ -60,7 +59,7 @@ function Brand({ group, time }: { group: BrandGroup; time: TimeView }) {
     </details>
   </details>;
 }
-export function CreatorBrandUpdatesView({ rows, time, sourceNote, actions }: { rows: readonly PublishedCreatorBrandUpdate[]; time: TimeView; sourceNote?: string; actions?: ReactNode }) {
+export function CreatorBrandUpdatesView({ rows, time, sourceNote, actions, available = true }: { available?: boolean; rows: readonly PublishedCreatorBrandUpdate[]; time: TimeView; sourceNote?: string; actions?: ReactNode }) {
   const brands = new Map<string, BrandGroup>();
   for (const row of rows) {
     const group = brands.get(row.brandId) ?? { brandId: row.brandId, brand: row.brand, updates: [] };
@@ -87,13 +86,13 @@ export function CreatorBrandUpdatesView({ rows, time, sourceNote, actions }: { r
         const count = selected.length;
         const recent = selected.map(g => ({ group: g, update: latest(g)! })).sort((a, b) => (b.update.evidenceAt?.getTime() ?? b.update.checkedAt?.getTime() ?? 0) - (a.update.evidenceAt?.getTime() ?? a.update.checkedAt?.getTime() ?? 0) || a.group.brandId.localeCompare(b.group.brandId))[0];
         return <section className="loop-card ch-brand-stage" key={bucket.title} aria-label={bucket.title} data-brand-stage={bucket.title}>
-          <div className="ch-brand-stage__top"><span className="ch-brand-stage__symbol" aria-hidden="true"><StageSymbol title={bucket.title} /></span><span className="ch-brand-stage__count" aria-hidden="true">{count}</span></div>
+          <div className="ch-brand-stage__top"><span className="ch-brand-stage__symbol" aria-hidden="true"><StageSymbol title={bucket.title} /></span><span className={`ch-brand-stage__count${available ? '' : ' ch-brand-stage__count--unknown'}`} aria-hidden="true">{available ? count : 'Unavailable'}</span></div>
           <h3>{bucket.title}</h3>
-          <p>{count ? bucket.title === 'Outreach' ? `EMG has reached out to ${count} ${count === 1 ? 'brand' : 'brands'} awaiting a first reply.`
+          <p>{!available ? 'Brand updates are unavailable in this environment. Your saved activity has not been removed.' : count ? bucket.title === 'Outreach' ? `EMG has reached out to ${count} ${count === 1 ? 'brand' : 'brands'} awaiting a first reply.`
             : bucket.title === 'Conversations' ? `${count} ${count === 1 ? 'brand conversation is' : 'brand conversations are'} underway. ${waiting} waiting on the brand; ${needsYou} need you.`
             : `${count} ${count === 1 ? 'brand has' : 'brands have'} an agreed partnership underway.`
             : bucket.empty}</p>
-          {recent ? <div className="ch-brand-glance">
+          {!available ? null : recent ? <div className="ch-brand-glance">
             <span className="ch-brand-glance__label">{recent.update.current ? 'Latest development' : 'Latest known development'}</span>
             <strong>{recent.group.brand}</strong>
             <p>{recent.update.summary}</p>
@@ -109,15 +108,15 @@ export function CreatorBrandUpdatesView({ rows, time, sourceNote, actions }: { r
         {other.map(group => <Brand key={group.brandId} group={group} time={time} />)}
       </details> : null}
     </div>
-    <p className="loop-note ch-brand-caption">Counts reflect accepted, authorized conversations. Historical review may still be in progress.</p>
+    <p className="loop-note ch-brand-caption">{available ? 'Counts reflect accepted, authorized conversations. Historical review may still be in progress.' : 'Counts and summaries cannot be loaded here. This does not mean no outreach or partnerships exist.'}</p>
     <details className="ch-brand-coverage"><summary>Coverage and privacy</summary><p className="loop-note">{sourceNote ?? 'Counts cover currently summarized, explicitly shared Gmail conversations only, not your entire outreach history. Managed capture is bounded and may omit older or unmatched threads.'} Each brand is counted once by its latest accepted stage; older readings are labeled and may no longer reflect the current relationship. An empty list does not mean no outreach has happened. AI interpretations can be wrong; private emails and internal commercial details are not shown.</p></details>
   </section>;
 }
 export async function CreatorBrandUpdates({ seat, time }: { seat: CreatorSeat; time: TimeView }) {
-  if (!creatorMailSharingEnabled()) return null;
+  if (!creatorMailSharingEnabled()) return <CreatorBrandUpdatesView rows={[]} time={time} available={false} />;
   const repo = new CreatorBrandMailRepository(prisma);
   const result = await settle(async () => await repo.present({ organizationId: seat.actor.organizationId, userId: seat.actor.userId }) ? repo.forCreator({ organizationId: seat.actor.organizationId, userId: seat.actor.userId }, seat.profileId, time.now) : null);
-  if (!result.ok || result.value === null) return <Panel title="Brand updates"><StateBlock kind="unavailable" compact title="Brand updates are not available right now." body="This is not a finding that there are no brand conversations." /></Panel>;
+  if (!result.ok || result.value === null) return <CreatorBrandUpdatesView rows={[]} time={time} available={false} />;
   const managed = await settle(() => managedCreatorMailRepository().updates({ organizationId: seat.actor.organizationId, userId: seat.actor.userId }, seat.profileId, time.now));
   const synthesized = await settle(() => creatorRelationshipService().projections({ organizationId: seat.actor.organizationId, userId: seat.actor.userId }, seat.profileId));
   return <><CreatorUpdatesRefresh />{!managed.ok ? <p className="loop-note">Managed mailbox updates could not be read. Counts may be incomplete.</p> : null}<CreatorBrandUpdatesView actions={<CreatorRefreshButton />} rows={[...result.value, ...(managed.ok ? managed.value : []), ...(synthesized.ok ? synthesized.value : [])]} time={time} sourceNote="Counts cover accepted explicit thread shares and analyzed managed-mailbox pilot conversations, not your entire outreach history. Accepted historical evidence is retained durably. Historical discovery continues in bounded pages; withheld or unprocessed conversations are excluded. Refresh runs daily at 7:00 a.m. Eastern and when requested." /></>;

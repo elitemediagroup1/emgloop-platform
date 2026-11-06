@@ -9,13 +9,13 @@ with expandable history intact. Manual refresh queued successfully; fresh AI com
 and the full historical inventory remain unverified. A transient connection reset on
 first post-deploy load recovered on reload. No migration was needed.
 
-The current design refinement replaces the generic welcome with a personalized studio
-hero, adds evidence-dated partnership previews, compacts the real account metrics and
-arranges tasks, content and insights into supporting grids. Existing tokens, permission
-boundaries, native disclosures, stale labels and the single refresh action are preserved.
-No new provider, scope, financial action or fabricated activity is introduced.
-Local file previews are blocked by the browser URL policy; visual QA against the
-actual Netlify preview remains required before calling the design verified.
+Draft #444 is being revised after Matt rejected the banner-led design. The revision
+removes slogan copy and the oversized welcome, puts the three partnership tiles first,
+and applies a consistent dark treatment to Creator Home only. The preview was observed
+with Trevon's real creator account: the brand section was absent because the sharing-disabled
+path returned null. Disabled/unavailable reads now retain all three tiles with explicitly
+unknown counts, without enabling email access, fabricating zeroes or exposing stored mail.
+The actual preview environment authorization value has not been changed.
 
 ## Headlines — #405 live; feed diagnostics and length repair follow-up (2026-10-19)
 

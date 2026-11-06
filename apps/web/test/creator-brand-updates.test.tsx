@@ -126,3 +126,12 @@ test('studio welcome distinguishes unknown tasks from caught-up and actionable s
   assert.match(welcome(0), /all caught up/);
   assert.match(welcome(2), /2 things need/);
 });
+
+
+test('unavailable sharing retains all three tiles without fabricating zero counts', () => {
+  const html = renderToStaticMarkup(<CreatorBrandUpdatesView rows={[]} time={time} available={false} />);
+  for (const title of ['Outreach', 'Conversations', 'Active deals']) assert.ok(html.includes(`<h3>${title}</h3>`));
+  assert.equal((html.match(/ch-brand-stage__count--unknown/g) ?? []).length, 3);
+  assert.match(html, /Counts and summaries cannot be loaded here/);
+  assert.doesNotMatch(html, /View outreach|View conversations|View active deals|ch-brand-stage__count" aria-hidden="true">0/);
+});

@@ -58,9 +58,11 @@ export async function CreatorHome({ seat, time }: { seat: CreatorSeat; time: Tim
 
   return (
     <LoopPage label="Loop Home">
+      <div className="ch-studio-home">
       <CreatorStudioWelcome displayName={seat.displayName} greeting={time.greeting()} date={time.date(time.now)} taskCount={tasks.ok ? needs.length : null} />
 
       {needsHandles ? <StateBlock kind="attention" title="Welcome — add your social handles" body="Finish your profile so EMG can review the right accounts for you." action={{ label: 'Complete your profile', href: CREATOR_HREFS.profile }} /> : null}
+      <CreatorBrandUpdates seat={seat} time={time} />
       <SummaryStrip
         label="At a glance"
         items={[
@@ -79,7 +81,6 @@ export async function CreatorHome({ seat, time }: { seat: CreatorSeat; time: Tim
         ]}
       />
 
-      <CreatorBrandUpdates seat={seat} time={time} />
       <div className="ch-home ch-home--work">
       <Panel title="Things that need you">
         {!tasks.ok ? <Failed what="your tasks" /> : needs.length === 0 ? <StateBlock kind="empty" compact title="Nothing needs you right now." body="A returned edit or a deliverable due soon lands here." action={{ label: 'All tasks', href: CREATOR_HREFS.tasks }} /> : <TaskList tasks={needs} time={time} />}
@@ -154,6 +155,7 @@ export async function CreatorHome({ seat, time }: { seat: CreatorSeat; time: Tim
       ) : (
         <CreatorNoticePanel notice={notice?.ok ? notice.value : null} when={(iso) => time.dateTime(iso)} title={subject ? `What Loop noticed · ${subject.title}` : 'What Loop noticed'} />
       )}
+      </div>
       </div>
     </LoopPage>
   );
