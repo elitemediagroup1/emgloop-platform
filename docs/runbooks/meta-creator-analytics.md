@@ -1,6 +1,12 @@
 # Meta creator analytics
 
-Status: implemented for review, not commissioned. No production Meta app ID/secret, successful creator consent, real API metric response or live AI reading has been verified. Meta's app-creation form is prepared as **EMG Loop**, contact **matt@elitemediagroup.io**, under **elite_media_group_**, which the portal explicitly marks **Business verification complete**. The final creation button accepts Meta Platform Terms and Developer Policies and has not been clicked.
+Status: PR #446 is merged and the production web build is ready. **EMG Loop** app `1142800971568300` exists under verified **elite_media_group_**; user-token configuration `1161040433565608` is configured. Matt reports the migration workflow green and the app secret saved privately; secret values have not been inspected. A test previously saved a Facebook-only Page connection, but later callbacks fail before Page selection. Real API metrics, background refresh and live AI readings remain unverified; the integration is not commissioned.
+
+### Diagnose a failed consent return
+
+The callback records `meta.oauth.callback_failed` with a random support reference, a fixed stage/failure enum, and optional numeric Graph code/subcode/HTTP status. It never logs exception messages, response bodies, identifiers, authorization codes, tokens, app secrets or callback URLs. Profile displays a specific failure category and the reference. Use that reference in Netlify function logs to locate the event; avoid copying OAuth query strings from edge access logs. A failure with an earlier saved connection does not replace that connection.
+
+Stages distinguish the initial code exchange, long-lived exchange, Facebook identity read and actual-permission read. Missing/invalid token response fields are separate allowlisted diagnostics; missing expiry still fails closed. A missing Instagram Page link is discovered only after a successful callback during Page selection, so it cannot explain an exception in the preceding token exchange. Pages without a linked Instagram account remain explicit Facebook-only choices. Do not report a source/configuration cause until the captured stage and numeric evidence support it.
 
 ## What ships
 

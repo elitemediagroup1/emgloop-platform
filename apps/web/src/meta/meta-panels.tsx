@@ -7,18 +7,10 @@ import { Panel, StateBlock, Facts } from '../app/app/_loop-os/record';
 import { metaRepository, metaService } from './meta-runtime';
 import { readMetaEnvironment } from './meta-environment';
 import { selectMetaAccountAction, disconnectMetaAction, refreshMetaAction, analyzeMetaAction } from './actions';
+import { metaConnectionMessage, metaFailureReference } from './meta-errors';
 
-const MESSAGES: Record<string, string> = {
-  SELECT_ACCOUNT: 'Choose the Facebook Page you want EMG Loop to analyze. Its linked professional Instagram account will also connect.',
-  CONNECTED: 'Connected. Open Analytics and refresh to read the latest available data.',
-  DISCONNECTED: 'Disconnected. EMG Loop deleted its stored token and stopped reading your accounts.',
-  CONSENT_DECLINED: 'Authorization was cancelled. You can connect again whenever you are ready.',
-  STATE_INVALID: 'This connection attempt expired or belongs to a different session. Start again.',
-  PERMISSION_REQUIRED: 'Meta did not grant all requested analytics permissions. Reconnect and allow the listed access.',
-  ACCOUNT_UNAVAILABLE: 'That account could not be connected. It may already be linked, or you may need to disconnect your previous account first.',
-};
 const metricLabel: Record<string, string> = { views: 'Views', reach: 'Reach', total_interactions: 'Interactions', page_media_view: 'Views', page_post_engagements: 'Post engagements', post_media_view: 'Views' };
-export async function MetaConnectionPanel({ principal, outcome }: { principal: MetaPrincipal; outcome?: string }) {
+export async function MetaConnectionPanel({ principal, outcome, reference }: { principal: MetaPrincipal; outcome?: string; reference?: string }) {
   const configured = !!readMetaEnvironment();
   if (!configured) return <Panel title="Instagram & Facebook"><StateBlock kind="unavailable" compact title="Awaiting Meta setup" body="EMG is completing the app configuration and Meta review. You will be able to authorize your Facebook Page and linked professional Instagram account here." /></Panel>;
   try {
@@ -27,11 +19,15 @@ export async function MetaConnectionPanel({ principal, outcome }: { principal: M
     const bound = await getSessionBinding();
     const choices = bound ? await service.choices(principal, bound.sessionId) : [];
     const time = viewerTime();
+    const message = metaConnectionMessage(outcome, status ? !!status.instagramId : undefined);
+    const failureReference = metaFailureReference(reference);
     return <Panel title="Instagram & Facebook">
       <p className="loop-note">Connect your Facebook Page and its linked Instagram Business or Creator account. Loop reads profile and content analytics for your Creator Hub.</p>
-      {outcome ? <p role="status">{MESSAGES[outcome] ?? 'The connection could not finish. Try again, or contact EMG.'}</p> : null}
+      {message ? <p role="status">{message}</p> : null}
+      {failureReference ? <p className="loop-note">EMG support reference: {failureReference}</p> : null}
       {choices.length ? <form action={selectMetaAccountAction} className="ch-form"><label className="loop-field"><span className="loop-label">Your Page</span><select className="loop-input" name="pageId" required>{choices.map(p => <option key={p.id} value={p.id}>{p.name}{p.hasInstagram ? ' · Instagram linked' : ' · Facebook only'}</option>)}</select></label><button className="loop-btn loop-btn--primary" type="submit">Connect selected account</button></form> : outcome === 'SELECT_ACCOUNT' ? <StateBlock kind="attention" compact title="No eligible Page returned" body="Confirm you have analytics access to the Page and selected it during Meta consent. Instagram must be a professional account linked to that Page for this connection." /> : null}
       {status && status.status !== 'DISCONNECTED' ? <>
+        {outcome && !['CONNECTED', 'SELECT_ACCOUNT'].includes(outcome) ? <p className="loop-note">The saved connection below is from an earlier authorization. This attempt did not replace it.</p> : null}
         <Facts rows={[{ label: 'Page', value: status.pageName }, { label: 'Instagram', value: status.instagramId ? 'Linked professional account' : 'No linked account' }, { label: 'Connection', value: +status.tokenExpiresAt <= Date.now() ? 'Reconnect required' : status.status.replace(/_/g, ' ').toLowerCase() }, { label: 'Last fetched', value: status.lastSyncedAt ? time.dateTime(status.lastSyncedAt.toISOString()) : 'Not fetched yet' }, { label: 'Authorization expires', value: time.dateTime(status.tokenExpiresAt.toISOString()) }]} />
         {status.lastFailure ? <p role="status">Latest refresh: {status.lastFailure.replace(/_/g, ' ').toLowerCase()}. Previous observations keep their original timestamp.</p> : null}
         <div className="loop-btnrow"><a className="loop-btn" href="/api/integrations/meta/connect">Reconnect</a><form action={disconnectMetaAction}><button className="loop-btn" type="submit">Disconnect Instagram & Facebook</button></form></div>

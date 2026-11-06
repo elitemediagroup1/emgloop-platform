@@ -1,6 +1,8 @@
+import { randomUUID } from 'node:crypto';
 import { getSessionBinding } from '../../../../../auth/auth';
 import { creatorSeatOf } from '../../../../../creator/creator-runtime';
 import { metaReturnPath, metaService } from '../../../../../meta/meta-runtime';
+import { metaCallbackFailure } from '../../../../../meta/meta-errors';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 const go = (location: string) => new Response(null, { status: 303, headers: { location, 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' } });
@@ -13,5 +15,10 @@ export async function GET(request: Request) {
   try {
     const result = await metaService().callback({ organizationId: seat.actor.organizationId, userId: seat.actor.userId, creatorProfileId: seat.profileId }, bound.sessionId, { state: params.get('state'), code: params.get('code'), error: params.get('error') });
     return go(metaReturnPath(result));
-  } catch { return go(metaReturnPath('FAILED')); }
+  } catch (error) {
+    const reference = randomUUID();
+    const failure = metaCallbackFailure(error);
+    console.error('meta.oauth.callback_failed', { reference, ...failure.diagnostic });
+    return go(`${metaReturnPath(failure.outcome)}&${new URLSearchParams({ meta_ref: reference })}`);
+  }
 }

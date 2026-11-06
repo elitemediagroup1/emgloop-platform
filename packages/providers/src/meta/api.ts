@@ -2,8 +2,16 @@
 // One Facebook Page and its linked professional Instagram account are explicitly selected.
 export const META_SCOPES = ['pages_show_list', 'pages_read_engagement', 'read_insights', 'instagram_basic', 'instagram_manage_insights'] as const;
 export type MetaFailure = 'TOKEN_EXPIRED' | 'PERMISSION_REQUIRED' | 'RATE_LIMITED' | 'UNAVAILABLE' | 'METRIC_UNAVAILABLE';
+export type MetaOAuthStage = 'CODE_EXCHANGE' | 'LONG_LIVED_EXCHANGE' | 'IDENTITY_READ' | 'PERMISSIONS_READ';
+export interface MetaApiDiagnostic {
+  stage?: MetaOAuthStage;
+  httpStatus?: number;
+  graphCode?: number;
+  graphSubcode?: number;
+  invalidResponse?: 'TOKEN_MISSING' | 'EXPIRY_MISSING' | 'IDENTITY_MISSING' | 'PERMISSIONS_MISSING';
+}
 export class MetaApiError extends Error {
-  constructor(readonly failure: MetaFailure) { super(failure); }
+  constructor(readonly failure: MetaFailure, readonly diagnostic: MetaApiDiagnostic = {}) { super(failure); }
 }
 export interface MetaConfig { appId: string; appSecret: string; redirectUri: string; version: string; configId?: string }
 export interface MetaPage { id: string; name: string; accessToken: string; instagramId: string | null }
@@ -18,6 +26,7 @@ export const metaObject = (v: unknown): Record<string, unknown> => v !== null &&
 const str = (v: unknown): string | null => typeof v === 'string' && v !== '' ? v : null;
 const num = (v: unknown): number | null => typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null;
 const id = (v: unknown): string | null => typeof v === 'string' && /^\d+(?:_\d+)?$/.test(v) ? v : null;
+const errorNumber = (v: unknown): number | undefined => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 ? v : undefined;
 
 export function metaAuthorizationUrl(config: MetaConfig, state: string): string {
   const query = new URLSearchParams({ client_id: config.appId, redirect_uri: config.redirectUri, state, response_type: 'code' });
@@ -43,22 +52,31 @@ export class MetaApi {
       const error = metaObject(body.error);
       if (!response.ok || body.error) {
         const code = error.code;
-        throw new MetaApiError(code === 190 ? 'TOKEN_EXPIRED' : [4, 17, 32, 613].includes(Number(code)) || response.status === 429 ? 'RATE_LIMITED' : [10, 200].includes(Number(code)) ? 'PERMISSION_REQUIRED' : code === 100 ? 'METRIC_UNAVAILABLE' : 'UNAVAILABLE');
+        throw new MetaApiError(code === 190 ? 'TOKEN_EXPIRED' : [4, 17, 32, 613].includes(Number(code)) || response.status === 429 ? 'RATE_LIMITED' : [10, 200].includes(Number(code)) ? 'PERMISSION_REQUIRED' : code === 100 ? 'METRIC_UNAVAILABLE' : 'UNAVAILABLE', { httpStatus: response.status, graphCode: errorNumber(code), graphSubcode: errorNumber(error.error_subcode) });
       }
       return body;
     } catch (error) { if (error instanceof MetaApiError) throw error; throw new MetaApiError('UNAVAILABLE'); }
   }
+  private async authorizationRequest(stage: MetaOAuthStage, path: string, token: string | null, params: Record<string, string> = {}, method = 'GET') {
+    try { return await this.request(path, token, params, method); }
+    catch (error) {
+      if (error instanceof MetaApiError) throw new MetaApiError(error.failure, { ...error.diagnostic, stage });
+      throw new MetaApiError('UNAVAILABLE', { stage });
+    }
+  }
   async exchange(code: string): Promise<{ token: string; expiresIn: number; userId: string; scopes: string[] }> {
     const credentials = { client_id: this.config.appId, client_secret: this.config.appSecret };
-    const short = await this.request('oauth/access_token', null, { ...credentials, code, redirect_uri: this.config.redirectUri }, 'POST');
-    if (!str(short.access_token)) throw new MetaApiError('UNAVAILABLE');
-    const long = await this.request('oauth/access_token', null, { ...credentials, grant_type: 'fb_exchange_token', fb_exchange_token: String(short.access_token) }, 'POST');
+    const short = await this.authorizationRequest('CODE_EXCHANGE', 'oauth/access_token', null, { ...credentials, code, redirect_uri: this.config.redirectUri }, 'POST');
+    if (!str(short.access_token)) throw new MetaApiError('UNAVAILABLE', { stage: 'CODE_EXCHANGE', invalidResponse: 'TOKEN_MISSING' });
+    const long = await this.authorizationRequest('LONG_LIVED_EXCHANGE', 'oauth/access_token', null, { ...credentials, grant_type: 'fb_exchange_token', fb_exchange_token: String(short.access_token) }, 'POST');
     const token = str(long.access_token);
-    if (!token || !num(long.expires_in)) throw new MetaApiError('UNAVAILABLE');
-    const me = await this.request('me', token, { fields: 'id' });
-    const permissions = await this.request('me/permissions', token);
+    if (!token) throw new MetaApiError('UNAVAILABLE', { stage: 'LONG_LIVED_EXCHANGE', invalidResponse: 'TOKEN_MISSING' });
+    if (!num(long.expires_in)) throw new MetaApiError('UNAVAILABLE', { stage: 'LONG_LIVED_EXCHANGE', invalidResponse: 'EXPIRY_MISSING' });
+    const me = await this.authorizationRequest('IDENTITY_READ', 'me', token, { fields: 'id' });
+    if (!id(me.id)) throw new MetaApiError('UNAVAILABLE', { stage: 'IDENTITY_READ', invalidResponse: 'IDENTITY_MISSING' });
+    const permissions = await this.authorizationRequest('PERMISSIONS_READ', 'me/permissions', token);
+    if (!Array.isArray(permissions.data)) throw new MetaApiError('UNAVAILABLE', { stage: 'PERMISSIONS_READ', invalidResponse: 'PERMISSIONS_MISSING' });
     const scopes = (Array.isArray(permissions.data) ? permissions.data : []).map(metaObject).filter(p => p.status === 'granted').map(p => str(p.permission)).filter((p): p is string => p !== null);
-    if (!id(me.id)) throw new MetaApiError('UNAVAILABLE');
     return { token, expiresIn: Number(long.expires_in), userId: String(me.id), scopes };
   }
   async pages(token: string): Promise<MetaPage[]> {

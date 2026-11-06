@@ -417,4 +417,4 @@ export { PUBLIC_NEWS_FEEDS, fetchPublicNews, parsePublicNewsRss, PublicNewsReadE
 export type { PublicNewsFeed, PublicNewsArticle } from './news/public-feeds';
 
 export { META_SCOPES, MetaApi, MetaApiError, metaAuthorizationUrl, metaObject } from './meta/api';
-export type { MetaConfig, MetaFailure, MetaPage, MetaMetric, MetaMedia, MetaReport } from './meta/api';
+export type { MetaConfig, MetaFailure, MetaOAuthStage, MetaApiDiagnostic, MetaPage, MetaMetric, MetaMedia, MetaReport } from './meta/api';
