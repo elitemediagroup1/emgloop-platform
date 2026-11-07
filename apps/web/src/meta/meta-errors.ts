@@ -50,7 +50,7 @@ export function metaCallbackFailure(error: unknown): { outcome: string; diagnost
 
 const stageValues = [...stages, 'LOOP_CALLBACK', 'META_CALLBACK'] as const;
 const failureValues = ['TOKEN_EXPIRED', 'PERMISSION_REQUIRED', 'RATE_LIMITED', 'UNAVAILABLE', 'METRIC_UNAVAILABLE'] as const;
-const boundedQueryNumber = (value: unknown) => typeof value === 'string' && /^\\d{1,10}$/.test(value) && Number(value) <= 2_147_483_647 ? Number(value) : undefined;
+const boundedQueryNumber = (value: unknown) => typeof value === 'string' && /^\d{1,10}$/.test(value) && Number(value) <= 2_147_483_647 ? Number(value) : undefined;
 
 export function metaDiagnosticLabel(values: { stage?: unknown; failure?: unknown; invalidResponse?: unknown; httpStatus?: unknown; graphCode?: unknown; graphSubcode?: unknown }): string | null {
   const stage = stageValues.find(value => value === values.stage);
