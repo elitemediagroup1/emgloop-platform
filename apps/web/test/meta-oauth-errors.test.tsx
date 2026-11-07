@@ -26,7 +26,7 @@ test('a rejected code, token extension, expiry, identity and permission read hav
   const cases = [
     [{ stage: 'CODE_EXCHANGE' }, 'TOKEN_EXCHANGE_FAILED'],
     [{ stage: 'LONG_LIVED_EXCHANGE' }, 'TOKEN_EXTENSION_FAILED'],
-    [{ stage: 'LONG_LIVED_EXCHANGE', invalidResponse: 'EXPIRY_MISSING' }, 'TOKEN_EXPIRY_UNAVAILABLE'],
+    [{ stage: 'TOKEN_DEBUG_READ', invalidResponse: 'EXPIRY_MISSING' }, 'TOKEN_EXPIRY_UNAVAILABLE'],
     [{ stage: 'IDENTITY_READ' }, 'IDENTITY_UNAVAILABLE'],
     [{ stage: 'PERMISSIONS_READ' }, 'PERMISSION_CHECK_FAILED'],
   ] as const;

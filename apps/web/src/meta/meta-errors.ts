@@ -21,8 +21,8 @@ export const META_CONNECTION_MESSAGES: Record<string, string> = {
   FAILED: 'This connection attempt failed. EMG needs to investigate before you retry.',
 };
 
-const stages: readonly MetaOAuthStage[] = ['CODE_EXCHANGE', 'LONG_LIVED_EXCHANGE', 'IDENTITY_READ', 'PERMISSIONS_READ'];
-const invalidResponses = ['TOKEN_MISSING', 'EXPIRY_MISSING', 'IDENTITY_MISSING', 'PERMISSIONS_MISSING'] as const;
+const stages: readonly MetaOAuthStage[] = ['CODE_EXCHANGE', 'LONG_LIVED_EXCHANGE', 'TOKEN_DEBUG_READ', 'IDENTITY_READ', 'PERMISSIONS_READ'];
+const invalidResponses = ['TOKEN_MISSING', 'EXPIRY_MISSING', 'TOKEN_INVALID', 'TOKEN_APP_MISMATCH', 'TOKEN_IDENTITY_MISMATCH', 'IDENTITY_MISSING', 'PERMISSIONS_MISSING'] as const;
 const boundedNumber = (value: unknown) => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= 2_147_483_647 ? value : undefined;
 
 // Strict projection: never log an exception, message, response, URL, token, code or identity.
@@ -41,7 +41,8 @@ export function metaCallbackFailure(error: unknown): { outcome: string; diagnost
   if (invalidResponse) diagnostic.invalidResponse = invalidResponse;
   const outcome = failure === 'RATE_LIMITED' || failure === 'TOKEN_EXPIRED' || failure === 'PERMISSION_REQUIRED' ? failure
     : stage === 'CODE_EXCHANGE' ? 'TOKEN_EXCHANGE_FAILED'
-    : stage === 'LONG_LIVED_EXCHANGE' ? invalidResponse === 'EXPIRY_MISSING' ? 'TOKEN_EXPIRY_UNAVAILABLE' : 'TOKEN_EXTENSION_FAILED'
+    : stage === 'LONG_LIVED_EXCHANGE' ? 'TOKEN_EXTENSION_FAILED'
+    : stage === 'TOKEN_DEBUG_READ' ? 'TOKEN_EXPIRY_UNAVAILABLE'
     : stage === 'IDENTITY_READ' ? 'IDENTITY_UNAVAILABLE'
     : stage === 'PERMISSIONS_READ' ? 'PERMISSION_CHECK_FAILED' : 'FAILED';
   return { outcome, diagnostic };
