@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MetaApiError } from '@emgloop/providers';
-import { metaCallbackFailure, metaConnectionMessage, metaFailureReference } from '../src/meta/meta-errors';
+import { metaCallbackFailure, metaConnectionMessage, metaDiagnosticLabel, metaFailureReference } from '../src/meta/meta-errors';
 
 test('callback diagnostic projection never copies exception text, provider bodies or extra metadata', () => {
   const error = new MetaApiError('UNAVAILABLE', {
@@ -42,4 +42,10 @@ test('only generated reference shapes are echoed and unknown status text is neve
   assert.match(metaConnectionMessage('CONNECTED', false)!, /Facebook Page connected/);
   assert.match(metaConnectionMessage('CONNECTED', false)!, /Instagram analytics are not connected/);
   assert.doesNotMatch(metaConnectionMessage('TOKEN_EXCHANGE_FAILED')!, /linked professional/);
+});
+
+
+test('safe callback diagnostics expose only allowlisted failure codes and numeric Graph metadata', () => {
+  assert.equal(metaDiagnosticLabel({ stage: 'TOKEN_DEBUG_READ', failure: 'UNAVAILABLE', invalidResponse: 'TOKEN_APP_MISMATCH', graphCode: '101', graphSubcode: '202', httpStatus: '400' }), 'TOKEN_DEBUG_READ · TOKEN_APP_MISMATCH · UNAVAILABLE · HTTP 400 · Graph 101 · Subcode 202');
+  assert.equal(metaDiagnosticLabel({ stage: 'private-token', failure: 'secret', invalidResponse: 'secret', graphCode: 'abc', httpStatus: '999999999999' }), null);
 });

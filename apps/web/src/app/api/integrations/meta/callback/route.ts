@@ -19,6 +19,11 @@ export async function GET(request: Request) {
     const reference = randomUUID();
     const failure = metaCallbackFailure(error);
     console.error('meta.oauth.callback_failed', { reference, ...failure.diagnostic });
-    return go(`${metaReturnPath(failure.outcome)}&${new URLSearchParams({ meta_ref: reference })}`);
+    const query = new URLSearchParams({ meta_ref: reference });
+    for (const key of ['stage', 'failure', 'invalidResponse', 'httpStatus', 'graphCode', 'graphSubcode'] as const) {
+      const value = failure.diagnostic[key];
+      if (value !== undefined) query.set(`meta_${key}`, String(value));
+    }
+    return go(`${metaReturnPath(failure.outcome)}&${query}`);
   }
 }
