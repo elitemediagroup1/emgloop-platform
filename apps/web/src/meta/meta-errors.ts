@@ -48,6 +48,21 @@ export function metaCallbackFailure(error: unknown): { outcome: string; diagnost
   return { outcome, diagnostic };
 }
 
+const stageValues = [...stages, 'LOOP_CALLBACK', 'META_CALLBACK'] as const;
+const failureValues = ['TOKEN_EXPIRED', 'PERMISSION_REQUIRED', 'RATE_LIMITED', 'UNAVAILABLE', 'METRIC_UNAVAILABLE'] as const;
+const boundedQueryNumber = (value: unknown) => typeof value === 'string' && /^\\d{1,10}$/.test(value) && Number(value) <= 2_147_483_647 ? Number(value) : undefined;
+
+export function metaDiagnosticLabel(values: { stage?: unknown; failure?: unknown; invalidResponse?: unknown; httpStatus?: unknown; graphCode?: unknown; graphSubcode?: unknown }): string | null {
+  const stage = stageValues.find(value => value === values.stage);
+  const failure = failureValues.find(value => value === values.failure);
+  const invalidResponse = invalidResponses.find(value => value === values.invalidResponse);
+  const httpStatus = boundedQueryNumber(values.httpStatus);
+  const graphCode = boundedQueryNumber(values.graphCode);
+  const graphSubcode = boundedQueryNumber(values.graphSubcode);
+  const parts = [stage, invalidResponse, failure, httpStatus ? `HTTP ${httpStatus}` : undefined, graphCode ? `Graph ${graphCode}` : undefined, graphSubcode ? `Subcode ${graphSubcode}` : undefined].filter(Boolean);
+  return parts.length ? parts.join(' · ') : null;
+}
+
 export function metaFailureReference(value: unknown): string | undefined {
   return typeof value === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(value) ? value : undefined;
 }

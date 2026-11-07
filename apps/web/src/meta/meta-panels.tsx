@@ -7,10 +7,10 @@ import { Panel, StateBlock, Facts } from '../app/app/_loop-os/record';
 import { metaRepository, metaService } from './meta-runtime';
 import { readMetaEnvironment } from './meta-environment';
 import { selectMetaAccountAction, disconnectMetaAction, refreshMetaAction, analyzeMetaAction } from './actions';
-import { metaConnectionMessage, metaFailureReference } from './meta-errors';
+import { metaConnectionMessage, metaDiagnosticLabel, metaFailureReference } from './meta-errors';
 
 const metricLabel: Record<string, string> = { views: 'Views', reach: 'Reach', total_interactions: 'Interactions', page_media_view: 'Views', page_post_engagements: 'Post engagements', post_media_view: 'Views' };
-export async function MetaConnectionPanel({ principal, outcome, reference }: { principal: MetaPrincipal; outcome?: string; reference?: string }) {
+export async function MetaConnectionPanel({ principal, outcome, reference, diagnostic }: { principal: MetaPrincipal; outcome?: string; reference?: string; diagnostic?: { stage?: string; failure?: string; invalidResponse?: string; httpStatus?: string; graphCode?: string; graphSubcode?: string } }) {
   const configured = !!readMetaEnvironment();
   if (!configured) return <Panel title="Instagram & Facebook"><StateBlock kind="unavailable" compact title="Awaiting Meta setup" body="EMG is completing the app configuration and Meta review. You will be able to authorize your Facebook Page and linked professional Instagram account here." /></Panel>;
   try {
@@ -20,11 +20,11 @@ export async function MetaConnectionPanel({ principal, outcome, reference }: { p
     const choices = bound ? await service.choices(principal, bound.sessionId) : [];
     const time = viewerTime();
     const message = metaConnectionMessage(outcome, status ? !!status.instagramId : undefined);
-    const failureReference = metaFailureReference(reference);
+    const failureReference = metaFailureReference(reference);\n    const diagnosticLabel = diagnostic ? metaDiagnosticLabel(diagnostic) : null;
     return <Panel title="Instagram & Facebook">
       <p className="loop-note">Connect your Facebook Page and its linked Instagram Business or Creator account. Loop reads profile and content analytics for your Creator Hub.</p>
       {message ? <p role="status">{message}</p> : null}
-      {failureReference ? <p className="loop-note">EMG support reference: {failureReference}</p> : null}
+      {failureReference ? <p className="loop-note">EMG support reference: {failureReference}</p> : null}\n      {diagnosticLabel ? <p className="loop-note">Safe diagnostic: {diagnosticLabel}</p> : null}
       {choices.length ? <form action={selectMetaAccountAction} className="ch-form"><label className="loop-field"><span className="loop-label">Your Page</span><select className="loop-input" name="pageId" required>{choices.map(p => <option key={p.id} value={p.id}>{p.name}{p.hasInstagram ? ' · Instagram linked' : ' · Facebook only'}</option>)}</select></label><button className="loop-btn loop-btn--primary" type="submit">Connect selected account</button></form> : outcome === 'SELECT_ACCOUNT' ? <StateBlock kind="attention" compact title="No eligible Page returned" body="Confirm you have analytics access to the Page and selected it during Meta consent. Instagram must be a professional account linked to that Page for this connection." /> : null}
       {status && status.status !== 'DISCONNECTED' ? <>
         {outcome && !['CONNECTED', 'SELECT_ACCOUNT'].includes(outcome) ? <p className="loop-note">The saved connection below is from an earlier authorization. This attempt did not replace it.</p> : null}
