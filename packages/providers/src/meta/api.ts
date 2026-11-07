@@ -2,13 +2,13 @@
 // One Facebook Page and its linked professional Instagram account are explicitly selected.
 export const META_SCOPES = ['pages_show_list', 'pages_read_engagement', 'read_insights', 'instagram_basic', 'instagram_manage_insights'] as const;
 export type MetaFailure = 'TOKEN_EXPIRED' | 'PERMISSION_REQUIRED' | 'RATE_LIMITED' | 'UNAVAILABLE' | 'METRIC_UNAVAILABLE';
-export type MetaOAuthStage = 'CODE_EXCHANGE' | 'LONG_LIVED_EXCHANGE' | 'IDENTITY_READ' | 'PERMISSIONS_READ';
+export type MetaOAuthStage = 'CODE_EXCHANGE' | 'LONG_LIVED_EXCHANGE' | 'TOKEN_DEBUG_READ' | 'IDENTITY_READ' | 'PERMISSIONS_READ';
 export interface MetaApiDiagnostic {
   stage?: MetaOAuthStage;
   httpStatus?: number;
   graphCode?: number;
   graphSubcode?: number;
-  invalidResponse?: 'TOKEN_MISSING' | 'EXPIRY_MISSING' | 'IDENTITY_MISSING' | 'PERMISSIONS_MISSING';
+  invalidResponse?: 'TOKEN_MISSING' | 'EXPIRY_MISSING' | 'TOKEN_INVALID' | 'TOKEN_APP_MISMATCH' | 'TOKEN_IDENTITY_MISMATCH' | 'IDENTITY_MISSING' | 'PERMISSIONS_MISSING';
 }
 export class MetaApiError extends Error {
   constructor(readonly failure: MetaFailure, readonly diagnostic: MetaApiDiagnostic = {}) { super(failure); }
@@ -71,13 +71,26 @@ export class MetaApi {
     const long = await this.authorizationRequest('LONG_LIVED_EXCHANGE', 'oauth/access_token', null, { ...credentials, grant_type: 'fb_exchange_token', fb_exchange_token: String(short.access_token) }, 'POST');
     const token = str(long.access_token);
     if (!token) throw new MetaApiError('UNAVAILABLE', { stage: 'LONG_LIVED_EXCHANGE', invalidResponse: 'TOKEN_MISSING' });
-    if (!num(long.expires_in)) throw new MetaApiError('UNAVAILABLE', { stage: 'LONG_LIVED_EXCHANGE', invalidResponse: 'EXPIRY_MISSING' });
     const me = await this.authorizationRequest('IDENTITY_READ', 'me', token, { fields: 'id' });
     if (!id(me.id)) throw new MetaApiError('UNAVAILABLE', { stage: 'IDENTITY_READ', invalidResponse: 'IDENTITY_MISSING' });
+    let expiresIn = num(long.expires_in);
+    // Some Login for Business token exchanges omit expires_in. Ask Meta's token
+    // debugger for the authoritative expiry; never guess a 60-day lifetime.
+    if (expiresIn === null || expiresIn <= 0) {
+      const appToken = `${this.config.appId}|${this.config.appSecret}`;
+      const debug = await this.authorizationRequest('TOKEN_DEBUG_READ', 'debug_token', appToken, { input_token: token });
+      const data = metaObject(debug.data);
+      if (data.is_valid !== true) throw new MetaApiError('UNAVAILABLE', { stage: 'TOKEN_DEBUG_READ', invalidResponse: 'TOKEN_INVALID' });
+      if (str(data.app_id) !== this.config.appId) throw new MetaApiError('UNAVAILABLE', { stage: 'TOKEN_DEBUG_READ', invalidResponse: 'TOKEN_APP_MISMATCH' });
+      if (str(data.user_id) !== String(me.id)) throw new MetaApiError('UNAVAILABLE', { stage: 'TOKEN_DEBUG_READ', invalidResponse: 'TOKEN_IDENTITY_MISMATCH' });
+      const expiresAt = num(data.expires_at);
+      expiresIn = expiresAt === null ? null : expiresAt - Math.floor(Date.now() / 1000);
+    }
+    if (expiresIn === null || expiresIn <= 0) throw new MetaApiError('UNAVAILABLE', { stage: 'TOKEN_DEBUG_READ', invalidResponse: 'EXPIRY_MISSING' });
     const permissions = await this.authorizationRequest('PERMISSIONS_READ', 'me/permissions', token);
     if (!Array.isArray(permissions.data)) throw new MetaApiError('UNAVAILABLE', { stage: 'PERMISSIONS_READ', invalidResponse: 'PERMISSIONS_MISSING' });
     const scopes = (Array.isArray(permissions.data) ? permissions.data : []).map(metaObject).filter(p => p.status === 'granted').map(p => str(p.permission)).filter((p): p is string => p !== null);
-    return { token, expiresIn: Number(long.expires_in), userId: String(me.id), scopes };
+    return { token, expiresIn, userId: String(me.id), scopes };
   }
   async pages(token: string): Promise<MetaPage[]> {
     const pages: MetaPage[] = [];

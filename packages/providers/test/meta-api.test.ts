@@ -41,10 +41,31 @@ test('authorization failures identify the failing exchange without retaining pro
     });
   }
 });
-test('missing expiry and malformed permission response fail closed with distinct diagnostics', async () => {
-  const missingExpiry = network([{ access_token: 'short' }, { access_token: 'long' }]);
-  await assert.rejects(missingExpiry.api.exchange('code'), (error: unknown) => error instanceof MetaApiError && error.diagnostic.stage === 'LONG_LIVED_EXCHANGE' && error.diagnostic.invalidResponse === 'EXPIRY_MISSING');
-  assert.equal(missingExpiry.calls.length, 2);
+test('missing expires_in is resolved from Meta token debugging and checks token identity', async () => {
+  const now = Math.floor(Date.now() / 1000);
+  const fallback = network([{ access_token: 'short' }, { access_token: 'long' }, { id: '999' }, { data: { is_valid: true, app_id: '123', user_id: '999', expires_at: now + 4000 } }, { data: [{ permission: 'read_insights', status: 'granted' }] }]);
+  const result = await fallback.api.exchange('code');
+  assert.equal(result.expiresIn, 4000);
+  assert.equal(result.userId, '999');
+  assert.equal(fallback.calls.length, 5);
+  assert.equal(new URL(fallback.calls[3]!.url).pathname.endsWith('/debug_token'), true);
+  assert.equal(new URL(fallback.calls[3]!.url).searchParams.get('input_token'), 'long');
+  assert.equal(new Headers(fallback.calls[3]!.init?.headers).get('authorization'), 'Bearer 123|secret-test-only');
+  assert.ok(!fallback.calls[3]!.url.includes('secret-test-only'));
+});
+test('token debug fallback rejects wrong app, wrong identity, invalid token and missing/expired expiry', async () => {
+  const cases = [
+    [{ is_valid: true, app_id: 'other', user_id: '999', expires_at: 9999999999 }, 'TOKEN_APP_MISMATCH'],
+    [{ is_valid: true, app_id: '123', user_id: 'different', expires_at: 9999999999 }, 'TOKEN_IDENTITY_MISMATCH'],
+    [{ is_valid: false, app_id: '123', user_id: '999', expires_at: 9999999999 }, 'TOKEN_INVALID'],
+    [{ is_valid: true, app_id: '123', user_id: '999', expires_at: 0 }, 'EXPIRY_MISSING'],
+  ] as const;
+  for (const [data, expected] of cases) {
+    const { api } = network([{ access_token: 'short' }, { access_token: 'long' }, { id: '999' }, { data }]);
+    await assert.rejects(api.exchange('code'), (error: unknown) => error instanceof MetaApiError && error.diagnostic.stage === 'TOKEN_DEBUG_READ' && error.diagnostic.invalidResponse === expected);
+  }
+});
+test('malformed permission response still fails closed after successful token validation', async () => {
   const missingPermissions = network([{ access_token: 'short' }, { access_token: 'long', expires_in: 5000 }, { id: '999' }, {}]);
   await assert.rejects(missingPermissions.api.exchange('code'), (error: unknown) => error instanceof MetaApiError && error.diagnostic.stage === 'PERMISSIONS_READ' && error.diagnostic.invalidResponse === 'PERMISSIONS_MISSING');
 });
