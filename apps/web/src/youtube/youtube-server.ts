@@ -40,7 +40,7 @@ function open(p: YouTubePrincipal, sealed: Uint8Array, key: Uint8Array): string 
   return value;
 }
 
-async function creatorProfileId(p: YouTubePrincipal): Promise<string | null> {
+async function creatorProfileId(p: Pick<YouTubePrincipal, 'organizationId' | 'userId'>): Promise<string | null> {
   const profile = await prisma.creatorProfile.findFirst({
     where: { organizationId: p.organizationId, userId: p.userId },
     select: { id: true },
@@ -271,7 +271,7 @@ export async function disconnectYouTube(p: YouTubePrincipal): Promise<boolean> {
   return result.count === 1;
 }
 
-export async function getYouTubeCreatorConnection(p: YouTubePrincipal) {
+export async function getYouTubeCreatorConnection(p: Pick<YouTubePrincipal, 'organizationId' | 'userId'>) {
   const profileId = await creatorProfileId(p);
   if (!profileId) return null;
   const connection = await prisma.youTubeConnection.findFirst({
