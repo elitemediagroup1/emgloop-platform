@@ -31,8 +31,6 @@ export default async function CreatorAnalyticsPage({ searchParams }: { searchPar
   const platform = PLATFORM_TABS.some(item => item.id === platformRaw) ? platformRaw as typeof PLATFORM_TABS[number]['id'] : null;
   const profile = await creatorDomain().creator.profileById(seat.actor.organizationId, seat.profileId);
   const all = await loadAnalytics(seat, { days });
-  const view = platform ? await loadAnalytics(seat, { platform, days }) : all;
-  const audienceRows = platform ? all.audience.filter(item => item.platform === platform) : all.audience;
   const href = (selected: string | null, windowDays: number) => {
     const query = [selected ? 'platform=' + selected : null, 'days=' + windowDays].filter(Boolean).join('&');
     return CREATOR_HREFS.analytics + (query ? '?' + query : '');
