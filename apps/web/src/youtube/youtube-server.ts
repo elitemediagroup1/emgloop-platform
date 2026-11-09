@@ -137,9 +137,9 @@ export async function beginYouTubeConnect(p: YouTubePrincipal): Promise<string |
   await prisma.youTubeOAuthState.deleteMany({
     where: { organizationId: p.organizationId, userId: p.userId, OR: [{ consumedAt: { not: null } }, { expiresAt: { lte: now } }] },
   });
-  const count = await prisma.youtubeOAuthState.count({ where: { organizationId: p.organizationId, userId: p.userId } });
+  const count = await prisma.youTubeOAuthState.count({ where: { organizationId: p.organizationId, userId: p.userId } });
   if (count >= 5) return 'TOO_MANY_ATTEMPTS';
-  await prisma.youtubeOAuthState.create({
+  await prisma.youTubeOAuthState.create({
     data: { organizationId: p.organizationId, creatorProfileId: profileId, userId: p.userId, sessionId: p.sessionId, stateHash: hash(state), expiresAt: new Date(now.getTime() + 10 * 60_000) },
   });
   return redirectUrl(state, env.clientId, env.redirectUri);
@@ -150,7 +150,7 @@ export async function completeYouTubeConnect(p: YouTubePrincipal, input: { state
   if (!env) return 'NOT_CONFIGURED';
   if (!input.state || !STATE.test(input.state)) return 'STATE_INVALID';
   const now = new Date();
-  const consumed = await prisma.youtubeOAuthState.updateMany({
+  const consumed = await prisma.youTubeOAuthState.updateMany({
     where: { organizationId: p.organizationId, userId: p.userId, sessionId: p.sessionId, stateHash: hash(input.state), consumedAt: null, expiresAt: { gt: now } },
     data: { consumedAt: now },
   });
@@ -267,7 +267,7 @@ export async function disconnectYouTube(p: YouTubePrincipal): Promise<boolean> {
     where: { organizationId: p.organizationId, creatorProfileId: profileId, userId: p.userId, status: 'CONNECTED' },
     data: { status: 'DISCONNECTED', refreshTokenSealed: null, revokedAt: new Date() },
   });
-  await prisma.youtubeOAuthState.deleteMany({ where: { organizationId: p.organizationId, userId: p.userId } });
+  await prisma.youTubeOAuthState.deleteMany({ where: { organizationId: p.organizationId, userId: p.userId } });
   return result.count === 1;
 }
 
