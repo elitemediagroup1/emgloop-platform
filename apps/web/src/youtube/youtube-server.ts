@@ -79,7 +79,7 @@ async function exchange(code: string, clientId: string, clientSecret: string, re
   const refresh = typeof result.refresh_token === 'string' ? result.refresh_token : '';
   const expiry = Number(result.expires_in);
   const scopes = typeof result.scope === 'string' ? result.scope.split(/\s+/).filter(Boolean) : [];
-  if (!TOKEN.test(access) || !TOKEN.test(refresh) || !Number.isFinite(expiry) || expiry < 60 || !YOUTUBE_SCOPES.every(scope => scopes.includes(scope))) {
+  if (!TOKEN.test(access) || !TOKEN.test(refresh) || !Number.isFinite(expiry) || expiry < 60 || (scopes.length !== YOUTUBE_SCOPES.length || !YOUTUBE_SCOPES.every(scope => scopes.includes(scope)))) {
     throw new Error('GOOGLE_GRANT_INVALID');
   }
   return { access, refresh, expiresAt: new Date(Date.now() + expiry * 1000), scopes };
@@ -220,10 +220,10 @@ export async function syncYouTubeAnalytics(p: YouTubePrincipal, force = false): 
     const refreshToken = open(p, connection.refreshTokenSealed, env.tokenKey);
     const fresh = await refreshAccess(refreshToken, env);
     const tokenToStore = fresh.refresh ?? refreshToken;
-    const start = new Date();
-    start.setUTCDate(start.getUTCDate() - 28);
     const end = new Date();
     end.setUTCDate(end.getUTCDate() - 1);
+    const start = new Date(end);
+    start.setUTCDate(start.getUTCDate() - 27);
     const reportUrl = new URL('https://youtubeanalytics.googleapis.com/v2/reports');
     reportUrl.searchParams.set('ids', 'channel==MINE');
     reportUrl.searchParams.set('startDate', dateOnly(start));
@@ -239,7 +239,7 @@ export async function syncYouTubeAnalytics(p: YouTubePrincipal, force = false): 
     };
     const savedAt = new Date();
     await prisma.youTubeConnection.update({
-      where: { id: connection.id },
+      where: { id: connection.id, organizationId: p.organizationId, creatorProfileId: profileId, userId: p.userId, status: 'CONNECTED' },
       data: {
         refreshTokenSealed: seal(p, tokenToStore, env.tokenKey),
         lastSyncedAt: savedAt,
