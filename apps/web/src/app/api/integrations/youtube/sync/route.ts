@@ -11,7 +11,9 @@ export async function POST(request: Request): Promise<Response> {
   const bound = await getSessionBinding();
   if (!bound) return new Response(null, { status: 303, headers: { ...noStore, location: '/login' } });
   const site = request.headers.get('sec-fetch-site');
-  if (site === 'cross-site' || resolveWorkspaceRole(bound.session) !== 'CREATOR') {
+  const origin = request.headers.get('origin');
+  const expectedOrigin = new URL(process.env.APP_URL ?? 'https://app.emgloop.com').origin;
+  if (site === 'cross-site' || !origin || origin !== expectedOrigin || resolveWorkspaceRole(bound.session) !== 'CREATOR') {
     return new Response(null, { status: 303, headers: { ...noStore, location: `${CREATOR_HREFS.profile}?youtube=NOT_PERMITTED` } });
   }
   let result = 'FAILED';
