@@ -2,7 +2,7 @@ import { type TimeView } from '@emgloop/shared';
 import { Panel } from '../app/app/_loop-os/record';
 
 /** A sampled agency report is never a calendar-window views total or an API connection. */
-export function ObservedTikTokReport({ preferences, time }: { preferences: unknown; time: TimeView }) {
+export function ObservedTikTokReport({ preferences, time, showEmpty = false }: { preferences: unknown; time: TimeView; showEmpty?: boolean }) {
   const raw = preferences && typeof preferences === 'object'
     ? (preferences as Record<string, unknown>).tiktokOneObservation
     : null;
@@ -14,6 +14,8 @@ export function ObservedTikTokReport({ preferences, time }: { preferences: unkno
     && typeof r.medianViewsDisplayed === 'string'
     && typeof r.engagementPct === 'number'
     && typeof r.view6sPct === 'number';
+
+  if (!valid && !showEmpty) return null;
 
   return (
     <Panel title="TikTok">
