@@ -53,18 +53,19 @@ export async function MetaAnalyticsPanel({ principal, outcome }: { principal: Me
     const platformPanel = (platform: 'FACEBOOK' | 'INSTAGRAM') => {
       const row = rows.find(item => (item.report as unknown as MetaReport).platform === platform);
       if (!row) {
-        const instagramMissing = platform === 'INSTAGRAM' && !connection?.instagramId;
+        const instagramMissing = platform === 'INSTAGRAM' && !!connection && !connection.instagramId;
         const notConnected = !connection || connection.status === 'DISCONNECTED';
-        return <Panel key={platform} title={platform === 'FACEBOOK' ? 'Facebook analytics' : 'Instagram analytics'}>
+        const name = platform === 'FACEBOOK' ? 'Facebook' : 'Instagram';
+        return <Panel key={platform} title={`${name} analytics`}>
           <StateBlock
             kind={notConnected ? 'unavailable' : instagramMissing ? 'attention' : 'empty'}
             compact
-            title={notConnected ? 'Facebook Page not connected' : instagramMissing ? 'Instagram account not linked' : 'No report fetched yet'}
+            title={notConnected ? `${name} analytics not connected` : instagramMissing ? 'Instagram account not linked' : `No ${name} report fetched yet`}
             body={notConnected
-              ? 'Connect a Facebook Page from Profile to fetch Facebook analytics.'
+              ? platform === 'FACEBOOK' ? 'Connect a Facebook Page from Profile to fetch Facebook analytics.' : 'Connect Meta from Profile and link a professional Instagram account to the selected Page.'
               : instagramMissing
                 ? 'No professional Instagram account is linked to this Page. Facebook analytics remain available and can be fetched independently.'
-                : `No ${platform === 'FACEBOOK' ? 'Facebook' : 'Instagram'} report is stored yet. Use Refresh connected Meta analytics above to fetch it.`}
+                : `No ${name} report is stored yet. Use Refresh connected Meta analytics above to fetch it.`}
           />
         </Panel>;
       }
