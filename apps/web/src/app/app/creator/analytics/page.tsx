@@ -1,7 +1,7 @@
 import { MetaAnalyticsPanel } from '../../../../meta/meta-panels';
 import { YouTubeAnalyticsPanel } from '../../../../youtube/youtube-panel';
 import Link from 'next/link';
-import { EVIDENCE_SOURCE_LABELS, type EvidenceSource, SOCIAL_PLATFORMS, SOCIAL_PLATFORM_LABELS } from '@emgloop/shared';
+import { EVIDENCE_SOURCE_LABELS, type EvidenceSource, SOCIAL_PLATFORM_LABELS } from '@emgloop/shared';
 import { requireWorkspace } from '../../../../workspaces/guard';
 import { CREATOR_HREFS, creatorDomain, requireCreator } from '../../../../creator/creator-runtime';
 import { ObservedTikTokReport } from '../../../../creator/observed-tiktok-report';
@@ -11,16 +11,15 @@ import { LoopPage, PageHead, Panel, StateBlock, SummaryStrip } from '../../_loop
 import { AudienceChart, groupAudience } from '../_parts/audience-chart';
 import { compactNumber, param } from '../_parts/vocabulary';
 
-// Analytics (Creator Hub): what the stored evidence says, labelled by where it came from.
-//
-// TikTok can be connected from Profile. Audience observations are stored separately from
-// performance reports: a connection or follower count never implies a measured views/reach total.
-//   ?platform=INSTAGRAM|TIKTOK|...   one platform's rows
-//   ?days=7|30|90                    the reporting window (default 30)
-
 export const dynamic = 'force-dynamic';
 
 const WINDOWS = [7, 30, 90] as const;
+const PLATFORM_TABS = [
+  { id: 'INSTAGRAM', label: 'Instagram' },
+  { id: 'TIKTOK', label: 'TikTok' },
+  { id: 'YOUTUBE', label: 'YouTube' },
+  { id: 'FACEBOOK', label: 'Facebook' },
+] as const;
 
 export default async function CreatorAnalyticsPage({ searchParams }: { searchParams: Record<string, string | string[] | undefined> }) {
   await requireWorkspace('CREATOR');
@@ -29,97 +28,101 @@ export default async function CreatorAnalyticsPage({ searchParams }: { searchPar
   const daysRaw = Number(param(searchParams.days) ?? 30);
   const days = (WINDOWS as readonly number[]).includes(daysRaw) ? daysRaw : 30;
   const platformRaw = param(searchParams.platform);
-  const platform = platformRaw && (SOCIAL_PLATFORMS as readonly string[]).includes(platformRaw) ? platformRaw : null;
+  const platform = PLATFORM_TABS.some(item => item.id === platformRaw) ? platformRaw as typeof PLATFORM_TABS[number]['id'] : null;
   const profile = await creatorDomain().creator.profileById(seat.actor.organizationId, seat.profileId);
   const all = await loadAnalytics(seat, { days });
-  const view = platform ? await loadAnalytics(seat, { platform, days }) : all;
-  const platforms = [...new Set([...all.platforms, ...all.latestAudience.map((a) => a.platform)])];
-  const audienceRows = platform ? all.audience.filter((a) => a.platform === platform) : all.audience;
-  const latest = platform ? all.latestAudience.filter((a) => a.platform === platform) : all.latestAudience;
-  const followers = latest.length > 0 ? latest.reduce((s, a) => s + a.followers, 0) : null;
-  const nothing = !all.connected && all.performance.length === 0 && all.audience.length === 0;
-  const href = (p: string | null, d: number) => `${CREATOR_HREFS.analytics}?${[p ? `platform=${p}` : null, `days=${d}`].filter(Boolean).join('&')}`;
+  const href = (selected: string | null, windowDays: number) => {
+    const query = [selected ? 'platform=' + selected : null, 'days=' + windowDays].filter(Boolean).join('&');
+    return CREATOR_HREFS.analytics + (query ? '?' + query : '');
+  };
+  const hasOverviewTotals = all.totals.views !== null || all.totals.reach !== null || all.totals.engagements !== null;
+  const hasOverviewDetails = all.performance.length > 0 || all.audience.length > 0 || all.topContent.length > 0;
 
   return (
     <LoopPage label="Analytics">
-      <PageHead trail={[{ label: 'Creator' }, { label: 'Analytics' }]} title="Analytics" subtitle="Reach and audience from the evidence Loop holds, each row labelled with its source." />
-      <YouTubeAnalyticsPanel principal={{ organizationId: seat.actor.organizationId, userId: seat.actor.userId }} syncOutcome={param(searchParams.youtube_sync) ?? undefined} />
-      {all.seeded ? (
-        <StateBlock kind="attention" compact title="Seeded demo data" body="Some or all of what is shown here was seeded to demonstrate the surface. It is not a platform report and says nothing about your real audience." />
-      ) : null}
-      {!all.connected ? <p className="loop-note">Connect social accounts from Profile. Meta reports appear in their own timestamped panel below; existing reports retain their recorded source.</p> : null}
+      <PageHead trail={[{ label: 'Creator' }, { label: 'Analytics' }]} title="Analytics" subtitle="Choose a platform to see its performance and audience." />
 
-      <p className="loop-note"><Link href={CREATOR_HREFS.profile}>Manage social connections</Link>. TikTok’s last-read account and recent-video counts are on Profile. They are lifetime observations, not totals for the reporting window below.</p>
-      {latest.some(a => a.source === 'PUBLIC_PROFILE' || a.source === 'TIKTOK_ONE_MANUAL') ? <p className="loop-note">Public and manually collected audience counts can be rounded; their observation timestamps do not imply an API connection or a unique combined audience.</p> : null}
-      <MetaAnalyticsPanel principal={{ organizationId: seat.actor.organizationId, userId: seat.actor.userId, creatorProfileId: seat.profileId }} outcome={param(searchParams.meta) ?? undefined} />
-      <ObservedTikTokReport preferences={profile?.preferences} time={time} />
-      {nothing ? (
-        <StateBlock kind="unavailable" title="No additional platform reports" body="Meta reports appear in their own panel above. Other performance appears here when a report is recorded; unavailable metrics remain unreported." />
+      <nav className="ch-analytics-tabs" aria-label="Analytics platform">
+        <Link className="ch-analytics-tab" href={href(null, days)} aria-current={platform === null ? 'page' : undefined}>Overview</Link>
+        {PLATFORM_TABS.map(item => (
+          <Link key={item.id} className="ch-analytics-tab" href={href(item.id, days)} aria-current={platform === item.id ? 'page' : undefined}>
+            {item.label}
+          </Link>
+        ))}
+      </nav>
+
+      {platform === 'YOUTUBE' ? (
+        <YouTubeAnalyticsPanel principal={{ organizationId: seat.actor.organizationId, userId: seat.actor.userId }} syncOutcome={param(searchParams.youtube_sync) ?? undefined} />
+      ) : platform === 'FACEBOOK' || platform === 'INSTAGRAM' ? (
+        <MetaAnalyticsPanel principal={{ organizationId: seat.actor.organizationId, userId: seat.actor.userId, creatorProfileId: seat.profileId }} outcome={param(searchParams.meta) ?? undefined} platform={platform} />
+      ) : platform === 'TIKTOK' ? (
+        <ObservedTikTokReport preferences={profile?.preferences} time={time} showEmpty />
       ) : (
         <>
-          <nav className="loop-filters" aria-label="Platform">
-            <Link className="loop-filter" href={href(null, days)} aria-current={platform === null ? 'true' : undefined}>
-              All platforms
-            </Link>
-            {platforms.map((p) => (
-              <Link key={p} className="loop-filter" href={href(p, days)} aria-current={platform === p ? 'true' : undefined}>
-                {(SOCIAL_PLATFORM_LABELS as Record<string, string>)[p] ?? p}
-              </Link>
-            ))}
-          </nav>
-          <nav className="loop-filters" aria-label="Window">
-            {WINDOWS.map((d) => (
-              <Link key={d} className="loop-filter" href={href(platform, d)} aria-current={days === d ? 'true' : undefined}>
-                {d} days
-              </Link>
-            ))}
-          </nav>
-
-          <SummaryStrip
-            label="Summary"
-            items={[
-              { label: 'Views', value: view.totals.views !== null ? compactNumber(view.totals.views) : null, unknownText: 'Not fully reported in this window' },
-              { label: 'Reach', value: view.totals.reach !== null ? compactNumber(view.totals.reach) : null, unknownText: 'Not fully reported in this window' },
-              { label: 'Engagements', value: view.totals.engagements !== null ? compactNumber(view.totals.engagements) : null, unknownText: 'Not fully reported in this window' },
-              { label: 'Followers', value: followers === null ? null : compactNumber(followers), unknownText: 'No audience observed' },
-            ]}
-          />
-
-          <Panel title="Audience over time">
-            {audienceRows.length === 0 ? (
-              <StateBlock kind="empty" compact title="No audience observations." body="An observation is a follower count read on a date. None is recorded for this selection." />
-            ) : (
-              <div className="ch-charts">
-                {groupAudience(audienceRows).map((s) => (
-                  <AudienceChart key={s.platform} series={s} time={time} />
+          {all.seeded ? <StateBlock kind="attention" compact title="Demo data" body="Some figures are examples and are not real platform results." /> : null}
+          <div className="ch-analytics-overview">
+            <div className="ch-analytics-overview__intro">
+              <div>
+                <span className="ch-analytics-eyebrow">Overview</span>
+                <h2>Across your platforms</h2>
+              </div>
+              <nav className="ch-analytics-window" aria-label="Reporting window">
+                {WINDOWS.map(windowDays => (
+                  <Link key={windowDays} href={href(null, windowDays)} aria-current={days === windowDays ? 'page' : undefined}>{windowDays} days</Link>
                 ))}
+              </nav>
+            </div>
+            {hasOverviewTotals ? (
+              <SummaryStrip
+                label="Reported performance"
+                items={[
+                  { label: 'Views', value: all.totals.views === null ? null : compactNumber(all.totals.views), unknownText: 'Not reported' },
+                  { label: 'Reach', value: all.totals.reach === null ? null : compactNumber(all.totals.reach), unknownText: 'Not reported' },
+                  { label: 'Engagements', value: all.totals.engagements === null ? null : compactNumber(all.totals.engagements), unknownText: 'Not reported' },
+                ]}
+              />
+            ) : null}
+            {hasOverviewDetails ? (
+              <div className="ch-analytics-overview__grid">
+                {all.audience.length ? (
+                  <Panel title="Audience growth">
+                    <div className="ch-charts">
+                      {groupAudience(all.audience).map(series => <AudienceChart key={series.platform} series={series} time={time} />)}
+                    </div>
+                  </Panel>
+                ) : null}
+                {all.topContent.length ? (
+                  <Panel title="Top content">
+                    <ol className="ch-list" aria-label="Top content by views">
+                      {all.topContent.map(item => (
+                        <li key={item.contentId}>
+                          <Link className="ch-row" href={CREATOR_HREFS.contentRecord(item.contentId)}>
+                            <span className="ch-row__main">
+                              <span className="ch-row__title">{item.title}</span>
+                              <span className="ch-row__meta">{(SOCIAL_PLATFORM_LABELS as Record<string, string>)[item.platform] ?? item.platform}</span>
+                            </span>
+                            <span className="ch-row__amount">{compactNumber(item.views)} views</span>
+                          </Link>
+                        </li>
+                      ))}
+                    </ol>
+                  </Panel>
+                ) : null}
+              </div>
+            ) : (
+              <div className="ch-analytics-empty">
+                <p>No reporting-window analytics to show yet.</p>
+                <span>Open a platform above for its latest snapshot, or <Link href={CREATOR_HREFS.profile}>manage your connections</Link>.</span>
               </div>
             )}
-          </Panel>
-
-          <Panel title="Top content">
-            {view.topContent.length === 0 ? (
-              <StateBlock kind="empty" compact title="No content has a report in this window." body="Once a published piece has a views report, it is ranked here." />
-            ) : (
-              <ol className="ch-list" aria-label="Top content by views">
-                {view.topContent.map((c) => (
-                  <li key={c.contentId}>
-                    <Link className="ch-row" href={CREATOR_HREFS.contentRecord(c.contentId)}>
-                      <span className="ch-row__main">
-                        <span className="ch-row__title">{c.title}</span>
-                        <span className="ch-row__meta">{(SOCIAL_PLATFORM_LABELS as Record<string, string>)[c.platform] ?? c.platform}</span>
-                      </span>
-                      <span className="ch-row__amount">{compactNumber(c.views)} views</span>
-                    </Link>
-                  </li>
-                ))}
-              </ol>
-            )}
-            <p className="loop-note" style={{ marginTop: 10 }}>
-              {view.performance.length} report{view.performance.length === 1 ? '' : 's'} in the last {days} days
-              {view.sources.length > 0 ? ` · sources: ${view.sources.map((s) => (EVIDENCE_SOURCE_LABELS[s as EvidenceSource] ?? s)).join(', ')}` : ''}
-            </p>
-          </Panel>
+            {hasOverviewDetails ? (
+              <p className="ch-analytics-source">
+                {all.performance.length} report{all.performance.length === 1 ? '' : 's'} in this window
+                {all.sources.length ? ' · ' + all.sources.map(source => EVIDENCE_SOURCE_LABELS[source as EvidenceSource] ?? source).join(', ') : ''}
+              </p>
+            ) : null}
+            {!all.connected ? <p className="ch-analytics-source"><Link href={CREATOR_HREFS.profile}>Connect your social accounts</Link> to start collecting platform analytics.</p> : null}
+          </div>
         </>
       )}
     </LoopPage>

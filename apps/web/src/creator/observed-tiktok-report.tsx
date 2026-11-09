@@ -1,14 +1,42 @@
 import { type TimeView } from '@emgloop/shared';
-import { Facts, Panel } from '../app/app/_loop-os/record';
+import { Panel } from '../app/app/_loop-os/record';
+
 /** A sampled agency report is never a calendar-window views total or an API connection. */
-export function ObservedTikTokReport({ preferences, time }: { preferences: unknown; time: TimeView }) {
-  if (!preferences || typeof preferences !== 'object') return null;
-  const raw = (preferences as Record<string, unknown>).tiktokOneObservation;
-  if (!raw || typeof raw !== 'object') return null;
-  const r = raw as Record<string, unknown>;
-  if (r.basis !== '30 most recent videos' || typeof r.observedAt !== 'string' || !Number.isFinite(Date.parse(r.observedAt)) || typeof r.medianViewsDisplayed !== 'string' || typeof r.engagementPct !== 'number' || typeof r.view6sPct !== 'number') return null;
-  return <Panel title="TikTok One reading">
-    <Facts rows={[{ label: 'Median views', value: r.medianViewsDisplayed }, { label: 'Engagement rate', value: `${r.engagementPct}%` }, { label: '6-second video views', value: `${r.view6sPct}%` }]} />
-    <p className="loop-note">Based on the 30 most recent videos, as reported by TikTok One. Observed {time.dateTime(r.observedAt)}. This is a manually collected snapshot; platform figures may be rounded. It does not represent a connected API or views for a calendar reporting window.</p>
-  </Panel>;
+export function ObservedTikTokReport({ preferences, time, showEmpty = false }: { preferences: unknown; time: TimeView; showEmpty?: boolean }) {
+  const raw = preferences && typeof preferences === 'object'
+    ? (preferences as Record<string, unknown>).tiktokOneObservation
+    : null;
+  const r = raw && typeof raw === 'object' ? raw as Record<string, unknown> : null;
+  const valid = !!r
+    && r.basis === '30 most recent videos'
+    && typeof r.observedAt === 'string'
+    && Number.isFinite(Date.parse(r.observedAt))
+    && typeof r.medianViewsDisplayed === 'string'
+    && typeof r.engagementPct === 'number'
+    && typeof r.view6sPct === 'number';
+
+  if (!valid && !showEmpty) return null;
+
+  return (
+    <Panel title="TikTok">
+      {valid ? (
+        <>
+          <div className="ch-snapshot">
+            <div className="ch-snapshot__metrics">
+              <div><span>Median views</span><strong>{r.medianViewsDisplayed as string}</strong></div>
+              <div><span>Engagement rate</span><strong>{r.engagementPct as number}%</strong></div>
+              <div><span>6-second views</span><strong>{r.view6sPct as number}%</strong></div>
+            </div>
+            <p className="ch-snapshot__source">TikTok One · 30 most recent videos · observed {time.dateTime(r.observedAt as string)} · manually collected snapshot, not an API connection.</p>
+          </div>
+        </>
+      ) : (
+        <div className="ch-analytics-empty">
+          <p>No TikTok One snapshot yet.</p>
+          <span>When a reading is added to the creator profile, it will appear here.</span>
+          <a className="loop-btn" href="/app/creator/profile">Manage TikTok profile</a>
+        </div>
+      )}
+    </Panel>
+  );
 }
