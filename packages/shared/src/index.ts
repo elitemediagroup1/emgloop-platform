@@ -607,3 +607,5 @@ export * from './crm-people-discovery';
 export * from './public-news';
 
 export * from './ai/creator-brand-update';
+
+export * from './youtube';
