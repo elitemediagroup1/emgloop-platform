@@ -180,6 +180,7 @@ export async function completeYouTubeConnect(p: YouTubePrincipal, input: { state
         creatorProfileId: profileId,
         userId: p.userId,
         channelId,
+        activeChannelId: channelId,
         channelTitle,
         subscriberCount: typeof statistics.subscriberCount === 'string' ? statistics.subscriberCount : null,
         lifetimeViewCount: typeof statistics.viewCount === 'string' ? statistics.viewCount : null,
@@ -191,6 +192,7 @@ export async function completeYouTubeConnect(p: YouTubePrincipal, input: { state
       update: {
         userId: p.userId,
         channelId,
+        activeChannelId: channelId,
         channelTitle,
         subscriberCount: typeof statistics.subscriberCount === 'string' ? statistics.subscriberCount : null,
         lifetimeViewCount: typeof statistics.viewCount === 'string' ? statistics.viewCount : null,
@@ -270,7 +272,7 @@ export async function disconnectYouTube(p: YouTubePrincipal): Promise<boolean> {
   if (!profileId) return false;
   const result = await prisma.youTubeConnection.updateMany({
     where: { organizationId: p.organizationId, creatorProfileId: profileId, userId: p.userId, status: 'CONNECTED' },
-    data: { status: 'DISCONNECTED', refreshTokenSealed: null, revokedAt: new Date() },
+    data: { status: 'DISCONNECTED', activeChannelId: null, refreshTokenSealed: null, revokedAt: new Date() },
   });
   if (result.count === 1) await prisma.youTubeAnalyticsObservation.deleteMany({ where: { organizationId: p.organizationId, creatorProfileId: profileId } });
   await prisma.youTubeOAuthState.deleteMany({ where: { organizationId: p.organizationId, userId: p.userId } });
