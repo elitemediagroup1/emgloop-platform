@@ -43,6 +43,7 @@ export async function YouTubeConnectionPanel({ principal, outcome }: { principal
       ]} />
       <div className="loop-btnrow">
         <a className="loop-btn loop-btn--primary" href="/app/creator/analytics">View YouTube analytics</a>
+        <a className="loop-btn" href="/api/integrations/youtube/connect" rel="nofollow">Reconnect YouTube</a>
         <form action="/api/integrations/youtube/disconnect" method="post"><button className="loop-btn" type="submit">Disconnect YouTube</button></form>
       </div>
     </>}
@@ -71,7 +72,7 @@ export async function YouTubeAnalyticsPanel({ principal, syncOutcome }: { princi
   }
   return <Panel title="YouTube analytics">
     {syncText ? <p role="status">{syncText}</p> : null}
-    {!data ? <StateBlock kind="unavailable" compact title="YouTube is not connected" body="Connect your channel from Profile, then return here to refresh its analytics." /> : <>
+    {!data ? <><StateBlock kind="unavailable" compact title="YouTube is not connected" body="Connect your channel from Profile, then return here to refresh its analytics." /><a className="loop-btn" href="/app/creator/profile">Open Profile</a></> : <>
       <p className="loop-note">Latest stored YouTube Analytics API snapshot. The window is 28 complete UTC days; repeated windows are not added together.</p>
       {data.observation?.observedAt ? <p className="loop-note">Fetched {data.observation.observedAt.toLocaleString()} · {typeof period.startDate === 'string' && typeof period.endDate === 'string' ? `${period.startDate} to ${period.endDate}` : 'period unavailable'}.</p> : <p className="loop-note">No analytics snapshot has been fetched yet.</p>}
       <Facts rows={[
