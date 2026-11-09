@@ -1,4 +1,5 @@
 import { MetaAnalyticsPanel } from '../../../../meta/meta-panels';
+import { YouTubeAnalyticsPanel } from '../../../../youtube/youtube-panel';
 import Link from 'next/link';
 import { EVIDENCE_SOURCE_LABELS, type EvidenceSource, SOCIAL_PLATFORMS, SOCIAL_PLATFORM_LABELS } from '@emgloop/shared';
 import { requireWorkspace } from '../../../../workspaces/guard';
@@ -42,6 +43,7 @@ export default async function CreatorAnalyticsPage({ searchParams }: { searchPar
   return (
     <LoopPage label="Analytics">
       <PageHead trail={[{ label: 'Creator' }, { label: 'Analytics' }]} title="Analytics" subtitle="Reach and audience from the evidence Loop holds, each row labelled with its source." />
+      <YouTubeAnalyticsPanel principal={{ organizationId: seat.actor.organizationId, userId: seat.actor.userId }} syncOutcome={param(searchParams.youtube_sync) ?? undefined} />
       {all.seeded ? (
         <StateBlock kind="attention" compact title="Seeded demo data" body="Some or all of what is shown here was seeded to demonstrate the surface. It is not a platform report and says nothing about your real audience." />
       ) : null}
