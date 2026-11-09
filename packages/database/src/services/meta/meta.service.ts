@@ -19,7 +19,7 @@ export class MetaService {
     const grant = await this.configured.api.exchange(input.code);
     // Partial consent is visible, never promoted to a working insights connection.
     if (!META_SCOPES.every(s => grant.scopes.includes(s))) return 'PERMISSION_REQUIRED';
-    const stored = await this.repository.stage(p, sessionId, metaStateHash(input.state), { metaUserId: grant.userId, scopes: grant.scopes, tokenExpiresAt: new Date(Date.now() + grant.expiresIn * 1000), tokenSealed: this.configured.sealer.seal(p, `attempt:${metaStateHash(input.state)}`, grant.token) });
+    const stored = await this.repository.stage(p, sessionId, metaStateHash(input.state), { metaUserId: grant.userId, scopes: grant.scopes, tokenExpiresAt: grant.expiresIn === 0 ? new Date('9999-12-31T23:59:59.000Z') : new Date(Date.now() + grant.expiresIn * 1000), tokenSealed: this.configured.sealer.seal(p, `attempt:${metaStateHash(input.state)}`, grant.token) });
     return stored ? 'SELECT_ACCOUNT' : 'STATE_INVALID';
   }
   async choices(p: MetaPrincipal, sessionId: string) {

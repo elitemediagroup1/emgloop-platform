@@ -84,9 +84,11 @@ export class MetaApi {
       if (str(data.app_id) !== this.config.appId) throw new MetaApiError('UNAVAILABLE', { stage: 'TOKEN_DEBUG_READ', invalidResponse: 'TOKEN_APP_MISMATCH' });
       if (str(data.user_id) !== String(me.id)) throw new MetaApiError('UNAVAILABLE', { stage: 'TOKEN_DEBUG_READ', invalidResponse: 'TOKEN_IDENTITY_MISMATCH' });
       const expiresAt = num(data.expires_at);
-      expiresIn = expiresAt === null ? null : expiresAt - Math.floor(Date.now() / 1000);
+      // Meta uses 0 to mean this valid token has no fixed expiry. Keep this
+      // distinct from a missing expiry value; storage maps it to a sentinel date.
+      expiresIn = expiresAt === 0 ? 0 : expiresAt === null ? null : expiresAt - Math.floor(Date.now() / 1000);
     }
-    if (expiresIn === null || expiresIn <= 0) throw new MetaApiError('UNAVAILABLE', { stage: 'TOKEN_DEBUG_READ', invalidResponse: 'EXPIRY_MISSING' });
+    if (expiresIn === null || expiresIn < 0) throw new MetaApiError('UNAVAILABLE', { stage: 'TOKEN_DEBUG_READ', invalidResponse: 'EXPIRY_MISSING' });
     const permissions = await this.authorizationRequest('PERMISSIONS_READ', 'me/permissions', token);
     if (!Array.isArray(permissions.data)) throw new MetaApiError('UNAVAILABLE', { stage: 'PERMISSIONS_READ', invalidResponse: 'PERMISSIONS_MISSING' });
     const scopes = (Array.isArray(permissions.data) ? permissions.data : []).map(metaObject).filter(p => p.status === 'granted').map(p => str(p.permission)).filter((p): p is string => p !== null);
