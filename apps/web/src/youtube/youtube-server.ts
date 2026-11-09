@@ -215,14 +215,14 @@ export async function completeYouTubeConnect(p: YouTubePrincipal, input: { state
   }
 }
 
-export async function syncYouTubeAnalytics(p: YouTubePrincipal): Promise<'SYNCED' | 'NOT_CONNECTED' | 'NOT_CONFIGURED' | 'FAILED'> {
+export async function syncYouTubeAnalytics(p: YouTubePrincipal): Promise<'SYNCED' | 'ALREADY_FRESH' | 'NOT_CONNECTED' | 'NOT_CONFIGURED' | 'FAILED'> {
   const env = readYouTubeEnvironment();
   if (!env) return 'NOT_CONFIGURED';
   const profileId = await creatorProfileId(p);
   if (!profileId) return 'NOT_CONNECTED';
   const connection = await prisma.youTubeConnection.findFirst({ where: { organizationId: p.organizationId, creatorProfileId: profileId, userId: p.userId, status: 'CONNECTED' } });
   if (!connection?.refreshTokenSealed) return 'NOT_CONNECTED';
-  if (connection.lastSyncedAt && Date.now() - connection.lastSyncedAt.getTime() < YOUTUBE_SYNC_MIN_INTERVAL_MS) return 'SYNCED';
+  if (connection.lastSyncedAt && Date.now() - connection.lastSyncedAt.getTime() < YOUTUBE_SYNC_MIN_INTERVAL_MS) return 'ALREADY_FRESH';
   try {
     const refreshToken = open(p, connection.refreshTokenSealed, env.tokenKey);
     const fresh = await refreshAccess(refreshToken, env);
