@@ -8472,6 +8472,7 @@ model YouTubeConnection {
   creator CreatorProfile @relation(fields: [organizationId, creatorProfileId], references: [organizationId, id], onDelete: Cascade)
   observations YouTubeAnalyticsObservation[]
   @@unique([organizationId, id])
+  @@unique([organizationId, creatorProfileId])
   @@unique([organizationId, activeChannelId])
   @@map("youtube_connections")
 }
