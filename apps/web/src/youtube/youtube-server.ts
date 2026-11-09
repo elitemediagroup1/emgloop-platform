@@ -60,7 +60,7 @@ function redirectUrl(state: string, clientId: string, redirectUri: string): stri
   return url.toString();
 }
 
-async function tokenRequest(body: URLSearchParams, clientId: string, clientSecret: string): Promise<TokenReply> {
+async function tokenRequest(body: URLSearchParams): Promise<TokenReply> {
   const response = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
@@ -74,7 +74,7 @@ async function tokenRequest(body: URLSearchParams, clientId: string, clientSecre
 
 async function exchange(code: string, clientId: string, clientSecret: string, redirectUri: string): Promise<{ access: string; refresh: string; expiresAt: Date; scopes: string[] }> {
   const body = new URLSearchParams({ code, client_id: clientId, client_secret: clientSecret, redirect_uri: redirectUri, grant_type: 'authorization_code' });
-  const result = await tokenRequest(body, clientId, clientSecret);
+  const result = await tokenRequest(body);
   const access = typeof result.access_token === 'string' ? result.access_token : '';
   const refresh = typeof result.refresh_token === 'string' ? result.refresh_token : '';
   const expiry = Number(result.expires_in);
@@ -87,7 +87,7 @@ async function exchange(code: string, clientId: string, clientSecret: string, re
 
 async function refreshAccess(refreshToken: string, env: NonNullable<ReturnType<typeof readYouTubeEnvironment>>): Promise<{ access: string; refresh: string | null; expiresAt: Date }> {
   const body = new URLSearchParams({ refresh_token: refreshToken, client_id: env.clientId, client_secret: env.clientSecret, grant_type: 'refresh_token' });
-  const result = await tokenRequest(body, env.clientId, env.clientSecret);
+  const result = await tokenRequest(body);
   const access = typeof result.access_token === 'string' ? result.access_token : '';
   const expiry = Number(result.expires_in);
   const rotated = typeof result.refresh_token === 'string' && TOKEN.test(result.refresh_token) ? result.refresh_token : null;
@@ -134,7 +134,7 @@ export async function beginYouTubeConnect(p: YouTubePrincipal): Promise<string |
   if (!profileId) return 'NOT_PERMITTED';
   const state = randomBytes(32).toString('base64url');
   const now = new Date();
-  await prisma.youtubeOAuthState.deleteMany({
+  await prisma.youTubeOAuthState.deleteMany({
     where: { organizationId: p.organizationId, userId: p.userId, OR: [{ consumedAt: { not: null } }, { expiresAt: { lte: now } }] },
   });
   const count = await prisma.youtubeOAuthState.count({ where: { organizationId: p.organizationId, userId: p.userId } });
