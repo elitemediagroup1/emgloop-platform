@@ -111,20 +111,36 @@ function dateOnly(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
-function dailyRows(report: Record<string, unknown>): Array<{ date: string; metrics: Record<string, number | null> }> {
+function metricRows(report: Record<string, unknown>, dimension: string, names: string[], limit: number): Array<{ dimensionValue: string; metrics: Record<string, number | null> }> {
   const headers = Array.isArray(report.columnHeaders) ? report.columnHeaders.map(h => String(object(h).name ?? '')) : [];
+  const dimensionIndex = headers.indexOf(dimension);
   const rows = Array.isArray(report.rows) ? report.rows : [];
-  const names = ['views', 'estimatedMinutesWatched', 'averageViewDuration', 'subscribersGained', 'subscribersLost'];
-  return rows.slice(0, 31).flatMap(row => {
-    if (!Array.isArray(row) || typeof row[0] !== 'string') return [];
+  if (dimensionIndex < 0) return [];
+  return rows.slice(0, limit).flatMap(row => {
+    if (!Array.isArray(row) || typeof row[dimensionIndex] !== 'string') return [];
     const metrics: Record<string, number | null> = {};
     names.forEach(name => {
       const index = headers.indexOf(name);
       const value = index >= 0 ? Number(row[index]) : NaN;
       metrics[name] = Number.isFinite(value) ? value : null;
     });
-    return [{ date: row[0], metrics }];
+    return [{ dimensionValue: row[dimensionIndex] as string, metrics }];
   });
+}
+
+function dailyRows(report: Record<string, unknown>) {
+  return metricRows(report, 'day', ['views', 'estimatedMinutesWatched', 'averageViewDuration', 'averageViewPercentage', 'subscribersGained', 'subscribersLost', 'likes', 'comments', 'shares'], 31)
+    .map(row => ({ date: row.dimensionValue, metrics: row.metrics }));
+}
+
+function topVideoRows(report: Record<string, unknown>) {
+  return metricRows(report, 'video', ['views', 'estimatedMinutesWatched', 'averageViewDuration', 'averageViewPercentage', 'likes', 'comments', 'shares'], 10)
+    .map(row => ({ videoId: row.dimensionValue, metrics: row.metrics }));
+}
+
+function trafficSourceRows(report: Record<string, unknown>) {
+  return metricRows(report, 'insightTrafficSourceType', ['views', 'estimatedMinutesWatched'], 10)
+    .map(row => ({ source: row.dimensionValue, metrics: row.metrics }));
 }
 
 export async function beginYouTubeConnect(p: YouTubePrincipal): Promise<string | 'NOT_CONFIGURED' | 'NOT_PERMITTED'> {
@@ -235,14 +251,66 @@ export async function syncYouTubeAnalytics(p: YouTubePrincipal): Promise<'SYNCED
     reportUrl.searchParams.set('ids', 'channel==MINE');
     reportUrl.searchParams.set('startDate', dateOnly(start));
     reportUrl.searchParams.set('endDate', dateOnly(end));
-    reportUrl.searchParams.set('metrics', 'views,estimatedMinutesWatched,averageViewDuration,subscribersGained,subscribersLost');
+    reportUrl.searchParams.set('metrics', 'views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,subscribersGained,subscribersLost,likes,comments,shares');
     reportUrl.searchParams.set('dimensions', 'day');
     reportUrl.searchParams.set('sort', 'day');
     const raw = await googleJson(reportUrl, fresh.access);
+
+    const videosUrl = new URL('https://youtubeanalytics.googleapis.com/v2/reports');
+    videosUrl.searchParams.set('ids', 'channel==MINE');
+    videosUrl.searchParams.set('startDate', dateOnly(start));
+    videosUrl.searchParams.set('endDate', dateOnly(end));
+    videosUrl.searchParams.set('metrics', 'views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,likes,comments,shares');
+    videosUrl.searchParams.set('dimensions', 'video');
+    videosUrl.searchParams.set('sort', '-views');
+    videosUrl.searchParams.set('maxResults', '10');
+    let videoRows: ReturnType<typeof topVideoRows> = [];
+    try {
+      videoRows = topVideoRows(await googleJson(videosUrl, fresh.access));
+    } catch {}
+
+    const trafficUrl = new URL('https://youtubeanalytics.googleapis.com/v2/reports');
+    trafficUrl.searchParams.set('ids', 'channel==MINE');
+    trafficUrl.searchParams.set('startDate', dateOnly(start));
+    trafficUrl.searchParams.set('endDate', dateOnly(end));
+    trafficUrl.searchParams.set('metrics', 'views,estimatedMinutesWatched');
+    trafficUrl.searchParams.set('dimensions', 'insightTrafficSourceType');
+    trafficUrl.searchParams.set('sort', '-views');
+    trafficUrl.searchParams.set('maxResults', '10');
+    let trafficSources: ReturnType<typeof trafficSourceRows> = [];
+    try {
+      trafficSources = trafficSourceRows(await googleJson(trafficUrl, fresh.access));
+    } catch {}
+
+    if (videoRows.length) {
+      const detailsUrl = new URL('https://www.googleapis.com/youtube/v3/videos');
+      detailsUrl.searchParams.set('part', 'snippet');
+      detailsUrl.searchParams.set('id', videoRows.map(row => row.videoId).join(','));
+      try {
+        const details = await googleJson(detailsUrl, fresh.access);
+        const items = Array.isArray(details.items) ? details.items : [];
+        const byId = new Map<string, { title: string; thumbnailUrl: string | null }>();
+        for (const value of items) {
+          const item = object(value);
+          const snippet = object(item.snippet);
+          const thumbnails = object(snippet.thumbnails);
+          const high = object(thumbnails.high);
+          const medium = object(thumbnails.medium);
+          const thumbnail = typeof high.url === 'string' ? high.url : typeof medium.url === 'string' ? medium.url : null;
+          if (typeof item.id === 'string' && typeof snippet.title === 'string') byId.set(item.id, { title: snippet.title.slice(0, 200), thumbnailUrl: thumbnail });
+        }
+        videoRows = videoRows.map(row => ({ ...row, ...(byId.get(row.videoId) ?? { title: 'YouTube video', thumbnailUrl: null }) }));
+      } catch {
+        videoRows = videoRows.map(row => ({ ...row, title: 'YouTube video', thumbnailUrl: null }));
+      }
+    }
+
     const report = {
       period: { startDate: dateOnly(start), endDate: dateOnly(end) },
       columns: Array.isArray(raw.columnHeaders) ? raw.columnHeaders.map(h => String(object(h).name ?? '')) : [],
       daily: dailyRows(raw),
+      topVideos: videoRows,
+      trafficSources,
     };
     const savedAt = new Date();
     await prisma.youTubeConnection.update({
