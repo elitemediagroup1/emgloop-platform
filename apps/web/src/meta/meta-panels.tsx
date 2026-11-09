@@ -20,11 +20,13 @@ export async function MetaConnectionPanel({ principal, outcome, reference, diagn
     const choices = bound ? await service.choices(principal, bound.sessionId) : [];
     const time = viewerTime();
     const message = metaConnectionMessage(outcome, status ? !!status.instagramId : undefined);
-    const failureReference = metaFailureReference(reference);\n    const diagnosticLabel = diagnostic ? metaDiagnosticLabel(diagnostic) : null;
+    const failureReference = metaFailureReference(reference);
+    const diagnosticLabel = diagnostic ? metaDiagnosticLabel(diagnostic) : null;
     return <Panel title="Instagram & Facebook">
       <p className="loop-note">Connect your Facebook Page and its linked Instagram Business or Creator account. Loop reads profile and content analytics for your Creator Hub.</p>
       {message ? <p role="status">{message}</p> : null}
-      {failureReference ? <p className="loop-note">EMG support reference: {failureReference}</p> : null}\n      {diagnosticLabel ? <p className="loop-note">Safe diagnostic: {diagnosticLabel}</p> : null}
+      {failureReference ? <p className="loop-note">EMG support reference: {failureReference}</p> : null}
+      {diagnosticLabel ? <p className="loop-note">Safe diagnostic: {diagnosticLabel}</p> : null}
       {choices.length ? <form action={selectMetaAccountAction} className="ch-form"><label className="loop-field"><span className="loop-label">Your Page</span><select className="loop-input" name="pageId" required>{choices.map(p => <option key={p.id} value={p.id}>{p.name}{p.hasInstagram ? ' · Instagram linked' : ' · Facebook only'}</option>)}</select></label><button className="loop-btn loop-btn--primary" type="submit">Connect selected account</button></form> : outcome === 'SELECT_ACCOUNT' ? <StateBlock kind="attention" compact title="No eligible Page returned" body="Confirm you have analytics access to the Page and selected it during Meta consent. Instagram must be a professional account linked to that Page for this connection." /> : null}
       {status && status.status !== 'DISCONNECTED' ? <>
         {outcome && !['CONNECTED', 'SELECT_ACCOUNT'].includes(outcome) ? <p className="loop-note">The saved connection below is from an earlier authorization. This attempt did not replace it.</p> : null}
