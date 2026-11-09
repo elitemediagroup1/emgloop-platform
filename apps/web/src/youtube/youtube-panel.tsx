@@ -1,4 +1,3 @@
-import { prisma } from '@emgloop/database';
 import { readYouTubeEnvironment } from './youtube-environment';
 import { getYouTubeCreatorConnection } from './youtube-server';
 import { Panel, StateBlock } from '../app/app/_loop-os/record';
