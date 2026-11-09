@@ -29,7 +29,7 @@ export async function YouTubeConnectionPanel({ principal, outcome, syncOutcome }
 
   let data: Awaited<ReturnType<typeof getYouTubeCreatorConnection>> = null;
   try {
-    data = await getYouTubeCreatorConnection({ ...principal, sessionId: '' });
+    data = await getYouTubeCreatorConnection(principal);
   } catch {
     return <Panel title="YouTube"><StateBlock kind="error" compact title="Loop could not check your YouTube connection." body="This is a temporary check failure, not a finding that no connection exists." /></Panel>;
   }
