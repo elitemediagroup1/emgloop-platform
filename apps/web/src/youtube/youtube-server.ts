@@ -173,9 +173,6 @@ export async function completeYouTubeConnect(p: YouTubePrincipal, input: { state
     const channelTitle = typeof snippet.title === 'string' ? snippet.title.slice(0, 200) : '';
     if (!/^[A-Za-z0-9_-]{10,64}$/.test(channelId) || !channelTitle) return 'CHANNEL_UNAVAILABLE';
     const previous = await prisma.youTubeConnection.findFirst({ where: { organizationId: p.organizationId, creatorProfileId: profileId, userId: p.userId }, select: { id: true, channelId: true } });
-    if (previous && previous.channelId !== channelId) {
-      await prisma.youTubeAnalyticsObservation.deleteMany({ where: { organizationId: p.organizationId, creatorProfileId: profileId, connectionId: previous.id } });
-    }
     await prisma.youTubeConnection.upsert({
       where: { creatorProfileId: profileId },
       create: {
@@ -206,6 +203,9 @@ export async function completeYouTubeConnect(p: YouTubePrincipal, input: { state
         ...(previous && previous.channelId !== channelId ? { lastSyncedAt: null } : {}),
       },
     });
+    if (previous && previous.channelId !== channelId) {
+      await prisma.youTubeAnalyticsObservation.deleteMany({ where: { organizationId: p.organizationId, creatorProfileId: profileId, connectionId: previous.id } });
+    }
     return 'CONNECTED';
   } catch (error) {
     if ((error as { code?: string })?.code === 'P2002') return 'ACCOUNT_IN_USE';
