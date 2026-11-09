@@ -21,5 +21,5 @@ export async function POST(request: Request): Promise<Response> {
   try {
     result = await syncYouTubeAnalytics({ organizationId: bound.session.organizationId, userId: bound.session.userId, sessionId: bound.sessionId });
   } catch {}
-  return new Response(null, { status: 303, headers: { ...noStore, location: `${CREATOR_HREFS.profile}?youtube_sync=${encodeURIComponent(result)}` } });
+  return new Response(null, { status: 303, headers: { ...noStore, location: `${CREATOR_HREFS.analytics}?youtube_sync=${encodeURIComponent(result)}` } });
 }
