@@ -143,6 +143,18 @@ function trafficSourceRows(report: Record<string, unknown>) {
     .map(row => ({ source: row.dimensionValue, metrics: row.metrics }));
 }
 
+function aggregateMetrics(report: Record<string, unknown>, names: string[]): Record<string, number | null> {
+  const headers = Array.isArray(report.columnHeaders) ? report.columnHeaders.map(h => String(object(h).name ?? '')) : [];
+  const row = Array.isArray(report.rows) && Array.isArray(report.rows[0]) ? report.rows[0] as unknown[] : [];
+  const metrics: Record<string, number | null> = {};
+  names.forEach(name => {
+    const index = headers.indexOf(name);
+    const value = index >= 0 ? Number(row[index]) : NaN;
+    metrics[name] = Number.isFinite(value) ? value : null;
+  });
+  return metrics;
+}
+
 export async function beginYouTubeConnect(p: YouTubePrincipal): Promise<string | 'NOT_CONFIGURED' | 'NOT_PERMITTED'> {
   const env = readYouTubeEnvironment();
   if (!env) return 'NOT_CONFIGURED';
@@ -256,6 +268,20 @@ export async function syncYouTubeAnalytics(p: YouTubePrincipal): Promise<'SYNCED
     reportUrl.searchParams.set('sort', 'day');
     const raw = await googleJson(reportUrl, fresh.access);
 
+    const previousEnd = new Date(start);
+    previousEnd.setUTCDate(previousEnd.getUTCDate() - 1);
+    const previousStart = new Date(previousEnd);
+    previousStart.setUTCDate(previousStart.getUTCDate() - 27);
+    let previousMetrics: Record<string, number | null> = {};
+    try {
+      const previousUrl = new URL('https://youtubeanalytics.googleapis.com/v2/reports');
+      previousUrl.searchParams.set('ids', 'channel==MINE');
+      previousUrl.searchParams.set('startDate', dateOnly(previousStart));
+      previousUrl.searchParams.set('endDate', dateOnly(previousEnd));
+      previousUrl.searchParams.set('metrics', 'views,estimatedMinutesWatched,subscribersGained,subscribersLost,likes,comments,shares');
+      previousMetrics = aggregateMetrics(await googleJson(previousUrl, fresh.access), ['views', 'estimatedMinutesWatched', 'subscribersGained', 'subscribersLost', 'likes', 'comments', 'shares']);
+    } catch {}
+
     const videosUrl = new URL('https://youtubeanalytics.googleapis.com/v2/reports');
     videosUrl.searchParams.set('ids', 'channel==MINE');
     videosUrl.searchParams.set('startDate', dateOnly(start));
@@ -307,6 +333,7 @@ export async function syncYouTubeAnalytics(p: YouTubePrincipal): Promise<'SYNCED
 
     const report = {
       period: { startDate: dateOnly(start), endDate: dateOnly(end) },
+      previousPeriod: { startDate: dateOnly(previousStart), endDate: dateOnly(previousEnd), metrics: previousMetrics },
       columns: Array.isArray(raw.columnHeaders) ? raw.columnHeaders.map(h => String(object(h).name ?? '')) : [],
       daily: dailyRows(raw),
       topVideos: videoRows,
