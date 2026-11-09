@@ -177,7 +177,7 @@ export async function YouTubeAnalyticsPanel({ principal, syncOutcome }: { princi
           <article className="yt-kpi">
             <span className="yt-kpi__label">Net subscribers</span>
             <strong className="yt-kpi__value">{netSubscribers === null ? 'Not reported' : (netSubscribers > 0 ? '+' : '') + compact(String(netSubscribers))}</strong>
-            <span className="yt-kpi__detail">{totals.subscribersGained === undefined ? 'Gained and lost not reported' : compact(String(totals.subscribersGained)) + ' gained · ' + compact(String(totals.subscribersLost ?? 0)) + ' lost'}</span>
+            <span className="yt-kpi__detail">{totals.subscribersGained === undefined ? 'Gained and lost not reported' : totals.subscribersLost === undefined ? compact(String(totals.subscribersGained)) + ' gained · losses not reported' : compact(String(totals.subscribersGained)) + ' gained · ' + compact(String(totals.subscribersLost)) + ' lost'}</span>
           </article>
         </section>
 
@@ -191,7 +191,7 @@ export async function YouTubeAnalyticsPanel({ principal, syncOutcome }: { princi
               <div className="yt-chart-card__head"><div><span>Views</span><strong>{formatCount(totals.views)}</strong></div><span className="yt-chart-card__glyph yt-chart-card__glyph--views" aria-hidden="true">↗</span></div>
               {chartValues.length ? <>
                 <svg className="yt-chart" role="img" aria-label="Daily YouTube views over the last 28 complete days" viewBox="0 0 720 190" preserveAspectRatio="none">
-                  <defs><linearGradient id="yt-views-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#1d6e85" stopOpacity=".22" /><stop offset="100%" stopColor="#1d6e85" stopOpacity="0" /></linearGradient></defs>
+                  <defs><linearGradient id="yt-views-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="var(--loop-accent)" stopOpacity=".22" /><stop offset="100%" stopColor="#1d6e85" stopOpacity="0" /></linearGradient></defs>
                   <line x1="10" y1="20" x2="710" y2="20" /><line x1="10" y1="84" x2="710" y2="84" /><line x1="10" y1="150" x2="710" y2="150" />
                   <polygon points={chartPoints + ' 710,150 10,150'} fill="url(#yt-views-fill)" stroke="none" />
                   <polyline points={chartPoints} />
@@ -203,7 +203,7 @@ export async function YouTubeAnalyticsPanel({ principal, syncOutcome }: { princi
               <div className="yt-chart-card__head"><div><span>Watch time</span><strong>{totals.estimatedMinutesWatched === undefined ? 'Not reported' : new Intl.NumberFormat('en', { maximumFractionDigits: 1 }).format(totals.estimatedMinutesWatched / 60) + ' hr'}</strong></div><span className="yt-chart-card__glyph yt-chart-card__glyph--watch" aria-hidden="true">◷</span></div>
               {dailyWatchHours.length ? <>
                 <svg className="yt-chart yt-chart--watch" role="img" aria-label="Daily YouTube watch time in hours over the last 28 complete days" viewBox="0 0 720 190" preserveAspectRatio="none">
-                  <defs><linearGradient id="yt-watch-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#6c69d8" stopOpacity=".2" /><stop offset="100%" stopColor="#6c69d8" stopOpacity="0" /></linearGradient></defs>
+                  <defs><linearGradient id="yt-watch-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="var(--loop-primary-hover)" stopOpacity=".2" /><stop offset="100%" stopColor="#6c69d8" stopOpacity="0" /></linearGradient></defs>
                   <line x1="10" y1="20" x2="710" y2="20" /><line x1="10" y1="84" x2="710" y2="84" /><line x1="10" y1="150" x2="710" y2="150" />
                   <polygon points={watchPoints + ' 710,150 10,150'} fill="url(#yt-watch-fill)" stroke="none" />
                   <polyline points={watchPoints} />
