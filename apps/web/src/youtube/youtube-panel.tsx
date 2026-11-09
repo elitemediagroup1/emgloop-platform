@@ -160,7 +160,6 @@ export async function YouTubeAnalyticsPanel({ principal, syncOutcome }: { princi
           <p className="loop-note">Peak {new Intl.NumberFormat('en', { maximumFractionDigits: 1 }).format(maxDailyWatchHours)} hours watched in one day.</p>
         </> : <p className="loop-note">Daily watch-time trend is not available in the latest report.</p>}
       </section>
-      </section>
 
       <section aria-label="Top YouTube videos">
         <h3>Top videos</h3>
