@@ -9,7 +9,6 @@ import { readMetaEnvironment } from './meta-environment';
 import { selectMetaAccountAction, disconnectMetaAction, refreshMetaAction, analyzeMetaAction } from './actions';
 import { metaConnectionMessage, metaDiagnosticLabel, metaFailureReference } from './meta-errors';
 
-const metricLabel: Record<string, string> = { views: 'Views', reach: 'Reach', total_interactions: 'Interactions', page_media_view: 'Views', page_post_engagements: 'Post engagements', post_media_view: 'Views' };
 export async function MetaConnectionPanel({ principal, outcome, reference, diagnostic }: { principal: MetaPrincipal; outcome?: string; reference?: string; diagnostic?: { stage?: string; failure?: string; invalidResponse?: string; httpStatus?: string; graphCode?: string; graphSubcode?: string } }) {
   const configured = !!readMetaEnvironment();
   if (!configured) return <Panel title="Instagram & Facebook"><StateBlock kind="unavailable" compact title="Awaiting Meta setup" body="EMG is completing the app configuration and Meta review. You will be able to authorize your Facebook Page and linked professional Instagram account here." /></Panel>;
