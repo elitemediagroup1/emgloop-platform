@@ -1,4 +1,5 @@
 import { MetaConnectionPanel } from '../../../../meta/meta-panels';
+import { YouTubeConnectionPanel } from '../../../../youtube/youtube-panel';
 import { EVIDENCE_SOURCE_LABELS, type EvidenceSource, SOCIAL_PLATFORMS, SOCIAL_PLATFORM_LABELS, creatorDeclaredSocialHandles, tiktokSocialAccountOf } from '@emgloop/shared';
 import { requireWorkspace } from '../../../../workspaces/guard';
 import { creatorDomain, requireCreator } from '../../../../creator/creator-runtime';
@@ -129,6 +130,8 @@ export default async function CreatorProfilePage({ searchParams }: { searchParam
       </Panel>
 
       <MetaConnectionPanel principal={{ organizationId: seat.actor.organizationId, userId: seat.actor.userId, creatorProfileId: seat.profileId }} outcome={param(searchParams.meta) ?? undefined} reference={param(searchParams.meta_ref) ?? undefined} diagnostic={{ stage: param(searchParams.meta_stage) ?? undefined, failure: param(searchParams.meta_failure) ?? undefined, invalidResponse: param(searchParams.meta_invalidResponse) ?? undefined, httpStatus: param(searchParams.meta_httpStatus) ?? undefined, graphCode: param(searchParams.meta_graphCode) ?? undefined, graphSubcode: param(searchParams.meta_graphSubcode) ?? undefined }} />
+
+      <YouTubeConnectionPanel principal={{ organizationId: seat.actor.organizationId, userId: seat.actor.userId }} outcome={param(searchParams.youtube) ?? undefined} />
 
       <Panel title="Social accounts">
         {tiktokStatus.ok ? (

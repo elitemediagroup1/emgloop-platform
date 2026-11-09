@@ -213,6 +213,9 @@ model Organization {
   createdAt DateTime           @default(now())
   updatedAt DateTime           @updatedAt
 
+  youtubeConnections       YouTubeConnection[]
+  youtubeOAuthStates       YouTubeOAuthState[]
+  youtubeAnalyticsObservations YouTubeAnalyticsObservation[]
   locations                Location[]
   users                    User[]
   memberships              OrganizationMembership[]
@@ -7211,6 +7214,9 @@ model CreatorProfile {
   updatedAt       DateTime @updatedAt
 
   organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  youtubeConnection YouTubeConnection?
+  youtubeOAuthStates YouTubeOAuthState[]
+  youtubeAnalyticsObservations YouTubeAnalyticsObservation[]
   metaConnection MetaConnection?
   metaOAuthStates MetaOAuthState[]
   metaObservations MetaAnalyticsObservation[]
@@ -8441,4 +8447,64 @@ model MetaAnalyticsReading {
   @@unique([organizationId, connectionId, sourceFingerprint])
   @@index([organizationId, creatorProfileId, observedAt])
   @@map("meta_analytics_readings")
+}
+
+
+/// A creator's separate Google YouTube authorization. Refresh token is AES-256-GCM sealed.
+model YouTubeConnection {
+  id String @id @default(cuid())
+  organizationId String
+  creatorProfileId String @unique
+  userId String
+  channelId String
+  activeChannelId String?
+  channelTitle String
+  subscriberCount String?
+  lifetimeViewCount String?
+  videoCount String?
+  refreshTokenSealed Bytes?
+  scopes String[] @default([])
+  status String @default("CONNECTED")
+  connectedAt DateTime @default(now())
+  lastSyncedAt DateTime?
+  revokedAt DateTime?
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  creator CreatorProfile @relation(fields: [organizationId, creatorProfileId], references: [organizationId, id], onDelete: Cascade)
+  observations YouTubeAnalyticsObservation[]
+  @@unique([organizationId, id])
+  @@unique([organizationId, creatorProfileId])
+  @@unique([organizationId, activeChannelId])
+  @@map("youtube_connections")
+}
+
+/// Single-use, session-bound creator OAuth state. The raw state is never persisted.
+model YouTubeOAuthState {
+  id String @id @default(cuid())
+  organizationId String
+  creatorProfileId String
+  userId String
+  sessionId String
+  stateHash String @unique
+  expiresAt DateTime
+  consumedAt DateTime?
+  createdAt DateTime @default(now())
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  creator CreatorProfile @relation(fields: [organizationId, creatorProfileId], references: [organizationId, id], onDelete: Cascade)
+  @@index([organizationId, userId, sessionId, expiresAt])
+  @@map("youtube_oauth_states")
+}
+
+/// Append-only snapshot returned by the YouTube Analytics API.
+model YouTubeAnalyticsObservation {
+  id String @id @default(cuid())
+  organizationId String
+  creatorProfileId String
+  connectionId String
+  observedAt DateTime @default(now())
+  report Json
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  creator CreatorProfile @relation(fields: [organizationId, creatorProfileId], references: [organizationId, id], onDelete: Cascade)
+  connection YouTubeConnection @relation(fields: [organizationId, connectionId], references: [organizationId, id], onDelete: Cascade)
+  @@index([organizationId, creatorProfileId, observedAt])
+  @@map("youtube_analytics_observations")
 }
