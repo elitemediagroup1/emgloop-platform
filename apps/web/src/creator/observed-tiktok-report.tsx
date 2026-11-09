@@ -23,9 +23,9 @@ export function ObservedTikTokReport({ preferences, time, showEmpty = false }: {
         <>
           <div className="ch-snapshot">
             <div className="ch-snapshot__metrics">
-              <div><span>Median views</span><strong>{r.medianViewsDisplayed}</strong></div>
-              <div><span>Engagement rate</span><strong>{r.engagementPct}%</strong></div>
-              <div><span>6-second views</span><strong>{r.view6sPct}%</strong></div>
+              <div><span>Median views</span><strong>{r.medianViewsDisplayed as string}</strong></div>
+              <div><span>Engagement rate</span><strong>{r.engagementPct as number}%</strong></div>
+              <div><span>6-second views</span><strong>{r.view6sPct as number}%</strong></div>
             </div>
             <p className="ch-snapshot__source">TikTok One · 30 most recent videos · observed {time.dateTime(r.observedAt as string)} · manually collected snapshot, not an API connection.</p>
           </div>
