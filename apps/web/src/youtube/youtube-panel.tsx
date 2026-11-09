@@ -64,6 +64,8 @@ export async function YouTubeAnalyticsPanel({ principal, syncOutcome }: { princi
   const daily = Array.isArray(report.daily) ? report.daily.map(record) : [];
   const topVideos = Array.isArray(report.topVideos) ? report.topVideos.map(record) : [];
   const trafficSources = Array.isArray(report.trafficSources) ? report.trafficSources.map(record) : [];
+  const previousPeriod = record(report.previousPeriod);
+  const previousMetrics = record(previousPeriod.metrics);
   const totals: Record<string, number> = {};
   let percentageWeighted = 0;
   let percentageViews = 0;
@@ -85,6 +87,12 @@ export async function YouTubeAnalyticsPanel({ principal, syncOutcome }: { princi
     ? totals.estimatedMinutesWatched * 60 / totals.views
     : null;
   const averageViewPercentage = percentageViews > 0 ? percentageWeighted / percentageViews : null;
+  const compareToPrevious = (current: number | undefined, previous: number | null) => {
+    if (current === undefined || previous === null) return 'Not available';
+    if (previous === 0) return current === 0 ? 'No change' : 'New activity';
+    const change = Math.round((current - previous) * 100 / previous);
+    return (change > 0 ? '+' : '') + change + '% vs prior 28 days';
+  };
   const formatDuration = (value: number | null) => {
     if (value === null) return 'Not reported';
     const seconds = Math.round(value);
@@ -102,6 +110,16 @@ export async function YouTubeAnalyticsPanel({ principal, syncOutcome }: { princi
     const y = 150 - value * 130 / maxDailyViews;
     return x + ',' + y;
   }).join(' ');
+  const dailyWatchHours = daily.flatMap(row => {
+    const value = number(record(row.metrics).estimatedMinutesWatched);
+    return value === null ? [] : [value / 60];
+  });
+  const maxDailyWatchHours = Math.max(1, ...dailyWatchHours);
+  const watchPoints = dailyWatchHours.map((value, index) => {
+    const x = dailyWatchHours.length <= 1 ? 360 : 10 + index * (700 / (dailyWatchHours.length - 1));
+    const y = 150 - value * 130 / maxDailyWatchHours;
+    return x + ',' + y;
+  }).join(' ');
 
   return <Panel title="YouTube analytics">
     {syncText ? <p role="status">{syncText}</p> : null}
@@ -111,7 +129,9 @@ export async function YouTubeAnalyticsPanel({ principal, syncOutcome }: { princi
       <Facts rows={[
         { label: 'Channel', value: data.connection.channelTitle },
         { label: 'Views', value: formatCount(totals.views) },
+        { label: 'Views vs prior 28 days', value: compareToPrevious(totals.views, number(previousMetrics.views)) },
         { label: 'Watch time', value: totals.estimatedMinutesWatched === undefined ? 'Not reported' : new Intl.NumberFormat('en', { maximumFractionDigits: 1 }).format(totals.estimatedMinutesWatched / 60) + ' hours' },
+        { label: 'Watch time vs prior 28 days', value: compareToPrevious(totals.estimatedMinutesWatched, number(previousMetrics.estimatedMinutesWatched)) },
         { label: 'Average view duration', value: formatDuration(averageViewDuration) },
         { label: 'Average viewed', value: averageViewPercentage === null ? 'Not reported' : new Intl.NumberFormat('en', { maximumFractionDigits: 1 }).format(averageViewPercentage) + '%' },
         { label: 'Subscribers gained', value: formatCount(totals.subscribersGained) },
@@ -131,6 +151,15 @@ export async function YouTubeAnalyticsPanel({ principal, syncOutcome }: { princi
           </svg>
           <p className="loop-note">{daily.length} daily data points · peak {compact(String(peakDailyViews))} views in one day.</p>
         </> : <p className="loop-note">Daily trend data is not available in the latest report.</p>}
+        <h4>Daily watch time</h4>
+        {dailyWatchHours.length ? <>
+          <svg role="img" aria-label="Line chart of daily YouTube watch time in hours over the last 28 complete days" viewBox="0 0 720 170" style={{ display: 'block', width: '100%', maxWidth: '720px', height: 'auto' }}>
+            <line x1="10" y1="150" x2="710" y2="150" stroke="currentColor" opacity="0.2" />
+            <polyline fill="none" stroke="currentColor" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" points={watchPoints} />
+          </svg>
+          <p className="loop-note">Peak {new Intl.NumberFormat('en', { maximumFractionDigits: 1 }).format(maxDailyWatchHours)} hours watched in one day.</p>
+        </> : <p className="loop-note">Daily watch-time trend is not available in the latest report.</p>}
+      </section>
       </section>
 
       <section aria-label="Top YouTube videos">
