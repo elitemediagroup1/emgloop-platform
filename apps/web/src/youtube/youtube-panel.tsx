@@ -121,89 +121,150 @@ export async function YouTubeAnalyticsPanel({ principal, syncOutcome }: { princi
     return x + ',' + y;
   }).join(' ');
 
-  return <Panel title="YouTube analytics">
-    {syncText ? <p role="status">{syncText}</p> : null}
-    {!data ? <><StateBlock kind="unavailable" compact title="YouTube is not connected" body="Connect your channel from Profile, then return here to refresh its analytics." /><a className="loop-btn" href="/app/creator/profile">Open Profile</a></> : <>
-      <p className="loop-note">Latest stored YouTube Analytics API snapshot. The window is 28 complete UTC days; repeated windows are not added together.</p>
-      {data.observation?.observedAt ? <p className="loop-note">Fetched {data.observation.observedAt.toLocaleString()} · {typeof period.startDate === 'string' && typeof period.endDate === 'string' ? period.startDate + ' to ' + period.endDate : 'period unavailable'}.</p> : <p className="loop-note">No analytics snapshot has been fetched yet. Refresh to request the latest report.</p>}
-      <Facts rows={[
-        { label: 'Channel', value: data.connection.channelTitle },
-        { label: 'Views', value: formatCount(totals.views) },
-        { label: 'Views vs prior 28 days', value: compareToPrevious(totals.views, number(previousMetrics.views)) },
-        { label: 'Watch time', value: totals.estimatedMinutesWatched === undefined ? 'Not reported' : new Intl.NumberFormat('en', { maximumFractionDigits: 1 }).format(totals.estimatedMinutesWatched / 60) + ' hours' },
-        { label: 'Watch time vs prior 28 days', value: compareToPrevious(totals.estimatedMinutesWatched, number(previousMetrics.estimatedMinutesWatched)) },
-        { label: 'Average view duration', value: formatDuration(averageViewDuration) },
-        { label: 'Average viewed', value: averageViewPercentage === null ? 'Not reported' : new Intl.NumberFormat('en', { maximumFractionDigits: 1 }).format(averageViewPercentage) + '%' },
-        { label: 'Subscribers gained', value: formatCount(totals.subscribersGained) },
-        { label: 'Subscribers lost', value: formatCount(totals.subscribersLost) },
-        { label: 'Net subscribers', value: totals.subscribersGained === undefined || totals.subscribersLost === undefined ? 'Not reported' : (totals.subscribersGained - totals.subscribersLost >= 0 ? '+' : '') + compact(String(totals.subscribersGained - totals.subscribersLost)) },
-        { label: 'Likes', value: formatCount(totals.likes) },
-        { label: 'Comments', value: formatCount(totals.comments) },
-        { label: 'Shares', value: formatCount(totals.shares) },
-      ]} />
+  const periodLabel = typeof period.startDate === 'string' && typeof period.endDate === 'string'
+    ? period.startDate + ' – ' + period.endDate
+    : 'Last 28 complete days';
+  const channelName = data?.connection.channelTitle ?? 'YouTube channel';
+  const netSubscribers = totals.subscribersGained === undefined || totals.subscribersLost === undefined
+    ? null
+    : totals.subscribersGained - totals.subscribersLost;
+  const trafficViews = trafficSources.reduce((sum, item) => sum + (number(record(item.metrics).views) ?? 0), 0);
+  const maxTrafficViews = Math.max(1, ...trafficSources.map(item => number(record(item.metrics).views) ?? 0));
+  const sourceLabel = (value: unknown) => typeof value === 'string'
+    ? value.toLowerCase().replace(/_/g, ' ').replace(/\\b\\w/g, letter => letter.toUpperCase())
+    : 'Other';
+  const shortDate = (value: unknown) => typeof value === 'string'
+    ? new Date(value + 'T00:00:00Z').toLocaleDateString('en', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+    : '';
 
-      <section aria-label="Daily YouTube views">
-        <h3>Daily views</h3>
-        {chartValues.length ? <>
-          <svg role="img" aria-label="Line chart of daily YouTube views over the last 28 complete days" viewBox="0 0 720 170" style={{ display: 'block', width: '100%', maxWidth: '720px', height: 'auto' }}>
-            <line x1="10" y1="150" x2="710" y2="150" stroke="currentColor" opacity="0.2" />
-            <polyline fill="none" stroke="currentColor" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" points={chartPoints} />
-          </svg>
-          <p className="loop-note">{daily.length} daily data points · peak {compact(String(peakDailyViews))} views in one day.</p>
-        </> : <p className="loop-note">Daily trend data is not available in the latest report.</p>}
-        <h4>Daily watch time</h4>
-        {dailyWatchHours.length ? <>
-          <svg role="img" aria-label="Line chart of daily YouTube watch time in hours over the last 28 complete days" viewBox="0 0 720 170" style={{ display: 'block', width: '100%', maxWidth: '720px', height: 'auto' }}>
-            <line x1="10" y1="150" x2="710" y2="150" stroke="currentColor" opacity="0.2" />
-            <polyline fill="none" stroke="currentColor" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" points={watchPoints} />
-          </svg>
-          <p className="loop-note">Peak {new Intl.NumberFormat('en', { maximumFractionDigits: 1 }).format(maxDailyWatchHours)} hours watched in one day.</p>
-        </> : <p className="loop-note">Daily watch-time trend is not available in the latest report.</p>}
-      </section>
+  return <Panel title="YouTube performance">
+    {syncText ? <p className="yt-sync" role="status">{syncText}</p> : null}
+    {!data ? <div className="yt-empty"><StateBlock kind="unavailable" compact title="YouTube is not connected" body="Connect your channel from Profile, then return here to refresh its analytics." /><a className="loop-btn loop-btn--primary" href="/app/creator/profile">Open Profile</a></div> : <>
+      <div className="yt-dashboard">
+        <header className="yt-header">
+          <div className="yt-header__identity">
+            <span className="yt-eyebrow"><span className="yt-mark" aria-hidden="true">▶</span> Channel analytics</span>
+            <h3>{channelName}</h3>
+            <p>Understand what your audience watched and how your videos performed.</p>
+          </div>
+          <form action="/api/integrations/youtube/sync" method="post">
+            <button className="loop-btn loop-btn--primary yt-refresh" type="submit"><span aria-hidden="true">↻</span> Refresh data</button>
+          </form>
+        </header>
 
-      <section aria-label="Top YouTube videos">
-        <h3>Top videos</h3>
-        {topVideos.length ? <div style={{ overflowX: 'auto' }}>
-          <table>
-            <thead><tr><th>Video</th><th>Views</th><th>Watch time</th><th>Avg. viewed</th><th>Likes</th><th>Comments</th></tr></thead>
-            <tbody>{topVideos.map((item, index) => {
-              const metrics = record(item.metrics);
-              const videoId = typeof item.videoId === 'string' ? item.videoId : '';
-              const title = typeof item.title === 'string' ? item.title : 'YouTube video';
-              const thumbnailUrl = typeof item.thumbnailUrl === 'string' ? item.thumbnailUrl : null;
-              return <tr key={videoId || index}>
-                <td>{videoId ? <a href={'https://www.youtube.com/watch?v=' + encodeURIComponent(videoId)} target="_blank" rel="noreferrer">{thumbnailUrl ? <img src={thumbnailUrl} alt="" width="96" height="54" loading="lazy" /> : null} {title}</a> : title}</td>
-                <td>{formatCount(number(metrics.views) ?? undefined)}</td>
-                <td>{number(metrics.estimatedMinutesWatched) === null ? 'Not reported' : new Intl.NumberFormat('en', { maximumFractionDigits: 1 }).format((number(metrics.estimatedMinutesWatched) ?? 0) / 60) + ' hr'}</td>
-                <td>{number(metrics.averageViewPercentage) === null ? 'Not reported' : new Intl.NumberFormat('en', { maximumFractionDigits: 1 }).format(number(metrics.averageViewPercentage) ?? 0) + '%'}</td>
-                <td>{formatCount(number(metrics.likes) ?? undefined)}</td>
-                <td>{formatCount(number(metrics.comments) ?? undefined)}</td>
-              </tr>;
-            })}</tbody>
-          </table>
-        </div> : <p className="loop-note">YouTube did not return a video breakdown for this period.</p>}
-      </section>
+        <div className="yt-meta">
+          <span className="yt-meta__status"><i aria-hidden="true" /> Connected</span>
+          <span>{periodLabel}</span>
+          <span>{data.observation?.observedAt ? 'Updated ' + data.observation.observedAt.toLocaleString() : 'No snapshot yet · refresh to load your first report'}</span>
+        </div>
 
-      <section aria-label="YouTube traffic sources">
-        <h3>Traffic sources</h3>
-        {trafficSources.length ? <div style={{ overflowX: 'auto' }}>
-          <table>
-            <thead><tr><th>Source</th><th>Views</th><th>Watch time</th></tr></thead>
-            <tbody>{trafficSources.map((item, index) => {
-              const metrics = record(item.metrics);
-              const source = typeof item.source === 'string' ? item.source.replace(/_/g, ' ').toLowerCase() : 'Other';
-              return <tr key={source + index}>
-                <td>{source}</td>
-                <td>{formatCount(number(metrics.views) ?? undefined)}</td>
-                <td>{number(metrics.estimatedMinutesWatched) === null ? 'Not reported' : new Intl.NumberFormat('en', { maximumFractionDigits: 1 }).format((number(metrics.estimatedMinutesWatched) ?? 0) / 60) + ' hr'}</td>
-              </tr>;
-            })}</tbody>
-          </table>
-        </div> : <p className="loop-note">Traffic-source details are not available in this snapshot. YouTube may limit some report rows when data is sparse.</p>}
-      </section>
+        <section className="yt-kpis" aria-label="YouTube performance summary">
+          <article className="yt-kpi yt-kpi--primary">
+            <span className="yt-kpi__label">Views</span>
+            <strong className="yt-kpi__value">{formatCount(totals.views)}</strong>
+            <span className="yt-kpi__detail">{compareToPrevious(totals.views, number(previousMetrics.views))}</span>
+          </article>
+          <article className="yt-kpi">
+            <span className="yt-kpi__label">Watch time</span>
+            <strong className="yt-kpi__value">{totals.estimatedMinutesWatched === undefined ? 'Not reported' : new Intl.NumberFormat('en', { maximumFractionDigits: 1 }).format(totals.estimatedMinutesWatched / 60) + ' hr'}</strong>
+            <span className="yt-kpi__detail">{compareToPrevious(totals.estimatedMinutesWatched, number(previousMetrics.estimatedMinutesWatched))}</span>
+          </article>
+          <article className="yt-kpi">
+            <span className="yt-kpi__label">Average view duration</span>
+            <strong className="yt-kpi__value">{formatDuration(averageViewDuration)}</strong>
+            <span className="yt-kpi__detail">{averageViewPercentage === null ? 'Average viewed not reported' : new Intl.NumberFormat('en', { maximumFractionDigits: 1 }).format(averageViewPercentage) + '% average viewed'}</span>
+          </article>
+          <article className="yt-kpi">
+            <span className="yt-kpi__label">Net subscribers</span>
+            <strong className="yt-kpi__value">{netSubscribers === null ? 'Not reported' : (netSubscribers > 0 ? '+' : '') + compact(String(netSubscribers))}</strong>
+            <span className="yt-kpi__detail">{totals.subscribersGained === undefined ? 'Gained and lost not reported' : compact(String(totals.subscribersGained)) + ' gained · ' + compact(String(totals.subscribersLost ?? 0)) + ' lost'}</span>
+          </article>
+        </section>
 
-      <form action="/api/integrations/youtube/sync" method="post"><button className="loop-btn loop-btn--primary" type="submit">Refresh YouTube analytics</button></form>
+        <section className="yt-section" aria-labelledby="yt-trends-title">
+          <div className="yt-section__head">
+            <div><span className="yt-eyebrow">Performance</span><h4 id="yt-trends-title">Your channel over time</h4></div>
+            <span className="yt-window">28 day view</span>
+          </div>
+          <div className="yt-chart-grid">
+            <article className="yt-chart-card">
+              <div className="yt-chart-card__head"><div><span>Views</span><strong>{formatCount(totals.views)}</strong></div><span className="yt-chart-card__glyph yt-chart-card__glyph--views" aria-hidden="true">↗</span></div>
+              {chartValues.length ? <>
+                <svg className="yt-chart" role="img" aria-label="Daily YouTube views over the last 28 complete days" viewBox="0 0 720 190" preserveAspectRatio="none">
+                  <defs><linearGradient id="yt-views-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#1d6e85" stopOpacity=".22" /><stop offset="100%" stopColor="#1d6e85" stopOpacity="0" /></linearGradient></defs>
+                  <line x1="10" y1="20" x2="710" y2="20" /><line x1="10" y1="84" x2="710" y2="84" /><line x1="10" y1="150" x2="710" y2="150" />
+                  <polygon points={chartPoints + ' 710,150 10,150'} fill="url(#yt-views-fill)" stroke="none" />
+                  <polyline points={chartPoints} />
+                </svg>
+                <div className="yt-chart-card__foot"><span>{shortDate(daily[0]?.date)}</span><span>Peak {compact(String(peakDailyViews))} in one day</span><span>{shortDate(daily[daily.length - 1]?.date)}</span></div>
+              </> : <p className="yt-chart-empty">Daily trend data is not available yet.</p>}
+            </article>
+            <article className="yt-chart-card">
+              <div className="yt-chart-card__head"><div><span>Watch time</span><strong>{totals.estimatedMinutesWatched === undefined ? 'Not reported' : new Intl.NumberFormat('en', { maximumFractionDigits: 1 }).format(totals.estimatedMinutesWatched / 60) + ' hr'}</strong></div><span className="yt-chart-card__glyph yt-chart-card__glyph--watch" aria-hidden="true">◷</span></div>
+              {dailyWatchHours.length ? <>
+                <svg className="yt-chart yt-chart--watch" role="img" aria-label="Daily YouTube watch time in hours over the last 28 complete days" viewBox="0 0 720 190" preserveAspectRatio="none">
+                  <defs><linearGradient id="yt-watch-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#6c69d8" stopOpacity=".2" /><stop offset="100%" stopColor="#6c69d8" stopOpacity="0" /></linearGradient></defs>
+                  <line x1="10" y1="20" x2="710" y2="20" /><line x1="10" y1="84" x2="710" y2="84" /><line x1="10" y1="150" x2="710" y2="150" />
+                  <polygon points={watchPoints + ' 710,150 10,150'} fill="url(#yt-watch-fill)" stroke="none" />
+                  <polyline points={watchPoints} />
+                </svg>
+                <div className="yt-chart-card__foot"><span>{shortDate(daily[0]?.date)}</span><span>Peak {new Intl.NumberFormat('en', { maximumFractionDigits: 1 }).format(maxDailyWatchHours)} hr/day</span><span>{shortDate(daily[daily.length - 1]?.date)}</span></div>
+              </> : <p className="yt-chart-empty">Daily watch time is not available yet.</p>}
+            </article>
+          </div>
+        </section>
+
+        <div className="yt-detail-grid">
+          <section className="yt-detail-card" aria-labelledby="yt-content-title">
+            <div className="yt-section__head yt-section__head--compact"><div><span className="yt-eyebrow">Content</span><h4 id="yt-content-title">Top videos</h4></div><span className="yt-count">{topVideos.length} videos</span></div>
+            {topVideos.length ? <div className="yt-video-grid">
+              {topVideos.slice(0, 6).map((item, index) => {
+                const metrics = record(item.metrics);
+                const videoId = typeof item.videoId === 'string' ? item.videoId : '';
+                const title = typeof item.title === 'string' ? item.title : 'YouTube video';
+                const thumbnailUrl = typeof item.thumbnailUrl === 'string' ? item.thumbnailUrl : null;
+                return <article className="yt-video" key={videoId || index}>
+                  {videoId ? <a className="yt-video__thumb" href={'https://www.youtube.com/watch?v=' + encodeURIComponent(videoId)} target="_blank" rel="noreferrer" aria-label={'Watch ' + title}>
+                    {thumbnailUrl ? <img src={thumbnailUrl} alt="" loading="lazy" /> : <span className="yt-video__placeholder">▶</span>}
+                  </a> : <div className="yt-video__thumb">{thumbnailUrl ? <img src={thumbnailUrl} alt="" loading="lazy" /> : <span className="yt-video__placeholder">▶</span>}</div>}
+                  <div className="yt-video__body"><h5>{videoId ? <a href={'https://www.youtube.com/watch?v=' + encodeURIComponent(videoId)} target="_blank" rel="noreferrer">{title}</a> : title}</h5>
+                    <div className="yt-video__stats"><span><strong>{formatCount(number(metrics.views) ?? undefined)}</strong> views</span><span>{number(metrics.averageViewPercentage) === null ? '—' : new Intl.NumberFormat('en', { maximumFractionDigits: 1 }).format(number(metrics.averageViewPercentage) ?? 0) + '% viewed'}</span></div>
+                  </div>
+                </article>;
+              })}
+            </div> : <p className="yt-chart-empty">YouTube did not return a video breakdown for this period.</p>}
+          </section>
+
+          <section className="yt-detail-card" aria-labelledby="yt-sources-title">
+            <div className="yt-section__head yt-section__head--compact"><div><span className="yt-eyebrow">Discovery</span><h4 id="yt-sources-title">Where viewers found you</h4></div></div>
+            {trafficSources.length ? <div className="yt-sources">
+              {trafficSources.slice(0, 8).map((item, index) => {
+                const metrics = record(item.metrics);
+                const views = number(metrics.views) ?? 0;
+                const share = trafficViews > 0 ? views * 100 / trafficViews : 0;
+                return <div className="yt-source" key={String(item.source ?? index)}>
+                  <div className="yt-source__top"><span>{sourceLabel(item.source)}</span><strong>{compact(String(views))} <small>views</small></strong></div>
+                  <div className="yt-source__bar"><span style={{ width: Math.max(0, Math.min(100, views * 100 / maxTrafficViews)) + '%' }} /></div>
+                  <span className="yt-source__share">{new Intl.NumberFormat('en', { maximumFractionDigits: 1 }).format(share)}% of reported traffic</span>
+                </div>;
+              })}
+            </div> : <p className="yt-chart-empty">Traffic sources are not available in this snapshot.</p>}
+          </section>
+        </div>
+
+        <details className="yt-more">
+          <summary>Engagement details <span>Likes, comments, shares, and subscriber movement</span></summary>
+          <div className="yt-more__grid">
+            <div><span>Likes</span><strong>{formatCount(totals.likes)}</strong></div>
+            <div><span>Comments</span><strong>{formatCount(totals.comments)}</strong></div>
+            <div><span>Shares</span><strong>{formatCount(totals.shares)}</strong></div>
+            <div><span>Subscribers gained</span><strong>{formatCount(totals.subscribersGained)}</strong></div>
+            <div><span>Subscribers lost</span><strong>{formatCount(totals.subscribersLost)}</strong></div>
+          </div>
+        </details>
+
+        <p className="yt-footnote">Source: YouTube Analytics API · 28 complete UTC days · unavailable metrics are left unreported. Loop reads analytics only; it does not upload, edit, or publish videos.</p>
+      </div>
     </>}
-    <p className="loop-note">Unavailable metrics remain blank. Loop reads analytics only; it does not upload, edit, or publish videos.</p>
   </Panel>;
 }
