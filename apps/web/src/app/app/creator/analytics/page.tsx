@@ -56,7 +56,7 @@ export default async function CreatorAnalyticsPage({ searchParams }: { searchPar
       ) : platform === 'FACEBOOK' || platform === 'INSTAGRAM' ? (
         <MetaAnalyticsPanel principal={{ organizationId: seat.actor.organizationId, userId: seat.actor.userId, creatorProfileId: seat.profileId }} outcome={param(searchParams.meta) ?? undefined} platform={platform} />
       ) : platform === 'TIKTOK' ? (
-        <ObservedTikTokReport preferences={profile?.preferences} time={time} />
+        <ObservedTikTokReport preferences={profile?.preferences} time={time} showEmpty />
       ) : (
         <>
           {all.seeded ? <StateBlock kind="attention" compact title="Demo data" body="Some figures are examples and are not real platform results." /> : null}
