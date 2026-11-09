@@ -61,27 +61,119 @@ export async function YouTubeAnalyticsPanel({ principal, syncOutcome }: { princi
   const syncText = syncOutcome === 'SYNCED' ? 'Analytics were refreshed.' : syncOutcome === 'ALREADY_FRESH' ? 'Analytics were refreshed recently; showing the latest saved snapshot.' : syncOutcome === 'NOT_CONNECTED' ? 'Connect YouTube from Profile before syncing analytics.' : syncOutcome === 'NOT_CONFIGURED' ? 'YouTube is not configured on this deployment.' : syncOutcome === 'FAILED' ? 'The analytics refresh did not complete. Your previous snapshot is still shown.' : null;
   const report = record(data?.observation?.report);
   const period = record(report.period);
-  const daily = Array.isArray(report.daily) ? report.daily : [];
+  const daily = Array.isArray(report.daily) ? report.daily.map(record) : [];
+  const topVideos = Array.isArray(report.topVideos) ? report.topVideos.map(record) : [];
+  const trafficSources = Array.isArray(report.trafficSources) ? report.trafficSources.map(record) : [];
   const totals: Record<string, number> = {};
+  let percentageWeighted = 0;
+  let percentageViews = 0;
   for (const row of daily) {
-    const metrics = record(record(row).metrics);
+    const metrics = record(row.metrics);
     for (const [key, raw] of Object.entries(metrics)) {
+      if (key === 'averageViewDuration' || key === 'averageViewPercentage') continue;
       const value = number(raw);
       if (value !== null) totals[key] = (totals[key] ?? 0) + value;
     }
+    const views = number(metrics.views);
+    const percentage = number(metrics.averageViewPercentage);
+    if (views !== null && percentage !== null) {
+      percentageWeighted += views * percentage;
+      percentageViews += views;
+    }
   }
+  const averageViewDuration = totals.views && totals.estimatedMinutesWatched !== undefined
+    ? totals.estimatedMinutesWatched * 60 / totals.views
+    : null;
+  const averageViewPercentage = percentageViews > 0 ? percentageWeighted / percentageViews : null;
+  const formatDuration = (value: number | null) => {
+    if (value === null) return 'Not reported';
+    const seconds = Math.round(value);
+    return Math.floor(seconds / 60) + 'm ' + (seconds % 60) + 's';
+  };
+  const formatCount = (value: number | undefined) => value === undefined ? 'Not reported' : compact(String(value));
+  const chartValues = daily.flatMap(row => {
+    const value = number(record(row.metrics).views);
+    return value === null ? [] : [value];
+  });
+  const peakDailyViews = Math.max(0, ...chartValues);
+  const maxDailyViews = Math.max(1, peakDailyViews);
+  const chartPoints = chartValues.map((value, index) => {
+    const x = chartValues.length <= 1 ? 360 : 10 + index * (700 / (chartValues.length - 1));
+    const y = 150 - value * 130 / maxDailyViews;
+    return x + ',' + y;
+  }).join(' ');
+
   return <Panel title="YouTube analytics">
     {syncText ? <p role="status">{syncText}</p> : null}
     {!data ? <><StateBlock kind="unavailable" compact title="YouTube is not connected" body="Connect your channel from Profile, then return here to refresh its analytics." /><a className="loop-btn" href="/app/creator/profile">Open Profile</a></> : <>
       <p className="loop-note">Latest stored YouTube Analytics API snapshot. The window is 28 complete UTC days; repeated windows are not added together.</p>
-      {data.observation?.observedAt ? <p className="loop-note">Fetched {data.observation.observedAt.toLocaleString()} · {typeof period.startDate === 'string' && typeof period.endDate === 'string' ? `${period.startDate} to ${period.endDate}` : 'period unavailable'}.</p> : <p className="loop-note">No analytics snapshot has been fetched yet.</p>}
+      {data.observation?.observedAt ? <p className="loop-note">Fetched {data.observation.observedAt.toLocaleString()} · {typeof period.startDate === 'string' && typeof period.endDate === 'string' ? period.startDate + ' to ' + period.endDate : 'period unavailable'}.</p> : <p className="loop-note">No analytics snapshot has been fetched yet. Refresh to request the latest report.</p>}
       <Facts rows={[
         { label: 'Channel', value: data.connection.channelTitle },
-        { label: 'Views in period', value: totals.views === undefined ? 'Not reported' : compact(String(totals.views)) },
-        { label: 'Watch time', value: totals.estimatedMinutesWatched === undefined ? 'Not reported' : `${new Intl.NumberFormat('en', { maximumFractionDigits: 1 }).format(totals.estimatedMinutesWatched / 60)} hours` },
-        { label: 'Subscribers gained', value: totals.subscribersGained === undefined ? 'Not reported' : compact(String(totals.subscribersGained)) },
-        { label: 'Subscribers lost', value: totals.subscribersLost === undefined ? 'Not reported' : compact(String(totals.subscribersLost)) },
+        { label: 'Views', value: formatCount(totals.views) },
+        { label: 'Watch time', value: totals.estimatedMinutesWatched === undefined ? 'Not reported' : new Intl.NumberFormat('en', { maximumFractionDigits: 1 }).format(totals.estimatedMinutesWatched / 60) + ' hours' },
+        { label: 'Average view duration', value: formatDuration(averageViewDuration) },
+        { label: 'Average viewed', value: averageViewPercentage === null ? 'Not reported' : new Intl.NumberFormat('en', { maximumFractionDigits: 1 }).format(averageViewPercentage) + '%' },
+        { label: 'Subscribers gained', value: formatCount(totals.subscribersGained) },
+        { label: 'Subscribers lost', value: formatCount(totals.subscribersLost) },
+        { label: 'Net subscribers', value: totals.subscribersGained === undefined || totals.subscribersLost === undefined ? 'Not reported' : (totals.subscribersGained - totals.subscribersLost >= 0 ? '+' : '') + compact(String(totals.subscribersGained - totals.subscribersLost)) },
+        { label: 'Likes', value: formatCount(totals.likes) },
+        { label: 'Comments', value: formatCount(totals.comments) },
+        { label: 'Shares', value: formatCount(totals.shares) },
       ]} />
+
+      <section aria-label="Daily YouTube views">
+        <h3>Daily views</h3>
+        {chartValues.length ? <>
+          <svg role="img" aria-label="Line chart of daily YouTube views over the last 28 complete days" viewBox="0 0 720 170" style={{ display: 'block', width: '100%', maxWidth: '720px', height: 'auto' }}>
+            <line x1="10" y1="150" x2="710" y2="150" stroke="currentColor" opacity="0.2" />
+            <polyline fill="none" stroke="currentColor" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" points={chartPoints} />
+          </svg>
+          <p className="loop-note">{daily.length} daily data points · peak {compact(String(peakDailyViews))} views in one day.</p>
+        </> : <p className="loop-note">Daily trend data is not available in the latest report.</p>}
+      </section>
+
+      <section aria-label="Top YouTube videos">
+        <h3>Top videos</h3>
+        {topVideos.length ? <div style={{ overflowX: 'auto' }}>
+          <table>
+            <thead><tr><th>Video</th><th>Views</th><th>Watch time</th><th>Avg. viewed</th><th>Likes</th><th>Comments</th></tr></thead>
+            <tbody>{topVideos.map((item, index) => {
+              const metrics = record(item.metrics);
+              const videoId = typeof item.videoId === 'string' ? item.videoId : '';
+              const title = typeof item.title === 'string' ? item.title : 'YouTube video';
+              const thumbnailUrl = typeof item.thumbnailUrl === 'string' ? item.thumbnailUrl : null;
+              return <tr key={videoId || index}>
+                <td>{videoId ? <a href={'https://www.youtube.com/watch?v=' + encodeURIComponent(videoId)} target="_blank" rel="noreferrer">{thumbnailUrl ? <img src={thumbnailUrl} alt="" width="96" height="54" loading="lazy" /> : null} {title}</a> : title}</td>
+                <td>{formatCount(number(metrics.views) ?? undefined)}</td>
+                <td>{number(metrics.estimatedMinutesWatched) === null ? 'Not reported' : new Intl.NumberFormat('en', { maximumFractionDigits: 1 }).format((number(metrics.estimatedMinutesWatched) ?? 0) / 60) + ' hr'}</td>
+                <td>{number(metrics.averageViewPercentage) === null ? 'Not reported' : new Intl.NumberFormat('en', { maximumFractionDigits: 1 }).format(number(metrics.averageViewPercentage) ?? 0) + '%'}</td>
+                <td>{formatCount(number(metrics.likes) ?? undefined)}</td>
+                <td>{formatCount(number(metrics.comments) ?? undefined)}</td>
+              </tr>;
+            })}</tbody>
+          </table>
+        </div> : <p className="loop-note">YouTube did not return a video breakdown for this period.</p>}
+      </section>
+
+      <section aria-label="YouTube traffic sources">
+        <h3>Traffic sources</h3>
+        {trafficSources.length ? <div style={{ overflowX: 'auto' }}>
+          <table>
+            <thead><tr><th>Source</th><th>Views</th><th>Watch time</th></tr></thead>
+            <tbody>{trafficSources.map((item, index) => {
+              const metrics = record(item.metrics);
+              const source = typeof item.source === 'string' ? item.source.replace(/_/g, ' ').toLowerCase() : 'Other';
+              return <tr key={source + index}>
+                <td>{source}</td>
+                <td>{formatCount(number(metrics.views) ?? undefined)}</td>
+                <td>{number(metrics.estimatedMinutesWatched) === null ? 'Not reported' : new Intl.NumberFormat('en', { maximumFractionDigits: 1 }).format((number(metrics.estimatedMinutesWatched) ?? 0) / 60) + ' hr'}</td>
+              </tr>;
+            })}</tbody>
+          </table>
+        </div> : <p className="loop-note">Traffic-source details are not available in this snapshot. YouTube may limit some report rows when data is sparse.</p>}
+      </section>
+
       <form action="/api/integrations/youtube/sync" method="post"><button className="loop-btn loop-btn--primary" type="submit">Refresh YouTube analytics</button></form>
     </>}
     <p className="loop-note">Unavailable metrics remain blank. Loop reads analytics only; it does not upload, edit, or publish videos.</p>
