@@ -43,35 +43,62 @@ export async function MetaConnectionPanel({ principal, outcome, reference, diagn
 export async function MetaAnalyticsPanel({ principal, outcome }: { principal: MetaPrincipal; outcome?: string }) {
   if (!readMetaEnvironment()) return null;
   try {
-    const rows = await metaRepository().observations(principal);
-    const ai = rows.length ? await metaRepository().reading(principal, metaAnalyticsFingerprint(rows)) : null;
+    const repository = metaRepository();
+    const rows = await repository.observations(principal);
+    const connection = await repository.status(principal);
+    const ai = rows.length ? await repository.reading(principal, metaAnalyticsFingerprint(rows)) : null;
     const reading = ai?.reading as unknown as AiDomainReading | undefined;
     const time = viewerTime();
-    return <Panel title="Instagram & Facebook performance">
-      <p className="loop-note">Automatically checked about every 15 minutes when background collection is enabled. Meta determines when insights update. Each card is the latest stored reading of 28 complete UTC days; overlapping readings are never added together.</p>
-      <form action={refreshMetaAction}><button className="loop-btn" type="submit">Refresh Meta analytics</button></form>
-      {rows.length ? <form action={analyzeMetaAction}><button className="loop-btn" type="submit">Analyze latest data with Loop AI</button></form> : null}
-      {reading && ai ? <section className="loop-stack" aria-label="Loop AI performance analysis"><h3>Loop AI analysis</h3><p>{reading.reading.statement}</p><ul>{reading.signals.map(signal => <li key={signal.key}>{signal.statement} <small>({signal.knowledge.toLowerCase()})</small></li>)}</ul><ul className="loop-note">{reading.limitations.map(text => <li key={text}>{text}</li>)}</ul><p className="loop-note">Analyzed {time.dateTime(ai.observedAt.toISOString())}. Based on the stored Meta observations shown below. This interpretation is not a guarantee of future performance.</p></section> : rows.length ? <p className="loop-note">Loop has not produced an AI reading of these observations yet. Try Analyze latest data, or check back after processing.</p> : null}
-      {outcome ? <p role="status">{outcome === 'ANALYZED' ? 'AI analysis updated.' : outcome === 'UNCHANGED' ? 'The existing AI analysis already covers this data.' : outcome === 'SYNCED'  ? 'Latest available data fetched.' : outcome === 'NOT_DUE' ? 'No refresh was due. Refreshes are limited to once every 15 minutes.' : `Refresh result: ${outcome.replace(/_/g, ' ').toLowerCase()}.`}</p> : null}
-      {!rows.length ? <StateBlock kind="empty" compact title="No Meta analytics read yet" body="Connect your account from Profile, then refresh here. No metrics are estimated." /> : rows.map(row => {
-        const report = row.report as unknown as MetaReport;
-        const viewsName = report.platform === 'INSTAGRAM' ? 'views' : 'post_media_view';
-        const measured = report.media.map(m => ({ ...m, views: m.metrics.find(metric => metric.name === viewsName)?.value ?? null })).filter((m): m is typeof m & { views: number } => m.views !== null).sort((a,b) => b.views - a.views);
-        const sorted = measured.map(m => m.views).sort((a,b) => a-b);
-        const middle = Math.floor(sorted.length/2);
-        const median = sorted.length ? sorted.length % 2 ? sorted[middle]! : (sorted[middle-1]! + sorted[middle]!)/2 : null;
-        return <section key={row.id} aria-label={`${report.platform} analytics`} className="loop-stack" style={{ marginTop: 24 }}>
-          <h3>{report.platform === 'INSTAGRAM' ? 'Instagram' : 'Facebook'} · {report.name}</h3>
+
+    const platformPanel = (platform: 'FACEBOOK' | 'INSTAGRAM') => {
+      const row = rows.find(item => (item.report as unknown as MetaReport).platform === platform);
+      if (!row) {
+        const instagramMissing = platform === 'INSTAGRAM' && !connection?.instagramId;
+        const notConnected = !connection || connection.status === 'DISCONNECTED';
+        return <Panel key={platform} title={platform === 'FACEBOOK' ? 'Facebook analytics' : 'Instagram analytics'}>
+          <StateBlock
+            kind={notConnected ? 'unavailable' : instagramMissing ? 'attention' : 'empty'}
+            compact
+            title={notConnected ? 'Facebook Page not connected' : instagramMissing ? 'Instagram account not linked' : 'No report fetched yet'}
+            body={notConnected
+              ? 'Connect a Facebook Page from Profile to fetch Facebook analytics.'
+              : instagramMissing
+                ? 'No professional Instagram account is linked to this Page. Facebook analytics remain available and can be fetched independently.'
+                : `No ${platform === 'FACEBOOK' ? 'Facebook' : 'Instagram'} report is stored yet. Use Refresh connected Meta analytics above to fetch it.`}
+          />
+        </Panel>;
+      }
+      const report = row.report as unknown as MetaReport;
+      const viewsName = platform === 'INSTAGRAM' ? 'views' : 'post_media_view';
+      const measured = report.media.map(m => ({ ...m, views: m.metrics.find(metric => metric.name === viewsName)?.value ?? null })).filter((m): m is typeof m & { views: number } => m.views !== null).sort((a,b) => b.views - a.views);
+      const sorted = measured.map(m => m.views).sort((a,b) => a-b);
+      const middle = Math.floor(sorted.length/2);
+      const median = sorted.length ? sorted.length % 2 ? sorted[middle]! : (sorted[middle-1]! + sorted[middle]!)/2 : null;
+      return <Panel key={platform} title={platform === 'FACEBOOK' ? 'Facebook analytics' : 'Instagram analytics'}>
+        <section className="loop-stack" aria-label={`${platform} analytics`}>
+          <h3>{report.name}</h3>
           <p className="loop-note">Fetched {time.dateTime(row.observedAt.toISOString())} · Reporting {time.date(report.windowStart)} to {time.date(report.windowEnd)} (end exclusive).</p>
           <Facts rows={[{ label: 'Followers', value: report.followers?.toLocaleString('en-US') ?? 'Not reported' }, ...report.metrics.map(m => ({ label: metricLabel[m.name] ?? m.name, value: m.value === null ? 'Unavailable from Meta' : m.value.toLocaleString('en-US') })), { label: 'Median lifetime views in recent sample', value: median === null ? 'Not reported' : `${median.toLocaleString('en-US')} across ${sorted.length} measured posts` }]} />
           <h4>Recent content by lifetime views</h4>
           {measured.length ? <ol>{measured.map(m => <li key={m.id}>{safePostUrl(m.permalink) ? <a href={m.permalink!} target="_blank" rel="noreferrer noopener">{m.type}</a> : m.type} · {m.views.toLocaleString('en-US')} views{m.publishedAt && Number.isFinite(Date.parse(m.publishedAt)) ? ` · ${time.date(m.publishedAt)}` : ''}</li>)}</ol> : <p>No content with measured views in this sample.</p>}
           {measured.length >= 2 && median !== null && median > 0 ? <p>Sample analysis: your leading measured post has {(measured[0]!.views / median).toFixed(1)}× the median lifetime views in this sample. Compare its opening, topic and format with the other posts. Post age and distribution differ; this does not establish what caused the result.</p> : <p>More measured posts are needed for a comparison.</p>}
           <ul className="loop-note">{report.limitations.map(s => <li key={s}>{s}</li>)}</ul>
-        </section>;
-      })}
-    </Panel>;
-  } catch { return <Panel title="Instagram & Facebook performance"><StateBlock kind="error" compact title="Could not read Meta analytics" body="Stored evidence could not be loaded. This does not mean there are zero views or followers." /></Panel>; }
+        </section>
+      </Panel>;
+    };
+
+    return <>
+      <Panel title="Meta analytics controls">
+        <p className="loop-note">Facebook and Instagram are shown separately below. This refresh fetches every connected account independently; an unlinked Instagram account does not block Facebook Page analytics. Meta determines when insights update. Each report covers 28 complete UTC days and is stored with its own timestamp.</p>
+        <form action={refreshMetaAction}><button className="loop-btn" type="submit">Refresh connected Meta analytics</button></form>
+        {rows.length ? <form action={analyzeMetaAction}><button className="loop-btn" type="submit">Analyze latest Meta data with Loop AI</button></form> : null}
+        {reading && ai ? <section className="loop-stack" aria-label="Loop AI Meta performance analysis"><h3>Loop AI analysis</h3><p>{reading.reading.statement}</p><ul>{reading.signals.map(signal => <li key={signal.key}>{signal.statement} <small>({signal.knowledge.toLowerCase()})</small></li>)}</ul><ul className="loop-note">{reading.limitations.map(text => <li key={text}>{text}</li>)}</ul><p className="loop-note">Analyzed {time.dateTime(ai.observedAt.toISOString())}. Based on the latest stored connected Meta observations. This interpretation is not a guarantee of future performance.</p></section> : rows.length ? <p className="loop-note">Loop has not produced an AI reading of these observations yet. Try Analyze latest Meta data, or check back after processing.</p> : null}
+        {outcome ? <p role="status">{outcome === 'ANALYZED' ? 'AI analysis updated.' : outcome === 'UNCHANGED' ? 'The existing AI analysis already covers this data.' : outcome === 'SYNCED' ? 'Latest available connected Meta data fetched.' : outcome === 'NOT_DUE' ? 'No refresh was due. Refreshes are limited to once every 15 minutes.' : `Refresh result: ${outcome.replace(/_/g, ' ').toLowerCase()}.`}</p> : null}
+      </Panel>
+      {platformPanel('FACEBOOK')}
+      {platformPanel('INSTAGRAM')}
+    </>;
+  } catch { return <Panel title="Meta analytics"><StateBlock kind="error" compact title="Could not read Meta analytics" body="Stored evidence could not be loaded. This does not mean there are zero views or followers." /></Panel>; }
 }
 function safePostUrl(value: string | null): boolean {
   if (!value) return false;
