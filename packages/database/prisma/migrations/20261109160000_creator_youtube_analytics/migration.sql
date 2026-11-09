@@ -4,6 +4,7 @@ CREATE TABLE "youtube_connections" (
   "creatorProfileId" TEXT NOT NULL,
   "userId" TEXT NOT NULL,
   "channelId" TEXT NOT NULL,
+  "activeChannelId" TEXT,
   "channelTitle" TEXT NOT NULL,
   "subscriberCount" TEXT,
   "lifetimeViewCount" TEXT,
@@ -39,7 +40,7 @@ CREATE TABLE "youtube_analytics_observations" (
 );
 CREATE UNIQUE INDEX "youtube_connections_creatorProfileId_key" ON "youtube_connections"("creatorProfileId");
 CREATE UNIQUE INDEX "youtube_connections_organizationId_id_key" ON "youtube_connections"("organizationId", "id");
-CREATE UNIQUE INDEX "youtube_connections_organizationId_channelId_key" ON "youtube_connections"("organizationId", "channelId");
+CREATE UNIQUE INDEX "youtube_connections_organizationId_activeChannelId_key" ON "youtube_connections"("organizationId", "activeChannelId");
 CREATE UNIQUE INDEX "youtube_oauth_states_stateHash_key" ON "youtube_oauth_states"("stateHash");
 CREATE INDEX "youtube_oauth_states_organizationId_userId_sessionId_expiresAt_idx" ON "youtube_oauth_states"("organizationId", "userId", "sessionId", "expiresAt");
 CREATE INDEX "youtube_analytics_observations_organizationId_creatorProfileId_observedAt_idx" ON "youtube_analytics_observations"("organizationId", "creatorProfileId", "observedAt");
