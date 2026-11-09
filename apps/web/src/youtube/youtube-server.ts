@@ -172,6 +172,10 @@ export async function completeYouTubeConnect(p: YouTubePrincipal, input: { state
     const channelId = typeof channel.id === 'string' ? channel.id : '';
     const channelTitle = typeof snippet.title === 'string' ? snippet.title.slice(0, 200) : '';
     if (!/^[A-Za-z0-9_-]{10,64}$/.test(channelId) || !channelTitle) return 'CHANNEL_UNAVAILABLE';
+    const previous = await prisma.youTubeConnection.findFirst({ where: { organizationId: p.organizationId, creatorProfileId: profileId, userId: p.userId }, select: { id: true, channelId: true } });
+    if (previous && previous.channelId !== channelId) {
+      await prisma.youTubeAnalyticsObservation.deleteMany({ where: { organizationId: p.organizationId, creatorProfileId: profileId, connectionId: previous.id } });
+    }
     await prisma.youTubeConnection.upsert({
       where: { creatorProfileId: profileId },
       create: {
@@ -199,6 +203,7 @@ export async function completeYouTubeConnect(p: YouTubePrincipal, input: { state
         status: 'CONNECTED',
         connectedAt: now,
         revokedAt: null,
+        ...(previous && previous.channelId !== channelId ? { lastSyncedAt: null } : {}),
       },
     });
     return 'CONNECTED';
@@ -208,14 +213,14 @@ export async function completeYouTubeConnect(p: YouTubePrincipal, input: { state
   }
 }
 
-export async function syncYouTubeAnalytics(p: YouTubePrincipal, force = false): Promise<'SYNCED' | 'NOT_CONNECTED' | 'NOT_CONFIGURED' | 'FAILED'> {
+export async function syncYouTubeAnalytics(p: YouTubePrincipal): Promise<'SYNCED' | 'NOT_CONNECTED' | 'NOT_CONFIGURED' | 'FAILED'> {
   const env = readYouTubeEnvironment();
   if (!env) return 'NOT_CONFIGURED';
   const profileId = await creatorProfileId(p);
   if (!profileId) return 'NOT_CONNECTED';
   const connection = await prisma.youTubeConnection.findFirst({ where: { organizationId: p.organizationId, creatorProfileId: profileId, userId: p.userId, status: 'CONNECTED' } });
   if (!connection?.refreshTokenSealed) return 'NOT_CONNECTED';
-  if (!force && connection.lastSyncedAt && Date.now() - connection.lastSyncedAt.getTime() < YOUTUBE_SYNC_MIN_INTERVAL_MS) return 'SYNCED';
+  if (connection.lastSyncedAt && Date.now() - connection.lastSyncedAt.getTime() < YOUTUBE_SYNC_MIN_INTERVAL_MS) return 'SYNCED';
   try {
     const refreshToken = open(p, connection.refreshTokenSealed, env.tokenKey);
     const fresh = await refreshAccess(refreshToken, env);
@@ -267,6 +272,7 @@ export async function disconnectYouTube(p: YouTubePrincipal): Promise<boolean> {
     where: { organizationId: p.organizationId, creatorProfileId: profileId, userId: p.userId, status: 'CONNECTED' },
     data: { status: 'DISCONNECTED', refreshTokenSealed: null, revokedAt: new Date() },
   });
+  if (result.count === 1) await prisma.youTubeAnalyticsObservation.deleteMany({ where: { organizationId: p.organizationId, creatorProfileId: profileId } });
   await prisma.youTubeOAuthState.deleteMany({ where: { organizationId: p.organizationId, userId: p.userId } });
   return result.count === 1;
 }
