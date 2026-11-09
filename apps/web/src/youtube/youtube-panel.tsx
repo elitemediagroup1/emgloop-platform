@@ -47,7 +47,7 @@ export async function YouTubeConnectionPanel({ principal, outcome, syncOutcome }
   }
 
   return <Panel title="YouTube">
-    <p className="loop-note">Connect your YouTube channel to read channel analytics. You can disconnect access at any time.</p>
+    <p className="loop-note">Connect your YouTube channel to read channel analytics. Disconnecting removes Loop’s saved token; you can also remove Loop from your Google Account’s third-party access settings.</p>
     {statusText ? <p role="status">{statusText}</p> : null}
     {syncText ? <p role="status">{syncText}</p> : null}
     {!data ? <>
