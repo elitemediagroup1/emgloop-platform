@@ -58,12 +58,17 @@ test('token debug fallback rejects wrong app, wrong identity, invalid token and 
     [{ is_valid: true, app_id: 'other', user_id: '999', expires_at: 9999999999 }, 'TOKEN_APP_MISMATCH'],
     [{ is_valid: true, app_id: '123', user_id: 'different', expires_at: 9999999999 }, 'TOKEN_IDENTITY_MISMATCH'],
     [{ is_valid: false, app_id: '123', user_id: '999', expires_at: 9999999999 }, 'TOKEN_INVALID'],
-    [{ is_valid: true, app_id: '123', user_id: '999', expires_at: 0 }, 'EXPIRY_MISSING'],
+    [{ is_valid: true, app_id: '123', user_id: '999' }, 'EXPIRY_MISSING'],
   ] as const;
   for (const [data, expected] of cases) {
     const { api } = network([{ access_token: 'short' }, { access_token: 'long' }, { id: '999' }, { data }]);
     await assert.rejects(api.exchange('code'), (error: unknown) => error instanceof MetaApiError && error.diagnostic.stage === 'TOKEN_DEBUG_READ' && error.diagnostic.invalidResponse === expected);
   }
+});
+test('valid token with expires_at zero is treated as having no fixed expiry', async () => {
+  const { api } = network([{ access_token: 'short' }, { access_token: 'long' }, { id: '999' }, { data: { is_valid: true, app_id: '123', user_id: '999', expires_at: 0 } }, { data: [{ permission: 'read_insights', status: 'granted' }] }]);
+  const result = await api.exchange('code');
+  assert.equal(result.expiresIn, 0);
 });
 test('malformed permission response still fails closed after successful token validation', async () => {
   const missingPermissions = network([{ access_token: 'short' }, { access_token: 'long', expires_in: 5000 }, { id: '999' }, {}]);
