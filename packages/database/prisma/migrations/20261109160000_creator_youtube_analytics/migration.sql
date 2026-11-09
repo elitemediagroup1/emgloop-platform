@@ -40,6 +40,7 @@ CREATE TABLE "youtube_analytics_observations" (
 );
 CREATE UNIQUE INDEX "youtube_connections_creatorProfileId_key" ON "youtube_connections"("creatorProfileId");
 CREATE UNIQUE INDEX "youtube_connections_organizationId_id_key" ON "youtube_connections"("organizationId", "id");
+CREATE UNIQUE INDEX "youtube_connections_organizationId_creatorProfileId_key" ON "youtube_connections"("organizationId", "creatorProfileId");
 CREATE UNIQUE INDEX "youtube_connections_organizationId_activeChannelId_key" ON "youtube_connections"("organizationId", "activeChannelId");
 CREATE UNIQUE INDEX "youtube_oauth_states_stateHash_key" ON "youtube_oauth_states"("stateHash");
 CREATE INDEX "youtube_oauth_states_organizationId_userId_sessionId_expiresAt_idx" ON "youtube_oauth_states"("organizationId", "userId", "sessionId", "expiresAt");
