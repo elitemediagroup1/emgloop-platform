@@ -24,7 +24,7 @@ const compact = (value: string | null) => value && /^\d+$/.test(value) ? new Int
 export async function YouTubeConnectionPanel({ principal, outcome, syncOutcome }: { principal: Principal; outcome?: string; syncOutcome?: string }) {
   const configured = readYouTubeEnvironment() !== null;
   const statusText = outcome ? OUTCOMES[outcome] : null;
-  const syncText = syncOutcome === 'SYNCED' ? 'Analytics were refreshed.' : syncOutcome === 'NOT_CONNECTED' ? 'Connect YouTube before syncing analytics.' : syncOutcome === 'NOT_CONFIGURED' ? 'YouTube connection is not configured on this deployment.' : syncOutcome === 'FAILED' ? 'The analytics refresh did not complete. Your previous snapshot is still shown.' : null;
+  const syncText = syncOutcome === 'SYNCED' ? 'Analytics were refreshed.' : syncOutcome === 'ALREADY_FRESH' ? 'Analytics were refreshed recently; showing the latest saved snapshot.' : syncOutcome === 'NOT_CONNECTED' ? 'Connect YouTube before syncing analytics.' : syncOutcome === 'NOT_CONFIGURED' ? 'YouTube connection is not configured on this deployment.' : syncOutcome === 'FAILED' ? 'The analytics refresh did not complete. Your previous snapshot is still shown.' : null;
   if (!configured) return <Panel title="YouTube"><StateBlock kind="unavailable" compact title="Awaiting YouTube setup" body="EMG is finishing the YouTube connection setup. Your YouTube account will connect separately from Instagram and Facebook." /></Panel>;
 
   let data: Awaited<ReturnType<typeof getYouTubeCreatorConnection>> = null;
