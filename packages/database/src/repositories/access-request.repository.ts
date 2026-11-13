@@ -21,17 +21,26 @@ export class AccessRequestRepository {
     const organization = await this.prisma.organization.findFirst({ where: { id: organizationId, status: { in: ['ACTIVE', 'TRIAL'] } }, select: { id: true } });
     if (!organization) throw new Error('ACCESS_INTAKE_UNAVAILABLE');
     // A repeat cannot overwrite the original identity, requested role or an administrator's decision.
-    return this.prisma.accessRequest.upsert({ where: { organizationId_email: { organizationId, email: data.email } }, create: { organizationId, ...data }, update: {} });
+    try {
+      return await this.prisma.accessRequest.upsert({ where: { organizationId_email: { organizationId, email: data.email } }, create: { organizationId, ...data }, update: {} });
+    } catch (error) {
+      // Prisma may emulate an empty-update upsert. A concurrent first submission still converges.
+      if ((error as { code?: string }).code !== 'P2002') throw error;
+      const existing = await this.prisma.accessRequest.findUnique({ where: { organizationId_email: { organizationId, email: data.email } } });
+      if (!existing) throw error;
+      return existing;
+    }
   }
 
   get(organizationId: string, id: string) { return this.prisma.accessRequest.findFirst({ where: { organizationId, id } }); }
   forInvitation(organizationId: string, invitationId: string) { return this.prisma.accessRequest.findFirst({ where: { organizationId, invitationId } }); }
-  async replaceInvitation(organizationId: string, id: string, previousId: string, invitationId: string) {
-    const request = await this.get(organizationId, id);
-    if (!request) return false;
-    const invitation = await this.prisma.invitation.findFirst({ where: { organizationId, id: invitationId, email: request.email, metadata: { path: ['accessRequestId'], equals: id } } });
-    if (!invitation) return false;
-    return (await this.prisma.accessRequest.updateMany({ where: { organizationId, id, invitationId: previousId, status: 'INVITED' }, data: { invitationId } })).count === 1;
+  async reopenForResend(organizationId: string, id: string, invitationId: string, userId: string) {
+    return this.prisma.$transaction(async tx => {
+      const changed = await tx.accessRequest.updateMany({ where: { organizationId, id, invitationId, status: 'INVITED' }, data: { status: 'FAILED' } });
+      if (!changed.count) return false;
+      await new AuditRepository(this.prisma).record({ organizationId, userId, action: 'access_request.resend_requested', entityType: 'accessRequest', entityId: id }, tx);
+      return true;
+    });
   }
   list(organizationId: string, pending: boolean, cursor?: string) {
     return this.prisma.accessRequest.findMany({ where: { organizationId, status: pending ? { in: ['PENDING', 'PROCESSING', 'FAILED'] } : { in: ['INVITED', 'REJECTED', 'RESOLVED'] }, ...(cursor ? { id: { gt: cursor } } : {}) }, orderBy: { id: 'asc' }, take: 51, include: { invitation: { select: { status: true, expiresAt: true } } } });

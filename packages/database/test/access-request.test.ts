@@ -90,3 +90,19 @@ test('successful dispatch is recorded once with audit, and duplicate submissions
 test('input validation rejects malformed addresses, controls and arbitrary roles', () => {
   for (const change of [{ email: 'invalid' }, { accessType: 'OWNER' }, { fullName: 'Injected\r\nName' }, { company: '' }]) assert.throws(() => cleanAccessRequest({ ...input, ...change }));
 });
+
+test('resend is explicitly reopened once for the current link and reuses the normal claim/failure path', async () => {
+  const { db, requests } = await world();
+  const a = await requests.submit('a', input);
+  await requests.claim('a', a.id, 'admin', 'one', now);
+  const invitation = await db.invitation.create({ data: { organizationId: 'a', email: input.email, tokenHash: 'resend-test', expiresAt: new Date('2026-11-20'), metadata: { accessRequestId: a.id } } });
+  await requests.attach('a', a.id, 'one', invitation.id);
+  await requests.finish('a', a.id, 'one', 'INVITED', now);
+  assert.equal(await requests.reopenForResend('b', a.id, invitation.id, 'admin'), false);
+  assert.equal(await requests.reopenForResend('a', a.id, 'not-the-current-link', 'admin'), false);
+  assert.equal(await requests.reopenForResend('a', a.id, invitation.id, 'admin'), true);
+  assert.equal(await requests.reopenForResend('a', a.id, invitation.id, 'admin'), false);
+  assert.ok(await requests.claim('a', a.id, 'admin', 'resend', now));
+  await requests.finish('a', a.id, 'resend', 'FAILED', now);
+  assert.equal((await requests.get('a', a.id))?.status, 'FAILED');
+});

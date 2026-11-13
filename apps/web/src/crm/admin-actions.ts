@@ -267,6 +267,7 @@ export async function resendInvitationAction(formData: FormData): Promise<void> 
   const invitationId = String(formData.get('invitationId') ?? '');
 
   let result: { message: string; kind: 'notice' | 'error' };
+  let requestRetry: FormData | null = null;
 
   if (!invitationId) {
     result = { message: 'No invitation selected.', kind: 'error' };
@@ -281,21 +282,28 @@ export async function resendInvitationAction(formData: FormData): Promise<void> 
         result = { message: 'That invitation is no longer pending.', kind: 'error' };
       } else {
         const request = await accessRequests().forInvitation(session.organizationId, invitationId).catch((error: { code?: string }) => { if (error.code === 'P2021') return null; throw error; });
-        await repositories.iam.revokeInvitation(session.organizationId, invitationId);
-        const token = newToken();
-        const freshInvitation = await repositories.iam.createInvitation({
+        if (request) {
+          if (request.status === 'INVITED' && !await accessRequests().reopenForResend(session.organizationId, request.id, invitationId, session.userId)) throw new Error('ACCESS_REQUEST_CHANGED');
+          // Outside the catch below, reuse the claimed approval flow so a failed resend is retryable too.
+          requestRetry = new FormData();
+          requestRetry.set('accessRequestId', request.id);
+          requestRetry.set('role', target.systemRole);
+          requestRetry.set('creatorPartyId', target.creatorPartyId ?? '__new__');
+          result = { message: 'Retrying the request invitation.', kind: 'notice' };
+        } else {
+          await repositories.iam.revokeInvitation(session.organizationId, invitationId);
+          const token = newToken();
+          await repositories.iam.createInvitation({
           organizationId: session.organizationId,
           email: target.email,
           systemRole: parseRole(target.systemRole),
           creatorPartyId: target.creatorPartyId,
-          accessRequestId: request?.id,
           inviterId: session.userId,
           tokenHash: hashToken(token),
           expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
         });
-        if (request && !await accessRequests().replaceInvitation(session.organizationId, request.id, invitationId, freshInvitation.id)) throw new Error('ACCESS_REQUEST_CHANGED');
-        await sendInviteEmail({ to: target.email, inviteUrl: invitationAcceptUrl(token), requireDelivery: Boolean(request) });
-        await repositories.audit.record({
+          await sendInviteEmail({ to: target.email, inviteUrl: invitationAcceptUrl(token) });
+          await repositories.audit.record({
           organizationId: session.organizationId,
           userId: session.userId,
           actorName: session.name,
@@ -304,7 +312,8 @@ export async function resendInvitationAction(formData: FormData): Promise<void> 
           entityId: invitationId,
           metadata: { email: target.email },
         });
-        result = { message: `A fresh invitation was sent to ${target.email}. The old link no longer works.`, kind: 'notice' };
+          result = { message: `A fresh invitation was sent to ${target.email}. The old link no longer works.`, kind: 'notice' };
+        }
       }
     } catch (err) {
       console.error('[team.resend] failed', {
@@ -317,6 +326,7 @@ export async function resendInvitationAction(formData: FormData): Promise<void> 
     }
   }
 
+  if (requestRetry) return inviteUserAction(requestRetry);
   redirect(teamUrl(result.message, result.kind));
 }
 

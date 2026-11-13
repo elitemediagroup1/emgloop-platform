@@ -37,3 +37,11 @@ test('queue decisions are scoped, creator identity remains explicit, and legacy 
   assert.doesNotMatch(panel, /name="email" value=\{request.email\}/);
   assert.match(read('app/app/admin/administration/team/page.tsx'), /if \(canManage\)/);
 });
+
+test('an existing queue invitation resends through the claimed approval path outside the redirect catch', () => {
+  const source = read('crm/admin-actions.ts');
+  const resend = source.slice(source.indexOf('export async function resendInvitationAction'), source.indexOf('// --- Organizations'));
+  assert.match(resend, /reopenForResend\(session.organizationId/);
+  assert.match(resend, /requestRetry.set\('accessRequestId', request.id\)/);
+  assert.ok(resend.indexOf('if (requestRetry) return inviteUserAction(requestRetry);') > resend.indexOf('} catch (err)'));
+});

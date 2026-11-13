@@ -18,7 +18,9 @@ test('real Postgres: durable requests, concurrent approval, retry links and tena
     await iam.activateUser(a, admin.id);
     const requests = new AccessRequestRepository(db);
     const input = { fullName: 'Example Request', email: 'request@example.test', company: 'Example', accessType: 'Employee' };
-    const row = await requests.submit(a, input);
+    const submissions = await Promise.all(Array.from({ length: 5 }, () => requests.submit(a, input)));
+    assert.equal(new Set(submissions.map(r => r.id)).size, 1);
+    const row = submissions[0]!;
     assert.equal((await requests.submit(a, { ...input, email: 'REQUEST@example.test' })).id, row.id);
     assert.equal(await db.user.count({ where: { organizationId: a, email: input.email } }), 0);
     assert.equal(await requests.get(b, row.id), null);
