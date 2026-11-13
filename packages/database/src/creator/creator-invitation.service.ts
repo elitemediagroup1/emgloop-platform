@@ -4,7 +4,7 @@ import type { PrismaClient } from '@prisma/client';
 import { IamRepository, userSystemRole } from '../repositories/iam.repository';
 import { PartyService } from '../services/party.service';
 export async function issueCreatorInvitation(prisma: PrismaClient, organizationId: string, inviterId: string, input: {
-  email: string; name: string; partyId: string; tokenHash: string; expiresAt: Date;
+  email: string; name: string; partyId: string; tokenHash: string; expiresAt: Date; accessRequestId?: string;
 }) {
   return prisma.$transaction(async tx => {
     const iam = new IamRepository(tx as PrismaClient);
@@ -24,6 +24,6 @@ export async function issueCreatorInvitation(prisma: PrismaClient, organizationI
       const established = await parties.establish(organizationId, inviterId, partyId, 'MANUAL', { tx });
       if (established.outcome !== 'RECORDED') throw new Error('NOT_ALLOWED');
     }
-    return iam.createInvitation({ organizationId, inviterId, email: input.email, tokenHash: input.tokenHash, expiresAt: input.expiresAt, systemRole: 'CREATOR', creatorPartyId: partyId });
+    return iam.createInvitation({ organizationId, inviterId, email: input.email, tokenHash: input.tokenHash, expiresAt: input.expiresAt, systemRole: 'CREATOR', creatorPartyId: partyId, accessRequestId: input.accessRequestId });
   }, { isolationLevel: 'Serializable' });
 }

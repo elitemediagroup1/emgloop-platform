@@ -3,8 +3,8 @@
 //
 // This is the canonical home of team/user management. It reuses the EXACT same
 // org-scoped server actions the old /crm/users page used (invite, role, status,
-// remove) — the feature is unchanged; only its route ownership and shell moved
-// out of the legacy CRM sidebar. /crm/users now redirects here.
+// remove), plus durable access-request review. Approval issues an existing secure
+// invitation; submitting a public request never grants access. /crm/users redirects here.
 
 import { requirePermission, hasPermission } from '../../../../../auth/guard';
 import { repositories, PartyReadModelRepository, prisma } from '@emgloop/database';
@@ -18,6 +18,8 @@ import {
   revokeInvitationAction,
 } from '../../../../../crm/admin-actions';
 import { requireWorkspace } from '../../../../../workspaces/guard';
+import { AccessRequestsPanel } from './access-requests';
+import { accessRequests, accessRequestOrganizationId } from '../../../../../lib/access-request-runtime';
 import { viewerTime } from '../../../../../time/viewer-time';
 
 export const dynamic = 'force-dynamic';
@@ -30,7 +32,7 @@ function fmtDate(iso: string | null): string {
 export default async function AdminTeamPage({
   searchParams,
 }: {
-  searchParams?: { notice?: string; error?: string; role?: string; creatorPartyId?: string };
+  searchParams?: { notice?: string; error?: string; role?: string; creatorPartyId?: string; accessView?: string; accessAfter?: string };
 }) {
   await requireWorkspace('ADMIN');
   const session = await requirePermission('users', 'view');
@@ -45,6 +47,18 @@ export default async function AdminTeamPage({
     creatorPeople.items.push(...next.items);
     creatorPeople.nextCursor = next.nextCursor;
   }
+
+  const historyView = searchParams?.accessView === 'history';
+  const cursor = typeof searchParams?.accessAfter === 'string' ? searchParams.accessAfter.slice(0, 200) : undefined;
+  let requestRows: Awaited<ReturnType<ReturnType<typeof accessRequests>['list']>> = [];
+  let requestsAvailable = true;
+  if (canManage) {
+    try { requestRows = await accessRequests().list(session.organizationId, !historyView, cursor); }
+    catch { requestsAvailable = false; }
+  }
+  const moreRequests = requestRows.length > 50;
+  requestRows = requestRows.slice(0, 50);
+  const nextAccessHref = moreRequests ? `?accessView=${historyView ? 'history' : 'pending'}&accessAfter=${encodeURIComponent(requestRows[49]!.id)}#access-requests` : null;
 
   const selectedCreatorPerson = creatorPeople?.items.find(person => person.partyId === searchParams?.creatorPartyId);
 
@@ -66,6 +80,8 @@ export default async function AdminTeamPage({
 
       {error ? <div className="adm-banner adm-banner--error" role="alert">{error}</div> : null}
       {notice ? <div className="adm-banner adm-banner--ok" role="status">{notice}</div> : null}
+
+      {canManage ? <AccessRequestsPanel rows={historyView ? [] : requestRows} history={historyView ? requestRows : []} historyView={historyView} available={requestsAvailable} organizationId={session.organizationId} routed={accessRequestOrganizationId() === session.organizationId} people={creatorPeople?.items ?? []} date={fmtDate} nextHref={nextAccessHref} /> : null}
 
       {canManage ? (
         <section className="adm-card">

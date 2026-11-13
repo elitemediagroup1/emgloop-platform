@@ -1,3 +1,18 @@
+## Access request approval — November 13, 2026
+
+The new access-request branch adds durable tenant-scoped public intake and an administrator
+queue on Team. Approve selects an explicit role and sends the existing secure onboarding
+invitation; reject sends nothing. Duplicate approvals are claimed atomically, failed email
+can retry with a replaced token, and old emailed requests can be manually recorded without
+asking the person to submit again. Mike's legacy request has NOT been imported or approved,
+and no invitation email has been sent by this work.
+
+Requires migration `20261113193000_access_requests`, then Netlify server-only Production
+`LOOP_ACCESS_REQUEST_ORGANIZATION_ID` set to the ID displayed on Team and a redeploy.
+The public intake fails closed until routing/persistence is ready; existing team invites
+remain available. Matt merges and runs production migrations. See
+`docs/runbooks/access-request-approval.md` for exact steps and controlled live validation.
+
 ## Meta creator analytics — expiry response fallback in review (2026-11-06)
 
 PR #446 analytics implementation and PR #447 safe callback diagnostics are merged and deployed. The latest creator test shows Meta returned a long-lived access token without `expires_in`; Loop refused to save it. PR #448 adds token-debugger expiry resolution and validates token validity, app ID, Facebook user ID and future expiration. No 60-day lifetime is guessed. Do not retry consent until PR #448 is merged and deployed.

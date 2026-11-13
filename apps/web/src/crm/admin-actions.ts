@@ -5,7 +5,7 @@
 // Mutations for the management surfaces (Users, Organizations, AI Employees,
 // Settings). Every action enforces a deny-by-default permission check via the
 // guard, persists through the @emgloop/database repository layer, and writes an
-// immutable AuditLog entry. No email delivery, no providers, no fake data.
+// immutable AuditLog entry. Invitations use the existing transactional email service.
 //
 // 'Remove user' is implemented as a soft removal (status DISABLED + a metadata
 // flag + session revocation), never a hard delete, so the audit trail and
@@ -18,6 +18,7 @@ import { SystemRole } from '@emgloop/database';
 import { invitationAcceptUrl } from '@emgloop/shared';
 import { newToken, hashToken } from '../auth/auth';
 import { requirePermission } from '../auth/guard';
+import { accessRequests } from '../lib/access-request-runtime';
 import { sendInviteEmail } from '../lib/email/email-service';
 import { finishGoogleOffboarding } from '../google/google-runtime';
 
@@ -44,23 +45,36 @@ function teamUrl(message: string, kind: 'notice' | 'error'): string {
 
 export async function inviteUserAction(formData: FormData): Promise<void> {
   const session = await requirePermission('users', 'create');
-  const email = String(formData.get('email') ?? '').toLowerCase().trim();
-  const name = String(formData.get('name') ?? '').trim();
+  const accessRequestId = String(formData.get('accessRequestId') ?? '');
+  const request = accessRequestId ? await accessRequests().get(session.organizationId, accessRequestId) : null;
+  if (accessRequestId && !request) redirect(teamUrl('That access request is not available.', 'error'));
+  const email = request?.email ?? String(formData.get('email') ?? '').toLowerCase().trim();
+  const name = request?.fullName ?? String(formData.get('name') ?? '').trim();
   const role = parseRole(formData.get('role'));
 
   // The redirect is the LAST statement, computed here — never inside the try, so
   // its NEXT_REDIRECT control-flow throw is not swallowed by the catch.
   let result: { message: string; kind: 'notice' | 'error' };
 
-  const creatorPartyId = String(formData.get('creatorPartyId') ?? '').trim();
+  let creatorPartyId = String(formData.get('creatorPartyId') ?? '').trim();
+  const priorInvitation = request ? await accessRequests().ownedInvitation(session.organizationId, request.id, request.email) : null;
+  const priorMetadata = priorInvitation?.metadata as { creatorPartyId?: string } | undefined;
+  if (role === 'CREATOR' && creatorPartyId === '__new__' && priorMetadata?.creatorPartyId) creatorPartyId = priorMetadata.creatorPartyId;
   if (role === 'CREATOR' && ((creatorPartyId === '__new__' && (!name || !(await repositories.iam.can({ organizationId: session.organizationId, userId: session.userId, resource: 'identityResolution', action: 'approve' })))) || (creatorPartyId !== '__new__' && !(await repositories.iam.creatorInvitationTarget(session.organizationId, session.userId, creatorPartyId))))) {
     redirect(teamUrl('Enter the creator name and authorize a new Person record, or select their existing Person identity.', 'error'));
+  }
+
+  const claimId = accessRequestId ? newToken() : null;
+  if (claimId && !await accessRequests().claim(session.organizationId, accessRequestId, session.userId, claimId, new Date())) {
+    redirect(teamUrl('That request was already handled or is being processed. Refresh the list before trying again.', 'error'));
   }
 
   if (!email) {
     result = { message: 'Enter an email address to send an invitation.', kind: 'error' };
   } else {
     try {
+      // A retry supersedes only a link previously issued for this exact request.
+      if (priorInvitation) await repositories.iam.revokeInvitation(session.organizationId, priorInvitation.id);
       // Lifecycle-aware: resolves the one (org,email) row and reinstates it rather
       // than blindly inserting. This is the fix for the P2002 that crashed the page
       // and blocked re-inviting a removed teammate.
@@ -73,6 +87,7 @@ export async function inviteUserAction(formData: FormData): Promise<void> {
         invitedByUserId: session.userId,
       });
       if (!outcome.ok) {
+        if (claimId) await accessRequests().finish(session.organizationId, accessRequestId, claimId, 'RESOLVED', new Date());
         result = {
           kind: 'error',
           message: outcome.reason === 'active_member'
@@ -84,16 +99,20 @@ export async function inviteUserAction(formData: FormData): Promise<void> {
         // member cannot ride an old session back in during re-invitation.
         if (outcome.reused) await repositories.auth.revokeAllForUser(outcome.userId);
         const token = newToken();
+        let invitationId: string;
         if (role === 'CREATOR') {
-          await issueCreatorInvitation(prisma, session.organizationId, session.userId, { email, name, partyId: creatorPartyId, tokenHash: hashToken(token), expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) });
+          const invitation = await issueCreatorInvitation(prisma, session.organizationId, session.userId, { email, name, partyId: creatorPartyId, tokenHash: hashToken(token), expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), accessRequestId: accessRequestId || undefined });
+          invitationId = invitation.id;
         } else {
-          await repositories.iam.createInvitation({ organizationId: session.organizationId, email, systemRole: role, inviterId: session.userId, tokenHash: hashToken(token), expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) });
+          const invitation = await repositories.iam.createInvitation({ organizationId: session.organizationId, email, systemRole: role, inviterId: session.userId, tokenHash: hashToken(token), expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), accessRequestId: accessRequestId || undefined });
+          invitationId = invitation.id;
         }
         // Send the invitation email using the plaintext token (only the hash is
         // stored). The URL MUST be absolute (an email client mangles a relative
         // path into http:///…). invitationAcceptUrl builds it from the one
         // canonical app origin; the same value feeds the button and text links.
-        await sendInviteEmail({ to: email, name: name || undefined, inviteUrl: invitationAcceptUrl(token) });
+        if (claimId && !await accessRequests().attach(session.organizationId, accessRequestId, claimId, invitationId)) throw new Error('ACCESS_REQUEST_CHANGED');
+        await sendInviteEmail({ to: email, name: name || undefined, inviteUrl: invitationAcceptUrl(token), requireDelivery: Boolean(claimId) });
         await repositories.audit.record({
           organizationId: session.organizationId,
           userId: session.userId,
@@ -103,9 +122,13 @@ export async function inviteUserAction(formData: FormData): Promise<void> {
           entityId: outcome.userId,
           metadata: { email, role },
         });
+        if (claimId && !await accessRequests().finish(session.organizationId, accessRequestId, claimId, 'INVITED', new Date())) throw new Error('ACCESS_REQUEST_CHANGED');
         result = { message: `Invitation sent to ${email}.`, kind: 'notice' };
       }
     } catch (err) {
+      if (claimId) {
+        try { await accessRequests().finish(session.organizationId, accessRequestId, claimId, 'FAILED', new Date()); } catch { /* The processing lease allows recovery after a database outage. */ }
+      }
       // Fail visibly, not with a crash digest. Structured + secret-safe: no token,
       // no password, no payload — just enough to locate the failing op on deploy.
       console.error('[team.invite] failed', {
@@ -122,6 +145,25 @@ export async function inviteUserAction(formData: FormData): Promise<void> {
   }
 
   redirect(teamUrl(result.message, result.kind));
+}
+
+/** Rejection never emails or grants access; only links owned by this request are withdrawn. */
+export async function rejectAccessRequestAction(formData: FormData): Promise<void> {
+  const session = await requirePermission('users', 'create');
+  const id = String(formData.get('accessRequestId') ?? '');
+  const changed = id && await accessRequests().reject(session.organizationId, id, session.userId, new Date());
+  redirect(teamUrl(changed ? 'Access request rejected.' : 'That request is no longer waiting for a decision.', changed ? 'notice' : 'error'));
+}
+
+/** Enter a legacy emailed request without asking the requester to submit again. No invitation is sent. */
+export async function recordAccessRequestAction(formData: FormData): Promise<void> {
+  const session = await requirePermission('users', 'create');
+  let success = false;
+  try {
+    await accessRequests().submit(session.organizationId, { fullName: String(formData.get('fullName') ?? ''), email: String(formData.get('email') ?? ''), company: String(formData.get('company') ?? ''), accessType: String(formData.get('accessType') ?? '') });
+    success = true;
+  } catch { /* A fixed message avoids disclosing validation or database internals. */ }
+  redirect(teamUrl(success ? 'Request recorded. Review it in Access requests before sending an invitation.' : 'Could not record the request. Check the fields and try again.', success ? 'notice' : 'error'));
 }
 
 export async function setUserRoleAction(formData: FormData): Promise<void> {
@@ -225,6 +267,7 @@ export async function resendInvitationAction(formData: FormData): Promise<void> 
   const invitationId = String(formData.get('invitationId') ?? '');
 
   let result: { message: string; kind: 'notice' | 'error' };
+  let requestRetry: FormData | null = null;
 
   if (!invitationId) {
     result = { message: 'No invitation selected.', kind: 'error' };
@@ -238,9 +281,19 @@ export async function resendInvitationAction(formData: FormData): Promise<void> 
       if (!target) {
         result = { message: 'That invitation is no longer pending.', kind: 'error' };
       } else {
-        await repositories.iam.revokeInvitation(session.organizationId, invitationId);
-        const token = newToken();
-        await repositories.iam.createInvitation({
+        const request = await accessRequests().forInvitation(session.organizationId, invitationId).catch((error: { code?: string }) => { if (error.code === 'P2021') return null; throw error; });
+        if (request) {
+          if (request.status === 'INVITED' && !await accessRequests().reopenForResend(session.organizationId, request.id, invitationId, session.userId)) throw new Error('ACCESS_REQUEST_CHANGED');
+          // Outside the catch below, reuse the claimed approval flow so a failed resend is retryable too.
+          requestRetry = new FormData();
+          requestRetry.set('accessRequestId', request.id);
+          requestRetry.set('role', target.systemRole);
+          requestRetry.set('creatorPartyId', target.creatorPartyId ?? '__new__');
+          result = { message: 'Retrying the request invitation.', kind: 'notice' };
+        } else {
+          await repositories.iam.revokeInvitation(session.organizationId, invitationId);
+          const token = newToken();
+          await repositories.iam.createInvitation({
           organizationId: session.organizationId,
           email: target.email,
           systemRole: parseRole(target.systemRole),
@@ -249,8 +302,8 @@ export async function resendInvitationAction(formData: FormData): Promise<void> 
           tokenHash: hashToken(token),
           expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
         });
-        await sendInviteEmail({ to: target.email, inviteUrl: invitationAcceptUrl(token) });
-        await repositories.audit.record({
+          await sendInviteEmail({ to: target.email, inviteUrl: invitationAcceptUrl(token) });
+          await repositories.audit.record({
           organizationId: session.organizationId,
           userId: session.userId,
           actorName: session.name,
@@ -259,7 +312,8 @@ export async function resendInvitationAction(formData: FormData): Promise<void> 
           entityId: invitationId,
           metadata: { email: target.email },
         });
-        result = { message: `A fresh invitation was sent to ${target.email}. The old link no longer works.`, kind: 'notice' };
+          result = { message: `A fresh invitation was sent to ${target.email}. The old link no longer works.`, kind: 'notice' };
+        }
       }
     } catch (err) {
       console.error('[team.resend] failed', {
@@ -272,6 +326,7 @@ export async function resendInvitationAction(formData: FormData): Promise<void> 
     }
   }
 
+  if (requestRetry) return inviteUserAction(requestRetry);
   redirect(teamUrl(result.message, result.kind));
 }
 

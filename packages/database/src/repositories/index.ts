@@ -567,3 +567,5 @@ export {
   type IntakeStatus,
   type IntakeBasis,
 } from './intake-eligibility.repository';
+
+export { AccessRequestRepository, ACCESS_REQUEST_TYPES, cleanAccessRequest } from './access-request.repository';

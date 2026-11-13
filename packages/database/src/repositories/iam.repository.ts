@@ -904,6 +904,7 @@ export class IamRepository {
     tokenHash: string;
     expiresAt?: Date;
     creatorPartyId?: string;
+    accessRequestId?: string;
   }): Promise<Invitation> {
     if (data.systemRole === 'CREATOR' && !(await this.creatorInvitationTarget(data.organizationId, data.inviterId, data.creatorPartyId ?? ''))) throw new Error('CREATOR_TARGET_REQUIRED');
     return this.prisma.invitation.create({
@@ -912,7 +913,7 @@ export class IamRepository {
         email: data.email,
         invitedById: data.inviterId,        status: 'PENDING',
         tokenHash: data.tokenHash,
-        expiresAt: data.expiresAt ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),        metadata: { systemRole: data.systemRole ?? 'EMPLOYEE', ...(data.systemRole === 'CREATOR' ? { creatorPartyId: data.creatorPartyId } : {}) },
+        expiresAt: data.expiresAt ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),        metadata: { ...(data.accessRequestId ? { accessRequestId: data.accessRequestId } : {}), systemRole: data.systemRole ?? 'EMPLOYEE', ...(data.systemRole === 'CREATOR' ? { creatorPartyId: data.creatorPartyId } : {}) },
       },
     });
   }

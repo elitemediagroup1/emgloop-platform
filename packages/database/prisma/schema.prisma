@@ -199,6 +199,7 @@ enum IntegrationEventStatus {
 // ---------------------------------------------------------------------------
 
 model Organization {
+  accessRequests AccessRequest[]
   creatorBrandMailShares CreatorBrandMailShare[]
   id        String             @id @default(cuid())
   name      String
@@ -1347,6 +1348,7 @@ model OrganizationDNA {
 }
 
 model Invitation {
+  accessRequests AccessRequest[]
   id             String           @id @default(cuid())
   organizationId String
   invitedById    String?
@@ -1367,6 +1369,31 @@ model Invitation {
   @@index([organizationId, status])
   @@index([email])
   @@map("invitations")
+}
+
+// Public submissions grant no access. Only an authenticated administrator can issue an invitation.
+model AccessRequest {
+  id String @id @default(cuid())
+  organizationId String
+  fullName String
+  email String
+  company String
+  accessType String
+  status String @default("PENDING")
+  invitationId String?
+  claimId String?
+  processingAt DateTime?
+  decidedById String?
+  decidedAt DateTime?
+  submittedAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invitation Invitation? @relation(fields: [invitationId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, email])
+  @@index([organizationId, status, submittedAt, id])
+  @@map("access_requests")
 }
 
 model PasswordReset {
