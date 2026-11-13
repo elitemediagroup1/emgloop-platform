@@ -418,3 +418,6 @@ export type { PublicNewsFeed, PublicNewsArticle } from './news/public-feeds';
 
 export { META_SCOPES, MetaApi, MetaApiError, metaAuthorizationUrl, metaObject } from './meta/api';
 export type { MetaConfig, MetaFailure, MetaOAuthStage, MetaApiDiagnostic, MetaPage, MetaMetric, MetaMedia, MetaReport } from './meta/api';
+
+export { TikTokBusinessApi, businessAuthorizationUrl } from './tiktok-business/api';
+export type { TikTokBusinessKind, TikTokBusinessConfig, TikTokBusinessGrant } from './tiktok-business/api';

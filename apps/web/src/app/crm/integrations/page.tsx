@@ -69,6 +69,7 @@ export default async function IntegrationOsPage() {
     return (
       <>
         <h1 className="crm-h1">Integration OS</h1>
+          <Link href="/app/integrations/tiktok-business">TikTok One setup</Link>
         <DataUnavailable />
       </>
     );
@@ -86,6 +87,7 @@ export default async function IntegrationOsPage() {
       <div className="crm-wf-head">
         <div>
           <h1 className="crm-h1">Integration OS</h1>
+          <Link href="/app/integrations/tiktok-business">TikTok One setup</Link>
           <p className="crm-sub">
             Connect, monitor, diagnose and manage every external system from one
             console. Configuration only  -  no secret values are ever displayed.

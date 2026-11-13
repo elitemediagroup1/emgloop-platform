@@ -1,0 +1,42 @@
+name: TikTok Business authorization
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '**/*tiktok-business*'
+      - 'apps/web/src/tiktok-business/**'
+      - 'apps/web/src/app/api/integrations/tiktok-business/**'
+      - 'apps/web/src/app/app/integrations/tiktok-business/**'
+      - 'packages/providers/src/tiktok-business/**'
+      - 'packages/database/prisma/**'
+      - 'packages/database/src/repositories/iam.repository.ts'
+      - '.github/workflows/tiktok-business-ci.yml'
+permissions:
+  contents: read
+jobs:
+  authorization:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: tiktok_business
+        ports: ['5432:5432']
+        options: --health-cmd "pg_isready -U ci -d tiktok_business" --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/tiktok_business?schema=public
+      LOOP_TEST_POSTGRES_URL: postgresql://ci:ci@127.0.0.1:5432/tiktok_business?schema=public
+      TSX_TSCONFIG_PATH: apps/web/tsconfig.test.json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - run: npm install --no-audit --no-fund
+      - run: npm run -w @emgloop/database migrate:deploy
+      - run: node --import tsx --test packages/database/test/tiktok-business*.test.ts apps/web/test/tiktok-business.test.tsx
+      - run: npm run -w @emgloop/database typecheck
+      - run: npm run -w @emgloop/web typecheck
