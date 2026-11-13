@@ -1,0 +1,46 @@
+name: Access request approval
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/web/src/app/crm/login/access-request-action.ts'
+      - 'apps/web/src/app/app/admin/administration/team/**'
+      - 'apps/web/src/crm/admin-actions.ts'
+      - 'apps/web/src/lib/access-request-runtime.ts'
+      - 'apps/web/test/access-request-*.test.tsx'
+      - 'packages/database/src/repositories/access-request.repository.ts'
+      - 'packages/database/src/repositories/iam.repository.ts'
+      - 'packages/database/prisma/**'
+      - 'packages/database/test/access-request*.test.ts'
+      - '.github/workflows/access-request-ci.yml'
+permissions:
+  contents: read
+jobs:
+  access-requests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: access_requests
+        ports: ['5432:5432']
+        options: --health-cmd "pg_isready -U ci -d access_requests" --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/access_requests?schema=public
+      LOOP_TEST_POSTGRES_URL: postgresql://ci:ci@127.0.0.1:5432/access_requests?schema=public
+      TSX_TSCONFIG_PATH: apps/web/tsconfig.test.json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - run: npm install --no-audit --no-fund
+      - name: Apply migrations to disposable database
+        run: npm run -w @emgloop/database migrate:deploy
+      - name: Request persistence, lifecycle and isolation
+        run: node --import tsx --test packages/database/test/access-request*.test.ts packages/database/test/invitation-role.test.ts packages/database/test/creator-self-onboarding.test.ts
+      - name: Public intake and admin approval contracts
+        run: node --import tsx --test apps/web/test/access-request-*.test.tsx apps/web/test/creator-self-onboarding.test.tsx apps/web/test/sign-in-lands-on-loop.test.tsx

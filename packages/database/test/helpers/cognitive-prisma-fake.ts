@@ -13,6 +13,7 @@ type Row = Record<string, any>;
 
 // Delegates that carry a @@unique constraint (org-scoped composite, or global).
 const UNIQUE_KEYS: Record<string, string[]> = {
+  accessRequest: ['organizationId', 'email'],
   creatorMailEvidence: ['captureId', 'generation', 'threadId'],
   creatorMailRelationship: ['organizationId', 'creatorProfileId', 'brandId'],
   // CallGrid ingestion. GLOBAL, not org-scoped, exactly as the schema declares them
@@ -128,6 +129,7 @@ const UNIQUE_KEYS: Record<string, string[]> = {
  * schema.prisma; if one drifts, the fake is wrong and should be corrected here.
  */
 const COLUMN_DEFAULTS: Record<string, Row> = {
+  accessRequest: { status: 'PENDING', invitationId: null, claimId: null },
   workSourceCursor: { cursor: null, cursorKind: null, lastSyncStartedAt: null, lastSyncCompletedAt: null, lastFailureClass: null, backoffUntil: null },
   workSyncRun: { finishedAt: null, outcome: null, examined: null, written: null, failureClass: null },
   workCorrespondent: { displayName: null, domain: null, inboundCount: 0, outboundCount: 0, suppressed: false },
@@ -669,6 +671,11 @@ function condMatches(value: any, cond: any): boolean {
   if (cond === null) return value === null || value === undefined;
   if (cond instanceof Date) return sameValue(value, cond);
   if (isPlainObject(cond)) {
+    if (Array.isArray(cond.path) && 'equals' in cond) {
+      let nested = value;
+      for (const key of cond.path) nested = nested?.[key];
+      return sameValue(nested, cond.equals);
+    }
     // EVERY operator present must hold, as Prisma ANDs them. This used to return
     // on the FIRST one it recognised, so `{ not: null, lt: cutoff }` silently
     // dropped the `lt` and matched every non-null row — a filter narrowing by
@@ -709,6 +716,7 @@ function condMatches(value: any, cond: any): boolean {
  * columns so a repository written against the real client works here unchanged.
  */
 const COMPOUND_UNIQUE_ALIASES: Record<string, string> = {
+  accessRequest: 'organizationId_email',
   creatorMailEvidence: 'captureId_generation_threadId',
   creatorMailRelationship: 'organizationId_creatorProfileId_brandId',
   marketplaceCall: 'provider_externalId',

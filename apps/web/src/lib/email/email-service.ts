@@ -123,7 +123,9 @@ export async function sendInviteEmail(params: {
   to: string;
   name?: string;
   inviteUrl: string;
+  requireDelivery?: boolean;
 }): Promise<void> {
+  if (params.requireDelivery && !readConfig()) throw new Error('Invitation delivery is not configured.');
   const rendered = inviteTemplate({ name: params.name, inviteUrl: params.inviteUrl });
   await send({ email: params.to, name: params.name }, rendered, 'invite');
 }

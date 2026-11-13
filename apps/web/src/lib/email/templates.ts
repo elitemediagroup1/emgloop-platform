@@ -131,9 +131,9 @@ export function accessRequestTemplate(params: {
   const submitted = params.submittedAt.toISOString().replace('T', ' ').replace(/\..+/, ' UTC');
 
   const nextStep =
-    'Review this request in EMG operations. If approved, create or invite the ' +
-    'user through Loop\u2019s existing administration flow so Loop sends the ' +
-    'secure invitation link.';
+    'Review this request in Loop: Administration > Team > Access requests. ' +
+    'Choose the approved role and select Approve & send invitation. Loop sends ' +
+    'the secure onboarding link after your approval.';
 
   const bodyHtml =
     '<table style="border-collapse:collapse;font-size:14px;line-height:1.6;">' +

@@ -3,8 +3,8 @@
 /**
  * Public "Request Access" intake action.
  *
- * This is an UNAUTHENTICATED access-request intake form. It only validates the
- * submission and emails it to the EMG operations inbox so a human can review it.
+ * This is an UNAUTHENTICATED access-request intake form. It validates and stores the
+ * submission in the server-configured organization, then notifies EMG for review.
  *
  * It intentionally does NOT: create a user, create a session, create an
  * invitation, assign a role, grant access, reveal whether an email already
@@ -15,16 +15,12 @@
  */
 
 import { headers } from 'next/headers';
+import { ACCESS_REQUEST_TYPES } from '@emgloop/database';
+import { accessRequestOrganizationId, accessRequests } from '../../../lib/access-request-runtime';
 import { sendAccessRequestEmail } from '../../../lib/email/email-service';
 
 /** Allow-list of access types. The browser value is never trusted. */
-const ACCESS_TYPES = [
-  'Employee',
-  'Company Administrator',
-  'Creator',
-  'Partner / Vendor',
-  'Other',
-] as const;
+const ACCESS_TYPES = ACCESS_REQUEST_TYPES;
 
 type AccessType = (typeof ACCESS_TYPES)[number];
 
@@ -137,6 +133,14 @@ export async function submitAccessRequest(
   const submittedAt = new Date();
 
   try {
+    const organizationId = accessRequestOrganizationId();
+    if (!organizationId) return GENERIC_FAILURE;
+    await accessRequests().submit(organizationId, { fullName, email, company, accessType });
+  } catch {
+    console.error('[access-request] persistence failed', { category: 'intake_unavailable' });
+    return GENERIC_FAILURE;
+  }
+  try {
     await sendAccessRequestEmail({
       fullName,
       email,
@@ -149,9 +153,9 @@ export async function submitAccessRequest(
       accessType,
       category: 'email_delivery_error',
     });
-    return GENERIC_FAILURE;
+    // The request is durable even if the optional operations notification fails.
   }
 
-  console.info('[access-request] received', { accessType, result: 'sent' });
+  console.info('[access-request] received', { accessType, result: 'recorded' });
   return { ok: true };
 }
