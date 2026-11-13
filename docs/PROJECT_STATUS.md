@@ -1,3 +1,12 @@
+## TikTok API for Business authorization — November 13, 2026
+
+Separate agency and creator callback handlers, session-bound single-use states, encrypted grants,
+manual connect/disconnect setup and member lifecycle withdrawal are implemented on the TikTok Business
+branch. Requires migration `20261113223000_tiktok_business_connect`, a merged production deploy,
+app registration and TikTok approval, then private server configuration. No real Business API grant,
+media import, refresh worker or analytics is verified. Existing Developers Login Kit is unchanged.
+See `docs/runbooks/tiktok-business-connect.md`. Matt merges and runs migrations manually.
+
 ## Access request approval — November 13, 2026
 
 The new access-request branch adds durable tenant-scoped public intake and an administrator

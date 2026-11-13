@@ -199,6 +199,9 @@ enum IntegrationEventStatus {
 // ---------------------------------------------------------------------------
 
 model Organization {
+  tiktokBusinessConnections TikTokBusinessConnection[]
+  tiktokBusinessStates TikTokBusinessOAuthState[]
+
   accessRequests AccessRequest[]
   creatorBrandMailShares CreatorBrandMailShare[]
   id        String             @id @default(cuid())
@@ -547,6 +550,9 @@ enum MembershipStatus {
 /// User row remains a fail-closed compatibility guard -- a membership that
 /// disagrees with it denies (see `resolveMembershipAuthority`).
 model OrganizationMembership {
+  tiktokBusinessConnections TikTokBusinessConnection[]
+  tiktokBusinessStates TikTokBusinessOAuthState[]
+
   id              String           @id @default(cuid())
   organizationId  String
   userId          String
@@ -1413,6 +1419,8 @@ model PasswordReset {
 }
 
 model UserSession {
+  tiktokBusinessStates TikTokBusinessOAuthState[]
+
   id             String           @id @default(cuid())
   organizationId String
   userId         String
@@ -8534,4 +8542,41 @@ model YouTubeAnalyticsObservation {
   connection YouTubeConnection @relation(fields: [organizationId, connectionId], references: [organizationId, id], onDelete: Cascade)
   @@index([organizationId, creatorProfileId, observedAt])
   @@map("youtube_analytics_observations")
+}
+
+// API for Business grants are distinct from Login Kit grants. No plaintext tokens.
+model TikTokBusinessConnection {
+  id String @id @default(cuid())
+  organizationId String
+  userId String
+  // TTO (agency account) or CREATOR (the profile bound to this login).
+  kind String
+  creatorProfileId String?
+  externalId String?
+  status String @default("DISCONNECTED")
+  tokenSealed Bytes?
+  connectedAt DateTime?
+  expiresAt DateTime?
+  revision Int @default(0)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  membership OrganizationMembership @relation(fields: [userId, organizationId], references: [userId, organizationId], onDelete: Cascade)
+  @@unique([organizationId, userId, kind])
+  @@map("tiktok_business_connections")
+}
+model TikTokBusinessOAuthState {
+  id String @id @default(cuid())
+  organizationId String
+  userId String
+  sessionId String
+  kind String
+  creatorProfileId String?
+  connectionRevision Int
+  stateHash String @unique
+  expiresAt DateTime
+  consumedAt DateTime?
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  membership OrganizationMembership @relation(fields: [userId, organizationId], references: [userId, organizationId], onDelete: Cascade)
+  session UserSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  @@index([organizationId, userId, expiresAt])
+  @@map("tiktok_business_oauth_states")
 }

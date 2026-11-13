@@ -1037,3 +1037,7 @@ export { MetaTokenSealer } from './services/meta/meta-token-sealer';
 export { MetaService } from './services/meta/meta.service';
 export { verifyMetaSignedRequest, metaDeletionReceipt, verifyMetaDeletionReceipt } from './services/meta/meta-signed-request';
 export { MetaAnalyticsService, metaAnalyticsContext, metaAnalyticsFingerprint } from './services/meta/meta-analytics.service';
+
+export { TikTokBusinessRepository, businessTablesPresent, businessAuthorized } from './repositories/tiktok-business.repository';
+export type { BusinessPrincipal } from './repositories/tiktok-business.repository';
+export { TikTokBusinessService } from './services/tiktok/tiktok-business.service';
