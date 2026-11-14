@@ -2,7 +2,7 @@ import { createHash, randomBytes } from 'crypto';
 import type { TikTokBusinessGrant, TikTokBusinessKind } from '@emgloop/providers';
 import { businessAuthorizationUrl } from '@emgloop/providers';
 import { TikTokBusinessRepository, type BusinessPrincipal } from '../../repositories/tiktok-business.repository';
-import { aesGcmSealingKey, sealAesGcm } from '../sealing/aes-gcm-sealing';
+import { aesGcmSealingKey, sealAesGcm, openAesGcm } from '../sealing/aes-gcm-sealing';
 export const businessStateHash = (state: string) => createHash('sha256').update(state).digest('hex');
 export interface BusinessConfigured {
   key: Uint8Array; authorizationUrl: string; redirectUri: string;
@@ -33,4 +33,14 @@ export class TikTokBusinessService {
     const stored = await this.repository.store(p, kind, hash, { tokenSealed, externalId: grant.openId, expiresAt: grant.expiresIn === null ? null : new Date(+now + grant.expiresIn * 1000) }, now);
     return stored ? 'CONNECTED' : 'WITHDRAWN';
   }
+}
+
+/** Only server services receive the opened grant. Same binding and format as the existing callback. */
+export function openBusinessGrant(p: { organizationId: string; userId: string }, kind: TikTokBusinessKind, externalId: string | null, tokenSealed: Uint8Array, key: Uint8Array): TikTokBusinessGrant {
+  const keyRef = `tiktok-business/${createHash('sha256').update(key).digest('hex').slice(0,16)}`;
+  const bytes = openAesGcm(PROFILE, aesGcmSealingKey(keyRef,key), keyRef, [p.organizationId,p.userId,kind,externalId ?? 'TTO'], tokenSealed);
+  if (!bytes) throw new Error('TOKEN_UNOPENABLE');
+  const raw: unknown = JSON.parse(new TextDecoder().decode(bytes));
+  if (!raw || typeof raw !== 'object' || !('accessToken' in raw) || typeof raw.accessToken !== 'string' || !raw.accessToken) throw new Error('TOKEN_UNOPENABLE');
+  return raw as TikTokBusinessGrant;
 }

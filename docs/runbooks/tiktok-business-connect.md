@@ -2,8 +2,10 @@
 
 This flow is separate from TikTok Developers Login Kit. It handles the two redirect callbacks,
 exchanges `auth_code` server-side and stores an encrypted grant scoped to the signed-in member.
-Authorization is not a content sync: this work does not import thumbnails, generate creator
-analytics, create campaigns, send invitations, publish posts or manage advertisements/payments.
+The agency grant supports bounded public creator snapshots (profile image, latest ten video
+thumbnails/links and public metrics). It does not create campaigns, send invitations, publish
+posts or manage advertisements/payments. Private creator analytics and rotating-token refresh
+remain separate and are not enabled by this public importer.
 Private creator access still requires the creator's own consent. Public TTO media endpoints require
 an authorized TTO account and a creator on the marketplace; an arbitrary public handle is not enough.
 
@@ -60,3 +62,55 @@ an authorized TTO account and a creator on the marketplace; an arbitrary public 
 Official references: TikTok API for Business “Authorization”, “Comparing authorization for different APIs”,
 “Obtain a short-term access token”, and “Get TTO Public Media Insights”. Use the app-specific generated
 consent URLs because TikTok operates multiple authorization products.
+
+
+## Public creator imports
+
+Migration `20261114010000_tto_creator_media` adds one replaceable, org-scoped snapshot per creator,
+source revision, request lease and retry state. Matt runs the migration manually after merging.
+No new environment variables or AI spending are required. The existing agency grant remains sealed.
+
+Verify these read permissions on the approved Business app (and reauthorize if TikTok requires it):
+
+- `/tto/oauth2/tcm/` — authorized marketplace account IDs.
+- `/tto/tcm/creator/public/` — exact-handle public profile insights.
+- `/tto/tcm/creator/public/video/list/` — bounded latest public videos.
+
+On **Connections → TikTok One** (`/app/integrations/tiktok-business`), select the authorized
+marketplace source if there is more than one. A sole authorized account can be selected automatically
+by the first import; no arbitrary account is guessed. Check each creator's exact declared TikTok
+handle, then **Update content**. A report requires successful, validated responses from both insight
+endpoints. An unavailable report is not evidence of zero followers or no activity.
+
+Creator profile saves (including staff preloads) attempt an import. The existing creator **Refresh**
+button updates public content as well as requesting Gmail updates. A two-minute fence applies to
+manual requests. Success becomes due again after six hours; failures back off 15 minutes or one hour.
+`netlify/functions/tto-creator-sync.mts` runs every ten minutes on the published production deploy,
+processing at most one actual provider import per run. Deploy previews do not run automatically.
+This schedule is for public content, not the separate 7 AM Eastern Gmail intelligence schedule.
+
+The Creator Hub displays official thumbnails as remote images linked to actual videos, the provider's
+public follower/median view counts when available, and the last-read time. Missing counts remain
+unknown. Data older than six hours is marked pending refresh; after 24 hours it is withheld.
+No video/image bytes are downloaded or rehosted. Reviewed static Trevon imagery remains a fallback.
+These imports do not create campaign, deal, earnings or Gmail intelligence records.
+
+Disconnecting, disabling/removing the source owner, changing the handle, changing source revision,
+explicit permission denial or duplicate creator handles prevents publication/read access. Disconnect
+and member lifecycle actions also delete stored snapshots. Handle or source changes clear the old
+report before new evidence can be published. Cross-org composite foreign keys prevent a snapshot
+from referencing another tenant's profile or grant. Serializable transactions and leases fence
+concurrent refresh and mid-request revocation.
+
+### Live acceptance (not established by tests or a green build)
+
+1. Confirm the migration workflow and merged production deploy are green.
+2. On the TikTok One connection page, verify authorized account IDs can be read. Do not copy tokens.
+3. Update Trevon's exact declared handle, run **Update content**, and inspect the safe result.
+4. Verify actual thumbnail images and video links against TikTok. Check follower count source and
+   read time; no synthetic values or unrelated creator content may appear.
+5. Sign in as Trevon and use **Refresh**. Verify it can only update his own profile.
+6. Check the Netlify scheduled function's execution and sanitized result after deployment. Do not
+   mark automated updates working until a real invocation persists a report.
+7. If TikTok withholds a marketplace report, resolve app permissions/marketplace eligibility; do
+   not substitute scraped images or another creator's report.

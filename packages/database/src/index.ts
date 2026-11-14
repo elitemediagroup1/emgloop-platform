@@ -1041,3 +1041,9 @@ export { MetaAnalyticsService, metaAnalyticsContext, metaAnalyticsFingerprint } 
 export { TikTokBusinessRepository, businessTablesPresent, businessAuthorized } from './repositories/tiktok-business.repository';
 export type { BusinessPrincipal } from './repositories/tiktok-business.repository';
 export { TikTokBusinessService } from './services/tiktok/tiktok-business.service';
+
+export { TtoMediaRepository, ttoOwnerAuthorized, ttoMediaPresent, withdrawTtoMediaInTx } from './repositories/tto-media.repository';
+export type { TtoViewer } from './repositories/tto-media.repository';
+export { TtoMediaService } from './services/tiktok/tto-media.service';
+
+export { profileTtoHandle } from './repositories/tto-media.repository';

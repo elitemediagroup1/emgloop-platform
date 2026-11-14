@@ -199,6 +199,7 @@ enum IntegrationEventStatus {
 // ---------------------------------------------------------------------------
 
 model Organization {
+  ttoCreatorSnapshots TtoCreatorSnapshot[]
   tiktokBusinessConnections TikTokBusinessConnection[]
   tiktokBusinessStates TikTokBusinessOAuthState[]
 
@@ -7223,6 +7224,7 @@ model WorkInstruction {
 /// says which login acts as the creator and what the creator maintains about
 /// themselves. `partyId` is a scalar id, like every identity reference here.
 model CreatorProfile {
+  ttoSnapshot TtoCreatorSnapshot?
   id             String  @id @default(cuid())
   organizationId String
   partyId        String
@@ -8546,6 +8548,9 @@ model YouTubeAnalyticsObservation {
 
 // API for Business grants are distinct from Login Kit grants. No plaintext tokens.
 model TikTokBusinessConnection {
+  ttoAccountId String?
+  importEnabled Boolean @default(false)
+  ttoSnapshots TtoCreatorSnapshot[]
   id String @id @default(cuid())
   organizationId String
   userId String
@@ -8561,6 +8566,7 @@ model TikTokBusinessConnection {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   membership OrganizationMembership @relation(fields: [userId, organizationId], references: [userId, organizationId], onDelete: Cascade)
   @@unique([organizationId, userId, kind])
+  @@unique([organizationId, id])
   @@map("tiktok_business_connections")
 }
 model TikTokBusinessOAuthState {
@@ -8579,4 +8585,27 @@ model TikTokBusinessOAuthState {
   session UserSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   @@index([organizationId, userId, expiresAt])
   @@map("tiktok_business_oauth_states")
+}
+
+// Latest bounded public TikTok One report. Publication is conditional on the live grant and handle.
+model TtoCreatorSnapshot {
+  id String @id @default(cuid())
+  organizationId String
+  creatorProfileId String
+  connectionId String?
+  sourceRevision Int?
+  handle String?
+  report Json @default("{}")
+  lastReadAt DateTime?
+  lastAttemptAt DateTime?
+  nextAttemptAt DateTime @default(now())
+  lastFailure String?
+  leaseId String?
+  leaseUntil DateTime?
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  creatorProfile CreatorProfile @relation(fields: [organizationId, creatorProfileId], references: [organizationId, id], onDelete: Cascade)
+  connection TikTokBusinessConnection? @relation(fields: [organizationId, connectionId], references: [organizationId, id], onDelete: Cascade)
+  @@unique([organizationId, creatorProfileId])
+  @@index([nextAttemptAt])
+  @@map("tto_creator_snapshots")
 }

@@ -1,11 +1,19 @@
-## TikTok API for Business authorization — November 13, 2026
+## TikTok One creator public content — November 14, 2026
 
-Separate agency and creator callback handlers, session-bound single-use states, encrypted grants,
-manual connect/disconnect setup and member lifecycle withdrawal are implemented on the TikTok Business
-branch. Requires migration `20261113223000_tiktok_business_connect`, a merged production deploy,
-app registration and TikTok approval, then private server configuration. No real Business API grant,
-media import, refresh worker or analytics is verified. Existing Developers Login Kit is unchanged.
-See `docs/runbooks/tiktok-business-connect.md`. Matt merges and runs migrations manually.
+Draft PR #459: https://github.com/elitemediagroup1/emgloop-platform/pull/459.
+Agency authorization is connected in production. Main `2f09ecb7cc5fa370b4c7998ae72af396723b663f`
+deployed successfully after the modern Netlify adapter fix. Public import work adds org-scoped
+snapshots, validated exact-handle profile/latest-ten-video reads, creator Refresh/profile-save hooks,
+admin source selection/import status, and a bounded ten-minute scheduled worker. Migration
+`20261114010000_tto_creator_media` is required; Matt merges and runs production migrations manually.
+Public insights endpoint permissions, a real Trevon report, creator-visible media and actual scheduled
+execution still require production validation. Private creator-token rotation/analytics remain
+unimplemented. Existing TikTok Developers Login Kit is unchanged.
+Validation: filtered production build and web/database/provider types pass; 13 focused CI tests
+including both disposable Postgres suites pass without skips; creator/authorization regressions pass.
+Preview packages the modern Next adapter and native ten-minute schedule. Lint remains blocked by
+the pre-existing missing ESLint configuration.
+See `docs/runbooks/tiktok-business-connect.md` for the live acceptance steps.
 
 ## Access request approval — November 13, 2026
 

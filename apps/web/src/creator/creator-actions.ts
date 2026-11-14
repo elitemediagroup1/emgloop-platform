@@ -1,4 +1,5 @@
 'use server';
+import { ttoMediaService } from '../tiktok-business/runtime';
 
 // The creator seat's server actions (Creator Hub, 2026-09-22).
 //
@@ -179,6 +180,8 @@ export async function updateProfileAction(formData: FormData): Promise<void> {
   type Patch = Parameters<typeof domain.creator.updateProfile>[2];
   const updated = await domain.creator.updateProfile(seat.actor.organizationId, seat.profileId, { displayName, handle: handle || null, bio: bio || null, categories, preferences: preferences as unknown as NonNullable<Patch['preferences']> });
   if (!updated) refused(back, 'NOT_FOUND');
+  // The profile save succeeds even when the public provider is temporarily unavailable.
+  await ttoMediaService().refresh({organizationId:seat.actor.organizationId,userId:seat.actor.userId},seat.profileId,true).catch(() => null);
   revalidatePath(back);
   revalidatePath(CREATOR_HREFS.home);
   redirect(`${back}?saved=profile`);

@@ -4,6 +4,9 @@ on:
     branches: [main]
     paths:
       - '**/*tiktok-business*'
+      - '**/*tto-media*'
+      - 'netlify/functions/tto-creator-sync.mts'
+      - 'apps/web/src/creator/**'
       - 'apps/web/src/tiktok-business/**'
       - 'apps/web/src/app/api/integrations/tiktok-business/**'
       - 'apps/web/src/app/app/integrations/tiktok-business/**'
@@ -37,6 +40,6 @@ jobs:
           node-version-file: .nvmrc
       - run: npm install --no-audit --no-fund
       - run: npm run -w @emgloop/database migrate:deploy
-      - run: node --import tsx --test packages/database/test/tiktok-business*.test.ts apps/web/test/tiktok-business.test.tsx
+      - run: node --import tsx --test packages/database/test/tiktok-business*.test.ts packages/database/test/tto-media*.test.ts apps/web/test/tiktok-business.test.tsx apps/web/test/creator-tiktok-content.test.tsx apps/web/test/public-surface-security.test.tsx apps/web/test/public-product-site.test.tsx
       - run: npm run -w @emgloop/database typecheck
       - run: npm run -w @emgloop/web typecheck
