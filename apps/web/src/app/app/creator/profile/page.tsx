@@ -104,7 +104,7 @@ export default async function CreatorProfilePage({
 
   const saved = param(searchParams.saved);
   const refused = refusedFrom(searchParams);
-  const social = readSocial(profile?.socialAccounts).filter((s) => s.platform !== 'TIKTOK');
+  const social = readSocial(profile?.socialAccounts).filter((s) => s.platform !== 'TIKTOK').filter((s) => s.state !== 'SEEDED_DEMO');
   const tiktokEntry = readTikTokEntry(tiktokSocialAccountOf(profile?.socialAccounts));
   const rate = readObject(profile?.rateInfo);
   const rateVisible = rate.visibleToCreator === true;
@@ -294,9 +294,6 @@ export default async function CreatorProfilePage({
                         </span>
                         <span className="ch-row__meta">
                           {s.handle ? `@${s.handle.replace(/^@/, '')}` : 'No handle recorded'}
-                          {s.audience !== null
-                            ? ` · ${compactNumber(s.audience)} followers (as listed)`
-                            : ''}
                         </span>
                       </span>
                       <span className="ch-row__side">

@@ -10,11 +10,13 @@ preferences/documents. Payments filters demonstration rows and keeps currencies 
 Bank linking and withdrawals remain unavailable: no payout processor, Plaid production approval,
 funding authorization, money movement or new payment schema is included. No migration/env change.
 
-135 targeted creator, permissions, navigation, payout projection and platform tests pass. Web and
-database typechecks pass. The complete web suite initially found two redesign regressions, both
+PR #461 contains the coordinated implementation. 157 creator UI/OAuth/navigation contracts and
+135 targeted creator/payout/platform checks pass. The full web suite passes 1036 of 1044 tests;
+the same eight failures reproduce on unchanged main. Web and database typechecks pass. The complete web suite initially found two redesign regressions, both
 fixed; eight other failures reproduce on unchanged main (CRM source assertions, Home CSS scanner,
 intelligence producer scanner, managed-mailbox copy and YouTube server-clock formatting). ESLint
-remains unconfigured on main. Production build and authorized preview visual review are pending.
+remains unconfigured on main. The corrected production build passes; authorized preview visual
+review is pending. Creator Hub CI including database lifecycle/isolation passed on the initial head.
 Matt merges; this work is not yet deployed to production.
 
 ## Creator Gmail synthesis recovery
