@@ -9,6 +9,8 @@
 import 'server-only';
 
 import Link from 'next/link';
+import { ttoMediaRepository } from '../tiktok-business/runtime';
+import { CreatorTikTokContent } from './creator-tiktok-content';
 import type { ContentNotice, LibraryItem } from '@emgloop/database';
 import { creatorDeclaredSocialHandles, type TimeView } from '@emgloop/shared';
 import { ObservedTikTokReport } from './observed-tiktok-report';
@@ -33,6 +35,8 @@ export async function CreatorHome({ seat, time }: { seat: CreatorSeat; time: Tim
   const domain = creatorDomain();
   const s = seatOf(seat);
   const profile = await settle(() => domain.creator.profileById(seat.actor.organizationId, seat.profileId));
+  const imported = await settle(() => ttoMediaRepository().read({organizationId:seat.actor.organizationId,userId:seat.actor.userId},seat.profileId,new Date()));
+  const tikTok = imported.ok ? imported.value : null;
   const publicMedia = profile.ok ? creatorPublicMedia(profile.value?.preferences) : null;
   const needsHandles = profile.ok && Object.keys(creatorDeclaredSocialHandles(profile.value?.preferences)).length === 0;
   const [tasks, opportunities, library, earnings, analytics] = await Promise.all([
@@ -61,8 +65,8 @@ export async function CreatorHome({ seat, time }: { seat: CreatorSeat; time: Tim
   return (
     <LoopPage label="Loop Home">
       <div className="ch-studio-home">
-      <div className={`ch-editorial-top${publicMedia ? ' ch-editorial-top--portrait' : ''}`}>
-      <CreatorStudioWelcome media={publicMedia} displayName={seat.displayName} greeting={time.greeting()} date={time.date(time.now)} taskCount={tasks.ok ? needs.length : null} />
+      <div className={`ch-editorial-top${publicMedia || tikTok?.report?.avatarUrl ? ' ch-editorial-top--portrait' : ''}`}>
+      <CreatorStudioWelcome avatar={tikTok?.report?.avatarUrl ? {url:tikTok.report.avatarUrl,profileUrl:`https://www.tiktok.com/@${tikTok.report.handle}`} : null} media={publicMedia} displayName={seat.displayName} greeting={time.greeting()} date={time.date(time.now)} taskCount={tasks.ok ? needs.length : null} />
 
       {needsHandles ? <StateBlock kind="attention" title="Welcome — add your social handles" body="Finish your profile so EMG can review the right accounts for you." action={{ label: 'Complete your profile', href: CREATOR_HREFS.profile }} /> : null}
       <CreatorBrandUpdates seat={seat} time={time} />
@@ -86,7 +90,7 @@ export async function CreatorHome({ seat, time }: { seat: CreatorSeat; time: Tim
       /></div>
 
       <div className="ch-home ch-home--work">
-      {publicMedia ? <CreatorPublicContent media={publicMedia} /> : null}
+      {tikTok?.report ? <CreatorTikTokContent report={tikTok.report} lastReadAt={tikTok.lastReadAt} stale={tikTok.stale} time={time}/> : publicMedia ? <CreatorPublicContent media={publicMedia} /> : null}
       <Panel title="Things that need you">
         {!tasks.ok ? <Failed what="your tasks" /> : needs.length === 0 ? <StateBlock kind="empty" compact title="Nothing needs you right now." body="A returned edit or a deliverable due soon lands here." action={{ label: 'All tasks', href: CREATOR_HREFS.tasks }} /> : <TaskList tasks={needs} time={time} />}
       </Panel>

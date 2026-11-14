@@ -421,3 +421,8 @@ export type { MetaConfig, MetaFailure, MetaOAuthStage, MetaApiDiagnostic, MetaPa
 
 export { TikTokBusinessApi, businessAuthorizationUrl } from './tiktok-business/api';
 export type { TikTokBusinessKind, TikTokBusinessConfig, TikTokBusinessGrant } from './tiktok-business/api';
+
+export { TtoPublicApi, TtoReadError, ttoHandle, ttoImage, parseTtoReport, readTtoReport } from './tiktok-business/public-insights';
+export type { TtoVideo, TtoReport } from './tiktok-business/public-insights';
+
+export { readBusinessConfig, BUSINESS_CALLBACKS } from './tiktok-business/environment';

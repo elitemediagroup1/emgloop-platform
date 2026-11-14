@@ -26,3 +26,8 @@
 # Netlify applies its current OpenNext adapter automatically for Next.js 13.5+.
 # A manual legacy plugin declaration opts out of that adapter and can leave
 # the generated handlers in Lambda compatibility mode (4 KB runtime env cap).
+
+[functions."tto-creator-sync"]
+  node_bundler = "esbuild"
+  external_node_modules = ["@prisma/client"]
+  included_files = ["node_modules/.prisma/client/**"]

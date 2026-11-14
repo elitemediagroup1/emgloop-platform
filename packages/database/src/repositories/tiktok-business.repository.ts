@@ -1,3 +1,4 @@
+import { ttoMediaPresent } from './tto-media.repository';
 import type { Prisma, PrismaClient } from '@prisma/client';
 import type { TikTokBusinessKind } from '@emgloop/providers';
 import { membershipAuthority } from './membership.repository';
@@ -63,7 +64,7 @@ export class TikTokBusinessRepository {
       if (!row || row.revision !== attempt.connectionRevision || (row.status === 'CONNECTED' && row.externalId !== data.externalId)) return false;
       // One creator identity must never silently attach to two creator seats in this organization.
       if (kind === 'CREATOR' && await tx.tikTokBusinessConnection.findFirst({ where: { organizationId: p.organizationId, kind, externalId: data.externalId, status: 'CONNECTED', userId: { not: p.userId } } })) return false;
-      const changed = await tx.tikTokBusinessConnection.updateMany({ where: { ...scope(p, kind), revision: attempt.connectionRevision }, data: { ...data, creatorProfileId: kind === 'CREATOR' ? identity : null, status: 'CONNECTED', connectedAt: now, revision: { increment: 1 } } });
+      const changed = await tx.tikTokBusinessConnection.updateMany({ where: { ...scope(p, kind), revision: attempt.connectionRevision }, data: { ...data, ...(kind === 'TTO' ? { ttoAccountId: null, importEnabled: false } : {}), creatorProfileId: kind === 'CREATOR' ? identity : null, status: 'CONNECTED', connectedAt: now, revision: { increment: 1 } } });
       if (changed.count !== 1) return false;
       await tx.tikTokBusinessOAuthState.deleteMany({ where: scope(p, kind) });
       await new AuditRepository(this.db).record({ organizationId: p.organizationId, userId: p.userId, action: 'tiktok_business.connected', entityType: 'tiktok_business_connection', entityId: row.id, metadata: { kind } }, tx);
@@ -71,10 +72,12 @@ export class TikTokBusinessRepository {
     }, { isolationLevel: 'Serializable' });
   }
   async disconnect(p: BusinessPrincipal, kind: TikTokBusinessKind) {
+    const mediaPresent = await ttoMediaPresent(this.db, p.organizationId);
     return this.db.$transaction(async tx => {
       if (!await businessAuthorized(tx, p, kind)) return false;
       await tx.tikTokBusinessOAuthState.deleteMany({ where: scope(p, kind) });
       const changed = await tx.tikTokBusinessConnection.updateMany({ where: scope(p, kind), data: { tokenSealed: null, status: 'DISCONNECTED', revision: { increment: 1 } } });
+      if (mediaPresent && kind === 'TTO') await tx.ttoCreatorSnapshot.deleteMany({where:{organizationId:p.organizationId,connection:{userId:p.userId,kind:'TTO'}}});
       if (changed.count) await new AuditRepository(this.db).record({ organizationId: p.organizationId, userId: p.userId, action: 'tiktok_business.disconnected', entityType: 'tiktok_business_connection', entityId: p.userId, metadata: { kind, localCredentialDeleted: true, providerRevocationConfirmed: false } }, tx);
       return true;
     }, { isolationLevel: 'Serializable' });

@@ -1,4 +1,5 @@
 'use server';
+import { ttoMediaService } from '../tiktok-business/runtime';
 
 // EMG Creator Operations: the server actions behind the EMG seat's forms (Creator Hub, 2026-09-22).
 //
@@ -347,7 +348,7 @@ export async function addCreatorProfileAction(formData: FormData): Promise<void>
   if ('profileId' in result) done(EMG_HREFS.creator(result.profileId), EMG_HREFS.creators, `/app/crm/people/${encodeURIComponent(partyId)}`);
 }
 
-/** Preload an explicitly selected test creator; no account authorization or automatic fetch occurs. */
+/** Save declared accounts, then attempt a bounded public import through the agency grant. */
 export async function preloadCreatorAccountsAction(formData: FormData): Promise<void> {
   const { actor, workspace } = await requireEmgActor();
   const back = returnPath(formData);
@@ -359,5 +360,6 @@ export async function preloadCreatorAccountsAction(formData: FormData): Promise<
     medianViews: str(formData, 'medianViews'), engagementPct: str(formData, 'engagementPct'), view6sPct: str(formData, 'view6sPct'),
   });
   if (outcome !== 'SAVED') refuse(back, outcome);
+  await ttoMediaService().refresh({organizationId:actor.organizationId,userId:actor.userId},str(formData,'profileId'),true).catch(()=>null);
   done(back, '/app/creator/profile', '/app/creator/analytics', '/app');
 }

@@ -1,3 +1,4 @@
+import { ttoMediaPresent, withdrawTtoMediaInTx } from './tto-media.repository';
 import { businessTablesPresent, disconnectBusinessInTx } from './tiktok-business.repository';
 import { metaTablesPresent, disconnectMetaInTx } from './meta-connection.repository';
 // IamRepository — Sprint 7 (Identity, Authentication & Organizations).
@@ -761,6 +762,7 @@ export class IamRepository {
     if (!user) return;
     const m = meta(user);
     const endManaged = !['OWNER', 'ADMIN', 'MANAGER'].includes(systemRole) && await managedMailboxTablesPresent(this.prisma, organizationId);
+    const endMedia = m.systemRole !== systemRole && await ttoMediaPresent(this.prisma, organizationId);
     const endBusiness = m.systemRole !== systemRole && await businessTablesPresent(this.prisma, organizationId, userId);
     await this.prisma.$transaction(async (tx) => {
       const updated = await tx.user.update({
@@ -770,6 +772,7 @@ export class IamRepository {
       await syncMembershipFromUser(tx, updated);
       if (endManaged) await endManagedMailboxesInTx(tx, organizationId, userId, new Date());
       if (endBusiness) await disconnectBusinessInTx(tx, organizationId, userId);
+      if (endMedia) await withdrawTtoMediaInTx(tx, organizationId, userId);
     });
   }
 
@@ -808,6 +811,7 @@ export class IamRepository {
     const endSources = await sourceConnectionTablesPresent(this.prisma, organizationId, userId);
     const endManaged = await managedMailboxTablesPresent(this.prisma, organizationId);
     const endMeta = await metaTablesPresent(this.prisma, organizationId, userId);
+    const endMedia = await ttoMediaPresent(this.prisma, organizationId);
     const endBusiness = await businessTablesPresent(this.prisma, organizationId, userId);
     const digests = await intelligenceDigestsPresent(this.prisma, { organizationId, userId });
     const fabric = await intelligenceFabricPresent(this.prisma);
@@ -822,6 +826,7 @@ export class IamRepository {
       if (endManaged) await endManagedMailboxesInTx(tx, organizationId, userId, now);
       if (endMeta) await disconnectMetaInTx(tx, organizationId, userId);
       if (endBusiness) await disconnectBusinessInTx(tx, organizationId, userId);
+      if (endMedia) await withdrawTtoMediaInTx(tx, organizationId, userId);
       await eraseWorkStateInTx(this.prisma, tx, organizationId, userId, 'MEMBER_DISABLED', actor, digests, fabric);
     });
     return { changed, googleRevocation: changed ? googleRevocation : null };
@@ -872,6 +877,7 @@ export class IamRepository {
     const endSources = await sourceConnectionTablesPresent(this.prisma, organizationId, userId);
     const endManaged = await managedMailboxTablesPresent(this.prisma, organizationId);
     const endMeta = await metaTablesPresent(this.prisma, organizationId, userId);
+    const endMedia = await ttoMediaPresent(this.prisma, organizationId);
     const endBusiness = await businessTablesPresent(this.prisma, organizationId, userId);
     const digests = await intelligenceDigestsPresent(this.prisma, { organizationId, userId });
     const fabric = await intelligenceFabricPresent(this.prisma);
@@ -894,6 +900,7 @@ export class IamRepository {
       if (endManaged) await endManagedMailboxesInTx(tx, organizationId, userId, now);
       if (endMeta) await disconnectMetaInTx(tx, organizationId, userId);
       if (endBusiness) await disconnectBusinessInTx(tx, organizationId, userId);
+      if (endMedia) await withdrawTtoMediaInTx(tx, organizationId, userId);
       await eraseWorkStateInTx(this.prisma, tx, organizationId, userId, 'MEMBER_REMOVED', actor, digests, fabric);
       return revocation;
     });
