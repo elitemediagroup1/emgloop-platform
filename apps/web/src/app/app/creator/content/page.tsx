@@ -80,7 +80,7 @@ export default async function CreatorContentPage({
       <CreatorPageHead
         section="Content"
         title="Your work, all together."
-        description="Published posts, work in production and the content waiting for your review."
+        description=""
       />
       <nav className="ch-analytics-tabs" aria-label="Content workspace">
         <Link

@@ -1,3 +1,4 @@
+import { ttoMediaRepository } from '../../../../tiktok-business/runtime';
 import Link from 'next/link';
 import { CreatorPageHead } from '../../../../creator/creator-page-head';
 import { creatorPublicMedia } from '../../../../creator/creator-public-media';
@@ -113,6 +114,11 @@ export default async function CreatorProfilePage({
   const socialHandles = creatorDeclaredSocialHandles(preferences);
   const documents = readDocuments(profile?.documents);
   const media = creatorPublicMedia(profile?.preferences);
+  const publicTikTok = await settle(() =>
+    ttoMediaRepository().read(principal, seat.profileId, time.now),
+  );
+  const publicTikTokAvailable = publicTikTok.ok && Boolean(publicTikTok.value?.report);
+  const displayHandle = profile?.handle || (publicTikTok.ok ? publicTikTok.value?.report?.handle : null);
 
   return (
     <LoopPage label="Profile">
@@ -161,12 +167,12 @@ export default async function CreatorProfilePage({
           <div>
             <span className="ch-eyebrow">EMG Talent Group · Creator</span>
             <h2>{profile?.displayName ?? seat.displayName}</h2>
-            {profile?.handle ? <p>@{profile.handle}</p> : null}
+            {displayHandle ? <p>@{displayHandle.replace(/^@/,'')}</p> : null}
           </div>
           <Link href="/app/creator/analytics">View your analytics →</Link>
         </div>
         <section className="ch-profile-main" aria-label="Your profile and connections">
-          <Panel title="Creator information">
+          <Panel title="Creator profile">
             <form className="ch-form" action={updateProfileAction}>
               <label className="loop-field">
                 <span className="loop-label">Display name</span>
@@ -190,47 +196,54 @@ export default async function CreatorProfilePage({
                   placeholder="yourname"
                 />
               </label>
+              <div className="loop-field">
+                <span className="loop-label">Role</span>
+                <span className="ch-readonly-field">EMG Talent Group creator</span>
+              </div>
               <label className="loop-field">
                 <span className="loop-label">Bio</span>
                 <textarea
                   className="loop-textarea"
                   name="bio"
-                  rows={4}
+                  rows={2}
                   maxLength={2000}
                   defaultValue={profile?.bio ?? ''}
                 />
               </label>
-              <label className="loop-field">
-                <span className="loop-label">Categories</span>
-                <input
-                  className="loop-input"
-                  type="text"
-                  name="categories"
-                  defaultValue={(profile?.categories ?? []).join(', ')}
-                  placeholder="beauty, travel, food"
-                />
-                <span className="loop-note">Comma-separated, up to twelve.</span>
-              </label>
-              <fieldset className="loop-stack">
-                <legend className="loop-label">Your social handles</legend>
-                <p className="loop-note">
-                  Add at least one handle or full HTTPS profile URL. EMG uses these to review your
-                  public accounts while platform connections are being set up. Saving a handle does
-                  not connect an account or verify ownership.
-                </p>
-                {SOCIAL_PLATFORMS.map((platform) => (
-                  <label className="loop-field" key={platform}>
-                    <span className="loop-label">{SOCIAL_PLATFORM_LABELS[platform]}</span>
-                    <input
-                      className="loop-input"
-                      name={`social_${platform}`}
-                      maxLength={200}
-                      defaultValue={socialHandles[platform] ?? ''}
-                      placeholder="@yourhandle or profile URL"
-                    />
-                  </label>
-                ))}
-              </fieldset>
+              <details className="ch-profile-more" open={param(searchParams.onboarding) === '1'}>
+                <summary>Social handles &amp; more details</summary>{' '}
+                <label className="loop-field">
+                  <span className="loop-label">Categories</span>
+                  <input
+                    className="loop-input"
+                    type="text"
+                    name="categories"
+                    defaultValue={(profile?.categories ?? []).join(', ')}
+                    placeholder="Add your categories"
+                  />
+                  <span className="loop-note">Comma-separated, up to twelve.</span>
+                </label>
+                <fieldset className="loop-stack">
+                  <legend className="loop-label">Your social handles</legend>
+                  <p className="loop-note">
+                    Add at least one handle or full HTTPS profile URL. EMG uses these to review your
+                    public accounts while platform connections are being set up. Saving a handle
+                    does not connect an account or verify ownership.
+                  </p>
+                  {SOCIAL_PLATFORMS.map((platform) => (
+                    <label className="loop-field" key={platform}>
+                      <span className="loop-label">{SOCIAL_PLATFORM_LABELS[platform]}</span>
+                      <input
+                        className="loop-input"
+                        name={`social_${platform}`}
+                        maxLength={200}
+                        defaultValue={socialHandles[platform] ?? ''}
+                        placeholder="@yourhandle or profile URL"
+                      />
+                    </label>
+                  ))}
+                </fieldset>
+              </details>
               <div className="loop-btnrow">
                 <button type="submit" className="loop-btn loop-btn--primary">
                   Save
@@ -239,87 +252,126 @@ export default async function CreatorProfilePage({
             </form>
           </Panel>
 
-          <MetaConnectionPanel
-            principal={{
-              organizationId: seat.actor.organizationId,
-              userId: seat.actor.userId,
-              creatorProfileId: seat.profileId,
-            }}
-            outcome={param(searchParams.meta) ?? undefined}
-            reference={param(searchParams.meta_ref) ?? undefined}
-            diagnostic={{
-              stage: param(searchParams.meta_stage) ?? undefined,
-              failure: param(searchParams.meta_failure) ?? undefined,
-              invalidResponse: param(searchParams.meta_invalidResponse) ?? undefined,
-              httpStatus: param(searchParams.meta_httpStatus) ?? undefined,
-              graphCode: param(searchParams.meta_graphCode) ?? undefined,
-              graphSubcode: param(searchParams.meta_graphSubcode) ?? undefined,
-            }}
-          />
-
-          <YouTubeConnectionPanel
-            principal={{ organizationId: seat.actor.organizationId, userId: seat.actor.userId }}
-            outcome={param(searchParams.youtube) ?? undefined}
-          />
-
           <Panel title="Social accounts">
-            {tiktokStatus.ok ? (
-              <TikTokConnectionRow status={tiktokStatus.value}
-                entry={tiktokEntry}
-                outcome={tiktokOutcomeParam(searchParams.tiktok)}
-                readProblem={readProblem}
-                time={time}
+            <details className="ch-social-connection" open={Boolean(param(searchParams.tiktok))}>
+              <summary>
+                <span className="ch-social-badge">♪</span>
+                <span>
+                  <strong>TikTok One</strong>
+                  <small>
+                    {publicTikTokAvailable
+                      ? 'Public content · Available through EMG'
+                      : 'Review account authorization'}
+                  </small>
+                </span>
+                <span aria-hidden="true">›</span>
+              </summary>{' '}
+              <Panel title="Account authorization">
+                {tiktokStatus.ok ? (
+                  <TikTokConnectionRow status={tiktokStatus.value}
+                    entry={tiktokEntry}
+                    outcome={tiktokOutcomeParam(searchParams.tiktok)}
+                    readProblem={readProblem}
+                    time={time}
+                  />
+                ) : (
+                  <StateBlock
+                    kind="error"
+                    compact
+                    title="Loop could not check your TikTok connection just now."
+                    body="This is a failure to read, not a finding that there is none."
+                  />
+                )}
+                {social.length === 0 ? null : (
+                  <ul
+                    className="ch-list"
+                    aria-label="Other social accounts"
+                    style={{ marginTop: 12 }}
+                  >
+                    {social
+                      .filter((s) => !['INSTAGRAM', 'FACEBOOK'].includes(s.platform))
+                      .map((s) => (
+                        <li
+                          key={`${s.platform}:${s.handle ?? ''}`}
+                          className="ch-row ch-row--static"
+                          data-social-state={s.state}
+                        >
+                          <span className="ch-row__main">
+                            <span className="ch-row__title">
+                              {(SOCIAL_PLATFORM_LABELS as Record<string, string>)[s.platform] ??
+                                s.platform}
+                            </span>
+                            <span className="ch-row__meta">
+                              {s.handle ? `@${s.handle.replace(/^@/, '')}` : 'No handle recorded'}
+                            </span>
+                          </span>
+                          <span className="ch-row__side">
+                            {s.state === 'SEEDED_DEMO' ? (
+                              <Pill tone="neutral" small>
+                                Demo data
+                              </Pill>
+                            ) : s.state === 'NOT_CONNECTED' ? (
+                              <ActionButton
+                                action={{
+                                  label: 'Connect',
+                                  href: null,
+                                  reason: 'Connecting this platform is not available yet',
+                                }}
+                              />
+                            ) : (
+                              <Pill tone="good" small>
+                                {s.state.charAt(0) +
+                                  s.state.slice(1).toLowerCase().replace(/_/g, ' ')}
+                              </Pill>
+                            )}
+                          </span>
+                        </li>
+                      ))}
+                  </ul>
+                )}
+              </Panel>
+            </details>
+            <details className="ch-social-connection" open={Boolean(param(searchParams.meta))}>
+              <summary>
+                <span className="ch-social-badge">◎</span>
+                <span>
+                  <strong>Instagram &amp; Facebook</strong>
+                  <small>Review connection status</small>
+                </span>
+                <span aria-hidden="true">›</span>
+              </summary>{' '}
+              <MetaConnectionPanel
+                principal={{
+                  organizationId: seat.actor.organizationId,
+                  userId: seat.actor.userId,
+                  creatorProfileId: seat.profileId,
+                }}
+                outcome={param(searchParams.meta) ?? undefined}
+                reference={param(searchParams.meta_ref) ?? undefined}
+                diagnostic={{
+                  stage: param(searchParams.meta_stage) ?? undefined,
+                  failure: param(searchParams.meta_failure) ?? undefined,
+                  invalidResponse: param(searchParams.meta_invalidResponse) ?? undefined,
+                  httpStatus: param(searchParams.meta_httpStatus) ?? undefined,
+                  graphCode: param(searchParams.meta_graphCode) ?? undefined,
+                  graphSubcode: param(searchParams.meta_graphSubcode) ?? undefined,
+                }}
               />
-            ) : (
-              <StateBlock
-                kind="error"
-                compact
-                title="Loop could not check your TikTok connection just now."
-                body="This is a failure to read, not a finding that there is none."
+            </details>
+            <details className="ch-social-connection" open={Boolean(param(searchParams.youtube))}>
+              <summary>
+                <span className="ch-social-badge">▶</span>
+                <span>
+                  <strong>YouTube</strong>
+                  <small>Review connected channel</small>
+                </span>
+                <span aria-hidden="true">›</span>
+              </summary>{' '}
+              <YouTubeConnectionPanel
+                principal={{ organizationId: seat.actor.organizationId, userId: seat.actor.userId }}
+                outcome={param(searchParams.youtube) ?? undefined}
               />
-            )}
-            {social.length === 0 ? null : (
-              <ul className="ch-list" aria-label="Other social accounts" style={{ marginTop: 12 }}>
-                {social
-                  .filter((s) => !['INSTAGRAM', 'FACEBOOK'].includes(s.platform))
-                  .map((s) => (
-                    <li
-                      key={`${s.platform}:${s.handle ?? ''}`}
-                      className="ch-row ch-row--static"
-                      data-social-state={s.state}
-                    >
-                      <span className="ch-row__main">
-                        <span className="ch-row__title">
-                          {(SOCIAL_PLATFORM_LABELS as Record<string, string>)[s.platform] ??
-                            s.platform}
-                        </span>
-                        <span className="ch-row__meta">
-                          {s.handle ? `@${s.handle.replace(/^@/, '')}` : 'No handle recorded'}
-                        </span>
-                      </span>
-                      <span className="ch-row__side">
-                        {s.state === 'SEEDED_DEMO' ? (
-                          <Pill tone="neutral" small>
-                            Demo data
-                          </Pill>
-                        ) : s.state === 'NOT_CONNECTED' ? (
-                          <ActionButton
-                            action={{
-                              label: 'Connect',
-                              href: null,
-                              reason: 'Connecting this platform is not available yet',
-                            }}
-                          />
-                        ) : (
-                          <Pill tone="good" small>
-                            {s.state.charAt(0) + s.state.slice(1).toLowerCase().replace(/_/g, ' ')}
-                          </Pill>
-                        )}
-                      </span>
-                    </li>
-                  ))}
-              </ul>
-            )}
+            </details>
           </Panel>
           <Panel title="Preferences">
             <p className="loop-note">Current time zone: {time.timeZone}</p>

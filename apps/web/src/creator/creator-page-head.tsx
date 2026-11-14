@@ -15,7 +15,7 @@ export function CreatorPageHead({
       <div>
         <p className="ch-eyebrow">{section}</p>
         <h1>{title}</h1>
-        <p>{description}</p>
+        {description ? <p>{description}</p> : null}
       </div>
       {actions ? <div className="ch-page-head__actions">{actions}</div> : null}
     </header>

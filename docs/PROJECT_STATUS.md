@@ -1,21 +1,25 @@
 ## Creator Hub reference fidelity and agency branding
 
-PR #461 is merged at `4bf920d24c23aebee9e0670308d5621b366d040f`. Matt rejected the visual
-result: the live comparison showed a zero-sized header logo, narrow 1400px canvas, undersized
-body text, oversized hero, incorrect nav treatment and different page compositions.
-Branch `fix/creator-approved-layout` follows the seven approved images directly. It fixes the
-header and includes both exact uploaded PNGs (EMG Talent Group + EMG Loop), widens the canvas,
-restores the angled short Home hero/flat activity strip, adds selected relationship details,
-features two real media cards with remaining posts as rows, restores Profile's three columns,
-and presents payment cards/withdrawal unavailable state in the reference composition. Actual
-records, unavailable fields and authorized actions remain truthful; no example contacts, chart
-values, bank accounts or payment fees are inserted. The files are byte-identical to Matt's uploads.
+PR #462 (`fix/creator-approved-layout`) follows the approved seven images and includes both exact
+uploaded PNGs (EMG Talent Group + EMG Loop). Initial preview `6af7d52632f86674c11e8155` is ready
+at head `c41a70e180b29a5643b9e3436fbb39f8437f5d27`; all three workflows passed.
+Matt signed in as Trevon and all seven pages were inspected. Real TikTok report data is present:
+176.8K followers, 938 median views, 288 latest video views, ten reported posts. The review found
+remaining heavy typography, face crop, capitalized panel headings, low balance contrast and an
+overlong Profile form; these are corrected in the same branch along with Analytics source-bar
+placement and compact account disclosures. Recheck the updated preview before visual acceptance.
 
-157 creator/OAuth/navigation contracts and web typechecks pass. Final production build and
-Netlify preview screenshot comparison are in progress. No migration/env/budget changes.
-Matt explicitly requires the generated images to be treated as the specification, not inspiration.
-Do not call the design finished without comparing the rendered creator pages with them.
-Plaid money movement is not implemented. Staff shell/branding are unchanged. Matt merges.
+Brand summaries are unavailable in previews because `LOOP_CREATOR_MAIL_SHARING_DECISION` is
+Production-only; its preview context is Empty (confirmed in Netlify, without revealing values).
+No authorization setting was changed. This is not evidence of deleted production brand records.
+The connected YouTube channel displays “Twins Together”; this source needs creator verification
+and must not be described as verified Trevon performance. No connection was disconnected.
+
+157 creator/OAuth/navigation contracts and web typechecks pass; the refined build is being checked.
+No migration/env/budget changes. No invented team contacts, growth curves, bank details or fees.
+Plaid withdrawals remain unavailable. Staff shell/branding are unchanged. Matt merges; the approved
+images are the specification, not inspiration. Do not call the design finished without comparing
+rendered creator screenshots with those references.
 
 ## Creator Gmail synthesis recovery
 

@@ -68,7 +68,7 @@ export async function CreatorHome({ seat, time }: { seat: CreatorSeat; time: Tim
             <span className="ch-last-updated">
               {lastChecked
                 ? `Last updated: ${time.dateTime(lastChecked)}`
-                : 'Awaiting first review'}
+                : brands.available ? 'Awaiting first review' : 'Updates unavailable'}
             </span>
             <CreatorRefreshButton />
           </>

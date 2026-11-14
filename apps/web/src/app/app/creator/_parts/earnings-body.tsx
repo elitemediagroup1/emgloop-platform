@@ -35,7 +35,7 @@ export function EarningsBody({ earnings, time }: { earnings: EarningsView; time:
               {moneyMinor(available, earnings.currency)}
             </p>
             <p className="loop-note">
-              Marked available by EMG. Bank withdrawals require an approved payout service and
+              Approved by EMG. Withdrawals require bank payments to be enabled and
               available funding.
             </p>
             {available > 0 ? (
