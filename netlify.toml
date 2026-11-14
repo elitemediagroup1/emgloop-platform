@@ -2,7 +2,7 @@
 #
 # The deploy target is the Next.js app in apps/web. The build runs from the
 # repo root so npm workspaces install correctly, then builds only the web app
-# via Turborepo. The official Next.js plugin handles the publish output.
+# via Turborepo. Netlify automatically detects Next.js and applies its current OpenNext adapter.
 #
 # Scope: deploy configuration only. No business features, auth, or provider
 # integrations are introduced here.
@@ -22,7 +22,7 @@
   # skips the ROOT devDependencies, which is what broke the production build.)
   NPM_FLAGS = "--include=dev"
 
-# Official Next.js runtime for Netlify (handles routing, SSR, and the
-# publish directory for the App Router build).
-[[plugins]]
-  package = "@netlify/plugin-nextjs"
+# Do not declare @netlify/plugin-nextjs here or pin it in package.json.
+# Netlify applies its current OpenNext adapter automatically for Next.js 13.5+.
+# A manual legacy plugin declaration opts out of that adapter and can leave
+# the generated handlers in Lambda compatibility mode (4 KB runtime env cap).
