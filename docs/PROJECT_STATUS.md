@@ -1,19 +1,26 @@
-## TikTok One creator public content — November 14, 2026
+## Creator Gmail synthesis recovery
 
-Draft PR #459: https://github.com/elitemediagroup1/emgloop-platform/pull/459.
-Agency authorization is connected in production. Main `2f09ecb7cc5fa370b4c7998ae72af396723b663f`
-deployed successfully after the modern Netlify adapter fix. Public import work adds org-scoped
-snapshots, validated exact-handle profile/latest-ten-video reads, creator Refresh/profile-save hooks,
-admin source selection/import status, and a bounded ten-minute scheduled worker. Migration
-`20261114010000_tto_creator_media` is required; Matt merges and runs production migrations manually.
-Public insights endpoint permissions, a real Trevon report, creator-visible media and actual scheduled
-execution still require production validation. Private creator-token rotation/analytics remain
-unimplemented. Existing TikTok Developers Login Kit is unchanged.
-Validation: filtered production build and web/database/provider types pass; 13 focused CI tests
-including both disposable Postgres suites pass without skips; creator/authorization regressions pass.
-Preview packages the modern Next adapter and native ten-minute schedule. Lint remains blocked by
-the pre-existing missing ESLint configuration.
-See `docs/runbooks/tiktok-business-connect.md` for the live acceptance steps.
+Branch `fix/creator-gmail-ai-recovery` fixes approved creator-safe paraphrases being rejected as
+copied private Gmail during cross-thread synthesis and repeated paid retries of valid withholding.
+Read-only production diagnostic run `43542666475` confirms 230 VERBATIM_CONTENT rejections out of
+237 calls across just 17 distinct windows. Current organization spend at inspection was $1.72 of
+$25; live operating control label is `operating.creator-pilot.25.4` version 6. Limits are unchanged.
+The fix preserves raw-email copying, confidentiality, citations, attribution and revocation checks,
+caches withheld source versions, allows one corrected retry of legacy validation failures and backs
+off circuit refusals without calling a provider. No migration or new environment setting.
+Both defect regressions fail against main and pass with the fix; production recovery must be checked
+after Matt merges/deploys. A live circuit is respected rather than reset.
+
+## TikTok One creator public content
+
+PR #459 is merged and deployed at `c2af1d7607cd574b1bde7bd135a78190f72e8684`
+(Netlify `6af7b78b5a61aa6e4b3fdb70`). Migration run `43540087829` succeeded. Production agency
+import saved Trevon's real report. His authorized Creator login verified five loaded official CDN
+thumbnails, real TikTok links, 176.8K followers / 938 median views, and a successful Refresh request.
+The ten-minute scheduled function is deployed; a successful automated execution remains unverified.
+No additional creator TikTok login is required for eligible marketplace public reports. Private creator
+analytics/token rotation and Instagram automatic imports remain unimplemented. Existing Login Kit
+is unchanged. See `docs/runbooks/tiktok-business-connect.md`.
 
 ## Access request approval — November 13, 2026
 
