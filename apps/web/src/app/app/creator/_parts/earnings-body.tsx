@@ -34,10 +34,7 @@ export function EarningsBody({ earnings, time }: { earnings: EarningsView; time:
             <p className="ch-balance" data-available-minor={available}>
               {moneyMinor(available, earnings.currency)}
             </p>
-            <p className="loop-note">
-              Approved by EMG. Withdrawals require bank payments to be enabled and
-              available funding.
-            </p>
+            <p className="loop-note">Approved by EMG.</p>
             {available > 0 ? (
               <div className="loop-btnrow" style={{ marginTop: 12 }} data-transfer-control>
                 <ActionButton
@@ -65,21 +62,20 @@ export function EarningsBody({ earnings, time }: { earnings: EarningsView; time:
                 earnings.currency,
               )}
             </p>
-            <p className="loop-note">Expected or received, awaiting availability.</p>
+            <p className="loop-note">Not available to withdraw.</p>
           </Panel>
           <Panel title="Transfer in progress">
             <p className="ch-balance">
               {moneyMinor(earnings.totals.TRANSFER_PENDING, earnings.currency)}
             </p>
-            <p className="loop-note">Recorded transfers awaiting completion.</p>
+            <p className="loop-note">Awaiting completion.</p>
           </Panel>
         </section>
         <aside className="ch-payment-setup">
           <span className="ch-eyebrow">Your payout method</span>
           <h2>Bank payments, built around you.</h2>
           <p>
-            Bank linking and withdrawals are not enabled yet. Your manager can record and approve
-            earnings; this page does not move money.
+            Bank connection is not available yet. Your approved earnings remain recorded here.
           </p>
           <p className="loop-note">No bank details have been collected through this page.</p>
         </aside>

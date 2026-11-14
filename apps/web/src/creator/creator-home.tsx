@@ -79,7 +79,7 @@ export async function CreatorHome({ seat, time }: { seat: CreatorSeat; time: Tim
         aria-label="Your EMG briefing"
       >
         <div>
-          <span className="ch-eyebrow">Your EMG briefing</span>
+          <span className="ch-eyebrow">EMG Talent Group</span>
           <h2>Your EMG briefing</h2>
           {brands.available ? (
             <>

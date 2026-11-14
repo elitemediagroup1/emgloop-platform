@@ -5423,3 +5423,10 @@ a.xb__focuscard:hover { border-color: var(--loop-line-strong); transform: transl
 .loop-os.ch-shell .loop-page[aria-label="Analytics"] .ch-platform-report>.loop-panel,
 .loop-os.ch-shell .loop-page[aria-label="Analytics"] .ch-report-foot { grid-column:1 / -1; }
 @media(max-width:1000px) { .loop-os.ch-shell .loop-page[aria-label="Analytics"]:has(.ch-platform-report) .loop-page__inner { display:flex; } }
+.loop-os.ch-shell .ch-published-card { color:var(--loop-ink); }
+.ch-relationship-detail { min-height:500px; }
+.ch-payment-cards { align-items:start; }
+.ch-payment-cards .ch-balance { margin:10px 0; }
+.ch-payment-cards>.loop-panel { min-height:170px; }
+.ch-profile-identity p { overflow-wrap:anywhere; }
+@media(min-width:761px) { .loop-os.ch-shell .loop-page[aria-label="Tasks"] .ch-task-detail { min-height:calc(100svh - 160px); } }
