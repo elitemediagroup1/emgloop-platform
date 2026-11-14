@@ -196,11 +196,11 @@ describe('Grouping', () => {
     assert.equal(creator.area, undefined, 'not an operating area');
     assert.equal(creator.footer, undefined, 'not administration');
     assert.deepEqual(creator.items.map((i) => [i.label, i.href, i.workspace, i.requires ?? null, i.area ?? null]), [
+      ['Partnerships', '/app/creator/opportunities', 'CREATOR', null, 'OPPORTUNITIES'],
       ['Content', '/app/creator/content', 'CREATOR', null, 'CONTENT'],
-      ['Opportunities', '/app/creator/opportunities', 'CREATOR', null, 'OPPORTUNITIES'],
       ['Analytics', '/app/creator/analytics', 'CREATOR', null, null],
       ['Tasks', '/app/creator/tasks', 'CREATOR', null, 'TASKS'],
-      ['Earnings', '/app/creator/earnings', 'CREATOR', null, 'EARNINGS'],
+      ['Payments', '/app/creator/earnings', 'CREATOR', null, 'EARNINGS'],
       ['Profile', '/app/creator/profile', 'CREATOR', null, null],
     ]);
     // Every item area is a creator area, and only creator items carry one.
@@ -268,9 +268,9 @@ describe('Grouping', () => {
     // slice 4); the creator seat has its own. Neither is the intake board, and Campaigns has no
     // entry: it is not built, and the Command Center lists it under Upcoming.
     assert.equal(items.some((i) => i.href === '/crm/opportunities' || i.href === '/crm/campaigns'), false);
-    assert.deepEqual(items.filter((i) => i.label === 'Opportunities').map((i) => [i.group, i.href]), [['CRM', '/app/crm/opportunities'], ['Creator', '/app/creator/opportunities']]);
+    assert.deepEqual(items.filter((i) => i.label === 'Opportunities').map((i) => [i.group, i.href]), [['CRM', '/app/crm/opportunities']]);
     assert.notEqual(find('Opportunities', '/app/crm/opportunities').href, '/crm/pipeline');
-    assert.notEqual(find('Opportunities', '/app/creator/opportunities').href, '/crm/pipeline');
+    assert.notEqual(find('Partnerships', '/app/creator/opportunities').href, '/crm/pipeline');
     const command = code(read('app/crm/page.tsx'));
     assert.match(command, /<UpcomingItem label="Opportunities"/);
     assert.match(command, /<UpcomingItem label="Campaigns"/);
@@ -429,16 +429,16 @@ describe('Navigation follows the authority each page enforces', () => {
   it('a creator sees only their seat and routes notifications to creator Tasks', () => {
     assert.deepEqual(labels(navForRole('CREATOR')), [
       ['', ['Home']],
-      ['Creator', ['Content', 'Opportunities', 'Analytics', 'Tasks', 'Earnings', 'Profile']],
+      ['Creator', ['Partnerships', 'Content', 'Analytics', 'Tasks', 'Payments', 'Profile']],
     ]);
     assert.equal(myWorkHref(navForRole('CREATOR')), '/app/creator/tasks#updates', 'creator updates use the existing authorized Tasks route');
     // The creator's five-area phone bar: Home, then the four items that are areas of their own.
     assert.deepEqual(config.areaEntries(navForRole('CREATOR')), [
       { area: 'HOME', label: 'Home', href: '/app' },
+      { area: 'OPPORTUNITIES', label: 'Partnerships', href: '/app/creator/opportunities' },
       { area: 'CONTENT', label: 'Content', href: '/app/creator/content' },
-      { area: 'OPPORTUNITIES', label: 'Opportunities', href: '/app/creator/opportunities' },
       { area: 'TASKS', label: 'Tasks', href: '/app/creator/tasks' },
-      { area: 'EARNINGS', label: 'Earnings', href: '/app/creator/earnings' },
+      { area: 'EARNINGS', label: 'Payments', href: '/app/creator/earnings' },
     ]);
     // The bar marks the area of the page shown, through the item's own area.
     const html = renderAt('/app/creator/tasks/t_1', <AreaBar groups={navForRole('CREATOR')} />);
@@ -528,7 +528,7 @@ describe('The shell is about the person, not a role-branded workspace', () => {
     assert.equal(active('/app/admin/headlines/h1'), 'Headlines');
     assert.equal(active('/app/admin/administration/work-types'), 'Work Types');
     assert.equal(active('/app/creator/content/c_1'), 'Content');
-    assert.equal(active('/app/creator/earnings'), 'Earnings');
+    assert.equal(active('/app/creator/earnings'), 'Payments');
   });
 });
 

@@ -112,7 +112,7 @@ describe('The fold model is data in the one registry', () => {
     assert.equal(creator.items.some((i) => i.folded), false);
     assert.deepEqual(shape(navForRole('CREATOR')), [
       ['', null, ['Home'], null],
-      ['Creator', 'Creator', ['Content', 'Opportunities', 'Analytics', 'Tasks', 'Earnings', 'Profile'], null],
+      ['Creator', 'Creator', ['Partnerships', 'Content', 'Analytics', 'Tasks', 'Payments', 'Profile'], null],
     ]);
   });
 
@@ -291,10 +291,10 @@ describe('The phone area bar is unchanged', () => {
     ]);
     assert.deepEqual(areaEntries(navForRole('CREATOR')), [
       { area: 'HOME', label: 'Home', href: '/app' },
+      { area: 'OPPORTUNITIES', label: 'Partnerships', href: '/app/creator/opportunities' },
       { area: 'CONTENT', label: 'Content', href: '/app/creator/content' },
-      { area: 'OPPORTUNITIES', label: 'Opportunities', href: '/app/creator/opportunities' },
       { area: 'TASKS', label: 'Tasks', href: '/app/creator/tasks' },
-      { area: 'EARNINGS', label: 'Earnings', href: '/app/creator/earnings' },
+      { area: 'EARNINGS', label: 'Payments', href: '/app/creator/earnings' },
     ]);
   });
 

@@ -346,11 +346,11 @@ export const LOOP_NAV: ShellConfig = {
       // the creator's five-area phone bar. Nothing here folds.
       label: 'Creator',
       items: [
+        { href: '/app/creator/opportunities', label: 'Partnerships', icon: 'target', workspace: 'CREATOR', area: 'OPPORTUNITIES' },
         { href: '/app/creator/content', label: 'Content', icon: 'grid', workspace: 'CREATOR', area: 'CONTENT' },
-        { href: '/app/creator/opportunities', label: 'Opportunities', icon: 'target', workspace: 'CREATOR', area: 'OPPORTUNITIES' },
         { href: '/app/creator/analytics', label: 'Analytics', icon: 'chart', workspace: 'CREATOR' },
         { href: '/app/creator/tasks', label: 'Tasks', icon: 'check', workspace: 'CREATOR', area: 'TASKS' },
-        { href: '/app/creator/earnings', label: 'Earnings', icon: 'revenue', workspace: 'CREATOR', area: 'EARNINGS' },
+        { href: '/app/creator/earnings', label: 'Payments', icon: 'revenue', workspace: 'CREATOR', area: 'EARNINGS' },
         { href: '/app/creator/profile', label: 'Profile', icon: 'users', workspace: 'CREATOR' },
       ],
     },

@@ -1,3 +1,22 @@
+## Creator Hub editorial redesign
+
+Branch `feat/creator-hub-editorial` implements the approved seven-page creator direction using
+the existing scoped records, shared shell and LOOP_NAV. Home is a business briefing, without
+repeated audience snapshots. Partnerships has canonical-brand stage tabs, search and expandable
+accepted history. Content uses authorized TikTok One and YouTube report media alongside the existing
+upload/review workflow. Analytics separates current platform sources and preserves unavailable
+metrics. Tasks selects actual source-record work. Profile separates identity/connections from
+preferences/documents. Payments filters demonstration rows and keeps currencies separate.
+Bank linking and withdrawals remain unavailable: no payout processor, Plaid production approval,
+funding authorization, money movement or new payment schema is included. No migration/env change.
+
+135 targeted creator, permissions, navigation, payout projection and platform tests pass. Web and
+database typechecks pass. The complete web suite initially found two redesign regressions, both
+fixed; eight other failures reproduce on unchanged main (CRM source assertions, Home CSS scanner,
+intelligence producer scanner, managed-mailbox copy and YouTube server-clock formatting). ESLint
+remains unconfigured on main. Production build and authorized preview visual review are pending.
+Matt merges; this work is not yet deployed to production.
+
 ## Creator Gmail synthesis recovery
 
 Branch `fix/creator-gmail-ai-recovery` fixes approved creator-safe paraphrases being rejected as
