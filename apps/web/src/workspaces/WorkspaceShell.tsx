@@ -49,10 +49,56 @@ export default async function WorkspaceShell({
   // device's zone on first visit or after travel. Presentation only.
   const time = viewerTime();
 
+  if (resolveWorkspaceRole(session) === 'CREATOR')
+    return (
+      <div className="loop-os ch-shell" data-creator-studio="true">
+        <a className="loop-skip" href="#loop-main">
+          Skip to content
+        </a>
+        <TimeZoneSync timeZone={time.timeZone} source={time.source} />
+        <header className="ch-topbar">
+          <Link href={LOOP_NAV.home} className="ch-topbar__brand" aria-label="EMG Loop Home">
+            <EmgLoopWordmark height={28} />
+          </Link>
+          <ShellNav groups={groups} label={LOOP_NAV.label} />
+          <div className="ch-topbar__account">
+            {workHref ? (
+              <Link className="loop-iconbtn" href={workHref} aria-label="View work notifications">
+                <SidebarIcon name="bell" />
+              </Link>
+            ) : null}
+            <details className="ch-account-menu">
+              <summary aria-label="Your account">
+                <span className="ch-account-avatar">{initials(session.name)}</span>
+              </summary>
+              <div>
+                <strong>{session.name}</strong>
+                <span>{session.roleLabel}</span>
+                <Link href="/app/creator/profile">Manage profile</Link>
+                <form action={logoutAction}>
+                  <button type="submit" className="loop-btn">
+                    Sign out
+                  </button>
+                </form>
+              </div>
+            </details>
+          </div>
+        </header>
+        <main className="loop-main" id="loop-main" tabIndex={-1}>
+          {children}
+        </main>
+      </div>
+    );
+
   return (
-    <div className="loop-os" data-creator-studio={resolveWorkspaceRole(session) === 'CREATOR' ? 'true' : undefined}>
+    <div
+      className="loop-os"
+      data-creator-studio={resolveWorkspaceRole(session) === 'CREATOR' ? 'true' : undefined}
+    >
       {/* Without this, a keyboard user tabs through every nav item on every page. */}
-      <a className="loop-skip" href="#loop-main">Skip to content</a>
+      <a className="loop-skip" href="#loop-main">
+        Skip to content
+      </a>
       <TimeZoneSync timeZone={time.timeZone} source={time.source} />
       <div className="loop-shell">
         <aside className="loop-sidebar">
@@ -69,23 +115,27 @@ export default async function WorkspaceShell({
               <EmgLoopWordmark height={22} />
             </span>
             <span className="loop-sb__os">OS</span>
-            <label htmlFor="loop-menu" className="loop-sb__menubtn">Menu</label>
+            <label htmlFor="loop-menu" className="loop-sb__menubtn">
+              Menu
+            </label>
           </div>
           <div className="loop-sb__menu">
-          <ShellNav groups={groups} label={LOOP_NAV.label} />
-          <div className="loop-sb__foot">
-            <div className="loop-sb__user">
-              <span className="loop-sb__avatar">{initials(session.name)}</span>
-              <span>
-                <span className="loop-sb__uname">{session.name}</span>
-                <br />
-                <span className="loop-sb__urole">{session.roleLabel}</span>
-              </span>
-              <form action={logoutAction}>
-                <button className="loop-sb__signout" type="submit">Sign out</button>
-              </form>
+            <ShellNav groups={groups} label={LOOP_NAV.label} />
+            <div className="loop-sb__foot">
+              <div className="loop-sb__user">
+                <span className="loop-sb__avatar">{initials(session.name)}</span>
+                <span>
+                  <span className="loop-sb__uname">{session.name}</span>
+                  <br />
+                  <span className="loop-sb__urole">{session.roleLabel}</span>
+                </span>
+                <form action={logoutAction}>
+                  <button className="loop-sb__signout" type="submit">
+                    Sign out
+                  </button>
+                </form>
+              </div>
             </div>
-          </div>
           </div>
         </aside>
         <div className="loop-content">
@@ -96,7 +146,9 @@ export default async function WorkspaceShell({
               <Link href={LOOP_NAV.home}>
                 <b>{session.name}</b>
               </Link>
-              <span className="sep" aria-hidden="true">/</span>
+              <span className="sep" aria-hidden="true">
+                /
+              </span>
               <ShellCrumb groups={groups} />
             </nav>
             {/* Notifications live in the person's work queue or creator Tasks. No fake unread
@@ -108,7 +160,9 @@ export default async function WorkspaceShell({
               </Link>
             ) : null}
           </header>
-          <main className="loop-main" id="loop-main" tabIndex={-1}>{children}</main>
+          <main className="loop-main" id="loop-main" tabIndex={-1}>
+            {children}
+          </main>
           {/* Narrow screens only (CSS): the five operating areas, always in reach. */}
           <AreaBar groups={groups} />
         </div>

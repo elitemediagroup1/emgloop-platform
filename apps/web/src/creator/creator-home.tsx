@@ -1,171 +1,189 @@
-// Creator Home (Creator Hub design pass, 2026-09-22). SERVER ONLY.
-//
-// Loop Home for a creator seat: a greeting, four numbers each traceable to rows, the things that
-// need them, their active opportunities, the content in motion, and what Loop noticed about their
-// most recently published piece. Every source loads on its own (the Home rule since 2026-09-18):
-// a read that fails makes its own panel say so and never takes Home down. No number is invented:
-// a source with nothing says nothing, and seeded demo data says it is.
-
 import 'server-only';
-
+import { realCreatorEarnings } from './creator-earnings';
 import Link from 'next/link';
-import { ttoMediaRepository } from '../tiktok-business/runtime';
-import { CreatorTikTokContent } from './creator-tiktok-content';
-import type { ContentNotice, LibraryItem } from '@emgloop/database';
-import { creatorDeclaredSocialHandles, type TimeView } from '@emgloop/shared';
-import { ObservedTikTokReport } from './observed-tiktok-report';
-import { CreatorPublicContent, creatorPublicMedia } from './creator-public-media';
-import { CreatorStudioWelcome } from './creator-studio-welcome';
-import { CreatorBrandUpdates } from './creator-brand-updates';
-import { settle } from '../app/app/_home/settle';
-import { LoopPage, Panel, StateBlock, SummaryStrip } from '../app/app/_loop-os/record';
-import { CreatorNoticePanel } from '../app/app/creator/_parts/notice-panel';
-import { CONTENT_STATE_TONES, OPPORTUNITY_TONES, Pill, compactNumber, moneyMinor } from '../app/app/creator/_parts/vocabulary';
-import { TaskList } from '../app/app/creator/_parts/task-list';
-import { loadContentRecord, loadNotice, seatOf } from './creator-data';
+import type { TimeView } from '@emgloop/shared';
 import { CREATOR_HREFS, creatorDomain, type CreatorSeat } from './creator-runtime';
-
-const IN_MOTION = new Set<LibraryItem['state']>(['IN_PRODUCTION', 'YOUR_REVIEW', 'CHANGES_REQUESTED', 'APPROVED_BY_YOU', 'FINAL']);
-
-function Failed({ what }: { what: string }) {
-  return <StateBlock kind="error" compact title={`Loop could not load ${what} just now.`} body="This is a failure to read, not a finding that there are none." />;
-}
-
+import {
+  loadCreatorBrandUpdates,
+  groupCreatorBrandRows,
+  latestCreatorBrandUpdate,
+} from './creator-brand-updates';
+import { creatorPublicMedia } from './creator-public-media';
+import { CreatorRefreshButton } from './CreatorRefreshButton';
+import { CreatorUpdatesRefresh } from './CreatorUpdatesRefresh';
+import { CreatorPageHead } from './creator-page-head';
+import { settle } from '../app/app/_home/settle';
+import { LoopPage, StateBlock } from '../app/app/_loop-os/record';
+import { TaskList } from '../app/app/creator/_parts/task-list';
+import { moneyMinor } from '../app/app/creator/_parts/vocabulary';
 export async function CreatorHome({ seat, time }: { seat: CreatorSeat; time: TimeView }) {
   const domain = creatorDomain();
-  const s = seatOf(seat);
-  const profile = await settle(() => domain.creator.profileById(seat.actor.organizationId, seat.profileId));
-  const imported = await settle(() => ttoMediaRepository().read({organizationId:seat.actor.organizationId,userId:seat.actor.userId},seat.profileId,new Date()));
-  const tikTok = imported.ok ? imported.value : null;
-  const publicMedia = profile.ok ? creatorPublicMedia(profile.value?.preferences) : null;
-  const needsHandles = profile.ok && Object.keys(creatorDeclaredSocialHandles(profile.value?.preferences)).length === 0;
-  const [tasks, opportunities, library, earnings, analytics] = await Promise.all([
-    settle(() => domain.records.tasks(seat.actor, { content: CREATOR_HREFS.contentRecord, profile: CREATOR_HREFS.profile })),
-    settle(() => domain.records.opportunities(s, seat.partyId)),
-    settle(() => domain.records.library(s, seat.profileId)),
+  const [profile, brands, tasks, earnings] = await Promise.all([
+    settle(() => domain.creator.profileById(seat.actor.organizationId, seat.profileId)),
+    loadCreatorBrandUpdates(seat, time),
+    settle(() =>
+      domain.records.tasks(seat.actor, {
+        content: CREATOR_HREFS.contentRecord,
+        profile: CREATOR_HREFS.profile,
+      }),
+    ),
     settle(() => domain.records.earnings(seat.actor.organizationId, seat.profileId)),
-    settle(() => domain.records.analytics(seat.actor.organizationId, seat.profileId)),
   ]);
-
-  // What Loop noticed: the most recently published piece, else the latest piece. Loaded on its own.
-  const items = library.ok ? library.value : [];
-  const subject = [...items].filter((i) => i.published).sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))[0] ?? items[0] ?? null;
-  const notice = subject
-    ? await settle(async (): Promise<ContentNotice | null> => {
-        const record = await loadContentRecord(seat, subject.id);
-        return record ? loadNotice(seat, record, time.now) : null;
-      })
-    : null;
-
+  const balance = earnings.ok ? realCreatorEarnings(earnings.value) : null;
+  const media = profile.ok ? creatorPublicMedia(profile.value?.preferences) : null;
+  const latest = groupCreatorBrandRows(brands.rows).flatMap((g) => {
+    const update = latestCreatorBrandUpdate(g);
+    return update ? [{ brand: g.brand, id: g.brandId, update }] : [];
+  });
+  const count = (stages: string[]) =>
+    latest.filter((g) => stages.includes(g.update.stage ?? '')).length;
+  const outreach = count(['OUTREACH']),
+    conversations = count([
+      'DISCUSSING',
+      'NEGOTIATING',
+      'AWAITING_EMG',
+      'AWAITING_BRAND',
+      'AWAITING_CREATOR',
+    ]),
+    active = count(['CONFIRMED']);
+  const waiting = latest.filter((g) => g.update.stage === 'AWAITING_CREATOR').length;
+  const recent = [...latest]
+    .sort((a, b) => (b.update.evidenceAt?.getTime() ?? 0) - (a.update.evidenceAt?.getTime() ?? 0))
+    .slice(0, 3);
   const needs = tasks.ok ? tasks.value.filter((t) => t.bucket === 'NEEDS_ATTENTION') : [];
-  const active = opportunities.ok ? opportunities.value.filter((o) => o.creatorVisibleState !== 'DIDNT_GO_AHEAD') : [];
-  const inMotion = items.filter((i) => IN_MOTION.has(i.state));
-  const followers = analytics.ok && analytics.value.latestAudience.length > 0 ? analytics.value.latestAudience.reduce((sum, a) => sum + a.followers, 0) : null;
-
   return (
-    <LoopPage label="Loop Home">
-      <div className="ch-studio-home">
-      <div className={`ch-editorial-top${publicMedia || tikTok?.report?.avatarUrl ? ' ch-editorial-top--portrait' : ''}`}>
-      <CreatorStudioWelcome avatar={tikTok?.report?.avatarUrl ? {url:tikTok.report.avatarUrl,profileUrl:`https://www.tiktok.com/@${tikTok.report.handle}`} : null} media={publicMedia} displayName={seat.displayName} greeting={time.greeting()} date={time.date(time.now)} taskCount={tasks.ok ? needs.length : null} />
-
-      {needsHandles ? <StateBlock kind="attention" title="Welcome — add your social handles" body="Finish your profile so EMG can review the right accounts for you." action={{ label: 'Complete your profile', href: CREATOR_HREFS.profile }} /> : null}
-      <CreatorBrandUpdates seat={seat} time={time} />
-      </div>
-      <div className="ch-editorial-metrics"><SummaryStrip
-        label="At a glance"
-        items={[
-          {
-            label: analytics.ok && analytics.value.seeded ? 'Total audience · seeded demo data' : 'Total audience',
-            value: followers === null ? null : compactNumber(followers),
-            unknownText: analytics.ok ? 'No platform connected' : 'Could not read',
-          },
-          { label: 'Active opportunities', value: opportunities.ok ? String(active.length) : null, unknownText: 'Could not read' },
-          {
-            label: earnings.ok && earnings.value.seeded ? 'Available balance · seeded demo data' : 'Available balance',
-            value: earnings.ok ? moneyMinor(earnings.value.availableMinor, earnings.value.currency) : null,
-            unknownText: 'Could not read',
-          },
-          { label: 'Content in progress', value: library.ok ? String(inMotion.length) : null, unknownText: 'Could not read' },
-        ]}
-      /></div>
-
-      <div className="ch-home ch-home--work">
-      {tikTok?.report ? <CreatorTikTokContent report={tikTok.report} lastReadAt={tikTok.lastReadAt} stale={tikTok.stale} time={time}/> : publicMedia ? <CreatorPublicContent media={publicMedia} /> : null}
-      <Panel title="Things that need you">
-        {!tasks.ok ? <Failed what="your tasks" /> : needs.length === 0 ? <StateBlock kind="empty" compact title="Nothing needs you right now." body="A returned edit or a deliverable due soon lands here." action={{ label: 'All tasks', href: CREATOR_HREFS.tasks }} /> : <TaskList tasks={needs} time={time} />}
-      </Panel>
-
-        <Panel title="Active opportunities">
-          {!opportunities.ok ? (
-            <Failed what="your opportunities" />
-          ) : active.length === 0 ? (
-            <StateBlock kind="empty" compact title="No active opportunities." body="EMG shares an opportunity here once it decides you can see it." />
+    <LoopPage label="Creator Home">
+      <CreatorUpdatesRefresh />
+      <CreatorPageHead
+        section={`${time.greeting()}, ${seat.displayName}`}
+        title="Your business. In view."
+        description="A clear view of what EMG is working on for you, and what needs you next."
+        actions={<CreatorRefreshButton />}
+      />
+      <section
+        className={`ch-business-hero${media ? ' ch-business-hero--photo' : ''}`}
+        aria-label="Your EMG briefing"
+      >
+        <div>
+          <span className="ch-eyebrow">Your EMG briefing</span>
+          <h2>{seat.displayName}</h2>
+          {brands.available ? (
+            <>
+              <p>
+                {conversations
+                  ? `${conversations} brand ${conversations === 1 ? 'conversation is' : 'conversations are'} underway.`
+                  : 'Your team’s shared brand activity appears here.'}
+              </p>
+              <p>
+                {waiting
+                  ? `${waiting} ${waiting === 1 ? 'conversation needs' : 'conversations need'} your attention.`
+                  : 'No brand conversation is currently marked as waiting on you.'}
+              </p>
+              {active ? (
+                <p>
+                  {active} agreed {active === 1 ? 'partnership' : 'partnerships'} in progress.
+                </p>
+              ) : null}
+            </>
           ) : (
-            <ul className="ch-list">
-              {active.slice(0, 5).map((o) => (
-                <li key={o.id}>
-                  <Link className="ch-row" href={CREATOR_HREFS.opportunity(o.id)}>
-                    <span className="ch-row__main">
-                      <span className="ch-row__title">{o.title}</span>
-                      <span className="ch-row__meta">{o.brandLabel ? `${o.brandLabel} · ` : ''}updated {time.relative(o.updatedAt)}</span>
-                    </span>
-                    {o.creatorVisibleState ? (
-                      <Pill tone={OPPORTUNITY_TONES[o.creatorVisibleState]} small>
-                        {o.stateLabel}
-                      </Pill>
-                    ) : null}
-                  </Link>
+            <p>Brand updates could not be loaded. Your saved activity has not been removed.</p>
+          )}
+          <Link href={CREATOR_HREFS.opportunities}>View partnerships →</Link>
+        </div>
+        {media ? (
+          <a
+            href={media.portraitSource}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="Your creator photo on Instagram"
+          >
+            <img src={media.portrait} alt={seat.displayName} fetchPriority="high" />
+          </a>
+        ) : null}
+      </section>
+      <section className="ch-business-rail" aria-label="Partnership activity">
+        {[
+          ['Outreach', outreach],
+          ['Conversations', conversations],
+          ['Active partnerships', active],
+        ].map(([label, value]) => (
+          <Link key={label} href={CREATOR_HREFS.opportunities}>
+            <span>{label}</span>
+            <strong>{brands.available ? value : '—'}</strong>
+          </Link>
+        ))}
+      </section>
+      {brands.incomplete ? (
+        <p className="loop-note">
+          Some brand sources could not be loaded; this overview may be incomplete.
+        </p>
+      ) : null}
+      <div className="ch-business-grid">
+        <section aria-label="Latest from your team">
+          <header className="ch-section-head">
+            <h2>Latest from your team</h2>
+            <Link href={CREATOR_HREFS.opportunities}>View all →</Link>
+          </header>
+          {recent.length ? (
+            <ul className="ch-team-updates">
+              {recent.map(({ id, brand, update }) => (
+                <li key={id}>
+                  <span className="ch-brand-monogram">{brand.slice(0, 1)}</span>
+                  <div>
+                    <strong>{brand}</strong>
+                    <p>{update.summary}</p>
+                    <small>
+                      {update.evidenceAt ? time.date(update.evidenceAt) : 'Source date unavailable'}
+                      {update.current ? '' : ' · Awaiting updated review'}
+                    </small>
+                  </div>
+                  <Link href={CREATOR_HREFS.opportunities}>View update →</Link>
                 </li>
               ))}
             </ul>
-          )}
-          <p className="loop-note" style={{ marginTop: 10 }}>
-            <Link href={CREATOR_HREFS.opportunities}>All opportunities →</Link>
-          </p>
-        </Panel>
-
-        {!library.ok || inMotion.length > 0 ? <Panel title="Content in progress">
-          {!library.ok ? (
-            <Failed what="your content" />
-          ) : inMotion.length === 0 ? (
-            <StateBlock kind="empty" compact title="Nothing in motion." body="Content in production, waiting for your review or approved but not yet published shows here." action={{ label: 'Your content', href: CREATOR_HREFS.content }} />
           ) : (
-            <ul className="ch-list">
-              {inMotion.slice(0, 6).map((i) => (
-                <li key={i.id}>
-                  <Link className="ch-row" href={CREATOR_HREFS.contentRecord(i.id)} data-content-state={i.state}>
-                    <span className="ch-row__main">
-                      <span className="ch-row__title">{i.title}</span>
-                      <span className="ch-row__meta">
-                        {i.campaignName ?? 'Independent'} · updated {time.relative(i.updatedAt)}
-                      </span>
-                    </span>
-                    <Pill tone={CONTENT_STATE_TONES[i.state]} small>
-                      {i.stateLabel}
-                    </Pill>
-                  </Link>
-                </li>
-              ))}
-            </ul>
+            <StateBlock
+              kind={brands.available ? 'empty' : 'error'}
+              compact
+              title={brands.available ? 'No updates shared yet.' : 'Updates are unavailable.'}
+              body="Your team’s accepted brand summaries will appear here."
+            />
           )}
-          <p className="loop-note" style={{ marginTop: 10 }}>
-            <Link href={CREATOR_HREFS.content}>All content →</Link>
-          </p>
-        </Panel> : null}
+        </section>
+        <section aria-label="Up next">
+          <header className="ch-section-head">
+            <h2>Up next</h2>
+            <Link href={CREATOR_HREFS.tasks}>All tasks →</Link>
+          </header>
+          {!tasks.ok ? (
+            <StateBlock
+              kind="error"
+              compact
+              title="Tasks could not be read."
+              body="Try again shortly; this does not mean your task list is empty."
+            />
+          ) : needs.length ? (
+            <TaskList tasks={needs.slice(0, 3)} time={time} />
+          ) : (
+            <StateBlock
+              kind="empty"
+              compact
+              title="You’re all caught up."
+              body="Reviews and upcoming deliverables will appear here when they need you."
+            />
+          )}
+          <Link className="ch-payment-link" href={CREATOR_HREFS.earnings}>
+            <span>Payments</span>
+            <strong>
+              {balance ? moneyMinor(balance.availableMinor, balance.currency) : 'View balance'} →
+            </strong>
+          </Link>
+        </section>
       </div>
-
-      <div className="ch-home ch-home--insights">
-      {profile.ok ? <ObservedTikTokReport preferences={profile.value?.preferences} time={time} /> : null}
-
-      {notice && !notice.ok ? (
-        <Panel title="What Loop noticed">
-          <Failed what="what Loop noticed" />
-        </Panel>
-      ) : (
-        <CreatorNoticePanel notice={notice?.ok ? notice.value : null} when={(iso) => time.dateTime(iso)} title={subject ? `What Loop noticed · ${subject.title}` : 'What Loop noticed'} />
-      )}
-      </div>
-      </div>
+      <p className="loop-note ch-home-coverage">
+        Partnership counts reflect accepted, authorized records. Historical review may still be in
+        progress. <Link href={CREATOR_HREFS.opportunities}>See coverage and history</Link>.
+      </p>
     </LoopPage>
   );
 }
