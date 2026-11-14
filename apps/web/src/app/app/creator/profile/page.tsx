@@ -104,7 +104,8 @@ export default async function CreatorProfilePage({
 
   const saved = param(searchParams.saved);
   const refused = refusedFrom(searchParams);
-  const social = readSocial(profile?.socialAccounts).filter((s) => s.platform !== 'TIKTOK').filter((s) => s.state !== 'SEEDED_DEMO');
+  const social = readSocial(profile?.socialAccounts).filter((s) => s.platform !== 'TIKTOK')
+    .filter((s) => s.state !== 'SEEDED_DEMO');
   const tiktokEntry = readTikTokEntry(tiktokSocialAccountOf(profile?.socialAccounts));
   const rate = readObject(profile?.rateInfo);
   const rateVisible = rate.visibleToCreator === true;
@@ -120,20 +121,6 @@ export default async function CreatorProfilePage({
         title="This is your space."
         description="Your identity, connected accounts and the details that keep your work moving."
       />
-      <div className="ch-profile-identity">
-        {media ? (
-          <img src={media.portrait} alt={profile?.displayName ?? seat.displayName} />
-        ) : (
-          <span className="ch-profile-initial">{seat.displayName.slice(0, 1)}</span>
-        )}
-        <div>
-          <span className="ch-eyebrow">EMG Talent Group · Creator</span>
-          <h2>{profile?.displayName ?? seat.displayName}</h2>
-          {profile?.handle ? <p>@{profile.handle}</p> : null}
-        </div>
-        <Link href="/app/creator/analytics">View your analytics →</Link>
-      </div>
-
       {param(searchParams.onboarding) === '1' ? (
         <StateBlock
           kind="empty"
@@ -164,6 +151,20 @@ export default async function CreatorProfilePage({
       ) : null}
 
       <div className="ch-profile-layout">
+        {' '}
+        <div className="ch-profile-identity">
+          {media ? (
+            <img src={media.portrait} alt={profile?.displayName ?? seat.displayName} />
+          ) : (
+            <span className="ch-profile-initial">{seat.displayName.slice(0, 1)}</span>
+          )}
+          <div>
+            <span className="ch-eyebrow">EMG Talent Group · Creator</span>
+            <h2>{profile?.displayName ?? seat.displayName}</h2>
+            {profile?.handle ? <p>@{profile.handle}</p> : null}
+          </div>
+          <Link href="/app/creator/analytics">View your analytics →</Link>
+        </div>
         <section className="ch-profile-main" aria-label="Your profile and connections">
           <Panel title="Creator information">
             <form className="ch-form" action={updateProfileAction}>
@@ -320,8 +321,51 @@ export default async function CreatorProfilePage({
               </ul>
             )}
           </Panel>
+          <Panel title="Preferences">
+            <p className="loop-note">Current time zone: {time.timeZone}</p>
+            <form className="ch-form" action={updatePreferencesAction}>
+              <label className="ch-check">
+                <input
+                  type="checkbox"
+                  name="notifyOnReturn"
+                  defaultChecked={preferences.notifyOnReturn !== false}
+                />
+                <span>Show edit-return updates in Loop</span>
+              </label>
+              <p className="loop-note">
+                Shows updates in Tasks when EMG returns an edit. This does not send email or push
+                notifications; review tasks remain available when updates are hidden.
+              </p>
+              <div className="loop-btnrow">
+                <button type="submit" className="loop-btn">
+                  Save preferences
+                </button>
+              </div>
+            </form>
+          </Panel>
         </section>
         <aside className="ch-profile-aside" aria-label="Preferences and shared details">
+          <Panel title="Your EMG team">
+            <p className="loop-note">Team contact details are not available in this view.</p>
+          </Panel>
+          <Panel title="Account &amp; security">
+            <dl className="ch-security-list">
+              <div>
+                <dt>Email</dt>
+                <dd>{seat.session.email.replace(/^(.).*(@.*)$/, '$1•••$2')}</dd>
+              </div>
+              <div>
+                <dt>Password</dt>
+                <dd>
+                  <Link href="/crm/forgot-password">Reset your password →</Link>
+                </dd>
+              </div>
+              <div>
+                <dt>Two-step verification</dt>
+                <dd>Not available</dd>
+              </div>
+            </dl>
+          </Panel>
           {rateVisible ? (
             <Panel title="Rate information">
               <Facts
@@ -373,28 +417,6 @@ export default async function CreatorProfilePage({
                 ))}
               </ul>
             )}
-          </Panel>
-
-          <Panel title="Preferences">
-            <form className="ch-form" action={updatePreferencesAction}>
-              <label className="ch-check">
-                <input
-                  type="checkbox"
-                  name="notifyOnReturn"
-                  defaultChecked={preferences.notifyOnReturn !== false}
-                />
-                <span>Show edit-return updates in Loop</span>
-              </label>
-              <p className="loop-note">
-                Shows updates in Tasks when EMG returns an edit. This does not send email or push
-                notifications; review tasks remain available when updates are hidden.
-              </p>
-              <div className="loop-btnrow">
-                <button type="submit" className="loop-btn">
-                  Save preferences
-                </button>
-              </div>
-            </form>
           </Panel>
         </aside>
       </div>

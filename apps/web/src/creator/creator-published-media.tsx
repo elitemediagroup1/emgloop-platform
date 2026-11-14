@@ -85,38 +85,59 @@ export function PublishedMediaGrid({
   time: TimeView;
 }) {
   return (
-    <ul className="ch-published-grid" aria-label="Published social content">
-      {items.map((item) => (
-        <li key={item.key}>
-          <a className="ch-published-card" href={item.url} target="_blank" rel="noreferrer">
-            <div className="ch-published-card__image">
-              {item.thumbnail ? (
-                <img src={item.thumbnail} alt="" loading="lazy" referrerPolicy="no-referrer" />
-              ) : (
-                <span>No preview provided</span>
-              )}
-              <span className="ch-published-play" aria-hidden="true">
-                ↗
-              </span>
-            </div>
-            <div className="ch-published-card__body">
-              <span className="ch-eyebrow">
+    <>
+      <ul className="ch-published-grid" aria-label="Featured published social content">
+        {items.slice(0, 2).map((item) => (
+          <li key={item.key}>
+            <a className="ch-published-card" href={item.url} target="_blank" rel="noreferrer">
+              <div className="ch-published-card__image">
+                {item.thumbnail ? (
+                  <img src={item.thumbnail} alt="" loading="lazy" referrerPolicy="no-referrer" />
+                ) : (
+                  <span>No preview provided</span>
+                )}
+                <span className="ch-published-play" aria-hidden="true">
+                  ↗
+                </span>
+              </div>
+              <div className="ch-published-card__body">
+                <span className="ch-eyebrow">
+                  {item.platform === 'TIKTOK' ? 'TikTok' : 'YouTube'}
+                </span>
+                <h3>{item.title}</h3>
+                <div>
+                  <span>Watch ↗</span>
+                  <strong>
+                    {item.views === null
+                      ? 'Views not reported'
+                      : `${compactNumber(item.views)} views`}
+                  </strong>
+                </div>
+                <small>Report updated {time.relative(item.reportedAt)}</small>
+              </div>
+            </a>
+          </li>
+        ))}
+      </ul>
+      {items.length > 2 ? (
+        <ul className="ch-published-index" aria-label="More published social content">
+          {items.slice(2).map((item) => (
+            <li key={item.key}>
+              <span className="ch-social-label">
                 {item.platform === 'TIKTOK' ? 'TikTok' : 'YouTube'}
               </span>
-              <h3>{item.title}</h3>
-              <div>
-                <span>Watch ↗</span>
-                <strong>
-                  {item.views === null
-                    ? 'Views not reported'
-                    : `${compactNumber(item.views)} views`}
-                </strong>
-              </div>
-              <small>Report updated {time.relative(item.reportedAt)}</small>
-            </div>
-          </a>
-        </li>
-      ))}
-    </ul>
+              <strong>{item.title}</strong>
+              <span className="loop-note">Report {time.date(item.reportedAt)}</span>
+              <span>
+                {item.views === null ? 'Views not reported' : `${compactNumber(item.views)} views`}
+              </span>
+              <a href={item.url} target="_blank" rel="noreferrer">
+                Watch ↗
+              </a>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </>
   );
 }

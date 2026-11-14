@@ -7,6 +7,7 @@ import {
   loadCreatorBrandUpdates,
   groupCreatorBrandRows,
   latestCreatorBrandUpdate,
+  creatorBrandStageKey,
 } from './creator-brand-updates';
 import { creatorPublicMedia } from './creator-public-media';
 import { CreatorRefreshButton } from './CreatorRefreshButton';
@@ -46,6 +47,10 @@ export async function CreatorHome({ seat, time }: { seat: CreatorSeat; time: Tim
       'AWAITING_CREATOR',
     ]),
     active = count(['CONFIRMED']);
+  const lastChecked = brands.rows
+    .map((row) => row.checkedAt)
+    .filter((value): value is Date => value !== null)
+    .sort((a, b) => b.getTime() - a.getTime())[0];
   const waiting = latest.filter((g) => g.update.stage === 'AWAITING_CREATOR').length;
   const recent = [...latest]
     .sort((a, b) => (b.update.evidenceAt?.getTime() ?? 0) - (a.update.evidenceAt?.getTime() ?? 0))
@@ -55,10 +60,19 @@ export async function CreatorHome({ seat, time }: { seat: CreatorSeat; time: Tim
     <LoopPage label="Creator Home">
       <CreatorUpdatesRefresh />
       <CreatorPageHead
-        section={`${time.greeting()}, ${seat.displayName}`}
+        section={`${time.greeting()}, ${seat.displayName.split(/\s+/)[0]}.`}
         title="Your business. In view."
         description="A clear view of what EMG is working on for you, and what needs you next."
-        actions={<CreatorRefreshButton />}
+        actions={
+          <>
+            <span className="ch-last-updated">
+              {lastChecked
+                ? `Last updated: ${time.dateTime(lastChecked)}`
+                : 'Awaiting first review'}
+            </span>
+            <CreatorRefreshButton />
+          </>
+        }
       />
       <section
         className={`ch-business-hero${media ? ' ch-business-hero--photo' : ''}`}
@@ -66,7 +80,7 @@ export async function CreatorHome({ seat, time }: { seat: CreatorSeat; time: Tim
       >
         <div>
           <span className="ch-eyebrow">Your EMG briefing</span>
-          <h2>{seat.displayName}</h2>
+          <h2>Your EMG briefing</h2>
           {brands.available ? (
             <>
               <p>
@@ -137,7 +151,11 @@ export async function CreatorHome({ seat, time }: { seat: CreatorSeat; time: Tim
                       {update.current ? '' : ' · Awaiting updated review'}
                     </small>
                   </div>
-                  <Link href={CREATOR_HREFS.opportunities}>View update →</Link>
+                  <Link
+                    href={`${CREATOR_HREFS.opportunities}?stage=${creatorBrandStageKey(update.stage)}&brand=${encodeURIComponent(id)}`}
+                  >
+                    View update →
+                  </Link>
                 </li>
               ))}
             </ul>
@@ -180,6 +198,11 @@ export async function CreatorHome({ seat, time }: { seat: CreatorSeat; time: Tim
           </Link>
         </section>
       </div>
+      <footer className="ch-team-footer">
+        <h2>Your EMG team</h2>
+        <p>The people working on your business.</p>
+        <span>Team contact details are not available in this view.</span>
+      </footer>
       <p className="loop-note ch-home-coverage">
         Partnership counts reflect accepted, authorized records. Historical review may still be in
         progress. <Link href={CREATOR_HREFS.opportunities}>See coverage and history</Link>.

@@ -48,6 +48,12 @@ const BUCKETS = [
       'Agreed partnerships supported by an accepted brief or contract, or an approved partnership payable.',
   },
 ] as const;
+export function creatorBrandStageKey(stage: string | null | undefined): string {
+  const index = BUCKETS.findIndex((bucket) =>
+    (bucket.stages as readonly string[]).includes(stage ?? ''),
+  );
+  return index < 0 ? 'history' : String(index);
+}
 function StageSymbol({ title }: { title: string }) {
   return (
     <svg
@@ -113,7 +119,17 @@ function Update({ update, time }: { update: PublishedCreatorBrandUpdate; time: T
     </div>
   );
 }
-function Brand({ group, time }: { group: BrandGroup; time: TimeView }) {
+function Brand({
+  group,
+  time,
+  focusHref,
+  selected,
+}: {
+  group: BrandGroup;
+  time: TimeView;
+  focusHref?: string;
+  selected?: boolean;
+}) {
   const ordered = [...group.updates].sort(
     (a, b) =>
       (b.evidenceAt?.getTime() ?? 0) - (a.evidenceAt?.getTime() ?? 0) ||
@@ -134,12 +150,21 @@ function Brand({ group, time }: { group: BrandGroup; time: TimeView }) {
     if (!distinct.has(identity)) distinct.set(identity, update);
   }
   return (
-    <details className="loop-card ch-brand-relationship">
+    <details className="loop-card ch-brand-relationship" open={selected}>
       <summary>
         <span className="ch-brand-overview">
           <span className="ch-brand-name">{group.brand}</span>
           {latest?.summary ? <span className="ch-brand-preview">{latest.summary}</span> : null}
         </span>
+        {focusHref ? (
+          <Link
+            className="ch-relationship-select"
+            href={focusHref}
+            aria-label={`View ${group.brand} relationship details`}
+          >
+            Details ↗
+          </Link>
+        ) : null}
         {latest ? (
           <span className="ch-brand-status">
             {STAGES[latest.stage ?? ''] ?? 'Update'}
@@ -360,7 +385,11 @@ export function CreatorPartnershipBoard({
   stage,
   query,
   available,
+  brandId,
+  status,
 }: {
+  status?: string;
+  brandId?: string;
   rows: readonly PublishedCreatorBrandUpdate[];
   time: TimeView;
   stage: string;
@@ -387,9 +416,15 @@ export function CreatorPartnershipBoard({
       : ((tabs.find((t) => t.key === key)?.stages as readonly string[]) ?? []).includes(
           latestCreatorBrandUpdate(g)?.stage ?? '',
         );
+  const statusFilter = (active.stages as readonly string[]).includes(status ?? '') ? status : '';
   const selected = groups.filter(
-    (g) => belongs(g, active.key) && g.brand.toLowerCase().includes(query.toLowerCase()),
+    (g) =>
+      belongs(g, active.key) &&
+      g.brand.toLowerCase().includes(query.toLowerCase()) &&
+      (!statusFilter || latestCreatorBrandUpdate(g)?.stage === statusFilter),
   );
+  const focused = selected.find((g) => g.brandId === brandId) ?? selected[0];
+  const position = focused ? latestCreatorBrandUpdate(focused) : undefined;
   return (
     <section className="ch-partnership-workspace" aria-label="Brand updates">
       <nav className="ch-analytics-tabs" aria-label="Partnership stage">
@@ -405,41 +440,108 @@ export function CreatorPartnershipBoard({
           </Link>
         ))}
       </nav>
-      <div className="ch-partnership-toolbar">
-        <p>{active.description}</p>
-        <form method="get">
-          <input type="hidden" name="stage" value={active.key} />
-          <label>
-            <span className="loop-sr-only">Find a brand</span>
-            <input
-              className="loop-input"
-              name="q"
-              placeholder="Find a brand…"
-              maxLength={100}
-              defaultValue={query}
-            />
-          </label>
-          <button className="loop-btn" type="submit">
-            Search
-          </button>
-        </form>
+      <div className="ch-relationship-layout">
+        <div>
+          <div className="ch-partnership-toolbar">
+            <p>{active.description}</p>
+            <form method="get">
+              <input type="hidden" name="stage" value={active.key} />
+              <label>
+                <span className="loop-sr-only">Find a brand</span>
+                <input
+                  className="loop-input"
+                  name="q"
+                  placeholder="Find a brand…"
+                  maxLength={100}
+                  defaultValue={query}
+                />
+              </label>
+              <label>
+                <span className="loop-sr-only">Relationship status</span>
+                <select name="status" defaultValue={statusFilter}>
+                  <option value="">All statuses</option>
+                  {active.stages.map((stage) => (
+                    <option key={stage} value={stage}>
+                      {STAGES[stage] ?? stage}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button className="loop-btn" type="submit">
+                Search
+              </button>
+            </form>
+          </div>
+          {!available ? (
+            <p className="loop-state">
+              Brand updates could not be loaded. Saved activity has not been removed.
+            </p>
+          ) : selected.length ? (
+            <div className="ch-partnership-rows">
+              {selected.map((group) => (
+                <Brand
+                  key={group.brandId}
+                  group={group}
+                  time={time}
+                  selected={focused?.brandId === group.brandId}
+                  focusHref={`/app/creator/opportunities?stage=${active.key}&q=${encodeURIComponent(query)}&brand=${encodeURIComponent(group.brandId)}&status=${encodeURIComponent(statusFilter ?? '')}`}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="loop-state">
+              <h2>{query ? 'No matching brands.' : active.empty}</h2>
+              <p>Only accepted, authorized updates appear here.</p>
+            </div>
+          )}
+        </div>
+        <aside className="ch-relationship-detail" aria-label="Selected relationship">
+          {focused ? (
+            <>
+              <header>
+                <span className="ch-brand-monogram">{focused.brand.slice(0, 1)}</span>
+                <div>
+                  <h2>{focused.brand}</h2>
+                  <p>Shared by EMG</p>
+                </div>
+              </header>
+              {position ? (
+                <>
+                  <span className="ch-brand-status">
+                    {STAGES[position.stage ?? ''] ?? 'Awaiting review'}
+                  </span>
+                  <section>
+                    <h3>Next step</h3>
+                    <p>{position.nextStep || 'No next step has been shared yet.'}</p>
+                  </section>
+                  <section>
+                    <h3>Recent progress</h3>
+                    <p>{position.summary}</p>
+                  </section>
+                  <section>
+                    <h3>Last meaningful update</h3>
+                    <p>
+                      {position.evidenceAt
+                        ? time.dateTime(position.evidenceAt)
+                        : 'Source date unavailable'}
+                    </p>
+                    <small>
+                      {position.current ? 'Latest accepted position' : 'Awaiting an updated review'}
+                    </small>
+                  </section>
+                </>
+              ) : (
+                <p>A shareable summary is not available yet.</p>
+              )}
+            </>
+          ) : (
+            <>
+              <h2>Your relationship details</h2>
+              <p>Accepted brand updates and next steps will appear here.</p>
+            </>
+          )}
+        </aside>
       </div>
-      {!available ? (
-        <p className="loop-state">
-          Brand updates could not be loaded. Saved activity has not been removed.
-        </p>
-      ) : selected.length ? (
-        <div className="ch-partnership-rows">
-          {selected.map((group) => (
-            <Brand key={group.brandId} group={group} time={time} />
-          ))}
-        </div>
-      ) : (
-        <div className="loop-state">
-          <h2>{query ? 'No matching brands.' : active.empty}</h2>
-          <p>Only accepted, authorized updates appear here.</p>
-        </div>
-      )}
       <details className="ch-brand-coverage">
         <summary>Coverage and privacy</summary>
         <p>

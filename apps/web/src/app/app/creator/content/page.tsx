@@ -144,9 +144,27 @@ export default async function CreatorContentPage({
               )}
             </Panel>
           </details>
-          <p className="loop-note">
-            Imported social posts link to the platform. They do not upload an original file to Loop.
-          </p>
+          <section className="ch-workflow-guide">
+            <h3>How the workflow works</h3>
+            <p>
+              Upload an original to start production. Your team’s edits and review requests stay on
+              the content record. Published social posts link to their platform.
+            </p>
+            <ol>
+              <li>
+                <strong>Original</strong>
+                <span>Your uploaded content</span>
+              </li>
+              <li>
+                <strong>Production &amp; review</strong>
+                <span>Work with your EMG team</span>
+              </li>
+              <li>
+                <strong>Published</strong>
+                <span>Recorded published work</span>
+              </li>
+            </ol>
+          </section>
         </aside>
         <section className="ch-content-main">
           {view === 'published' ? (

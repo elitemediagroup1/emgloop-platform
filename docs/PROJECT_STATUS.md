@@ -1,23 +1,21 @@
-## Creator Hub editorial redesign
+## Creator Hub reference fidelity and agency branding
 
-Branch `feat/creator-hub-editorial` implements the approved seven-page creator direction using
-the existing scoped records, shared shell and LOOP_NAV. Home is a business briefing, without
-repeated audience snapshots. Partnerships has canonical-brand stage tabs, search and expandable
-accepted history. Content uses authorized TikTok One and YouTube report media alongside the existing
-upload/review workflow. Analytics separates current platform sources and preserves unavailable
-metrics. Tasks selects actual source-record work. Profile separates identity/connections from
-preferences/documents. Payments filters demonstration rows and keeps currencies separate.
-Bank linking and withdrawals remain unavailable: no payout processor, Plaid production approval,
-funding authorization, money movement or new payment schema is included. No migration/env change.
+PR #461 is merged at `4bf920d24c23aebee9e0670308d5621b366d040f`. Matt rejected the visual
+result: the live comparison showed a zero-sized header logo, narrow 1400px canvas, undersized
+body text, oversized hero, incorrect nav treatment and different page compositions.
+Branch `fix/creator-approved-layout` follows the seven approved images directly. It fixes the
+header and includes both exact uploaded PNGs (EMG Talent Group + EMG Loop), widens the canvas,
+restores the angled short Home hero/flat activity strip, adds selected relationship details,
+features two real media cards with remaining posts as rows, restores Profile's three columns,
+and presents payment cards/withdrawal unavailable state in the reference composition. Actual
+records, unavailable fields and authorized actions remain truthful; no example contacts, chart
+values, bank accounts or payment fees are inserted. The files are byte-identical to Matt's uploads.
 
-PR #461 contains the coordinated implementation. 157 creator UI/OAuth/navigation contracts and
-135 targeted creator/payout/platform checks pass. The full web suite passes 1036 of 1044 tests;
-the same eight failures reproduce on unchanged main. Web and database typechecks pass. The complete web suite initially found two redesign regressions, both
-fixed; eight other failures reproduce on unchanged main (CRM source assertions, Home CSS scanner,
-intelligence producer scanner, managed-mailbox copy and YouTube server-clock formatting). ESLint
-remains unconfigured on main. The corrected production build passes; authorized preview visual
-review is pending. Creator Hub CI including database lifecycle/isolation passed on the initial head.
-Matt merges; this work is not yet deployed to production.
+157 creator/OAuth/navigation contracts and web typechecks pass. Final production build and
+Netlify preview screenshot comparison are in progress. No migration/env/budget changes.
+Matt explicitly requires the generated images to be treated as the specification, not inspiration.
+Do not call the design finished without comparing the rendered creator pages with them.
+Plaid money movement is not implemented. Staff shell/branding are unchanged. Matt merges.
 
 ## Creator Gmail synthesis recovery
 
