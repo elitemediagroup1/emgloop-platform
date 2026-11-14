@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Prisma, type PrismaClient } from '@prisma/client';
-import { parseCreatorBrandUpdate, CREATOR_BRAND_UPDATE_SCHEMA_ID, type GmailThreadView, type AiModelRequest, type AiModelResult } from '@emgloop/shared';
+import { validateCreatorBrandUpdate, AI_TASK_CREATOR_BRAND_UPDATE, parseCreatorBrandUpdate, CREATOR_BRAND_UPDATE_SCHEMA_ID, type GmailThreadView, type AiModelRequest, type AiModelResult } from '@emgloop/shared';
 import { IamRepository } from '../src/repositories/iam.repository';
 import { PartyService } from '../src/services/party.service';
 import { CreatorRepository } from '../src/creator/creator.repository';
@@ -768,4 +768,95 @@ test('a newer known-brand conversation awaiting validation holds an older qualif
   await w.db.creatorMailEvidence.updateMany({ where: { captureId: second.id }, data: { reading: { ...qualified, threadId: 'NEWER_THREAD', evidenceKey: 'newer-distinct-message', state: 'WITHHELD', evidenceAt: new Date(T0.getTime() + 60_000).toISOString() } } });
   const afterScreening = await w.repo.updates(w.recipient, w.profile.id, new Date(T0.getTime() + 120_000));
   assert.ok(afterScreening.some(r => r.stage === 'CONFIRMED'), 'an unrelated or un-attributable withheld discovery does not erase accepted paid-deal evidence');
+});
+
+
+test('relationship synthesis can reuse approved creator-safe wording; copying raw email still fails', async () => {
+    const { CreatorRelationshipService } = await import('../src/creator/creator-relationship.service');
+    const { buildMailTriageContext } = await import('../src/services/ai-runtime/mail-content-triage-context');
+    const w = await world({ run: async (_actor, request) => {
+            const ref = request.context.items.find(i => i.sourceRef.startsWith('mail_message:'))!.sourceRef;
+            return { outcome: 'ANSWERED', output: parseCreatorBrandUpdate({ schemaId: CREATOR_BRAND_UPDATE_SCHEMA_ID, publishable: true, stage: 'DISCUSSING', summary: 'EMG and the brand are discussing a creator partnership and reviewing content ideas.', nextStep: '', citations: [ref] })!, provenance: {} } as AiRunResult;
+        } });
+    await w.start([w.staff.id]);
+    await w.drain();
+    await distinctRelationshipConversation(w);
+    const capture = (await w.db.managedCreatorMailCapture.findMany())[0]!;
+    const approved = (await w.repo.durableReadings(capture))[0]!.update!;
+    let callbackError: unknown;
+    const service = new CreatorRelationshipService(w.db, { run: async (_actor, request) => {
+            try {
+                const refs = request.context.items.filter(i => i.sourceRef.startsWith('mail_message:')).map(i => i.sourceRef);
+                const output = parseCreatorBrandUpdate({ schemaId: CREATOR_BRAND_UPDATE_SCHEMA_ID, ...approved, citations: [refs[0]!] })!;
+                assert.doesNotMatch(JSON.stringify(request.context), /PRIVATE_BODY|PRIVATE_REPLY/);
+                assert.deepEqual(validateCreatorBrandUpdate(output, request.task, new Set(refs), request.evidence), [], 'approved summary wording is not a copied private email');
+                const raw = buildMailTriageContext({ organizationId: 'a', viewerUserId: w.owner.userId, threadId: 'raw-private', subject: null, messages: [{ direction: 'OUTBOUND', occurredAt: T0, fromLabel: null, text: approved.summary }], truncated: false, lane: null });
+                const rawRef = raw.context.items.find(i => i.sourceRef.startsWith('mail_message:'))!.sourceRef;
+                const copied = parseCreatorBrandUpdate({ schemaId: CREATOR_BRAND_UPDATE_SCHEMA_ID, ...approved, citations: [rawRef] })!;
+                assert.ok(validateCreatorBrandUpdate(copied, AI_TASK_CREATOR_BRAND_UPDATE, new Set([rawRef]), raw.evidence).includes('VERBATIM_CONTENT'));
+                const confidential = parseCreatorBrandUpdate({ schemaId: CREATOR_BRAND_UPDATE_SCHEMA_ID, ...approved, summary: 'The commission is confidential.', citations: [refs[0]!] })!;
+                assert.ok(validateCreatorBrandUpdate(confidential, request.task, new Set(refs), request.evidence).includes('VERBATIM_CONTENT'));
+                return { outcome: 'ANSWERED', output, provenance: {} } as AiRunResult;
+            }
+            catch (error) {
+                callbackError = error;
+                throw error;
+            }
+        } }, () => T0);
+    const outcome = await service.pass();
+    if (callbackError)
+        throw callbackError;
+    assert.deepEqual(outcome, { SYNTHESIZED: 1 });
+});
+test('a valid withheld relationship is not purchased again for unchanged evidence', async () => {
+    const { CreatorRelationshipService } = await import('../src/creator/creator-relationship.service');
+    const w = await world();
+    await w.start([w.staff.id]);
+    await w.drain();
+    await distinctRelationshipConversation(w);
+    const capture = (await w.db.managedCreatorMailCapture.findMany())[0]!;
+    const basis = (await w.repo.durableReadings(capture))[0]!;
+    for (let i = 0; i < 20; i++)
+        await w.db.creatorMailEvidence.create({ data: { id: `withheld-extra-${i}`, captureId: capture.id, generation: capture.generation, threadId: `withheld-extra-${i}`, reading: { ...basis, threadId: `withheld-extra-${i}`, evidenceKey: `withheld-physical-${i}`, fingerprint: `withheld-version-${i}` } } });
+    let calls = 0, now = T0;
+    const service = new CreatorRelationshipService(w.db, { run: async () => { calls++; return { outcome: 'ANSWERED', output: parseCreatorBrandUpdate({ schemaId: CREATOR_BRAND_UPDATE_SCHEMA_ID, publishable: false, stage: 'PAUSED', summary: '', nextStep: '', citations: [] })!, provenance: {} } as AiRunResult; } }, () => now);
+    assert.deepEqual(await service.pass(), { NOT_PUBLISHED: 1 });
+    assert.equal((await w.db.creatorMailRelationship.findMany())[0]!.processed, 16, 'unseen evidence must not be counted as processed');
+    now = new Date(+T0 + 2 * 3600000);
+    assert.deepEqual(await service.pass(), {});
+    assert.equal(calls, 1);
+    assert.deepEqual(await service.projections(w.recipient, w.profile.id), []);
+    const row = (await w.db.managedCreatorMailCapture.findMany())[0]!;
+    const reading = (await w.repo.durableReadings(row))[0]!;
+    await w.db.creatorMailEvidence.create({ data: { id: 'changed-after-withheld', captureId: row.id, generation: row.generation, threadId: 'changed-after-withheld', reading: { ...reading, threadId: 'changed-after-withheld', evidenceKey: 'new-message', fingerprint: 'new-fingerprint' } } });
+    assert.deepEqual(await service.pass(), { NOT_PUBLISHED: 1 });
+    assert.equal(calls, 2);
+});
+test('legacy synthesis rejection gets one corrected retry; a live circuit still blocks publication and backs off', async () => {
+    const { CreatorRelationshipService } = await import('../src/creator/creator-relationship.service');
+    const { relationshipVersion } = await import('../src/creator/creator-relationship');
+    const w = await world();
+    await w.start([w.staff.id]);
+    await w.drain();
+    await distinctRelationshipConversation(w);
+    let calls = 0, now = T0;
+    const service = new CreatorRelationshipService(w.db, { run: async (_actor, request) => {
+            calls++;
+            if (calls === 1)
+                return { outcome: 'REFUSED_BY_LOOP', refusals: ['TASK_CIRCUIT_OPEN'] } as AiRunResult;
+            const ref = request.context.items.find(i => i.sourceRef.startsWith('mail_message:'))!.sourceRef;
+            return { outcome: 'ANSWERED', output: parseCreatorBrandUpdate({ schemaId: CREATOR_BRAND_UPDATE_SCHEMA_ID, publishable: true, stage: 'DISCUSSING', summary: 'The brand is considering a creator collaboration.', nextStep: '', citations: [ref] })!, provenance: {} } as AiRunResult;
+        } }, () => now);
+    const [brandId, sources] = [...(await service.evidence('a', w.profile.id))][0]!;
+    const id = mailEvidenceHash(`a:${w.profile.id}:${brandId}`);
+    await w.db.creatorMailRelationship.create({ data: { id, organizationId: 'a', creatorProfileId: w.profile.id, brandId, fingerprint: relationshipVersion(sources), lastFailureClass: 'REJECTED_OUTPUT', nextCheckAt: new Date(+T0 + 3600000) } });
+    assert.deepEqual(await service.pass(), { NOT_PUBLISHED: 1 });
+    assert.equal(calls, 1);
+    assert.deepEqual(await service.projections(w.recipient, w.profile.id), []);
+    assert.deepEqual(await service.pass(), {});
+    assert.equal(calls, 1);
+    now = new Date(+T0 + 301000);
+    assert.deepEqual(await service.pass(), { SYNTHESIZED: 1 });
+    assert.equal(calls, 2);
+    assert.equal((await service.projections(w.recipient, w.profile.id)).length, 1);
 });

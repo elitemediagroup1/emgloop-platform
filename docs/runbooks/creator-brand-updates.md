@@ -48,9 +48,10 @@ calls or four minutes, whichever comes first; each endpoint claims at most one d
 concurrent duplicate processing. Quotas, model latency, connection failures, queue backlog and budget
 refusals can delay an update. The employee CallGrid/Telegram/read paths and their cadence are untouched.
 
-`creator.brand.update` uses Anthropic as primary and OpenAI as availability fallback, in BACKGROUND,
-with its own `creator-brand-update` class: at most 60 model invocations, 720,000 input tokens and
-72,000 output tokens per organization business day, including repairs and availability fallback. Each
+`creator.brand.update` currently uses OpenAI as primary with availability fallback disabled, in BACKGROUND,
+with its own `creator-brand-update` class. The base policy defines 60 model invocations, 720,000 input
+tokens and 72,000 output tokens per organization business day; recorded operating controls can replace
+invocation caps. Inspect the live control instead of assuming the base invocation count. Each
 call is still bounded to 12,000 input / 1,200 output tokens. Other domain tasks retain their 24-call
 ceiling. Recorded operating lane/cost/shared controls still admit every call. An unchanged accepted
 or withheld fingerprint skips the model.
@@ -138,3 +139,34 @@ The creator has one **Refresh updates** button. Its server action derives the cr
 The existing AWS minute worker also checks the local `America/New_York` day. At/after 07:00 it atomically enqueues each enabled, authorized source once for that day (including catch-up after downtime); daylight-saving changes follow Eastern local time. A queued refresh is not a guarantee that all summaries complete at 07:00: the authorized budget and retry rules still apply.
 
 Release verification must include migration status, deployed SHA, actual source counts, accepted/withheld states, OpenAI invocation records and an authenticated creator-seat check. A manager preview alone does not certify creator-seat behavior. Advertiser discovery can resolve an explicit brand in agency or consumer-address correspondence; a new advertiser name must match substantive evidence or a supported known identity. It still withholds ambiguous cases and source readings explicitly mark bounded/incomplete evidence; do not describe coverage as exhaustive until reconciliation accounts for held items.
+
+
+## Cross-thread synthesis recovery
+
+Read Intelligence State run `43542666475` showed 237 creator-brand invocations across 17 distinct
+context windows in the trailing day: 7 answered, 230 rejected, all with `VERBATIM_CONTENT`.
+The circuit is a response to repeated rejected results, not proof of a spending-limit problem.
+The admin capacity page showed operating budget `operating.creator-pilot.25.4` version 6 with
+$1.72 organization spend at inspection against the existing $25 daily cap. Do not overwrite those
+live controls with an older example file or increase them for this fix.
+
+Relationship synthesis v3 uses only currently authorized, accepted creator-facing paraphrases.
+Their approved wording is reusable: it must not be classified as a private email quotation merely
+because another accepted summary already used it. Only this producer omits private-email word-overlap
+shingles from its evidence. Its inputs remain untrusted data. Citation, quotation, confidential-term,
+contact, unsupported-number/date, schema and deal-qualification checks remain in force; raw Gmail
+interpretation still supplies its full verbatim-overlap evidence. No raw mail body is added to synthesis.
+
+A valid model decision to withhold is cached for that exact source version, preventing an hourly
+paid retry of the same decision. It remains unpublished; a changed authorized source version reopens
+review. A withheld partial batch does not count unseen evidence as processed. Old v2 validation
+failures get one eligibility retry under corrected v3 semantics. Every retry still goes through the
+unchanged gateway; an open task circuit blocks the model and publication. Circuit deferrals recheck
+in five minutes, without paid calls while admission is refused. Other validation failures keep their
+one-hour backoff and now retain bounded rejection codes.
+
+No migration, environment change, spending-limit increase or breaker reset is needed. After Matt
+merges and the intended commit is live, inspect a bounded refresh. Confirm a NEW
+`creator-relationship-synthesis` v3 request is accepted and a unified summary is persisted for the
+correct creator/brand. An old summary or a green deploy is not proof of recovery. If the task circuit
+is still open, respect its trailing failure window; do not erase ledger history or disable validation.
