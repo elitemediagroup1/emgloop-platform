@@ -15,11 +15,18 @@ No authorization setting was changed. This is not evidence of deleted production
 The connected YouTube channel displays “Twins Together”; this source needs creator verification
 and must not be described as verified Trevon performance. No connection was disconnected.
 
-157 creator/OAuth/navigation contracts and web typechecks pass; the refined build is being checked.
-No migration/env/budget changes. No invented team contacts, growth curves, bank details or fees.
-Plaid withdrawals remain unavailable. Staff shell/branding are unchanged. Matt merges; the approved
-images are the specification, not inspiration. Do not call the design finished without comparing
-rendered creator screenshots with those references.
+The signed-in interaction check also found `setup:social` and `setup:payout` being invented from
+legacy profile flags despite current TikTok public reports and no commissioned payout setup.
+The Tasks read model now returns actual reviews/deliverables only; setup stays on Profile/Payments.
+The disposable-database contract now asserts these synthetic tasks are absent while retaining all
+review ownership, deliverable and creator-isolation assertions. No real Work OS record was deleted.
+
+157 creator/OAuth/navigation contracts and web/database typechecks pass. The final build and
+updated preview are being checked. No migration/env/budget changes. No invented team contacts,
+growth curves, bank details or fees. Plaid withdrawals remain unavailable. Staff shell/branding
+are unchanged. Matt merges; the approved images are the specification, not inspiration. Compare
+the final rendered creator pages with the references before visual acceptance, then verify the
+Production-only brand records after merge/deployment. The preview does not authorize them.
 
 ## Creator Gmail synthesis recovery
 

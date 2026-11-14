@@ -169,11 +169,11 @@ export default async function CreatorProfilePage({
             <h2>{profile?.displayName ?? seat.displayName}</h2>
             {displayHandle ? <p>@{displayHandle.replace(/^@/,'')}</p> : null}
           </div>
-          <Link href="/app/creator/analytics">View your analytics →</Link>
+          <Link className="loop-btn loop-btn--primary" href="#creator-profile-form">Edit profile</Link>
         </div>
         <section className="ch-profile-main" aria-label="Your profile and connections">
-          <Panel title="Creator profile">
-            <form className="ch-form" action={updateProfileAction}>
+          <Panel title="Creator profile"><div className="ch-profile-save"><button className="loop-btn loop-btn--primary" type="submit" form="creator-profile-form">Save</button></div>
+            <form id="creator-profile-form" className="ch-form" action={updateProfileAction}>
               <label className="loop-field">
                 <span className="loop-label">Display name</span>
                 <input
@@ -244,11 +244,7 @@ export default async function CreatorProfilePage({
                   ))}
                 </fieldset>
               </details>
-              <div className="loop-btnrow">
-                <button type="submit" className="loop-btn loop-btn--primary">
-                  Save
-                </button>
-              </div>
+
             </form>
           </Panel>
 

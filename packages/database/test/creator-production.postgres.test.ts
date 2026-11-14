@@ -409,7 +409,7 @@ test('the canonical production path: request, return, request changes, approve, 
       assert.equal(review.href, `${HREFS.content(contentId)}?review=${v1}`);
       assert.equal(tasks.find((x) => x.key === `deliverable:${deliverableId}`)?.kind, 'DELIVERABLE', 'a deliverable with content attached is a DELIVERABLE task');
       assert.equal(tasks.find((x) => x.key === `deliverable:${openDeliverableId}`)?.kind, 'UPLOAD', 'a deliverable with no content is an UPLOAD task');
-      assert.deepEqual(tasks.filter((x) => x.kind === 'SETUP').map((x) => x.key).sort(), ['setup:payout', 'setup:social']);
+      assert.deepEqual(tasks.filter((x) => x.kind === 'SETUP'), [], 'connection and payout setup are not synthetic work tasks; their dedicated pages own readiness');
       const otherTasks = await domain.records.tasks(otherCreatorActor(), HREFS);
       assert.equal(otherTasks.some((x) => x.kind === 'REVIEW' || x.kind === 'DELIVERABLE' || x.kind === 'UPLOAD'), false, "another creator sees none of this creator's work");
 

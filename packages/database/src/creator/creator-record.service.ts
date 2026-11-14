@@ -545,13 +545,9 @@ export class CreatorRecordService {
         out.push({ key: `deliverable:${d.id}`, kind: 'DELIVERABLE', title: `${d.title} — due`, detail: `${d.campaign.name}`, dueAt: iso(d.dueAt), href: hrefs.content(d.contentId), bucket: 'UPCOMING' });
       }
     }
-    const social = Array.isArray(profile.socialAccounts) ? (profile.socialAccounts as unknown as { state?: string }[]) : [];
-    if (!social.some((s) => s.state && s.state !== 'NOT_CONNECTED')) {
-      out.push({ key: 'setup:social', kind: 'SETUP', title: 'Connect a platform', detail: 'Analytics can only read what is connected.', dueAt: null, href: hrefs.profile, bucket: 'UPCOMING' });
-    }
-    if (profile.payoutState === 'NOT_SET_UP') {
-      out.push({ key: 'setup:payout', kind: 'SETUP', title: 'Set up payouts', detail: 'Needed before anything can be transferred to you.', dueAt: null, href: hrefs.profile, bucket: 'UPCOMING' });
-    }
+    // Account connections and payout readiness belong to their dedicated pages. Legacy
+    // profile flags do not prove an actionable task: current OAuth/public-report connections
+    // live separately, and the payout rail may not be commissioned at all.
     return out;
   }
 

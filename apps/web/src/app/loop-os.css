@@ -5430,3 +5430,14 @@ a.xb__focuscard:hover { border-color: var(--loop-line-strong); transform: transl
 .ch-payment-cards>.loop-panel { min-height:170px; }
 .ch-profile-identity p { overflow-wrap:anywhere; }
 @media(min-width:761px) { .loop-os.ch-shell .loop-page[aria-label="Tasks"] .ch-task-detail { min-height:calc(100svh - 160px); } }
+.ch-profile-main>.loop-panel { padding:20px; }
+.ch-profile-main>.loop-panel:has(#creator-profile-form) { position:relative; }
+.ch-profile-save { position:absolute; right:20px; top:16px; }
+.ch-profile-save .loop-btn { min-height:30px; padding:6px 14px; font-size:13px; }
+.loop-os.ch-shell .ch-profile-main .ch-form { gap:9px; }
+.loop-os.ch-shell .ch-profile-main .ch-form .loop-input { min-height:34px; padding:6px 12px; font-size:15px; }
+.loop-os.ch-shell .ch-profile-main .ch-form .loop-label { padding-top:6px; }
+.loop-os.ch-shell .ch-profile-main .ch-form .loop-textarea { min-height:66px; padding:8px 12px; font-size:15px; }
+.ch-profile-main .ch-readonly-field { min-height:34px; padding:7px 12px; }
+.ch-profile-main .ch-social-connection>summary { padding:10px 5px; }
+.ch-profile-identity>.loop-btn { width:max-content; color:var(--loop-on-primary); }
