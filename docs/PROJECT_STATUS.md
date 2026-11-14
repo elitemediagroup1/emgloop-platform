@@ -1,23 +1,32 @@
-## Creator Hub editorial redesign
+## Creator Hub reference fidelity and agency branding
 
-Branch `feat/creator-hub-editorial` implements the approved seven-page creator direction using
-the existing scoped records, shared shell and LOOP_NAV. Home is a business briefing, without
-repeated audience snapshots. Partnerships has canonical-brand stage tabs, search and expandable
-accepted history. Content uses authorized TikTok One and YouTube report media alongside the existing
-upload/review workflow. Analytics separates current platform sources and preserves unavailable
-metrics. Tasks selects actual source-record work. Profile separates identity/connections from
-preferences/documents. Payments filters demonstration rows and keeps currencies separate.
-Bank linking and withdrawals remain unavailable: no payout processor, Plaid production approval,
-funding authorization, money movement or new payment schema is included. No migration/env change.
+PR #462 (`fix/creator-approved-layout`) follows the approved seven images and includes both exact
+uploaded PNGs (EMG Talent Group + EMG Loop). Initial preview `6af7d52632f86674c11e8155` is ready
+at head `c41a70e180b29a5643b9e3436fbb39f8437f5d27`; all three workflows passed.
+Matt signed in as Trevon and all seven pages were inspected. Real TikTok report data is present:
+176.8K followers, 938 median views, 288 latest video views, ten reported posts. The review found
+remaining heavy typography, face crop, capitalized panel headings, low balance contrast and an
+overlong Profile form; these are corrected in the same branch along with Analytics source-bar
+placement and compact account disclosures. Recheck the updated preview before visual acceptance.
 
-PR #461 contains the coordinated implementation. 157 creator UI/OAuth/navigation contracts and
-135 targeted creator/payout/platform checks pass. The full web suite passes 1036 of 1044 tests;
-the same eight failures reproduce on unchanged main. Web and database typechecks pass. The complete web suite initially found two redesign regressions, both
-fixed; eight other failures reproduce on unchanged main (CRM source assertions, Home CSS scanner,
-intelligence producer scanner, managed-mailbox copy and YouTube server-clock formatting). ESLint
-remains unconfigured on main. The corrected production build passes; authorized preview visual
-review is pending. Creator Hub CI including database lifecycle/isolation passed on the initial head.
-Matt merges; this work is not yet deployed to production.
+Brand summaries are unavailable in previews because `LOOP_CREATOR_MAIL_SHARING_DECISION` is
+Production-only; its preview context is Empty (confirmed in Netlify, without revealing values).
+No authorization setting was changed. This is not evidence of deleted production brand records.
+The connected YouTube channel displays “Twins Together”; this source needs creator verification
+and must not be described as verified Trevon performance. No connection was disconnected.
+
+The signed-in interaction check also found `setup:social` and `setup:payout` being invented from
+legacy profile flags despite current TikTok public reports and no commissioned payout setup.
+The Tasks read model now returns actual reviews/deliverables only; setup stays on Profile/Payments.
+The disposable-database contract now asserts these synthetic tasks are absent while retaining all
+review ownership, deliverable and creator-isolation assertions. No real Work OS record was deleted.
+
+157 creator/OAuth/navigation contracts and web/database typechecks pass. The final build and
+updated preview are being checked. No migration/env/budget changes. No invented team contacts,
+growth curves, bank details or fees. Plaid withdrawals remain unavailable. Staff shell/branding
+are unchanged. Matt merges; the approved images are the specification, not inspiration. Compare
+the final rendered creator pages with the references before visual acceptance, then verify the
+Production-only brand records after merge/deployment. The preview does not authorize them.
 
 ## Creator Gmail synthesis recovery
 

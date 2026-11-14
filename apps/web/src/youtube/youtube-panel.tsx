@@ -41,8 +41,9 @@ export async function YouTubeConnectionPanel({ principal, outcome }: { principal
         { label: 'Lifetime views', value: compact(data.connection.lifetimeViewCount) },
         { label: 'Videos', value: compact(data.connection.videoCount) },
       ]} />
+      <p className="loop-note">Check that this is the channel you want shown in your Creator Hub. <a href={`https://www.youtube.com/channel/${encodeURIComponent(data.connection.channelId)}`} target="_blank" rel="noreferrer">Review connected channel ↗</a></p>
       <div className="loop-btnrow">
-        <a className="loop-btn loop-btn--primary" href="/app/creator/analytics">View YouTube analytics</a>
+        <a className="loop-btn loop-btn--primary" href="/app/creator/analytics?platform=YOUTUBE">View YouTube analytics</a>
         <a className="loop-btn" href="/api/integrations/youtube/connect" rel="nofollow">Reconnect YouTube</a>
         <form action="/api/integrations/youtube/disconnect" method="post"><button className="loop-btn" type="submit">Disconnect YouTube</button></form>
       </div>

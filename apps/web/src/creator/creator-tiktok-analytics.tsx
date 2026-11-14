@@ -33,18 +33,25 @@ export function CreatorTikTokAnalytics({
             value: report.medianViews === null ? null : compactNumber(report.medianViews),
             unknownText: 'Not provided',
           },
-          { label: 'Videos in this report', value: String(report.videos.length) },
+          {
+            label: 'Latest reported video views',
+            value: report.videos[0]?.views == null ? null : compactNumber(report.videos[0].views),
+            unknownText: 'Not provided',
+          },
           { label: 'Reach', value: null, unknownText: 'Not provided' },
         ]}
       />
       <div className="ch-analytics-context">
         <Panel title="Audience history">
-          <StateBlock
-            kind="empty"
-            compact
-            title="A current snapshot, not a growth trend."
-            body="This public report does not provide a historical audience series. Growth will be shown when enough dated platform observations are available."
-          />
+          <div className="ch-history-chart" role="img" aria-label="Audience history unavailable">
+            <div>
+              <span>History appears as reports accumulate</span>
+            </div>
+            <p>
+              This public report does not provide a historical audience series. No growth trend is
+              shown.
+            </p>
+          </div>
         </Panel>
         <aside className="ch-context-note">
           <h2>What this tells you</h2>

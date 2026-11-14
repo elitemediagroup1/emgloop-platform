@@ -7,7 +7,7 @@ import Link from 'next/link';
 import { CreatorPageHead } from '../../../../creator/creator-page-head';
 
 // Tasks (Creator Hub): what needs this creator, derived from the rows -- a review step assigned to
-// their login, a deliverable without content, a setup step not done. Nothing is a task because a
+// their login, a deliverable without content, a deliverable needing attention. Nothing is a task because a
 // page said so; the read model derives each one and points at the record it lives on. There is no
 // completed list: Loop keeps the events on the records, not a checklist of its own.
 // Updates reuse private, creator-scoped Work OS notifications; no email or push is sent.
@@ -37,7 +37,7 @@ export default async function CreatorTasksPage({
       <CreatorPageHead
         section="Tasks"
         title="Your next move."
-        description="Your reviews, deliverables and account setup, connected to the work behind them."
+        description="Action items for your partnerships and content, in one place."
       />
       <nav className="ch-analytics-tabs" aria-label="Task view">
         <Link

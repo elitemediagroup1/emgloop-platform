@@ -48,6 +48,8 @@ export default async function CreatorOpportunitiesPage({
         rows={brands.rows}
         time={time}
         stage={stage}
+        brandId={typeof searchParams.brand === 'string' ? searchParams.brand : undefined}
+        status={typeof searchParams.status === 'string' ? searchParams.status : undefined}
         query={query}
         available={brands.available}
       />

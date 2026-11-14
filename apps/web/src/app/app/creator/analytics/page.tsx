@@ -42,11 +42,14 @@ export default async function CreatorAnalyticsPage({
       <CreatorPageHead
         section="Analytics"
         title="Know what is working."
-        description="Your platform reports, content performance and audience, with their source and update time."
+        description=""
         actions={
-          <Link className="loop-btn" href={CREATOR_HREFS.profile}>
-            Manage connections →
-          </Link>
+          <>
+            <Link className="loop-btn" href={CREATOR_HREFS.profile}>
+              Manage connections →
+            </Link>
+            {platform === 'TIKTOK' ? <CreatorRefreshButton /> : null}
+          </>
         }
       />
       <nav className="ch-analytics-tabs" aria-label="Analytics platform">
@@ -64,9 +67,6 @@ export default async function CreatorAnalyticsPage({
       {platform === 'TIKTOK' ? (
         tiktok?.ok && tiktok.value?.report ? (
           <>
-            <div className="ch-report-actions">
-              <CreatorRefreshButton />
-            </div>
             <CreatorTikTokAnalytics
               report={tiktok.value.report}
               updatedAt={tiktok.value.lastReadAt}

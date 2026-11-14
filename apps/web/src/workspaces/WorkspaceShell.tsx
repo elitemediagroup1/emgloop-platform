@@ -57,8 +57,26 @@ export default async function WorkspaceShell({
         </a>
         <TimeZoneSync timeZone={time.timeZone} source={time.source} />
         <header className="ch-topbar">
-          <Link href={LOOP_NAV.home} className="ch-topbar__brand" aria-label="EMG Loop Home">
-            <EmgLoopWordmark height={28} />
+          <Link
+            href={LOOP_NAV.home}
+            className="ch-topbar__brand"
+            aria-label="EMG Talent Group and EMG Loop Home"
+          >
+            <img
+              className="ch-talent-logo"
+              src="/brand/emg-talent-original.png"
+              alt="EMG Talent Group"
+              width={120}
+              height={80}
+            />
+            <span className="ch-brand-divider" aria-hidden="true" />
+            <img
+              className="ch-loop-logo"
+              src="/brand/emg-loop-original.png"
+              alt="EMG Loop"
+              width={188}
+              height={36}
+            />
           </Link>
           <ShellNav groups={groups} label={LOOP_NAV.label} />
           <div className="ch-topbar__account">
