@@ -3,7 +3,8 @@ import { ttoMediaService } from '../tiktok-business/runtime';
 import { revalidatePath } from 'next/cache';
 import { requireCreator } from './creator-runtime';
 import { creatorMailSharingEnabled, managedCreatorMailRepository } from './creator-mail-runtime';
-export async function refreshCreatorUpdates(): Promise<{ ok: boolean }> {
+interface RefreshResult { ok: boolean }
+export async function refreshCreatorUpdates(): Promise<RefreshResult> {
   const seat = await requireCreator();
   const p = { organizationId: seat.actor.organizationId, userId: seat.actor.userId };
   const [mail, media] = await Promise.allSettled([

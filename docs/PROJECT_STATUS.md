@@ -1,5 +1,6 @@
 ## TikTok One creator public content — November 14, 2026
 
+Draft PR #459: https://github.com/elitemediagroup1/emgloop-platform/pull/459.
 Agency authorization is connected in production. Main `2f09ecb7cc5fa370b4c7998ae72af396723b663f`
 deployed successfully after the modern Netlify adapter fix. Public import work adds org-scoped
 snapshots, validated exact-handle profile/latest-ten-video reads, creator Refresh/profile-save hooks,
@@ -8,6 +9,10 @@ admin source selection/import status, and a bounded ten-minute scheduled worker.
 Public insights endpoint permissions, a real Trevon report, creator-visible media and actual scheduled
 execution still require production validation. Private creator-token rotation/analytics remain
 unimplemented. Existing TikTok Developers Login Kit is unchanged.
+Validation: filtered production build and web/database/provider types pass; 13 focused CI tests
+including both disposable Postgres suites pass without skips; creator/authorization regressions pass.
+Preview packages the modern Next adapter and native ten-minute schedule. Lint remains blocked by
+the pre-existing missing ESLint configuration.
 See `docs/runbooks/tiktok-business-connect.md` for the live acceptance steps.
 
 ## Access request approval — November 13, 2026

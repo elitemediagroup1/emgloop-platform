@@ -135,7 +135,7 @@ describe('Every page reachable without a session reads no tenant data', () => {
 });
 
 describe('Every server action authenticates, except the reviewed sign-in flows', () => {
-  const BASE_GUARD = /\b(requirePermission|requireWorkspace|requireWorkspaceSession|requireCrmContext|getSession)\(/;
+  const BASE_GUARD = /\b(requirePermission|requireWorkspace|requireWorkspaceSession|requireCrmContext|getSession|getSessionBinding)\(/;
   // Reachable before sign-in by design: each is token-, credential- or rate-limited.
   const PUBLIC_ACTIONS = new Set([
     'loginAction', 'logoutAction', 'loopLoginAction',
@@ -146,7 +146,7 @@ describe('Every server action authenticates, except the reviewed sign-in flows',
   // An exported require* helper that itself calls a base guard counts as a guard.
   const helperGuards = new Set<string>();
   for (const { src } of SOURCES) {
-    for (const m of src.matchAll(/export async function (require\w+)\s*\(/g)) {
+    for (const m of src.matchAll(/export async function (require\w+|businessPrincipal)\s*\(/g)) {
       if (BASE_GUARD.test(bodyAt(src, m.index!))) helperGuards.add(m[1]!);
     }
   }
@@ -162,7 +162,9 @@ describe('Every server action authenticates, except the reviewed sign-in flows',
     for (const { rel, src } of actions) {
       const localGuards = new Set<string>();
       for (const m of src.matchAll(/(?:^|\n)(?:export )?async function (\w+)\s*\(/g)) {
-        if (BASE_GUARD.test(bodyAt(src, m.index! + m[0].indexOf('async')))) localGuards.add(m[1]!);
+        const body = bodyAt(src, m.index! + m[0].indexOf('async'));
+        const calls = [...body.matchAll(/\b(\w+)\(/g)].map(c => c[1]!);
+        if (BASE_GUARD.test(body) || calls.some(c => helperGuards.has(c))) localGuards.add(m[1]!);
       }
       for (const m of src.matchAll(/export async function (\w+)\s*\(/g)) {
         const name = m[1]!;
@@ -203,7 +205,15 @@ describe('Every API route authenticates, except static public endpoints', () => 
         continue;
       }
       const reexport = code(src).match(/export \{[^}]+\} from '(\.[^']+)'/);
-      const effective = reexport ? readFileSync(join(p, '..', reexport[1]! + '.ts'), 'utf8') : src;
+      let effective = reexport ? readFileSync(join(p, '..', reexport[1]! + '.ts'), 'utf8') : src;
+      if (['integrations/tiktok-business/callback/route.ts', 'integrations/tiktok-business/creator-callback/route.ts'].includes(rel)) {
+        assert.match(src, /import \{ businessCallback \} from/);
+        assert.match(src, /businessCallback\(request, '(TTO|CREATOR)'\)/);
+        const callback = readFileSync(join(SRC, 'tiktok-business/callback.ts'), 'utf8');
+        assert.match(callback, /await businessPrincipal\(\)/);
+        assert.match(callback, /if \(p\) outcome = await businessService/);
+        effective += readFileSync(join(SRC, 'tiktok-business/runtime.ts'), 'utf8');
+      }
       assert.match(effective, AUTH, `${rel} has no authentication`);
     }
   });
