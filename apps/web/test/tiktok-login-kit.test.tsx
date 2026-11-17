@@ -386,7 +386,7 @@ describe('the public legal pages', () => {
 
   it('the privacy policy states exactly what the code does with a TikTok account, and no more', () => {
     for (const scope of TIKTOK_SCOPES) assert.match(privacy, new RegExp(scope.replace(/\./g, '\\.')), scope);
-    assert.match(privacy, /up to ten of your most recent public videos/);
+    assert.match(privacy, /up to fourteen of your most recent public videos/);
     assert.match(privacy, /more than fifteen minutes old/);
     assert.match(privacy, /does not read your account in the background/);
     assert.match(privacy, /AES-256-GCM/);

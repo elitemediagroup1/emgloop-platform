@@ -68,3 +68,9 @@ export type { PublishedCreatorBrandUpdate } from './creator-brand-mail.repositor
 export { CreatorBrandMailService } from './creator-brand-mail.service';
 
 export { issueCreatorInvitation } from './creator-invitation.service';
+
+export { CreatorHubRepository, creatorHubSettings } from './creator-hub.repository';
+export { creatorBrandNameKey, creatorBrandAliasName, resolveCreatorBrandRows } from './creator-brand-identity';
+
+export {CreatorPayoutRepository} from './payments/creator-payout.repository';
+export {plaidConfig,plaidLedgerConfig,PlaidApi} from './payments/plaid';

@@ -1,3 +1,4 @@
+import { CreatorPaymentsPanel } from '../../../../creator/creator-payments-panel';
 import Link from 'next/link';
 import { CreatorPageHead } from '../../../../creator/creator-page-head';
 import { realCreatorEarnings } from '../../../../creator/creator-earnings';
@@ -8,7 +9,7 @@ import { LoopPage } from '../../_loop-os/record';
 import { EarningsBody } from '../_parts/earnings-body';
 
 // Earnings (Creator Hub). The body carries the rule: only AVAILABLE is money the creator can act
-// on, and Loop moves none of it. This page states its authority, loads the read model and draws.
+// on. Bank requests have their own server-authorized payout panel below the compensation ledger.
 
 export const dynamic = 'force-dynamic';
 
@@ -35,8 +36,8 @@ export default async function CreatorEarningsPage({
     <LoopPage label="Payments">
       <CreatorPageHead
         section="Payments"
-        title="Your earnings. Your control."
-        description="What is expected, approved and paid. Every amount comes from your compensation records."
+        title="Your earnings, clearly tracked."
+        description="Follow compensation from expected to approved and paid, with the campaign and status behind each entry."
       />
       {currencies.length > 1 ? (
         <nav className="ch-analytics-tabs" aria-label="Payment currency">
@@ -54,6 +55,7 @@ export default async function CreatorEarningsPage({
       ) : null}
 
       <EarningsBody earnings={real} time={time} />
+      <CreatorPaymentsPanel page={typeof searchParams.payoutPage === "string" ? Number.parseInt(searchParams.payoutPage,10) : 1} actor={seat.actor} outcome={typeof searchParams.payout === "string" ? searchParams.payout : undefined} />
     </LoopPage>
   );
 }

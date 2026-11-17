@@ -1,3 +1,9 @@
+import { markTeamReplyRead } from '../../../../creator/creator-hub-actions';
+import { CreatorQuestionForm } from '../../../../creator/creator-question-form';
+import { CreatorTeam } from '../../../../creator/creator-team';
+import { creatorHubRepository } from '../../../../creator/creator-hub-runtime';
+import { loadCreatorBrandUpdates,groupCreatorBrandRows,latestCreatorBrandUpdate } from '../../../../creator/creator-brand-updates';
+import { creatorPriorities } from '../../../../creator/creator-priorities';
 import { requireWorkspace } from '../../../../workspaces/guard';
 import { CREATOR_HREFS, creatorDomain, requireCreator } from '../../../../creator/creator-runtime';
 import { viewerTime } from '../../../../time/viewer-time';
@@ -22,10 +28,14 @@ export default async function CreatorTasksPage({
   await requireWorkspace('CREATOR');
   const seat = await requireCreator();
   const time = viewerTime();
-  const tasks = await creatorDomain().records.tasks(seat.actor, {
+  const workTasks = await creatorDomain().records.tasks(seat.actor, {
     content: CREATOR_HREFS.contentRecord,
     profile: CREATOR_HREFS.profile,
   });
+  const brands=await loadCreatorBrandUpdates(seat,time);
+  const tasks=creatorPriorities(workTasks,groupCreatorBrandRows(brands.rows).flatMap(g=>{const update=latestCreatorBrandUpdate(g);return update?[{id:g.brandId,brand:g.brand,update}]:[];}),time.now);
+  const messages=await creatorHubRepository().messages(seat.actor);
+  const alerts=await creatorHubRepository().alerts(seat.actor);
   const updates = await creatorDomain().records.updates(seat.actor);
   const needs = tasks.filter((t) => t.bucket === 'NEEDS_ATTENTION');
   const upcoming = tasks.filter((t) => t.bucket === 'UPCOMING');
@@ -82,7 +92,7 @@ export default async function CreatorTasksPage({
             />
           )}
         </section>
-        <aside className="ch-task-detail">
+        {selected ? <aside className="ch-task-detail">
           {selected ? (
             <>
               <span className="ch-eyebrow">{selected.kind.replace(/_/g, ' ')}</span>
@@ -104,13 +114,20 @@ export default async function CreatorTasksPage({
               <p>New reviews and deliverables will appear here when they need you.</p>
             </>
           )}
-        </aside>
+        </aside> : null}
       </div>
+      <section id="team" className="ch-team-inbox" aria-label="Messages with EMG">
+        <CreatorTeam seat={seat}/>
+        <h2>Your conversation with EMG</h2>
+        {alerts.length?<div className="ch-success" role="status"><strong>{alerts.length} unread {alerts.length===1?'reply':'replies'} from EMG</strong>{alerts.map(a=><form key={a.id} action={markTeamReplyRead}><input type="hidden" name="id" value={a.id}/><a href={`#message-${a.workInstanceId}`}>Read reply →</a> <button className="loop-btn">Mark read</button></form>)}</div>:null}
+        {searchParams.message==='sent'?<p className="ch-success" role="status">Your message is saved for EMG. Replies will appear here.</p>:searchParams.message==='unavailable'?<p role="alert">Your message was not saved. Check the message and try again; the daily limit is ten new questions.</p>:null}
+        <CreatorQuestionForm/>
+        {messages.map(m=><article className="loop-panel" key={m.id} id={`message-${m.id}`}><span className="ch-eyebrow">{m.status==='completed'?'Answered':'With EMG'}</span><h3>{m.title}</h3><p>{m.body}</p><small>{time.dateTime(m.at)}</small>{m.replies.map(reply=><div className="ch-team-reply" key={reply.id}><strong>{reply.fromCreator?'You':'EMG'}</strong><p>{reply.body}</p><small>{time.dateTime(reply.at)}</small></div>)}</article>)}
+      </section>
       <section id="updates" aria-label="Your updates">
         <Panel title="Updates">
           <p className="loop-note">
-            Edit-return updates in Loop. Your notification preference controls this list; review
-            tasks remain above.
+            Content edit notifications appear here. Partnership decisions are included in your priorities above; replies from EMG appear in your conversation.
           </p>
           {updates.length === 0 ? (
             <StateBlock

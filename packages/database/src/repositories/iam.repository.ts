@@ -46,6 +46,8 @@ import { WORK_RETENTION_POLICY_VERSION } from '@emgloop/shared';
 
 
 export type Resource =
+  | 'creatorPayoutFunding'
+  | 'creatorPayouts'
   | 'customers'
   | 'pipeline'
   | 'inbox'
@@ -330,18 +332,21 @@ const CRM_IMPORT_FORBIDDEN_ROLES: readonly string[] = ['AI_EMPLOYEE'];
 // Sprint 10 adds analytics/integrations/intelligence columns.
 const MATRIX: Record<string, Partial<Record<Resource, Action[]>>> = {
   OWNER: {
+    creatorPayouts: ['view','update'], creatorPayoutFunding:['view','update'],
     customers: ALL, pipeline: ALL, inbox: ALL, workflows: ALL, users: ALL,
     organizations: ALL, aiEmployees: ALL, settings: ALL, audit: ALL,
     analytics: ALL, integrations: ALL, intelligence: ALL,
     commercialIntelligence: ALL, work: ALL, relationships: RO, opportunities: RO, crmImports: RO,
   },
   ADMIN: {
+    creatorPayouts: ['view','update'], creatorPayoutFunding:['view','update'],
     customers: ALL, pipeline: ALL, inbox: ALL, workflows: ALL, users: ALL,
     organizations: ['view', 'update'], aiEmployees: ALL, settings: ALL, audit: ['view'],
     analytics: ALL, integrations: ALL, intelligence: ALL,
     commercialIntelligence: ALL, work: ALL, relationships: RO, opportunities: RO, crmImports: RO,
   },
   MANAGER: {
+    creatorPayouts: ['view','update'], creatorPayoutFunding:['view','update'],
     customers: RW, pipeline: RW, inbox: RW, workflows: RW, users: ['view'],
     organizations: RO, aiEmployees: RW, settings: ['view'], audit: ['view'],
     analytics: RO, integrations: ['view'], intelligence: RO,

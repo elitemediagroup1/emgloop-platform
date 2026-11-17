@@ -1,4 +1,4 @@
-import { AI_TASK_CREATOR_ANALYTICS_READING, DOMAIN_READING_SCHEMA } from '@emgloop/shared';
+import { AI_TASK_CREATOR_ANALYTICS_READING, DOMAIN_READING_SCHEMA, AI_OUTPUT_REJECTIONS, AI_ADMISSION_REFUSALS } from '@emgloop/shared';
 import type { AiRuntimeGateway } from '../services/ai-runtime/gateway';
 import { CreatorAnalyticsReviewRepository } from './creator-analytics-review.repository';
 import { analyticsReviewContext, CREATOR_COACH_INSTRUCTIONS, type AnalyticsSource } from './creator-analytics-review';
@@ -16,7 +16,7 @@ export class CreatorAnalyticsReviewService {
       const postRefs=new Set(claim.snapshot.evidence.posts.map(post=>`analytics_post:${post.key}`));
       const cited=reading?.signals.every(signal=>signal.evidenceRefs?.some(ref=>postRefs.has(ref))); 
       if(result.outcome!=='ANSWERED'||!reading||!cited||JSON.stringify(keys)!==JSON.stringify(['critique','experiment','praise'])){
-        const failure=result.outcome==='ANSWERED'?'OUTPUT_INVALID':result.outcome==='REFUSED_BY_LOOP'?`REFUSED_BY_LOOP:${result.refusals.join(':')}`.slice(0,240):result.outcome;
+        const failure=result.outcome==='ANSWERED'?'OUTPUT_INVALID':result.outcome==='REFUSED_BY_LOOP'?`REFUSED_BY_LOOP:${AI_ADMISSION_REFUSALS.filter(code=>result.refusals.includes(code)).join(':')}`.slice(0,240):result.outcome==='REJECTED_OUTPUT'?`REJECTED_OUTPUT:${AI_OUTPUT_REJECTIONS.filter(code=>result.rejections.includes(code)).join(':')}`.slice(0,240):result.outcome;
         console.info('creator-analytics-review.withheld',{outcome:result.outcome,...(result.outcome==='REFUSED_BY_LOOP'?{refusals:result.refusals}:{})});
         await this.repo.finish(p,claim,this.now(),{failure});
         return result.outcome==='ANSWERED'?'OUTPUT_INVALID':result.outcome;

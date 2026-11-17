@@ -1,33 +1,44 @@
-## Creator Analytics audience and video history
+## Creator Hub audit adjustments and approved bank payouts
 
-Main b4f2a2e6de5498e60fe111d1de7857f2a58d4a57 includes #465 (verified tree matches local).
-Branch `fix/creator-audience-history` fixes the dropped audience fields and first-page-only media.
-The existing TikTok public profile endpoint documents follower, reached, and engaged age/gender/
-country distributions. Reached/engaged populations cover the past 30 days; fractions are validated,
-retained in the existing authorized snapshot and rendered separately. Missing dimensions have an
-individual explanation. No creator pricing or commercial terms are imported into creator analytics.
+Main `8460feb6deb352eea26e70be99320ecde1bc8c13` (#466) was verified deployed. The live authorized
+Trevon audit covered all seven pages at desktop and phone widths. Audience demographics and 25
+imported TikTok videos were present; current AI coaching was still unavailable. The new branch
+`feat/creator-hub-completion` is one coordinated release and is not yet production-validated.
 
-Each import reads up to 25 newest videos, resumes one saved 25-video history page, and refreshes the
-previous top ten by ID. Cursor and bounded archive live in the existing snapshot JSON, with the same
-source revision, profile handle, lease and publication authorization checks. Failed reads cannot
-advance the stored cursor. Unfinished backfills become due after two minutes and the existing ten-
-minute scheduled sweep processes one due creator per run. Completed history refreshes after six
-hours; manual refresh retains the two-minute fence. Archive cap is 10,000; capped/incomplete data
-cannot be labeled all-time. Public/private/deleted coverage remains limited to the provider response.
+Home and Tasks use the same evidence-grounded current priorities; old creator-waiting proposals
+are labeled earlier activity. Partnerships prioritize meaningful recent changes, paginate brands,
+and offer a private question form. Questions/replies reuse Work OS with creator-visible comments
+only. Explicit manager-assigned team contacts and exact reviewed aliases are protected preferences;
+creators cannot overwrite them. Aliases consolidate the same relationship evidence and invalidate
+affected synthesis. Analytics retains authorized accepted earlier coaching with a clear earlier
+label, explains budget/setup/validation failures and exposes closed diagnostic codes to managers.
+Mobile navigation, account discovery, Tasks layout, production empty states and disconnected social
+identity presentation are corrected. No fabricated contacts, analytics, tasks or commercial claims.
 
-Creator Analytics now shows 14 newest videos and the highest-viewed ten across imported history.
-The label becomes Top 10 All-Time Videos only when the available history has completed and all
-imported posts have reported views. History counts remain explicit. Account supplements are still
-merged only for matching handles; mismatches cannot supply audience data or historical rankings.
-Model evidence v3 includes the newest fourteen plus historical top ten, deduplicated (max 24), and
-reported demographics. Current recent leader anchors praise; broader history can inform comparisons.
-Existing OpenAI gateway, cooldown, failure backoff, schema validation and spending controls remain.
-No migration, new environment variable, paid service or spending increase is required.
+The same release adds Plaid Link and outbound ACH Transfer: encrypted creator-bound credentials,
+one-use Link sessions/OAuth return, server-verified USD accounts, dedicated manager payout authority,
+unique earning references, separate pending earnings / manager funding / manager release steps, explicit creator requests, Serializable reservations, provider idempotency,
+audit records, approval cancellation and bounded scheduled reconciliation. Sandbox and live deploys
+are separated by an immutable build-time gate. Only settled provider-confirmed credits become paid;
+unknown/returned outcomes stay reserved for operator review. Sandbox amounts never enter real balances.
+Managers can record pending balances before Plaid activation; only managers can fund EMG’s Ledger and explicitly release an amount after verified available funding. Production money movement requires actual Plaid Transfer approval, credentials, a verified EMG funding bank and authorized
+end-to-end validation. No real transfer or bank operation has been executed by the agent.
 
-Validation: 162 creator/UI tests and 19 provider/backend tests pass; additional final UI and account-isolation checks pass. Web (including test types), database and provider typechecks pass. The product build passes. Lint remains blocked by the existing missing ESLint configuration. Draft PR #466 is open. Production Trevon audience payload and completed-history ranking must
-be verified after Matt merges/deploys. Earlier review migration 20261117170000_creator_analytics_reviews
-was applied by Matt in workflow #55; creator.analytics.reading was added to the existing production
-task allowlist. Successful live persisted coaching still needs confirmation; do not claim it verified.
+New migration `20261117190000_creator_payouts` is manual. Matt retains merge, migration, Actions,
+production configuration and deploy controls. No new Gmail sources, mail sends or AI spending increases.
+See `docs/creator-hub-payments-release.md` for ordered setup, sandbox tests and recovery limitations.
+
+Validation: 173 creator/UI/navigation/OAuth tests and 110 backend/payment/governance contracts pass.
+Database and web typechecks and the production build pass. Disposable Postgres tests are wired into
+the PR CI; local execution skips them because no disposable PostgreSQL server is installed. CI and
+provider/live creator validation remain to be confirmed. Initial PR CI passed all migration,
+creator-production, payment-concurrency and isolation tests. The TikTok job’s static guard scan
+misread an inline return type on an already authenticated action; the signature is clarified,
+with the security check unchanged. Assigned employees can now reply through their Work queue;
+team removal withdraws that reply access. Distinct CRM companies with the same display name
+remain separate until a manager explicitly reviews their identity.
+Lint remains blocked by the repository's pre-existing missing ESLint configuration. Do not call the
+Hub a verified 10/10 or the payments production-ready before the actual creator/provider checks.
 
 ## Creator Hub reference fidelity and agency branding
 

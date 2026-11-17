@@ -1,3 +1,5 @@
+import { creatorHubSettings } from './creator-hub.repository';
+import { resolveCreatorBrandRows } from './creator-brand-identity';
 import { randomUUID } from 'crypto';
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { publishedCreatorBrandStage, AI_TASK_CREATOR_BRAND_UPDATE, CREATOR_BRAND_UPDATE_SCHEMA, CREATOR_BRAND_UPDATE_SCHEMA_ID, parseCreatorBrandUpdate } from '@emgloop/shared';
@@ -20,14 +22,17 @@ export class CreatorRelationshipService {
     const repo = this.repo();
     const rows = await this.db.managedCreatorMailCapture.findMany({ where: { organizationId, creatorProfileId, enabled: true }, orderBy: { id: 'asc' }, take: 4 });
     const groups = new Map<string, RelationshipEvidence[]>();
+    const evidence:RelationshipEvidence[]=[];
     for (const row of rows) {
       if (!await repo.allowed(this.db, row)) continue;
       for (const reading of await repo.durableReadings(row)) {
         if (!accepted(reading)) continue;
-        const key = relationshipBrandKey(reading), items = groups.get(key) ?? [];
-        items.push({ captureId: row.id, generation: row.generation, scopeHash: row.scopeHash, reading }); groups.set(key, items);
+        evidence.push({captureId:row.id,generation:row.generation,scopeHash:row.scopeHash,reading});
       }
     }
+    const profile=await this.db.creatorProfile.findFirst({where:{organizationId,id:creatorProfileId},select:{preferences:true}});
+    const named=await Promise.all(evidence.map(async e=>({e,brandId:relationshipBrandKey(e.reading),brand:e.reading.brandId?(await this.db.cognitiveIdentity.findFirst({where:{organizationId,id:e.reading.brandId},select:{displayName:true}}))?.displayName??e.reading.update?.brandName??e.reading.brandId:e.reading.candidateBrandName!})));
+    for(const row of resolveCreatorBrandRows(named.map(r=>({...r,originalBrand:r.brand})),creatorHubSettings(profile?.preferences).aliases)){const items=groups.get(row.brandId)??[];const changed=row.brand!==row.originalBrand;items.push(changed?{...row.e,scopeHash:mailEvidenceHash(`${row.e.scopeHash}:brand:${row.brand}`)}:row.e);groups.set(row.brandId,items);}
     return groups;
   }
   async pass(principal?: WorkPrincipal, profileId?: string): Promise<Record<string, number>> {
@@ -100,7 +105,9 @@ export class CreatorRelationshipService {
   }
   async projections(principal: WorkPrincipal, profileId: string, manager = false) {
     // Reuse the existing creator binding and mailbox authorization boundary before accessing sources.
-    const threads = await this.repo().updates(principal, profileId, this.now(), manager);
+    const rawThreads = await this.repo().updates(principal, profileId, this.now(), manager);
+    const profile=await this.db.creatorProfile.findFirst({where:{organizationId:principal.organizationId,id:profileId},select:{preferences:true}});
+    const threads=resolveCreatorBrandRows(rawThreads,creatorHubSettings(profile?.preferences).aliases);
     if (!threads.length) return [];
     const groups = await this.evidence(principal.organizationId, profileId);
     const rows = await this.db.creatorMailRelationship.findMany({ where: { organizationId: principal.organizationId, creatorProfileId: profileId } });

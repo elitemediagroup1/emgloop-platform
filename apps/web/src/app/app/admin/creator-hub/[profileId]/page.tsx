@@ -1,3 +1,5 @@
+import { ManagerPaymentsPanel } from '../../../../../creator/creator-payments-panel';
+import { CreatorSupportPanel } from '../../../../../creator/creator-support-panel';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import type { CampaignView, DeliverableView, LibraryItem, OpportunityView } from '@emgloop/database';
@@ -278,7 +280,7 @@ function LibraryTable({ items, profileId }: { items: readonly LibraryItem[]; pro
   );
 }
 
-export default async function CreatorOverviewPage({ params, searchParams }: { params: { profileId: string }; searchParams?: { refused?: string; mailbox?: string; capture?: string } }) {
+export default async function CreatorOverviewPage({ params, searchParams }: { params: { profileId: string }; searchParams?: { refused?: string; mailbox?: string; capture?: string; hub?: string; payout?: string } }) {
   const session = await requireWorkspace('ADMIN');
   const organizationId = session.organizationId;
   const domain = creatorDomain();
@@ -322,6 +324,8 @@ export default async function CreatorOverviewPage({ params, searchParams }: { pa
           </div>
         }
       />
+      <ManagerPaymentsPanel actor={{organizationId,userId:session.userId,canActOnAnyStep:true}} profileId={profile!.id} outcome={searchParams?.payout} />
+      <CreatorSupportPanel actor={{organizationId,userId:session.userId,canActOnAnyStep:true}} profileId={profile!.id} preferences={profile!.preferences} time={time} outcome={searchParams?.hub}/>
       <RefusedBlock refused={searchParams?.refused} />
 
       <SummaryStrip

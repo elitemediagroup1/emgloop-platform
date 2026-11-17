@@ -64,6 +64,9 @@ export default async function CreatorAnalyticsPage({
     coachOutcome = result.ok ? result.value : 'UNAVAILABLE';
     if (coachOutcome === 'ANALYZED' || coachOutcome === 'NOT_DUE') coach = await settle(() => creatorAnalyticsReviewRepository().current(principal, source, time.now));
   }
+  const reviewStatus=platform==='TIKTOK'?await settle(()=>creatorAnalyticsReviewRepository().status(principal,source,time.now)):null;
+  let earlier=false;
+  if(platform==='TIKTOK'&&coach?.ok&&!coach.value){const previous=await settle(()=>creatorAnalyticsReviewRepository().previous(principal,source,time.now));if(previous.ok&&previous.value){coach=previous;earlier=true;}}
   const videos = source === 'ACCOUNT' && accountEntry
     ? connectedTikTokOverview(accountEntry, publicReport?.ok ? publicReport.value : null).videos
     : publicReport?.ok ? (publicReport.value?.report?.videos ?? []).map(v => ({ id:v.id,title:v.caption,url:v.url,views:v.views,likes:v.likes,comments:v.comments,shares:v.shares,thumbnail:v.thumbnailUrl,publishedAt:v.createdAt })) : [];
@@ -92,7 +95,7 @@ export default async function CreatorAnalyticsPage({
           </Link>
         ))}
       </nav>
-      {platform === 'TIKTOK' ? <CreatorAnalyticsCoach review={coach?.ok ? coach.value : null} source={source} time={time} outcome={coachOutcome} /> : null}
+      {platform === 'TIKTOK' ? <CreatorAnalyticsCoach review={coach?.ok ? coach.value : null} source={source} time={time} outcome={coachOutcome} status={reviewStatus?.ok?reviewStatus.value:null} earlier={earlier}/> : null}
       {platform === 'TIKTOK' ? (
         source === 'ACCOUNT' ? <CreatorConnectedTikTokAnalytics feedback={feedback} entry={accountEntry} publicReport={publicReport?.ok ? publicReport.value : null} state={status} readFailed={param(searchParams.tiktok_sync) === 'FAILED' || !accountRead?.ok || !accountRead.value.ok || !accountProfile?.ok} time={time} /> :
         publicReport?.ok && publicReport.value?.report ? (

@@ -36,7 +36,7 @@ export const TIKTOK_SCOPE_READS: Readonly<Record<TikTokScope, string>> = Object.
   'user.info.basic': 'Your TikTok account id and display name, so Loop can tell which account is connected.',
   'user.info.profile': 'Your username, whether the account is verified, and the link to your public profile.',
   'user.info.stats': 'Your follower, following, likes and video counts, recorded as audience observations.',
-  'video.list': 'The titles, links, posting dates and public counts of up to ten of your most recent public videos. Private videos are never returned by TikTok and are never read.',
+  'video.list': 'The titles, links, posting dates and public counts of up to fourteen of your most recent public videos. Private videos are never returned by TikTok and are never read.',
 });
 
 export function isTikTokScope(value: unknown): value is TikTokScope {

@@ -4,12 +4,11 @@
 # repo root so npm workspaces install correctly, then builds only the web app
 # via Turborepo. Netlify automatically detects Next.js and applies its current OpenNext adapter.
 #
-# Scope: deploy configuration only. No business features, auth, or provider
-# integrations are introduced here.
+# The build also stamps a nonsecret deploy-context fence for creator payments.
 
 [build]
   # Install at the workspace root, then build just the web app and its deps.
-  command = "npm run build -- --filter=@emgloop/web"
+  command = "node scripts/creator-payout-context.mjs && npm run build -- --filter=@emgloop/web"
   # Next.js build output for the web app.
   publish = "apps/web/.next"
 
@@ -28,6 +27,11 @@
 # the generated handlers in Lambda compatibility mode (4 KB runtime env cap).
 
 [functions."tto-creator-sync"]
+  node_bundler = "esbuild"
+  external_node_modules = ["@prisma/client"]
+  included_files = ["node_modules/.prisma/client/**"]
+
+[functions."creator-payout-sync"]
   node_bundler = "esbuild"
   external_node_modules = ["@prisma/client"]
   included_files = ["node_modules/.prisma/client/**"]
