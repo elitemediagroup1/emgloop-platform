@@ -55,7 +55,7 @@ export function CreatorConnectedTikTokAnalytics({ entry, publicReport, state, re
       <p className="loop-note">TikTok One’s reported median complements the connected account counts above. It is not calculated from the ten recent videos and may use a different reporting period. View the TikTok One report for its full video breakdown.</p>
     </Panel> : publicReport?.report ? <p className="loop-note" role="status">TikTok One has a report for @{publicReport.report.handle}, which does not match this connected account. Those metrics are excluded from this overview. Review the separate TikTok One report or correct the account connection on Profile.</p> : null}
     <details className="ch-context-note"><summary>About your sources &amp; available metrics</summary><p>These are the counts and recent public videos returned by the TikTok account authorized on Profile. Check the handle above belongs to you.</p><p>Reach, watch time and private audience demographics are not supplied by this connection. Refresh checks for an update when the last reading is more than fifteen minutes old.</p></details>
-    <Panel title="Recent public video performance">
+    <details className="ch-analytics-video-details"><summary>All {entry.recentVideos.length} videos · full performance breakdown</summary><Panel title="Recent public video performance">
       <div className="loop-table-wrap"><table className="loop-table" aria-label="Connected TikTok video performance">
         <thead><tr><th>Content</th><th>Posted</th><th>Views</th><th>Likes</th></tr></thead>
         <tbody>{entry.recentVideos.map(video => <tr key={video.id}>
@@ -65,6 +65,6 @@ export function CreatorConnectedTikTokAnalytics({ entry, publicReport, state, re
         </tr>)}</tbody>
       </table></div>
       {!entry.recentVideos.length ? <StateBlock kind="empty" compact title="No public videos returned." body="This does not mean the account has no videos. Check your granted permissions on Profile." /> : null}
-    </Panel>
+    </Panel></details>
   </div>;
 }

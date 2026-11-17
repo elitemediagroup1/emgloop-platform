@@ -1,8 +1,11 @@
-import { prisma, TtoMediaRepository, TtoMediaService } from '@emgloop/database';
+import { prisma, CreatorAnalyticsReviewRepository, TtoMediaRepository, TtoMediaService } from '@emgloop/database';
 import { readBusinessConfig, TtoPublicApi } from '@emgloop/providers';
 import { appOrigin } from '@emgloop/shared';
 // Scheduled functions cannot be invoked through a public HTTP URL. Only the published deploy runs.
 export default async () => {
+    // Cached coaching evidence expires independently of whether a creator revisits the page.
+    try { await new CreatorAnalyticsReviewRepository(prisma).purgeExpired(new Date()); }
+    catch { console.error('creator-coach-retention unavailable'); }
     const config = readBusinessConfig('TTO', process.env, appOrigin());
     if (!config)
         return;

@@ -44,7 +44,7 @@ export function CreatorTikTokAnalytics({
       />
       <CreatorPerformanceInsights source="TikTok One" videos={report.videos.map(v => ({ id: v.id, title: v.caption, url: v.url, views: v.views, likes: v.likes, thumbnail: v.thumbnailUrl }))} />
       <details className="ch-context-note"><summary>About your sources &amp; available metrics</summary><p>This is TikTok One’s public creator report. Reach, private audience demographics, watch time and historical audience series are not supplied by this connection. This public report does not provide a historical audience series. No growth trend is shown.</p></details>
-      <Panel title="Reported content performance">
+      <details className="ch-analytics-video-details"><summary>All {report.videos.length} videos · full performance breakdown</summary><Panel title="Reported content performance">
         <div className="loop-table-wrap">
           <table className="loop-table" aria-label="TikTok video performance">
             <thead>
@@ -93,7 +93,7 @@ export function CreatorTikTokAnalytics({
             body="This does not mean you have no published videos."
           />
         ) : null}
-      </Panel>
+      </Panel></details>
     </div>
   );
 }
