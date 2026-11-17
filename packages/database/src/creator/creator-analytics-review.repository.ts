@@ -66,6 +66,15 @@ export class CreatorAnalyticsReviewRepository {
     if (!snapshot) return null;
     return absentUntilMigrated(this.db.creatorAnalyticsReview.findFirst({ where: { organizationId:p.organizationId, userId:p.userId, creatorProfileId:snapshot.profileId, source, fingerprint:snapshot.fingerprint, state:'READY', expiresAt:{gt:now} } }));
   }
+  async status(p:Principal,source:AnalyticsSource,now:Date){
+    const snapshot=await this.snapshot(p,source,now);if(!snapshot)return {state:'NO_EVIDENCE',nextAttemptAt:null,failure:null};
+    const row=await absentUntilMigrated(this.db.creatorAnalyticsReview.findFirst({where:{organizationId:p.organizationId,userId:p.userId,creatorProfileId:snapshot.profileId,source,expiresAt:{gt:now}},orderBy:{createdAt:'desc'},select:{state:true,failure:true,nextAttemptAt:true,leaseUntil:true}}));
+    return {state:row?.state??'NOT_STARTED',failure:row?.failure??null,nextAttemptAt:row?.nextAttemptAt??null};
+  }
+  async previous(p:Principal,source:AnalyticsSource,now:Date){
+    const snapshot=await this.snapshot(p,source,now);if(!snapshot)return null;
+    return absentUntilMigrated(this.db.creatorAnalyticsReview.findFirst({where:{organizationId:p.organizationId,userId:p.userId,creatorProfileId:snapshot.profileId,source,state:'READY',expiresAt:{gt:now},evidence:{path:['identity'],equals:snapshot.evidence.identity}},orderBy:{generatedAt:'desc'}}));
+  }
   async claim(p: Principal, source: AnalyticsSource, now: Date) {
     return this.db.$transaction(async tx => {
       const snapshot = await this.snapshotIn(tx, p, source, now);

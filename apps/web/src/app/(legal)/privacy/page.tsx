@@ -17,6 +17,9 @@ export const metadata: Metadata = {
 export default function PrivacyPage() {
   return (
     <LegalPage title="Privacy Policy" intro="This policy explains what information EMG Loop holds about you, what it does with a TikTok account you connect, and the choices you have.">
+      <h2>Creator bank payouts</h2>
+      <p>When enabled by EMG, bank linking uses Plaid Link. Your bank credentials are entered in Plaid’s flow, not in a Loop form. Loop keeps the account holder’s legal name, masked account display, consent record and encrypted Plaid credentials for the selected account. Loop does not store bank account or routing numbers.</p>
+      <p>Managers record earnings and separately release funded amounts for withdrawal. You must request the released amount before Loop initiates an ACH credit. Loop keeps approval, request and transfer-status records for payment reconciliation. Disconnecting removes Loop’s bank connection; it does not cancel an already submitted payment or erase financial audit records. Contact your EMG team about payment questions or data requests.</p>
       <h2>1. Who we are</h2>
       <p>
         Elite Media Group (“EMG”, “we”, “us”) operates EMG Loop (“Loop”) at app.emgloop.com, including the Creator Hub for
@@ -70,7 +73,7 @@ export default function PrivacyPage() {
           so your audience history in the Creator Hub is based on what TikTok reported.
         </li>
         <li>
-          <strong>Public video list (video.list).</strong> For up to ten of your most recent public videos: the video id, title
+          <strong>Public video list (video.list).</strong> For up to fourteen of your most recent public videos: the video id, title
           or caption, share link, posting date, and the public view, like, comment and share counts. Loop shows them on your
           Profile page as “recent public videos, as listed”. TikTok only returns public videos to this permission; Loop never
           reads private videos, video files, comments or messages.

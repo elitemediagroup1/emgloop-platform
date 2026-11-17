@@ -175,7 +175,7 @@ export interface LibraryItem {
 
 export interface CreatorTask {
   readonly key: string;
-  readonly kind: 'REVIEW' | 'DELIVERABLE' | 'SETUP' | 'UPLOAD';
+  readonly kind: 'REVIEW' | 'DELIVERABLE' | 'SETUP' | 'UPLOAD' | 'PARTNERSHIP';
   readonly title: string;
   readonly detail: string | null;
   readonly dueAt: string | null;

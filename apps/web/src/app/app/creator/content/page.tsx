@@ -108,7 +108,7 @@ export default async function CreatorContentPage({
       <div className="ch-content-layout">
         <aside className="ch-production-workspace">
           <h2>Production workspace</h2>
-          <p>Upload an original and follow your work through production and review.</p>
+          <p>Upload an original for a campaign or independent project. Your team’s edits, your feedback and approvals stay with that content.</p>
           <details className="ch-upload-panel" open={!!preselected}>
             <summary>Upload an original</summary>
 
@@ -147,8 +147,7 @@ export default async function CreatorContentPage({
           <section className="ch-workflow-guide">
             <h3>How the workflow works</h3>
             <p>
-              Upload an original to start production. Your team’s edits and review requests stay on
-              the content record. Published social posts link to their platform.
+              Upload creates your private content record. Open that record to request an EMG edit or link a deliverable. Imported social posts are references; importing does not submit them for review.
             </p>
             <ol>
               <li>
@@ -234,7 +233,7 @@ export default async function CreatorContentPage({
                 {shown.length} of {items.length} piece{items.length === 1 ? '' : 's'}
               </p>
               {shown.length === 0 ? (
-                <LibraryEmpty filtered={filter !== 'all' && items.length > 0} />
+                <StateBlock kind="empty" compact title={filter === 'all' ? 'No productions started yet.' : 'No productions match this view.'} body="Published social posts appear in Published library. Production begins when you upload original content or EMG requests a campaign deliverable." />
               ) : (
                 <LibraryGrid
                   items={shown}

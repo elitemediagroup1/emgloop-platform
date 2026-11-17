@@ -199,6 +199,9 @@ enum IntegrationEventStatus {
 // ---------------------------------------------------------------------------
 
 model Organization {
+  creatorBanks CreatorPayoutBank[]
+  creatorLinkSessions CreatorPayoutLink[]
+  creatorPayouts CreatorPayout[]
   creatorAnalyticsReviews CreatorAnalyticsReview[]
   ttoCreatorSnapshots TtoCreatorSnapshot[]
   tiktokBusinessConnections TikTokBusinessConnection[]
@@ -7226,6 +7229,9 @@ model WorkInstruction {
 /// says which login acts as the creator and what the creator maintains about
 /// themselves. `partyId` is a scalar id, like every identity reference here.
 model CreatorProfile {
+  payoutBanks CreatorPayoutBank[]
+  payoutLinks CreatorPayoutLink[]
+  payouts CreatorPayout[]
   analyticsReviews CreatorAnalyticsReview[]
   ttoSnapshot TtoCreatorSnapshot?
   id             String  @id @default(cuid())
@@ -7662,6 +7668,7 @@ model CreatorAudienceSnapshot {
 /// says so. The states are the product's: EXPECTED | PENDING | RECEIVED_BY_EMG |
 /// AVAILABLE | TRANSFER_PENDING | PAID.
 model CreatorCompensationEntry {
+  payout CreatorPayout?
   id               String  @id @default(cuid())
   organizationId   String
   creatorProfileId String
@@ -8641,4 +8648,92 @@ model CreatorAnalyticsReview {
   @@index([organizationId, userId, creatorProfileId, createdAt])
   @@index([expiresAt])
   @@map("creator_analytics_reviews")
+}
+
+
+/// Encrypted Plaid credentials. No account/routing numbers. Bound to the current creator login.
+model CreatorPayoutBank {
+  id String @id @default(cuid())
+  organizationId String
+  creatorProfileId String
+  userId String
+  environment String
+  sealed String?
+  mask String
+  institution String
+  legalName String
+  verifiedAt DateTime?
+  consentVersion String
+  consentAt DateTime
+  revision Int @default(1)
+  state String @default("CONNECTED")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  organization Organization @relation(fields:[organizationId], references:[id], onDelete:Cascade)
+  profile CreatorProfile @relation(fields:[organizationId,creatorProfileId], references:[organizationId,id], onDelete:Cascade)
+  @@unique([organizationId,creatorProfileId,environment])
+}
+
+/// One-use bank linking session; the public token and Link token are never retained.
+model CreatorPayoutLink {
+  id String @id @default(cuid())
+  organizationId String
+  creatorProfileId String
+  userId String
+  environment String
+  nonceHash String @unique
+  legalName String
+  expiresAt DateTime
+  consumedAt DateTime?
+  createdAt DateTime @default(now())
+  organization Organization @relation(fields:[organizationId], references:[id], onDelete:Cascade)
+  profile CreatorProfile @relation(fields:[organizationId,creatorProfileId], references:[organizationId,id], onDelete:Cascade)
+  @@index([expiresAt])
+}
+
+/// One manager-approved net USD earning, one durable creator-requested payout. Never split or double reserve.
+model CreatorPayout {
+  id String @id @default(cuid())
+  organizationId String
+  creatorProfileId String
+  userId String
+  environment String
+  compensationEntryId String @unique
+  entry CreatorCompensationEntry @relation(fields:[compensationEntryId], references:[id], onDelete:NoAction)
+  earningReference String
+  approvalSubmission String
+  approvedByUserId String
+  approvedAt DateTime @default(now())
+  amountMinor Int
+  description String
+  state String @default("PENDING")
+  payoutLedgerId String?
+  fundingAccountId String?
+  fundingAccountLabel String?
+  fundingLedgerId String?
+  fundingRequestedAt DateTime?
+  fundingRequestedByUserId String?
+  fundingSweepId String? @unique
+  fundingStatus String?
+  fundingLeaseUntil DateTime?
+  fundingCheckedAt DateTime?
+  releasedAt DateTime?
+  releasedByUserId String?
+  bankId String?
+  bankRevision Int?
+  requestedAt DateTime?
+  authorizationId String? @unique
+  transferId String? @unique
+  providerStatus String?
+  failure String?
+  leaseUntil DateTime?
+  checkedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  organization Organization @relation(fields:[organizationId], references:[id], onDelete:Cascade)
+  profile CreatorProfile @relation(fields:[organizationId,creatorProfileId], references:[organizationId,id], onDelete:Cascade)
+  @@unique([organizationId,approvalSubmission])
+  @@unique([organizationId,environment,earningReference])
+  @@index([environment,state,checkedAt])
+  @@index([organizationId,creatorProfileId,userId])
 }

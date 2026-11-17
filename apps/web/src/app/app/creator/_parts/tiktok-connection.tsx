@@ -3,7 +3,7 @@
 // HONEST STATE. The row says exactly where the connection stands (not configured here, not
 // connected, connected, partly connected, reconnect required) and, once connected, shows only
 // what TikTok actually returned on the last completed read: the counts, when they were read,
-// and up to ten recent public videos as listed. A count that was not returned is "not read",
+// and up to fourteen recent public videos as listed. A count that was not returned is "not read",
 // never zero. A read that failed this visit says so and never pretends the shown counts are new.
 //
 // CONNECT IS A PLAIN LINK to the connect route -- a plain anchor, not a router link, so a
@@ -148,7 +148,7 @@ export function TikTokConnectionRow(props: {
   const state = status.state;
   const connection = status.connection;
   const live = state === 'CONNECTED' || state === 'PARTIAL';
-  const handle = connection?.handle ?? entry?.handle ?? null;
+  const handle = live || state==='EXPIRED' || entry?.seeded ? connection?.handle ?? entry?.handle ?? null : null;
   const missing: readonly TikTokScope[] = connection?.missingScopes ?? [];
   const connectLabel = state === 'PARTIAL' ? 'Allow the rest' : state === 'EXPIRED' ? 'Reconnect TikTok' : 'Connect TikTok';
   const pill = STATE_PILL[state];

@@ -1,9 +1,13 @@
+import { CreatorQuestionForm } from './creator-question-form';
+import { actionableBrand } from './creator-priorities';
 // The creator sees only published, scoped paraphrases. No mailbox IDs, private subjects or citations
 // leave the repository projection. Grouping by brand is presentation, not another model invocation.
 import 'server-only';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import {
+  creatorHubSettings,
+  resolveCreatorBrandRows,
   CreatorBrandMailRepository,
   prisma,
   type PublishedCreatorBrandUpdate,
@@ -11,7 +15,7 @@ import {
 import type { TimeView } from '@emgloop/shared';
 import { CreatorUpdatesRefresh } from './CreatorUpdatesRefresh';
 import { creatorMailSharingEnabled } from './creator-mail-runtime';
-import { type CreatorSeat } from './creator-runtime';
+import { creatorDomain, type CreatorSeat } from './creator-runtime';
 import { settle } from '../app/app/_home/settle';
 import { managedCreatorMailRepository, creatorRelationshipService } from './creator-mail-runtime';
 import { CreatorRefreshButton } from './CreatorRefreshButton';
@@ -167,7 +171,7 @@ function Brand({
         ) : null}
         {latest ? (
           <span className="ch-brand-status">
-            {STAGES[latest.stage ?? ''] ?? 'Update'}
+            {latest.stage==='AWAITING_CREATOR'&&!actionableBrand(latest,time.now)?'Earlier creator input':STAGES[latest.stage ?? ''] ?? 'Update'}
             {latest.current ? '' : ' · earlier'}
           </span>
         ) : null}
@@ -387,7 +391,9 @@ export function CreatorPartnershipBoard({
   available,
   brandId,
   status,
+  page = 1,
 }: {
+  page?: number;
   status?: string;
   brandId?: string;
   rows: readonly PublishedCreatorBrandUpdate[];
@@ -423,7 +429,10 @@ export function CreatorPartnershipBoard({
       g.brand.toLowerCase().includes(query.toLowerCase()) &&
       (!statusFilter || latestCreatorBrandUpdate(g)?.stage === statusFilter),
   );
-  const focused = selected.find((g) => g.brandId === brandId) ?? selected[0];
+  selected.sort((a,b)=>Number(actionableBrand(latestCreatorBrandUpdate(b)!,time.now))-Number(actionableBrand(latestCreatorBrandUpdate(a)!,time.now)) || (latestCreatorBrandUpdate(b)?.evidenceAt?.getTime()??0)-(latestCreatorBrandUpdate(a)?.evidenceAt?.getTime()??0) || a.brand.localeCompare(b.brand));
+  const pages=Math.max(1,Math.ceil(selected.length/20)),currentPage=Math.min(pages,Math.max(1,page));
+  const visible=selected.slice((currentPage-1)*20,currentPage*20);
+  const focused = selected.find((g) => g.brandId === brandId) ?? visible[0];
   const position = focused ? latestCreatorBrandUpdate(focused) : undefined;
   return (
     <section className="ch-partnership-workspace" aria-label="Brand updates">
@@ -478,13 +487,13 @@ export function CreatorPartnershipBoard({
             </p>
           ) : selected.length ? (
             <div className="ch-partnership-rows">
-              {selected.map((group) => (
+              {visible.map((group) => (
                 <Brand
                   key={group.brandId}
                   group={group}
                   time={time}
                   selected={focused?.brandId === group.brandId}
-                  focusHref={`/app/creator/opportunities?stage=${active.key}&q=${encodeURIComponent(query)}&brand=${encodeURIComponent(group.brandId)}&status=${encodeURIComponent(statusFilter ?? '')}`}
+                  focusHref={`/app/creator/opportunities?stage=${active.key}&page=${currentPage}&q=${encodeURIComponent(query)}&brand=${encodeURIComponent(group.brandId)}&status=${encodeURIComponent(statusFilter ?? '')}`}
                 />
               ))}
             </div>
@@ -502,7 +511,7 @@ export function CreatorPartnershipBoard({
                 <span className="ch-brand-monogram">{focused.brand.slice(0, 1)}</span>
                 <div>
                   <h2>{focused.brand}</h2>
-                  <p>Shared by EMG</p>
+                  <p>{position?.stage==='AWAITING_BRAND'?'Next move: brand':position?.stage==='AWAITING_EMG'?'Next move: EMG':position?.stage==='AWAITING_CREATOR'?actionableBrand(position,time.now)?'Next move: you':'Earlier decision · needs a fresh review':'Your partnership overview'}</p>
                 </div>
               </header>
               {position ? (
@@ -512,11 +521,7 @@ export function CreatorPartnershipBoard({
                   </span>
                   <section>
                     <h3>Next step</h3>
-                    <p>{position.nextStep || 'No next step has been shared yet.'}</p>
-                  </section>
-                  <section>
-                    <h3>Recent progress</h3>
-                    <p>{position.summary}</p>
+                    <p>{position.nextStep || (position.stage==='OUTREACH'?'Awaiting a substantive reply from the brand.':'Ask your team for the next step or share your input below.')}</p>
                   </section>
                   <section>
                     <h3>Last meaningful update</h3>
@@ -540,8 +545,10 @@ export function CreatorPartnershipBoard({
               <p>Accepted brand updates and next steps will appear here.</p>
             </>
           )}
+          {focused ? <section id="creator-response"><h3>Talk with your EMG team</h3><CreatorQuestionForm brandId={focused.brandId} brand={focused.brand}/></section> : null}
         </aside>
       </div>
+      {pages>1?<nav className="ch-pagination" aria-label="Brand pages"><span>{selected.length} relationships · page {currentPage} of {pages}</span>{currentPage>1?<Link className="loop-btn" href={`/app/creator/opportunities?stage=${active.key}&q=${encodeURIComponent(query)}&status=${encodeURIComponent(statusFilter??'')}&page=${currentPage-1}`}>Previous</Link>:null}{currentPage<pages?<Link className="loop-btn" href={`/app/creator/opportunities?stage=${active.key}&q=${encodeURIComponent(query)}&status=${encodeURIComponent(statusFilter??'')}&page=${currentPage+1}`}>Next</Link>:null}</nav>:null}
       <details className="ch-brand-coverage">
         <summary>Coverage and privacy</summary>
         <p>
@@ -568,13 +575,14 @@ export async function loadCreatorBrandUpdates(seat: CreatorSeat, time: TimeView)
     settle(() => managedCreatorMailRepository().updates(principal, seat.profileId, time.now)),
     settle(() => creatorRelationshipService().projections(principal, seat.profileId)),
   ]);
+  const profile=await creatorDomain().creator.profileById(principal.organizationId,seat.profileId);
   return {
     available: true,
-    rows: [
+    rows: resolveCreatorBrandRows([
       ...result.value,
       ...(managed.ok ? managed.value : []),
       ...(synthesized.ok ? synthesized.value : []),
-    ],
+    ],creatorHubSettings(profile?.preferences).aliases),
     incomplete: !managed.ok || !synthesized.ok,
   };
 }

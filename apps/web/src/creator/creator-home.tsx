@@ -1,3 +1,6 @@
+import { creatorHubRepository } from './creator-hub-runtime';
+import { creatorPriorities, actionableBrand } from './creator-priorities';
+import { CreatorTeam } from './creator-team';
 import 'server-only';
 import { realCreatorEarnings } from './creator-earnings';
 import Link from 'next/link';
@@ -30,6 +33,7 @@ export async function CreatorHome({ seat, time }: { seat: CreatorSeat; time: Tim
     ),
     settle(() => domain.records.earnings(seat.actor.organizationId, seat.profileId)),
   ]);
+  const replies=await settle(()=>creatorHubRepository().alerts(seat.actor));
   const balance = earnings.ok ? realCreatorEarnings(earnings.value) : null;
   const media = profile.ok ? creatorPublicMedia(profile.value?.preferences) : null;
   const latest = groupCreatorBrandRows(brands.rows).flatMap((g) => {
@@ -51,18 +55,18 @@ export async function CreatorHome({ seat, time }: { seat: CreatorSeat; time: Tim
     .map((row) => row.checkedAt)
     .filter((value): value is Date => value !== null)
     .sort((a, b) => b.getTime() - a.getTime())[0];
-  const waiting = latest.filter((g) => g.update.stage === 'AWAITING_CREATOR').length;
+  const waiting = latest.filter((g) => actionableBrand(g.update,time.now)).length;
   const recent = [...latest]
     .sort((a, b) => (b.update.evidenceAt?.getTime() ?? 0) - (a.update.evidenceAt?.getTime() ?? 0))
     .slice(0, 3);
-  const needs = tasks.ok ? tasks.value.filter((t) => t.bucket === 'NEEDS_ATTENTION') : [];
+  const needs = creatorPriorities(tasks.ok?tasks.value:[],latest,time.now).filter(t=>t.bucket==='NEEDS_ATTENTION');
   return (
     <LoopPage label="Creator Home">
       <CreatorUpdatesRefresh />
       <CreatorPageHead
         section={`${time.greeting()}, ${seat.displayName.split(/\s+/)[0]}.`}
-        title="Your business. In view."
-        description="A clear view of what EMG is working on for you, and what needs you next."
+        title="Your business, moving forward."
+        description="Your priorities, partnership progress and the team behind your next opportunity."
         actions={
           <>
             <span className="ch-last-updated">
@@ -74,6 +78,7 @@ export async function CreatorHome({ seat, time }: { seat: CreatorSeat; time: Tim
           </>
         }
       />
+      {replies.ok&&replies.value.length?<Link className="ch-success" href="/app/creator/tasks#team">Your EMG team replied · {replies.value.length} unread →</Link>:null}
       <section
         className={`ch-business-hero${media ? ' ch-business-hero--photo' : ''}`}
         aria-label="Your EMG briefing"
@@ -121,7 +126,7 @@ export async function CreatorHome({ seat, time }: { seat: CreatorSeat; time: Tim
           ['Conversations', conversations],
           ['Active partnerships', active],
         ].map(([label, value]) => (
-          <Link key={label} href={CREATOR_HREFS.opportunities}>
+          <Link key={label} href={`${CREATOR_HREFS.opportunities}?stage=${label==='Outreach'?'0':label==='Conversations'?'1':'2'}`}>
             <span>{label}</span>
             <strong>{brands.available ? value : '—'}</strong>
           </Link>
@@ -186,8 +191,8 @@ export async function CreatorHome({ seat, time }: { seat: CreatorSeat; time: Tim
             <StateBlock
               kind="empty"
               compact
-              title="You’re all caught up."
-              body="Reviews and upcoming deliverables will appear here when they need you."
+              title="No current actions are assigned to you."
+              body="Your team is handling the shared brand conversations. New reviews and deliverables will appear here when they need you."
             />
           )}
           <Link className="ch-payment-link" href={CREATOR_HREFS.earnings}>
@@ -198,11 +203,7 @@ export async function CreatorHome({ seat, time }: { seat: CreatorSeat; time: Tim
           </Link>
         </section>
       </div>
-      <footer className="ch-team-footer">
-        <h2>Your EMG team</h2>
-        <p>The people working on your business.</p>
-        <span>Team contact details are not available in this view.</span>
-      </footer>
+      <CreatorTeam seat={seat}/>
       <p className="loop-note ch-home-coverage">
         Partnership counts reflect accepted, authorized records. Historical review may still be in
         progress. <Link href={CREATOR_HREFS.opportunities}>See coverage and history</Link>.

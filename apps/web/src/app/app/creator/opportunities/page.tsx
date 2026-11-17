@@ -45,6 +45,7 @@ export default async function CreatorOpportunitiesPage({
         <p className="loop-note">Some sources could not be read. Counts may be incomplete.</p>
       ) : null}
       <CreatorPartnershipBoard
+        page={typeof searchParams.page==='string'?parseInt(searchParams.page,10)||1:1}
         rows={brands.rows}
         time={time}
         stage={stage}

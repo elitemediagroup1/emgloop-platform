@@ -1,4 +1,4 @@
-// Recorded compensation only. There is no production money-movement rail.
+// Compensation read model. Bank linking and approved requests live in the payout panel.
 import type { EarningsView } from '@emgloop/database';
 import type { CompensationState, TimeView } from '@emgloop/shared';
 import {
@@ -6,7 +6,7 @@ import {
   EVIDENCE_SOURCE_LABELS,
   PAYABLE_COMPENSATION_STATE,
 } from '@emgloop/shared';
-import { ActionButton, Panel, StateBlock, SummaryStrip } from '../../_loop-os/record';
+import { Panel, StateBlock, SummaryStrip } from '../../_loop-os/record';
 import { COMPENSATION_TONES, moneyMinor, Pill } from './vocabulary';
 
 const TOTAL_ORDER: readonly CompensationState[] = [
@@ -17,12 +17,6 @@ const TOTAL_ORDER: readonly CompensationState[] = [
   'TRANSFER_PENDING',
   'PAID',
 ];
-
-export function transferReason(payoutState: string): string {
-  return payoutState === 'NOT_SET_UP'
-    ? 'Payouts are not set up'
-    : 'Transfers are not available in Loop yet';
-}
 
 export function EarningsBody({ earnings, time }: { earnings: EarningsView; time: TimeView }) {
   const available = earnings.totals[PAYABLE_COMPENSATION_STATE];
@@ -35,17 +29,6 @@ export function EarningsBody({ earnings, time }: { earnings: EarningsView; time:
               {moneyMinor(available, earnings.currency)}
             </p>
             <p className="loop-note">Approved by EMG.</p>
-            {available > 0 ? (
-              <div className="loop-btnrow" style={{ marginTop: 12 }} data-transfer-control>
-                <ActionButton
-                  action={{
-                    label: 'Transfer funds',
-                    href: null,
-                    reason: transferReason(earnings.payoutState),
-                  }}
-                />
-              </div>
-            ) : null}
             {earnings.seeded ? (
               <p className="ch-seeded" data-seeded>
                 Some of these amounts are seeded demo data, not payments.
@@ -73,11 +56,9 @@ export function EarningsBody({ earnings, time }: { earnings: EarningsView; time:
         </section>
         <aside className="ch-payment-setup">
           <span className="ch-eyebrow">Your payout method</span>
-          <h2>Bank payments, built around you.</h2>
-          <p>
-            Bank connection is not available yet. Your approved earnings remain recorded here.
-          </p>
-          <p className="loop-note">No bank details have been collected through this page.</p>
+          <h2>Your payment setup</h2>
+          <p>Manage your bank account and request manager-approved payouts below.</p>
+          <p className="loop-note">Questions about a payment? Contact your EMG team from Tasks.</p>
         </aside>
       </div>
 
@@ -148,31 +129,7 @@ export function EarningsBody({ earnings, time }: { earnings: EarningsView; time:
             </table>
           )}
         </Panel>
-        <aside className="ch-payment-confirmation">
-          <h2>Withdrawal details</h2>
-          <p>Bank withdrawals are not available yet.</p>
-          <dl>
-            <div>
-              <dt>Approved balance</dt>
-              <dd>{moneyMinor(available, earnings.currency)}</dd>
-            </div>
-            <div>
-              <dt>Destination</dt>
-              <dd>Not connected</dd>
-            </div>
-            <div>
-              <dt>Fees</dt>
-              <dd>Not available</dd>
-            </div>
-            <div>
-              <dt>Estimated arrival</dt>
-              <dd>Not available</dd>
-            </div>
-          </dl>
-          <p className="loop-note">
-            Your approved earnings remain recorded here while payment setup is completed.
-          </p>
-        </aside>
+
       </div>
     </>
   );

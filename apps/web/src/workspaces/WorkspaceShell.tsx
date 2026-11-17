@@ -78,7 +78,8 @@ export default async function WorkspaceShell({
               height={36}
             />
           </Link>
-          <ShellNav groups={groups} label={LOOP_NAV.label} />
+          <details className="ch-mobile-menu"><summary>Menu</summary><ShellNav groups={groups} label={LOOP_NAV.label}/></details>
+          <div className="ch-desktop-nav"><ShellNav groups={groups} label={LOOP_NAV.label}/></div>
           <div className="ch-topbar__account">
             {workHref ? (
               <Link className="loop-iconbtn" href={workHref} aria-label="View work notifications">
@@ -87,7 +88,7 @@ export default async function WorkspaceShell({
             ) : null}
             <details className="ch-account-menu">
               <summary aria-label="Your account">
-                <span className="ch-account-avatar">{initials(session.name)}</span>
+                <span className="ch-account-avatar">{initials(session.name)}</span><span className="ch-account-label">Account ▾</span>
               </summary>
               <div>
                 <strong>{session.name}</strong>

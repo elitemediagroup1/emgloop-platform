@@ -229,17 +229,18 @@ describe('The Content Record', () => {
 // ---- earnings --------------------------------------------------------------------------------------------
 
 describe('Earnings', () => {
-  it('offers the transfer control only for an available balance, and keeps it inert until payouts are set up', () => {
+  it('keeps the compensation ledger separate from manager-approved bank payout requests', () => {
     const html = render(<EarningsBody earnings={earnings()} time={time} />);
     assert.match(html, /data-available-minor="5000"[^>]*>\$50\.00</);
-    assert.match(html, /data-transfer-control/);
-    assert.match(html, /aria-disabled="true" title="Payouts are not set up">Transfer funds/);
+    assert.equal(html.includes('data-transfer-control'), false);
+    assert.match(html, /manager-approved payouts below/);
+    assert.equal(html.includes("Transfer funds"), false);
     assert.equal(/<a[^>]*>Transfer funds/.test(html), false, 'never a link that moves money');
     const none = render(<EarningsBody earnings={earnings({ totals: { EXPECTED: 120000, PENDING: 0, RECEIVED_BY_EMG: 30000, AVAILABLE: 0, TRANSFER_PENDING: 0, PAID: 0 }, availableMinor: 0 })} time={time} />);
     assert.equal(none.includes('data-transfer-control'), false);
     assert.match(none, /data-available-minor="0"[^>]*>\$0\.00</);
     const demoPayout = render(<EarningsBody earnings={earnings({ payoutState: 'SEEDED_DEMO' })} time={time} />);
-    assert.match(demoPayout, /aria-disabled="true" title="Transfers are not available in Loop yet">Transfer funds/);
+    assert.equal(demoPayout.includes("Transfer funds"), false);
   });
 
   it('labels a seeded row on the row, and the page when any row is seeded', () => {

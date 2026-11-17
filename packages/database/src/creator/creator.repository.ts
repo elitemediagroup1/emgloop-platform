@@ -299,6 +299,7 @@ export class CreatorRepository {
         const safe: Record<string, Prisma.InputJsonValue | null | undefined> = patch.preferences && typeof patch.preferences === 'object' && !Array.isArray(patch.preferences) ? { ...patch.preferences as Prisma.InputJsonObject } : {};
         // The manager's assignment survives a creator's stale profile save, and cannot be
         // changed or fabricated through the creator-editable preferences path.
+        for (const key of ['creatorTeam','creatorBrandAliases']) { delete safe[key]; if (previous[key] !== undefined) safe[key] = previous[key]; }
         delete safe.managedMailboxEmail;
         if (previous.managedMailboxEmail !== undefined) safe.managedMailboxEmail = previous.managedMailboxEmail;
         data.preferences = safe;
@@ -583,7 +584,18 @@ export class CreatorRepository {
   }
 
   async listCompensation(organizationId: string, creatorProfileId: string): Promise<CreatorCompensationEntry[]> {
-    return this.prisma.creatorCompensationEntry.findMany({ where: { organizationId, creatorProfileId }, orderBy: { occurredAt: 'desc' } });
+    const rows = await this.prisma.creatorCompensationEntry.findMany({ where: { organizationId, creatorProfileId }, orderBy: { occurredAt: 'desc' } });
+    const approved = rows.filter(row => row.source === 'EMG_APPROVED');
+    if (!approved.length) return rows;
+    const profile = await this.profileById(organizationId, creatorProfileId);
+    const payouts = await this.prisma.creatorPayout.findMany({ where: {organizationId, creatorProfileId, environment:'production', compensationEntryId:{in:approved.map(row=>row.id)}}, select:{compensationEntryId:true,state:true,userId:true,amountMinor:true} });
+    return rows.flatMap(row => {
+      if(row.source !== 'EMG_APPROVED') return [row];
+      const payout=payouts.find(p=>p.compensationEntryId===row.id);
+      // Reassignment never exposes or transfers the prior login's approval.
+      if(!payout || payout.userId !== profile?.userId || payout.state==='CANCELLED') return [];
+      return [{...row,state:payout.state==='PENDING'?'PENDING':payout.state==='PAID'?'PAID':payout.state==='AVAILABLE'&&payout.amountMinor===row.amountMinor?'AVAILABLE':'TRANSFER_PENDING'}];
+    });
   }
 
   async addPerformance(data: Prisma.CreatorPerformanceSnapshotUncheckedCreateInput): Promise<CreatorPerformanceSnapshot> {

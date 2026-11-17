@@ -1,3 +1,4 @@
+import { CreatorTeam } from '../../../../creator/creator-team';
 import { ttoMediaRepository } from '../../../../tiktok-business/runtime';
 import Link from 'next/link';
 import { CreatorPageHead } from '../../../../creator/creator-page-head';
@@ -192,7 +193,7 @@ export default async function CreatorProfilePage({
                   type="text"
                   name="handle"
                   maxLength={60}
-                  defaultValue={profile?.handle ?? ''}
+                  defaultValue={displayHandle ?? ''}
                   placeholder="yourname"
                 />
               </label>
@@ -253,7 +254,7 @@ export default async function CreatorProfilePage({
               <summary>
                 <span className="ch-social-badge">♪</span>
                 <span>
-                  <strong>TikTok One</strong>
+                  <strong>TikTok</strong>
                   <small>
                     {publicTikTokAvailable
                       ? 'Public content · Available through EMG'
@@ -393,9 +394,7 @@ export default async function CreatorProfilePage({
           </Panel>
         </section>
         <aside className="ch-profile-aside" aria-label="Preferences and shared details">
-          <Panel title="Your EMG team">
-            <p className="loop-note">Team contact details are not available in this view.</p>
-          </Panel>
+            <CreatorTeam seat={seat}/>
           <Panel title="Account &amp; security">
             <dl className="ch-security-list">
               <div>

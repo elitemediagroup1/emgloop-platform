@@ -8,7 +8,7 @@ import type { CreatorTask } from '@emgloop/database';
 import type { TimeView } from '@emgloop/shared';
 import { Pill } from './vocabulary';
 
-const KIND_LABEL: Record<CreatorTask['kind'], string> = { REVIEW: 'Review', DELIVERABLE: 'Deliverable', UPLOAD: 'Upload', SETUP: 'Set up' };
+const KIND_LABEL: Record<CreatorTask['kind'], string> = { PARTNERSHIP: 'Partnership', REVIEW: 'Review', DELIVERABLE: 'Deliverable', UPLOAD: 'Upload', SETUP: 'Set up' };
 
 export function TaskList({ tasks, time }: { tasks: readonly CreatorTask[]; time: TimeView }) {
   return (
