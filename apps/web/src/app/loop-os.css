@@ -5502,3 +5502,12 @@ a.xb__focuscard:hover { border-color: var(--loop-line-strong); transform: transl
 .ch-analytics-video-details .loop-table td { padding:14px 16px; }
 .ch-analytics-video-details .ch-performance-content img { width:64px; height:80px; }
 .ch-analytics-video-details .ch-performance-content span { font-size:14px; font-weight:500; }
+.ch-coach--pending { padding:16px 22px; display:flex; flex-wrap:wrap; gap:10px 18px; align-items:center; background:var(--loop-creator-canvas); }
+.ch-coach--pending>strong { font-size:12px; letter-spacing:.08em; text-transform:uppercase; }
+.ch-coach--pending>p { margin:0; font-size:13px; color:var(--loop-muted); }
+.ch-featured-summary { font-size:16px!important; line-height:1.7; }
+.ch-featured-summary strong { color:var(--loop-surface); }
+.ch-featured-ai { display:grid; gap:10px; padding-top:18px; border-top:1px solid var(--loop-mint-ink); }
+.ch-featured-ai>span { color:var(--loop-mint); font-size:11px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; }
+.ch-performance-spotlight .ch-featured-context { font-size:11px!important; margin-top:auto!important; }
+.ch-performance-spotlight .loop-btn { margin-top:8px; }

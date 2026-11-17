@@ -2,12 +2,13 @@
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { requireCreator, CREATOR_HREFS } from './creator-runtime';
-import { creatorAnalyticsReviewService } from './creator-analytics-coach-runtime';
-export async function reviewCreatorPerformance(form:FormData):Promise<void>{
-  const seat=await requireCreator();
-  // Source is a presentation choice, never account, creator or tenant authority.
-  const source=form.get('source')==='ACCOUNT'?'ACCOUNT':'TIKTOK_ONE';
-  const result=await creatorAnalyticsReviewService().review({organizationId:seat.actor.organizationId,userId:seat.actor.userId},source);
-  revalidatePath(CREATOR_HREFS.analytics);
-  redirect(`${CREATOR_HREFS.analytics}?platform=TIKTOK&source=${source}&coach=${result}`);
+import { tiktok } from '../tiktok/tiktok-runtime';
+import { ttoMediaService } from '../tiktok-business/runtime';
+/** Refresh authorized readings only. The redirected GET reuses or generates the governed cached review. */
+export async function refreshCreatorAnalyticsAction():Promise<void>{
+ const seat=await requireCreator();
+ const p={organizationId:seat.actor.organizationId,userId:seat.actor.userId};
+ await Promise.allSettled([tiktok().readOnVisit(p),ttoMediaService().refresh(p,seat.profileId,true)]);
+ revalidatePath(CREATOR_HREFS.analytics);revalidatePath(CREATOR_HREFS.profile);
+ redirect(`${CREATOR_HREFS.analytics}?platform=TIKTOK`);
 }

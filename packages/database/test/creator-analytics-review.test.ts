@@ -27,7 +27,7 @@ test('refusals, validation failures and incomplete categories never publish inve
  for(const outcome of ['REFUSED_BY_LOOP','REFUSED_BY_MODEL','REJECTED_OUTPUT','ANSWERED']){
   let saved:unknown;
   const repo={purge:async()=>{},claim:async()=>({row:{id:'review'},snapshot:{evidence},leaseId:'lease'}),finish:async(_p:unknown,_c:unknown,_n:unknown,result:unknown)=>{saved=result;return true;}} as unknown as CreatorAnalyticsReviewRepository;
-  const result={outcome,output:{domainReading:{reading:{statement:'Bad partial output'},signals:[]}}} as unknown as AiRunResult;
+  const result={outcome,refusals:['TASK_NOT_ENABLED'],output:{domainReading:{reading:{statement:'Bad partial output'},signals:[]}}} as unknown as AiRunResult;
   await new CreatorAnalyticsReviewService(repo,{run:async()=>result}).review(p,'ACCOUNT');
   assert.ok(saved && !('reading' in (saved as object)));
  }

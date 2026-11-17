@@ -1,0 +1,41 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { connectedTikTokOverview } from '../src/creator/creator-tiktok-overview';
+import { CreatorPerformanceInsights } from '../src/creator/creator-performance-insights';
+import { featuredPostFeedback } from '../src/creator/creator-featured-feedback';
+import type { TikTokEntryView } from '../src/app/app/creator/_parts/tiktok-connection';
+import { parseTtoReport } from '../../../packages/providers/src/tiktok-business/public-insights';
+const now=new Date('2026-11-17T18:00:00Z');
+const own:TikTokEntryView={handle:'example',profileUrl:null,seeded:false,readAt:now,stats:{followers:100,following:1,likes:10,videos:20},recentVideos:[{id:'123456',title:'Actual post',shareUrl:'https://www.tiktok.com/@example/video/123456',createdAt:now,viewCount:100,likeCount:10}]};
+const report=(handle='example')=>parseTtoReport(handle,{creator_id:'12345',handle_name:handle,followers_count:200,median_views:50},{posts:[{video_id:'123456',caption:'Actual post',video_views:200,likes:20},{video_id:'234567',caption:'Another post',video_views:30,likes:2}]},now);
+test('same-account readings deduplicate posts and choose the freshest available counts without adding copies',()=>{
+ const older=connectedTikTokOverview(own,{report:report(),lastReadAt:new Date(+now-60000)});
+ assert.equal(older.videos.length,2);
+ assert.equal(older.videos.find(v=>v.id==='123456')?.views,100);
+ const newer=connectedTikTokOverview(own,{report:report(),lastReadAt:new Date(+now+60000)});
+ assert.equal(newer.videos.find(v=>v.id==='123456')?.views,200);
+ assert.equal(newer.followers,200);
+ assert.equal(newer.median,50);
+ const wrong=connectedTikTokOverview(own,{report:report('anothercreator'),lastReadAt:new Date(+now+60000)});
+ assert.equal(wrong.videos.length,1);
+ assert.equal(wrong.followers,100);
+ assert.equal(wrong.median,null);
+});
+test('featured post switches to a new view leader and explains the comparison from actual counts',()=>{
+ const posts=[{id:'123456',title:'First #fishing',url:null,views:100,likes:10},{id:'234567',title:'Second #fishing',url:null,views:20,likes:2}];
+ const first=renderToStaticMarkup(<CreatorPerformanceInsights videos={posts} source="internal source"/>);
+ assert.match(first,/This post leads your recent set with/);
+ assert.match(first,/83.3%/);
+ assert.doesNotMatch(first,/Content spotlight|internal source|Review this video’s opening/);
+ const changed=renderToStaticMarkup(<CreatorPerformanceInsights videos={[posts[0]!,{...posts[1]!,views:500}]} source="internal source" feedback={{videoId:'123456',summary:'OLD FEEDBACK',experiment:null}}/>);
+ assert.match(changed,/<h3>Second<\/h3>/);
+ assert.doesNotMatch(changed,/OLD FEEDBACK/);
+});
+test('AI commentary attaches only to the current leader explicitly cited in the accepted review',()=>{
+ const reading={reading:{statement:'A grounded review',status:'QUIET',confidence:'LOW'},signals:[{key:'praise',kind:'OPPORTUNITY',knowledge:'INFERRED',statement:'A supported strength',entities:[],evidenceRefs:['analytics_post:one'],occurredAt:null,dueAt:null,confidence:'LOW',severity:'LOW',owedBy:null}],limitations:['No video was watched.']};
+ const review={reading,evidence:{posts:[{key:'one',url:'https://www.tiktok.com/@example/video/123456'}]}};
+ assert.equal(featuredPostFeedback(review,'123456')?.summary,'A supported strength');
+ assert.equal(featuredPostFeedback(review,'234567'),null);
+ assert.equal(featuredPostFeedback(null,'123456'),null);
+});

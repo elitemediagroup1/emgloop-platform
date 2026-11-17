@@ -1,4 +1,5 @@
 import { CreatorPerformanceInsights } from './creator-performance-insights';
+import type { FeaturedFeedback } from './creator-featured-feedback';
 import type { TtoReport } from '@emgloop/providers';
 import type { TimeView } from '@emgloop/shared';
 import { SummaryStrip, Panel, StateBlock } from '../app/app/_loop-os/record';
@@ -8,16 +9,18 @@ export function CreatorTikTokAnalytics({
   updatedAt,
   stale,
   time,
+  feedback,
 }: {
   report: TtoReport;
   updatedAt: Date | null;
   stale: boolean;
   time: TimeView;
+  feedback?: FeaturedFeedback | null;
 }) {
   return (
     <div className="ch-platform-report">
       <div className="ch-source-bar">
-        <strong>TikTok One · Public report · @{report.handle}</strong>
+        <strong>TikTok · @{report.handle}</strong>
         <span>{updatedAt ? `Updated ${time.dateTime(updatedAt)}` : 'Update time unavailable'}</span>
         <span>{stale ? 'Refresh pending' : 'Latest saved report'}</span>
       </div>
@@ -39,11 +42,11 @@ export function CreatorTikTokAnalytics({
             value: report.videos[0]?.views == null ? null : compactNumber(report.videos[0].views),
             unknownText: 'Not provided',
           },
-          { label: 'Reach', value: null, unknownText: 'Not provided' },
+          { label: 'Recent posts', value: String(report.videos.length) },
         ]}
       />
-      <CreatorPerformanceInsights source="TikTok One" videos={report.videos.map(v => ({ id: v.id, title: v.caption, url: v.url, views: v.views, likes: v.likes, thumbnail: v.thumbnailUrl }))} />
-      <details className="ch-context-note"><summary>About your sources &amp; available metrics</summary><p>This is TikTok One’s public creator report. Reach, private audience demographics, watch time and historical audience series are not supplied by this connection. This public report does not provide a historical audience series. No growth trend is shown.</p></details>
+      <CreatorPerformanceInsights feedback={feedback} source="TikTok" videos={report.videos.map(v => ({ id: v.id, title: v.caption, url: v.url, views: v.views, likes: v.likes, thumbnail: v.thumbnailUrl, publishedAt: v.createdAt }))} />
+      <details className="ch-context-note"><summary>About these numbers</summary><p>Reach, private audience demographics, watch time and historical audience series are not available in these readings. This report does not provide a historical audience series. No growth trend is shown.</p></details>
       <details className="ch-analytics-video-details"><summary>All {report.videos.length} videos · full performance breakdown</summary><Panel title="Reported content performance">
         <div className="loop-table-wrap">
           <table className="loop-table" aria-label="TikTok video performance">

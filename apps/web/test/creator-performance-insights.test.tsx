@@ -16,9 +16,9 @@ test('sample insights exclude missing values, preserve zero, and use only paired
   assert.equal(sample.likeRate, 1);
   assert.equal(sample.ranked[0]?.id, 'b');
   const html = renderToStaticMarkup(<CreatorPerformanceInsights videos={videos} source="Connected TikTok" />);
-  assert.match(html, /3 of 4 videos/);
+  assert.match(html, /3 of 4 posts/);
   assert.match(html, /not a 30-day report/);
-  assert.match(html, /Highest views in this sample/);
+  assert.match(html, /Most viewed in this recent set/);
   assert.doesNotMatch(html, /Infinity|NaN|growth|AI insight/i);
 });
 test('empty and zero samples do not invent trends or a like rate', () => {
