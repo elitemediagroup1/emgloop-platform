@@ -1,3 +1,16 @@
+## Connected TikTok analytics source
+
+Branch `fix/creator-tiktok-analytics-source` fixes Analytics reading only TikTok One even after
+Login Kit authorization on Profile. Connected/partly connected accounts now default to their own
+scoped Login Kit reading. TikTok One remains an explicit separate source with its own handle;
+the default overview supplements account counts with TikTok One median views only when exact normalized handles match. Source timestamps and stale flags remain independent. Mismatches are explicitly excluded. Expired/failed reads do not silently switch identity.
+The connected-account Refresh checks only Login Kit and keeps the existing fifteen-minute throttle.
+Missing permissions/counts remain unknown; revoked and demo data are withheld. No migration or
+credential changes. Matt tested his own @chefmattdunn account on Trevon's seat: disconnect that test
+account and have Trevon authorize his own account before treating this as his private account data.
+164 creator/OAuth/navigation tests, web typecheck and product build pass; lint retains
+the existing missing-ESLint-configuration failure. Analytics now includes a source-labeled performance lab: real view ranking bars, returned-sample view totals, a paired-count like rate and leading-content spotlight. No illustrative trend chart remains. The sample is explicitly not a 30-day report; no causal or AI claims are made. Await Matt's merge and production validation.
+
 ## Creator Hub reference fidelity and agency branding
 
 PR #462 (`fix/creator-approved-layout`) follows the approved seven images and includes both exact

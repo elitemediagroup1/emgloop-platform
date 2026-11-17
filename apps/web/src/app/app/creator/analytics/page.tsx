@@ -2,8 +2,13 @@ import Link from 'next/link';
 import { MetaAnalyticsPanel } from '../../../../meta/meta-panels';
 import { YouTubeAnalyticsPanel } from '../../../../youtube/youtube-panel';
 import { requireWorkspace } from '../../../../workspaces/guard';
-import { CREATOR_HREFS, requireCreator } from '../../../../creator/creator-runtime';
+import { CREATOR_HREFS, creatorDomain, requireCreator } from '../../../../creator/creator-runtime';
 import { CreatorPageHead } from '../../../../creator/creator-page-head';
+import { refreshTikTokAnalyticsAction } from '../../../../tiktok/actions';
+import { tiktok } from '../../../../tiktok/tiktok-runtime';
+import { tiktokSocialAccountOf } from '@emgloop/shared';
+import { readTikTokEntry } from '../_parts/tiktok-connection';
+import { CreatorConnectedTikTokAnalytics, selectTikTokAnalyticsSource } from '../../../../creator/creator-connected-tiktok-analytics';
 import { CreatorTikTokAnalytics } from '../../../../creator/creator-tiktok-analytics';
 import { ttoMediaRepository } from '../../../../tiktok-business/runtime';
 import { CreatorRefreshButton } from '../../../../creator/CreatorRefreshButton';
@@ -33,7 +38,14 @@ export default async function CreatorAnalyticsPage({
     };
   const raw = param(searchParams.platform);
   const platform = PLATFORMS.find((p) => p.id === raw)?.id ?? 'TIKTOK';
-  const tiktok =
+  const accountRead = platform === 'TIKTOK' ? await settle(() => tiktok().readOnVisit(principal)) : null;
+  const accountStatus = platform === 'TIKTOK' ? await settle(() => tiktok().status(principal)) : null;
+  const status = accountStatus?.ok && accountStatus.value.permitted ? accountStatus.value.state : null;
+  const source = selectTikTokAnalyticsSource(param(searchParams.source), status);
+  const accountProfile = platform === 'TIKTOK' && source === 'ACCOUNT'
+    ? await settle(() => creatorDomain().creator.profileById(seat.actor.organizationId, seat.profileId)) : null;
+  const accountEntry = accountProfile?.ok ? readTikTokEntry(tiktokSocialAccountOf(accountProfile.value?.socialAccounts)) : null;
+  const publicReport =
     platform === 'TIKTOK'
       ? await settle(() => ttoMediaRepository().read(principal, seat.profileId, time.now))
       : null;
@@ -48,7 +60,7 @@ export default async function CreatorAnalyticsPage({
             <Link className="loop-btn" href={CREATOR_HREFS.profile}>
               Manage connections →
             </Link>
-            {platform === 'TIKTOK' ? <CreatorRefreshButton /> : null}
+            {platform === 'TIKTOK' ? source === 'ACCOUNT' ? <form action={refreshTikTokAnalyticsAction}><button className="loop-btn" type="submit">Refresh TikTok</button></form> : <CreatorRefreshButton /> : null}
           </>
         }
       />
@@ -64,23 +76,31 @@ export default async function CreatorAnalyticsPage({
           </Link>
         ))}
       </nav>
+      {platform === 'TIKTOK' ? <>
+        <nav aria-label="TikTok data source" className="ch-analytics-tabs">
+          <Link className="ch-analytics-tab" href={`${CREATOR_HREFS.analytics}?platform=TIKTOK&source=ACCOUNT`} aria-current={source === 'ACCOUNT' ? 'page' : undefined}>Account overview</Link>
+          <Link className="ch-analytics-tab" href={`${CREATOR_HREFS.analytics}?platform=TIKTOK&source=TIKTOK_ONE`} aria-current={source === 'TIKTOK_ONE' ? 'page' : undefined}>TikTok One report</Link>
+        </nav>
+        <p className="loop-note">Account overview combines available sources only when their TikTok handles match. Each metric keeps its source.</p>
+      </> : null}
       {platform === 'TIKTOK' ? (
-        tiktok?.ok && tiktok.value?.report ? (
+        source === 'ACCOUNT' ? <CreatorConnectedTikTokAnalytics entry={accountEntry} publicReport={publicReport?.ok ? publicReport.value : null} state={status} readFailed={param(searchParams.tiktok_sync) === 'FAILED' || !accountRead?.ok || !accountRead.value.ok || !accountProfile?.ok} time={time} /> :
+        publicReport?.ok && publicReport.value?.report ? (
           <>
             <CreatorTikTokAnalytics
-              report={tiktok.value.report}
-              updatedAt={tiktok.value.lastReadAt}
-              stale={tiktok.value.stale}
+              report={publicReport.value.report}
+              updatedAt={publicReport.value.lastReadAt}
+              stale={publicReport.value.stale}
               time={time}
             />
           </>
         ) : (
           <Panel title="TikTok">
             <StateBlock
-              kind={tiktok?.ok ? 'empty' : 'error'}
+              kind={publicReport?.ok ? 'empty' : 'error'}
               compact
               title={
-                tiktok?.ok ? 'No current TikTok One report.' : 'TikTok report could not be loaded.'
+                publicReport?.ok ? 'No current TikTok One report.' : 'TikTok report could not be loaded.'
               }
               body="EMG’s authorized TikTok One source uses your exact saved handle to fetch eligible public reports. Refresh to request an update."
             />
