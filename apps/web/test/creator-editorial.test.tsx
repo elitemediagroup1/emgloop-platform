@@ -100,7 +100,7 @@ test('TikTok report preserves absent metrics and never fabricates a historical t
   assert.match(html, /176.8K/);
   assert.match(html, /Not provided/);
   assert.match(html, /Refresh pending/);
-  assert.match(html, /does not provide a historical audience series/);
+  assert.match(html, /audience growth series were not returned/);
   assert.doesNotMatch(html, /\+\d+%|942|938/);
 });
 test('YouTube gallery accepts only bounded real IDs and trusted thumbnail hosts', () => {

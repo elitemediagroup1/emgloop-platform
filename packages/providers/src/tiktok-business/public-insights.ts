@@ -11,7 +11,10 @@ export interface TtoVideo {
     comments: number | null;
     shares: number | null;
 }
+export interface TtoAudienceGroup { ages: { label: string; percentage: number }[]; genders: { label: string; percentage: number }[]; countries: { label: string; percentage: number }[]; }
 export interface TtoReport {
+    audience?: { followers: TtoAudienceGroup; reached: TtoAudienceGroup; engaged: TtoAudienceGroup };
+    history?: { cursor: string; complete: boolean; capped: boolean };
     handle: string;
     creatorId: string;
     displayName: string;
@@ -56,6 +59,22 @@ export function ttoImage(raw: unknown): string | null {
     }
 }
 function timestamp(v: unknown): string | null { const n = typeof v === 'string' && /^\d{10,16}$/.test(v) ? Number(v) : typeof v === 'number' ? v : NaN; return Number.isSafeInteger(n) && n > 0 && n < 8.64e15 ? new Date(n).toISOString() : null; }
+/** TikTok documents percentage values as fractions (0..1), not whole percentages. */
+function distribution(raw: unknown, field: string) {
+    if (!Array.isArray(raw) || raw.length > 30) return [];
+    const seen = new Set<string>();
+    const rows: {label:string;percentage:number}[] = [];
+    for (const value of raw) {
+        const row = obj(value), label = row[field], percentage = row.percentage;
+        if (typeof label !== 'string' || !label.trim() || label.length > 60 || seen.has(label) || typeof percentage !== 'number' || !Number.isFinite(percentage) || percentage < 0 || percentage > 1) continue;
+        if (field === 'country' && !/^[A-Z]{2}$/.test(label)) continue;
+        seen.add(label); rows.push({label, percentage});
+    }
+    return rows.reduce((n,r)=>n+r.percentage,0)>1.01 ? [] : rows.sort((a,b)=>b.percentage-a.percentage);
+}
+function audienceGroup(p: Record<string,unknown>, prefix: string): TtoAudienceGroup {
+    return {ages:distribution(p[prefix+'ages'],'age'),genders:distribution(p[prefix+'genders'],'gender'),countries:distribution(p[prefix+'countries'],'country')};
+}
 export function parseTtoReport(handle: string, profileRaw: unknown, videosRaw: unknown, now: Date): TtoReport {
     const p = obj(profileRaw), media = obj(videosRaw);
     if (ttoHandle(p.handle_name) !== handle || typeof p.creator_id !== 'string' || !p.creator_id || p.creator_id.length > 128)
@@ -78,7 +97,7 @@ export function parseTtoReport(handle: string, profileRaw: unknown, videosRaw: u
         }
         videos.push({ id: v.video_id, caption: typeof v.caption === 'string' ? v.caption.slice(0, 160) : '', thumbnailUrl: expires > +now ? thumbnail : null, thumbnailExpiresAt: new Date(expires).toISOString(), url: `https://www.tiktok.com/@${handle}/video/${v.video_id}`, createdAt: timestamp(v.create_time), views: count(v.video_views), likes: count(v.likes), comments: count(v.comments), shares: count(v.shares) });
     }
-    return { handle, creatorId: p.creator_id, displayName: typeof p.display_name === 'string' ? p.display_name.slice(0, 160) : handle, avatarUrl: ttoImage(p.profile_image), followers: count(p.followers_count), medianViews: count(p.median_views), videos: videos.slice(0, 10) };
+    return { handle, creatorId: p.creator_id, displayName: typeof p.display_name === 'string' ? p.display_name.slice(0, 160) : handle, avatarUrl: ttoImage(p.profile_image), followers: count(p.followers_count), medianViews: count(p.median_views), videos, audience: {followers:audienceGroup(p,'audience_'),reached:audienceGroup(p,'reached_audience_'),engaged:audienceGroup(p,'engaged_audience_')} };
 }
 /** Persisted report parser: no assertions that bypass the URL and shape checks. */
 export function readTtoReport(raw: unknown, now: Date): TtoReport | null {
@@ -87,7 +106,22 @@ export function readTtoReport(raw: unknown, now: Date): TtoReport | null {
     if (!handle || !Array.isArray(r.videos))
         return null;
     try {
-        return parseTtoReport(handle, { handle_name: handle, creator_id: r.creatorId, display_name: r.displayName, profile_image: r.avatarUrl, followers_count: r.followers, median_views: r.medianViews }, { posts: r.videos.map(raw => { const v = obj(raw); return { video_id: v.id, caption: v.caption, thumbnail_url: typeof v.thumbnailExpiresAt === 'string' && Date.parse(v.thumbnailExpiresAt) > +now ? v.thumbnailUrl : null, create_time: typeof v.createdAt === 'string' ? Date.parse(v.createdAt) : null, video_views: v.views, likes: v.likes, comments: v.comments, shares: v.shares }; }) }, now);
+        if (r.videos.length > 10000) return null;
+        const profile = {handle_name:handle, creator_id:r.creatorId,display_name:r.displayName,profile_image:r.avatarUrl,followers_count:r.followers,median_views:r.medianViews};
+        const report = parseTtoReport(handle, profile, {posts:[]}, now);
+        for (let offset=0;offset<r.videos.length;offset+=25) {
+            const posts=r.videos.slice(offset,offset+25).map(raw=>{const v=obj(raw);return {video_id:v.id,caption:v.caption,thumbnail_url:typeof v.thumbnailExpiresAt==='string' && Date.parse(v.thumbnailExpiresAt)>+now?v.thumbnailUrl:null,create_time:typeof v.createdAt==='string'?Date.parse(v.createdAt):null,video_views:v.views,likes:v.likes,comments:v.comments,shares:v.shares};});
+            report.videos.push(...parseTtoReport(handle,profile,{posts},now).videos);
+        }
+        report.videos=[...new Map(report.videos.map(v=>[v.id,v])).values()];
+        const audience=obj(r.audience);
+        for (const group of ['followers','reached','engaged'] as const) {
+            const source=obj(audience[group]);
+            report.audience![group]={ages:distribution(Array.isArray(source.ages)?source.ages.map(x=>({...obj(x),age:obj(x).label})):null,'age'),genders:distribution(Array.isArray(source.genders)?source.genders.map(x=>({...obj(x),gender:obj(x).label})):null,'gender'),countries:distribution(Array.isArray(source.countries)?source.countries.map(x=>({...obj(x),country:obj(x).label})):null,'country')};
+        }
+        const history=obj(r.history);
+        if (typeof history.cursor==='string' && /^\d{1,16}$/.test(history.cursor)) report.history={cursor:history.cursor,complete:history.complete===true,capped:history.capped===true};
+        return report;
     }
     catch {
         return null;
@@ -131,9 +165,37 @@ export class TtoPublicApi {
             throw new TtoReadError('INVALID_RESPONSE');
         return [...new Set(data.tto_tcm_account_ids as string[])];
     }
-    async report(accessToken: string, accountId: string, handle: string, now: Date) {
+    async report(accessToken: string, accountId: string, handle: string, now: Date, previous?: TtoReport | null) {
         const params = { tto_tcm_account_id: accountId, handle_name: handle };
-        const [profile, videos] = await Promise.all([this.get('tto/tcm/creator/public', accessToken, params), this.get('tto/tcm/creator/public/video/list', accessToken, { ...params, limit: '10', cursor: '0' })]);
-        return parseTtoReport(handle, profile, videos, now);
+        const prior=previous?.handle===handle ? previous : null;
+        // A refresh reads the newest page plus one durable backfill page. Never drop a page boundary.
+        const cursor=prior?.history?.cursor ?? '0';
+        const [profile, recent, older] = await Promise.all([
+            this.get('tto/tcm/creator/public', accessToken, params),
+            this.get('tto/tcm/creator/public/video/list', accessToken, {...params,limit:'25',cursor:'0'}),
+            cursor!=='0' ? this.get('tto/tcm/creator/public/video/list',accessToken,{...params,limit:'25',cursor}) : Promise.resolve(null)
+        ]);
+        const current=parseTtoReport(handle,profile,recent,now);
+        const same=prior?.creatorId===current.creatorId ? prior : null;
+        if (prior && !same) throw new TtoReadError('IDENTITY_MISMATCH');
+        const historyPage=older??recent, info=obj(historyPage.page_info);
+        const hasMore=info.has_more;
+        const next=typeof info.cursor==='number' && Number.isSafeInteger(info.cursor) && info.cursor>0 ? String(info.cursor) : null;
+        if (hasMore===true && (!next || next===cursor || (cursor!=='0' && Number(next)>=Number(cursor)))) throw new TtoReadError('INVALID_RESPONSE');
+        const merged=new Map((same?.videos??[]).map(v=>[v.id,v]));
+        for(const v of parseTtoReport(handle,profile,historyPage,now).videos) merged.set(v.id,v);
+        for(const v of current.videos) merged.set(v.id,v);
+        // Refresh the previous leaders too; lifetime ranking must not freeze their counts.
+        const leaders=(same?.videos??[]).filter(v=>v.views!==null).sort((a,b)=>b.views!-a.views!).slice(0,10).map(v=>v.id).filter(id=>!current.videos.some(v=>v.id===id));
+        if(leaders.length){
+            const result=await this.get('tto/tcm/creator/public/video/list',accessToken,{...params,video_ids:JSON.stringify(leaders)});
+            const returned=parseTtoReport(handle,profile,result,now).videos;
+            for(const id of leaders) merged.delete(id); // Withdraw posts that are no longer publicly returned.
+            for(const v of returned) if(leaders.includes(v.id)) merged.set(v.id,v);
+        }
+        const capped=merged.size>10000;
+        current.videos=[...merged.values()].sort((a,b)=>(Date.parse(b.createdAt??'')||0)-(Date.parse(a.createdAt??'')||0)).slice(0,10000);
+        current.history={cursor:hasMore===true?next!:'0',complete:!capped && (same?.history?.complete===true || hasMore===false),capped:capped || same?.history?.capped===true};
+        return current;
     }
 }

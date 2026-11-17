@@ -7,6 +7,8 @@ export interface PerformanceVideo {
   url: string | null;
   views: number | null;
   likes: number | null;
+  comments?: number | null;
+  shares?: number | null;
   thumbnail?: string | null;
   publishedAt?: string | null;
 }
@@ -40,7 +42,7 @@ export function CreatorPerformanceInsights({ videos, source: _source, feedback }
         <div><span>Views across recent posts</span><strong>{sample.views === null ? '—' : compactNumber(sample.views)}</strong><small>{sample.known} of {videos.length} posts have reported views</small></div>
         <div><span>Likes per 100 views</span><strong>{sample.likeRate === null ? '—' : sample.likeRate.toFixed(1)}</strong><small>{sample.paired} videos with both counts · not total engagement</small></div>
       </div>
-      <div className="ch-performance-lab__chart-title"><h3>Your most-viewed content</h3><span>Total views · recent posts</span></div>
+      <div className="ch-performance-lab__chart-title"><h3>Standouts from your newest posts</h3><span>Total views · recent posts</span></div>
       {top.length ? <ol className="ch-performance-bars" aria-label="Videos ranked by reported views">
         {top.map((video, index) => <li key={video.id}>
           <span className="ch-performance-bars__rank">{String(index + 1).padStart(2, '0')}</span>

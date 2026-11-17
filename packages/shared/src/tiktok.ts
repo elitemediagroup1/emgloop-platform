@@ -163,7 +163,7 @@ export const TIKTOK_CONNECTION_AUDIT_ACTIONS = Object.freeze({
 export const TIKTOK_READ_MIN_INTERVAL_MS = 15 * 60 * 1000;
 
 /** How many recent public videos one read lists. TikTok's own page maximum is 20; Loop asks for ten. */
-export const TIKTOK_VIDEO_LIST_MAX = 10;
+export const TIKTOK_VIDEO_LIST_MAX = 14;
 
 /** A stored video title is a label, not a document. */
 export const TIKTOK_VIDEO_TITLE_MAX_CHARS = 140;

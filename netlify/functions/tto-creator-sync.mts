@@ -19,5 +19,5 @@ export default async () => {
         throw new Error('TTO_SYNC_UNAVAILABLE');
     }
 };
-// One due creator per invocation; public snapshots become due after six hours.
+// One due creator per invocation; unfinished history becomes due after two minutes; completed snapshots after six hours.
 export const config = { schedule: '*/10 * * * *' };

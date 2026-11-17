@@ -1,8 +1,10 @@
+import { CreatorAudienceInsights } from './creator-audience-insights';
+import { CreatorVideoHistory, videoHistorySets } from './creator-video-history';
 import { CreatorPerformanceInsights } from './creator-performance-insights';
 import type { FeaturedFeedback } from './creator-featured-feedback';
 import type { TtoReport } from '@emgloop/providers';
 import type { TimeView } from '@emgloop/shared';
-import { SummaryStrip, Panel, StateBlock } from '../app/app/_loop-os/record';
+import { SummaryStrip } from '../app/app/_loop-os/record';
 import { compactNumber } from '../app/app/creator/_parts/vocabulary';
 export function CreatorTikTokAnalytics({
   report,
@@ -17,6 +19,8 @@ export function CreatorTikTokAnalytics({
   time: TimeView;
   feedback?: FeaturedFeedback | null;
 }) {
+  const allVideos=report.videos.map(v=>({id:v.id,title:v.caption,url:v.url,views:v.views,likes:v.likes,comments:v.comments,shares:v.shares,thumbnail:v.thumbnailUrl,publishedAt:v.createdAt}));
+  const recent=videoHistorySets(allVideos).recent;
   return (
     <div className="ch-platform-report">
       <div className="ch-source-bar">
@@ -42,61 +46,13 @@ export function CreatorTikTokAnalytics({
             value: report.videos[0]?.views == null ? null : compactNumber(report.videos[0].views),
             unknownText: 'Not provided',
           },
-          { label: 'Recent posts', value: String(report.videos.length) },
+          { label: 'Imported videos', value: String(report.videos.length) },
         ]}
       />
-      <CreatorPerformanceInsights feedback={feedback} source="TikTok" videos={report.videos.map(v => ({ id: v.id, title: v.caption, url: v.url, views: v.views, likes: v.likes, thumbnail: v.thumbnailUrl, publishedAt: v.createdAt }))} />
-      <details className="ch-context-note"><summary>About these numbers</summary><p>Reach, private audience demographics, watch time and historical audience series are not available in these readings. This report does not provide a historical audience series. No growth trend is shown.</p></details>
-      <details className="ch-analytics-video-details"><summary>All {report.videos.length} videos · full performance breakdown</summary><Panel title="Reported content performance">
-        <div className="loop-table-wrap">
-          <table className="loop-table" aria-label="TikTok video performance">
-            <thead>
-              <tr>
-                <th>Content</th>
-                <th>Views</th>
-                <th>Likes</th>
-                <th>Comments</th>
-                <th>Shares</th>
-              </tr>
-            </thead>
-            <tbody>
-              {report.videos.map((v) => (
-                <tr key={v.id}>
-                  <td>
-                    <a
-                      className="ch-performance-content"
-                      href={v.url}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      {v.thumbnailUrl ? (
-                        <img
-                          src={v.thumbnailUrl}
-                          alt=""
-                          loading="lazy"
-                          referrerPolicy="no-referrer"
-                        />
-                      ) : null}
-                      <span>{v.caption || 'View TikTok video'} ↗</span>
-                    </a>
-                  </td>
-                  {[v.views, v.likes, v.comments, v.shares].map((value, i) => (
-                    <td key={i}>{value === null ? 'Not reported' : compactNumber(value)}</td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        {!report.videos.length ? (
-          <StateBlock
-            kind="empty"
-            compact
-            title="No videos returned in this report."
-            body="This does not mean you have no published videos."
-          />
-        ) : null}
-      </Panel></details>
+      <CreatorPerformanceInsights feedback={feedback} source="TikTok" videos={recent} />
+      <CreatorAudienceInsights audience={report.audience}/>
+      <CreatorVideoHistory videos={allVideos} complete={report.history?.complete===true && !report.history.capped} time={time}/>
+      <details className="ch-context-note"><summary>About these numbers</summary><p>Typical views use TikTok’s latest 30-video median. Video counts are lifetime snapshots, not views earned during a reporting period. Watch time, retention and an audience growth series were not returned by this integration. Missing audience breakdowns are identified individually above.</p></details>
     </div>
   );
 }

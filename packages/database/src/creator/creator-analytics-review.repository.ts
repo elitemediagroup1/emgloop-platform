@@ -5,7 +5,7 @@ import { readTtoReport } from '@emgloop/providers';
 import { membershipAuthority } from '../repositories/membership.repository';
 import { profileTtoHandle, ttoOwnerAuthorized } from '../repositories/tto-media.repository';
 import { absentUntilMigrated } from './until-migrated';
-import { reviewFingerprint, type AnalyticsSource, type AnalyticsReviewEvidence } from './creator-analytics-review';
+import { analyticsEvidencePosts, reviewFingerprint, type AnalyticsSource, type AnalyticsReviewEvidence } from './creator-analytics-review';
 type Principal = { organizationId: string; userId: string };
 type Db = PrismaClient | Prisma.TransactionClient;
 const obj = (x: unknown): Record<string, unknown> => x && typeof x === 'object' && !Array.isArray(x) ? x as Record<string, unknown> : {};
@@ -26,7 +26,7 @@ export class CreatorAnalyticsReviewRepository {
       const entry = tiktokSocialAccountOf(profile.socialAccounts), stats = obj(entry?.stats);
       if (!connection || entry?.state !== 'CONNECTED' || typeof entry.readAt !== 'string' || !Number.isFinite(Date.parse(entry.readAt)) || +now - Date.parse(entry.readAt) > 86400000) return null;
       observedAt=new Date(entry.readAt);
-      const posts = (Array.isArray(entry.recentVideos) ? entry.recentVideos : []).slice(0,10).map(obj);
+      const posts = (Array.isArray(entry.recentVideos) ? entry.recentVideos : []).slice(0,14).map(obj);
       evidence = { source, identity: key(`${connection.id}:${connection.tiktokOpenId}:${connection.connectedAt.toISOString()}`), account: { followers: num(stats.followers), likes: num(stats.likes), videos: num(stats.videos), medianViews: null }, posts: posts.map(post => ({ key: key(String(post.id)), caption: (text(post.title) ?? '').slice(0,500), publishedAt: text(post.createdAt), views: num(post.viewCount), likes: num(post.likeCount), comments: null, shares: null, url: typeof post.shareUrl === 'string' && /^https:\/\/(www\.)?tiktok\.com\//.test(post.shareUrl) ? post.shareUrl : null })) };
       const ownHandle=text(entry.handle)?.trim().replace(/^@/,'').toLowerCase();
       if(ownHandle && ownHandle===profileTtoHandle(profile.preferences)) {
@@ -40,7 +40,8 @@ export class CreatorAnalyticsReviewRepository {
             const own=posts.get(post.key);
             posts.set(post.key,own?{...own,url:own.url??post.url,caption:newer?(post.caption||own.caption):(own.caption||post.caption),views:newer?(post.views??own.views):(own.views??post.views),likes:newer?(post.likes??own.likes):(own.likes??post.likes),comments:post.comments,shares:post.shares}:post);
           }
-          evidence.posts=[...posts.values()].sort((a,b)=>(Date.parse(b.publishedAt??'')||0)-(Date.parse(a.publishedAt??'')||0)).slice(0,10);
+          evidence.posts=analyticsEvidencePosts([...posts.values()]);
+          evidence.audience=supplement.evidence.audience; evidence.coverage=supplement.evidence.coverage;
           evidence.identity=key(`${evidence.identity}:${supplement.evidence.identity}`);
         }
       }
@@ -53,8 +54,9 @@ export class CreatorAnalyticsReviewRepository {
       observedAt=row.lastReadAt;
       const report = readTtoReport(row.report, now);
       if (!report || report.handle !== row.handle) return null;
-      evidence = { source, identity: key(`${c.id}:${c.revision}:${report.creatorId}:${report.handle}`), account: { followers: report.followers, likes: null, videos: null, medianViews: report.medianViews }, posts: report.videos.slice(0,10).map(post => ({ key: key(post.id), caption: post.caption.slice(0,500), publishedAt: post.createdAt, views: post.views, likes: post.likes, comments: post.comments, shares: post.shares, url: post.url })) };
+      evidence = { source, identity: key(`${c.id}:${c.revision}:${report.creatorId}:${report.handle}`), account: { followers: report.followers, likes: null, videos: null, medianViews: report.medianViews }, audience:report.audience,coverage:{imported:report.videos.length,complete:report.history?.complete===true && !report.history.capped}, posts: report.videos.map(post => ({ key: key(post.id), caption: post.caption.slice(0,500), publishedAt: post.createdAt, views: post.views, likes: post.likes, comments: post.comments, shares: post.shares, url: post.url })) };
     }
+    evidence.posts=analyticsEvidencePosts(evidence.posts);
     if (evidence.posts.filter(post => post.views !== null).length < 2) return null;
     return { profileId: profile.id, evidence, fingerprint: reviewFingerprint(evidence), observedAt };
   }

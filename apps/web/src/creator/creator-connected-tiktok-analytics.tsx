@@ -1,3 +1,5 @@
+import { CreatorAudienceInsights } from './creator-audience-insights';
+import { CreatorVideoHistory } from './creator-video-history';
 import { matchingTikTokHandles } from './creator-tiktok-identity';
 import { connectedTikTokOverview } from './creator-tiktok-overview';
 import type { FeaturedFeedback } from './creator-featured-feedback';
@@ -46,17 +48,8 @@ export function CreatorConnectedTikTokAnalytics({ entry, publicReport, state, re
       { label: 'Videos', value: count(entry.stats?.videos), unknownText: 'Not provided' },
     ]} />
     <CreatorPerformanceInsights source="TikTok" videos={overview.videos} feedback={feedback} />
-    <details className="ch-context-note"><summary>About these numbers</summary><p>These are the counts and recent public videos returned by the TikTok account authorized on Profile. Check the handle above belongs to you.</p><p>Unavailable reach, watch time and audience metrics are left out. Typical views may use a different reporting window from recent-post totals. Refresh checks for an update when the last reading is more than fifteen minutes old.</p></details>
-    <details className="ch-analytics-video-details"><summary>All {overview.videos.length} videos · full performance breakdown</summary><Panel title="Recent public video performance">
-      <div className="loop-table-wrap"><table className="loop-table" aria-label="Connected TikTok video performance">
-        <thead><tr><th>Content</th><th>Posted</th><th>Views</th><th>Likes</th></tr></thead>
-        <tbody>{overview.videos.map(video => <tr key={video.id}>
-          <td>{video.url ? <a href={video.url} target="_blank" rel="noreferrer noopener">{video.title || 'View TikTok video'} ↗</a> : video.title || 'TikTok video'}</td>
-          <td>{video.publishedAt ? time.dateTime(new Date(video.publishedAt)) : 'Not provided'}</td>
-          <td>{count(video.views) ?? 'Not provided'}</td><td>{count(video.likes) ?? 'Not provided'}</td>
-        </tr>)}</tbody>
-      </table></div>
-      {!overview.videos.length ? <StateBlock kind="empty" compact title="No public videos returned." body="This does not mean the account has no videos. Check your granted permissions on Profile." /> : null}
-    </Panel></details>
+    <details className="ch-context-note"><summary>About these numbers</summary><p>These are the counts and recent public videos returned by the TikTok account authorized on Profile. Check the handle above belongs to you.</p><p>Reach totals and watch time were not returned in this reading. Available audience breakdowns appear below. Typical views use TikTok’s latest 30-video median, separately from recent-post totals. Refresh checks for an update when the last reading is more than fifteen minutes old.</p></details>
+    <CreatorAudienceInsights audience={overview.audience}/>
+    <CreatorVideoHistory videos={overview.allVideos} complete={overview.historyComplete} time={time}/>
   </div>;
 }

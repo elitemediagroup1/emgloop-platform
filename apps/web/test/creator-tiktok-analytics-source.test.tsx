@@ -49,14 +49,15 @@ test('supplemental report matching rejects different, missing and malformed iden
 
 test('only same-account TikTok One metrics supplement the connected report', () => {
   const report = (handle: string) => ({
-    report: parseTtoReport(handle, { creator_id: '12345', handle_name: handle, followers_count: 176800, median_views: 938 }, { posts: [] }, now),
+    report: parseTtoReport(handle, { creator_id: '12345', handle_name: handle, followers_count: 176800, median_views: 938, audience_ages: [{age: '25-34', percentage:0.65}] }, { posts: [] }, now),
     lastReadAt: now, stale: true,
   });
   const mismatch = renderToStaticMarkup(<CreatorConnectedTikTokAnalytics entry={entry} state="CONNECTED" readFailed={false} time={time} publicReport={report('trevonbassmaster')} />);
   assert.match(mismatch, /does not match your saved creator account/);
-  assert.doesNotMatch(mismatch, /176\.8K|938/);
+  assert.doesNotMatch(mismatch, /176\.8K|938|65.0%/);
   const same = renderToStaticMarkup(<CreatorConnectedTikTokAnalytics entry={{ ...entry, handle: 'trevonbassmaster' }} state="CONNECTED" readFailed={false} time={time} publicReport={report('trevonbassmaster')} />);
   assert.match(same, /Typical video views/);
   assert.match(same, /938/);
+  assert.match(same, /65.0%/);
   assert.doesNotMatch(same, /176\.8K|does not match/);
 });

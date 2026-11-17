@@ -9,6 +9,7 @@ import { CREATOR_HREFS, creatorDomain, requireCreator } from '../../../../creato
 import { CreatorPageHead } from '../../../../creator/creator-page-head';
 import { refreshCreatorAnalyticsAction } from '../../../../creator/creator-analytics-coach-action';
 import { connectedTikTokOverview } from '../../../../creator/creator-tiktok-overview';
+import { videoHistorySets } from '../../../../creator/creator-video-history';
 import { performanceSample } from '../../../../creator/creator-performance-insights';
 import { featuredPostFeedback } from '../../../../creator/creator-featured-feedback';
 import { tiktok } from '../../../../tiktok/tiktok-runtime';
@@ -65,8 +66,8 @@ export default async function CreatorAnalyticsPage({
   }
   const videos = source === 'ACCOUNT' && accountEntry
     ? connectedTikTokOverview(accountEntry, publicReport?.ok ? publicReport.value : null).videos
-    : publicReport?.ok ? (publicReport.value?.report?.videos ?? []).map(v => ({ id:v.id,title:v.caption,url:v.url,views:v.views,likes:v.likes,thumbnail:v.thumbnailUrl,publishedAt:v.createdAt })) : [];
-  const feedback = featuredPostFeedback(coach?.ok ? coach.value : null, performanceSample(videos).ranked[0]?.id);
+    : publicReport?.ok ? (publicReport.value?.report?.videos ?? []).map(v => ({ id:v.id,title:v.caption,url:v.url,views:v.views,likes:v.likes,comments:v.comments,shares:v.shares,thumbnail:v.thumbnailUrl,publishedAt:v.createdAt })) : [];
+  const feedback = featuredPostFeedback(coach?.ok ? coach.value : null, performanceSample(videoHistorySets(videos).recent).ranked[0]?.id);
   return (
     <LoopPage label="Analytics">
       <CreatorPageHead

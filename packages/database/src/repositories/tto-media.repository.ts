@@ -93,7 +93,7 @@ export class TtoMediaRepository {
             }
             const leaseId = randomUUID();
             const won = await tx.ttoCreatorSnapshot.updateMany({ where: { ...key, OR: [{ leaseUntil: null }, { leaseUntil: { lte: now } }] }, data: { connectionId: source.id, sourceRevision: source.revision, handle, ...(row.handle !== handle || row.connectionId !== source.id || row.sourceRevision !== source.revision ? { report: {}, lastReadAt: null } : {}), leaseId, leaseUntil: new Date(+now + 90000), lastAttemptAt: now, nextAttemptAt: new Date(+now + 120000) } });
-            return won.count === 1 ? { organizationId, profileId, handle, leaseId, source } : null;
+            return won.count === 1 ? { organizationId, profileId, handle, leaseId, source, previousReport: row.handle===handle && row.connectionId===source.id && row.sourceRevision===source.revision ? readTtoReport(row.report,now) : null } : null;
         }, { isolationLevel: 'Serializable' });
     }
     async publish(claim: NonNullable<Awaited<ReturnType<TtoMediaRepository['claim']>>>, report: TtoReport, now: Date) {
@@ -111,7 +111,7 @@ export class TtoMediaRepository {
             const duplicate = others.some(p => profileTtoHandle(p.preferences) === handle);
             if (duplicate)
                 return false;
-            return (await tx.ttoCreatorSnapshot.updateMany({ where: { organizationId, creatorProfileId: profileId, leaseId, leaseUntil: { gt: now }, sourceRevision: source.revision }, data: { report: report as unknown as Prisma.InputJsonValue, lastReadAt: now, lastFailure: null, nextAttemptAt: new Date(+now + 6 * 3600000), leaseId: null, leaseUntil: null } })).count === 1;
+            return (await tx.ttoCreatorSnapshot.updateMany({ where: { organizationId, creatorProfileId: profileId, leaseId, leaseUntil: { gt: now }, sourceRevision: source.revision }, data: { report: report as unknown as Prisma.InputJsonValue, lastReadAt: now, lastFailure: null, nextAttemptAt: new Date(+now + (report.history && !report.history.complete && !report.history.capped ? 120000 : 6 * 3600000)), leaseId: null, leaseUntil: null } })).count === 1;
         }, { isolationLevel: 'Serializable' });
     }
     async failure(claim: NonNullable<Awaited<ReturnType<TtoMediaRepository['claim']>>>, failure: string, now: Date) {
@@ -145,7 +145,7 @@ export class TtoMediaRepository {
     }
     async targets() {
         // A bounded sweep; missing handles get a durable deferred state, so they cannot block the queue.
-        return this.db.creatorProfile.findMany({ where: { organization: { tiktokBusinessConnections: { some: { kind: 'TTO', status: 'CONNECTED', tokenSealed: { not: null } } } }, OR: [{ ttoSnapshot: null }, { ttoSnapshot: { nextAttemptAt: { lte: new Date() } } }] }, select: { organizationId: true, id: true }, orderBy: { id: 'asc' }, take: 10 });
+        return this.db.creatorProfile.findMany({ where: { organization: { tiktokBusinessConnections: { some: { kind: 'TTO', status: 'CONNECTED', tokenSealed: { not: null } } } }, OR: [{ ttoSnapshot: null }, { ttoSnapshot: { nextAttemptAt: { lte: new Date() } } }] }, select: { organizationId: true, id: true }, orderBy: [{ ttoSnapshot: { lastAttemptAt: { sort: 'asc', nulls: 'first' } } }, { id: 'asc' }], take: 10 });
     }
     async roster(p: TtoViewer) {
         if (!await ttoOwnerAuthorized(this.db, p))
