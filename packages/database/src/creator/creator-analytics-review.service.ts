@@ -10,13 +10,15 @@ export class CreatorAnalyticsReviewService {
       await this.repo.purge(p,this.now());
       claim=await this.repo.claim(p,source,this.now());
       if(!claim)return await this.repo.snapshot(p,source,this.now())?'NOT_DUE':'NO_EVIDENCE';
-      const result=await this.gateway.run(p,{task:AI_TASK_CREATOR_ANALYTICS_READING,...analyticsReviewContext(p,claim.snapshot.evidence),instructions:CREATOR_COACH_INSTRUCTIONS,schema:DOMAIN_READING_SCHEMA,templateId:'creator-performance-coach',templateVersion:'1',lane:'BACKGROUND'});
+      const result=await this.gateway.run(p,{task:AI_TASK_CREATOR_ANALYTICS_READING,...analyticsReviewContext(p,claim.snapshot.evidence),instructions:CREATOR_COACH_INSTRUCTIONS,schema:DOMAIN_READING_SCHEMA,templateId:'creator-performance-coach',templateVersion:'2',lane:'BACKGROUND'});
       const reading=result.outcome==='ANSWERED'?result.output.domainReading:null;
       const keys=reading?.signals.map(signal=>signal.key).sort();
       const postRefs=new Set(claim.snapshot.evidence.posts.map(post=>`analytics_post:${post.key}`));
       const cited=reading?.signals.every(signal=>signal.evidenceRefs?.some(ref=>postRefs.has(ref))); 
       if(result.outcome!=='ANSWERED'||!reading||!cited||JSON.stringify(keys)!==JSON.stringify(['critique','experiment','praise'])){
-        await this.repo.finish(p,claim,this.now(),{failure:result.outcome==='ANSWERED'?'OUTPUT_INVALID':result.outcome});
+        const failure=result.outcome==='ANSWERED'?'OUTPUT_INVALID':result.outcome==='REFUSED_BY_LOOP'?`REFUSED_BY_LOOP:${result.refusals.join(':')}`.slice(0,240):result.outcome;
+        console.info('creator-analytics-review.withheld',{outcome:result.outcome,...(result.outcome==='REFUSED_BY_LOOP'?{refusals:result.refusals}:{})});
+        await this.repo.finish(p,claim,this.now(),{failure});
         return result.outcome==='ANSWERED'?'OUTPUT_INVALID':result.outcome;
       }
       const saved=await this.repo.finish(p,claim,this.now(),{reading,invocationId:result.provenance.invocationId,providerId:result.provenance.requestedModel.providerId});

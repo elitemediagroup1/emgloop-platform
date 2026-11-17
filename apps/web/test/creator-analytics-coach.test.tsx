@@ -6,8 +6,8 @@ import { CreatorAnalyticsCoach } from '../src/creator/creator-analytics-coach';
 const now=new Date('2026-11-17T16:00:00Z'),time=createTimeView({timeZone:'America/New_York',source:'device'},now);
 test('AI coach shows no fabricated feedback before a real accepted reading exists',()=>{
  const html=renderToStaticMarkup(<CreatorAnalyticsCoach review={null} source="ACCOUNT" time={time} outcome={null}/>);
- assert.match(html,/Review my performance/);
- assert.match(html,/has not watched your videos/);
+ assert.match(html,/Your AI review is not available yet/);
+ assert.doesNotMatch(html,/Request a review|Review my performance/);
  assert.doesNotMatch(html,/Where to improve|View supporting post/);
 });
 test('accepted coach feedback is escaped and tied to its saved supporting posts',()=>{

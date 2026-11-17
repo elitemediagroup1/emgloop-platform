@@ -16,8 +16,8 @@ const entry: TikTokEntryView = {
 test('connected, partial, expired and failed status reads never silently default to another account source', () => {
   for (const state of ['CONNECTED', 'PARTIAL', 'EXPIRED', null] as const) assert.equal(selectTikTokAnalyticsSource(null, state), 'ACCOUNT');
   assert.equal(selectTikTokAnalyticsSource(null, 'NOT_CONNECTED'), 'TIKTOK_ONE');
-  assert.equal(selectTikTokAnalyticsSource('TIKTOK_ONE', 'CONNECTED'), 'TIKTOK_ONE');
-  assert.equal(selectTikTokAnalyticsSource('ACCOUNT', 'NOT_CONNECTED'), 'ACCOUNT');
+  assert.equal(selectTikTokAnalyticsSource('TIKTOK_ONE', 'CONNECTED'), 'ACCOUNT');
+  assert.equal(selectTikTokAnalyticsSource('ACCOUNT', 'NOT_CONNECTED'), 'TIKTOK_ONE');
   assert.equal(selectTikTokAnalyticsSource('arbitrary-account-id', 'CONNECTED'), 'ACCOUNT');
 });
 test('connected analytics identifies the authorized account, preserves missing counts and marks failed refreshes', () => {
@@ -53,10 +53,10 @@ test('only same-account TikTok One metrics supplement the connected report', () 
     lastReadAt: now, stale: true,
   });
   const mismatch = renderToStaticMarkup(<CreatorConnectedTikTokAnalytics entry={entry} state="CONNECTED" readFailed={false} time={time} publicReport={report('trevonbassmaster')} />);
-  assert.match(mismatch, /does not match this connected account/);
-  assert.doesNotMatch(mismatch, /176\.8K|Supplemental TikTok One report/);
+  assert.match(mismatch, /does not match your saved creator account/);
+  assert.doesNotMatch(mismatch, /176\.8K|938/);
   const same = renderToStaticMarkup(<CreatorConnectedTikTokAnalytics entry={{ ...entry, handle: 'trevonbassmaster' }} state="CONNECTED" readFailed={false} time={time} publicReport={report('trevonbassmaster')} />);
-  assert.match(same, /Supplemental TikTok One report/);
-  assert.match(same, /Refresh pending/);
+  assert.match(same, /Typical video views/);
+  assert.match(same, /938/);
   assert.doesNotMatch(same, /176\.8K|does not match/);
 });

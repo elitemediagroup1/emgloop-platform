@@ -1,25 +1,27 @@
-## Creator Analytics coaching and layout repair
+## Unified Creator Analytics and informative featured posts
 
-PR #463 is merged at b717777216acb5c5f6aefb7a0dc041c045b76400, but production screenshots
-exposed a legacy outer grid colliding with the new sections: overlapping tab rows, clipped chart
-content and a stretched disclosure. Branch `feat/creator-analytics-coach` removes that outer grid,
-uses separate source controls and compact native video details, and adds real governed OpenAI
-coaching through the existing creator.analytics.reading task and domain-reading.v1 contract.
-The coach produces specific praise, constructive critique and a tentative next experiment, each
-citing supplied posts. It only receives captions and counts, not video/audio; no editing, retention,
-demographic or causal claims are authorized. No canned AI output is displayed. Generation is an
-explicit creator action; no provider call occurs on page view. Unchanged evidence is cached;
-per-creator leases and a fifteen-minute cooldown fence duplicate calls and failure retries, while
-the established background/total budget and task activation controls remain in force.
+Main includes PR #464 at 506d0b2af2312de8d8d810fb4f3b748b08a71635. Matt rejected its source-selection
+UI and generic spotlight. Branch `fix/creator-unified-analytics` removes source tabs, provider branding
+and marketing placeholder space. Creators see one TikTok view and Refresh insights. Authorized same-
+account readings are deduplicated by video id, use the fresher available counts and keep provenance
+internal. Mismatched accounts never merge. Legacy source URLs redirect to the canonical platform URL.
 
-Migration 20261117170000_creator_analytics_reviews adds a tenant/member/creator-scoped review cache
-with immutable bounded evidence, validated results, provenance and thirty-day expiry. Source
-version, creator ownership and authorization are rechecked in a serializable publication transaction
-and on every read; disconnected/reassigned/stale sources cannot expose earlier reviews.
-Local checks: 166 creator/UI tests and four backend coaching tests pass; web/database typechecks pass. Lint retains the pre-existing missing ESLint configuration. The new disposable-Postgres isolation/concurrency test is added to CI; product build and CI are pending.
-No migration is run from Netlify. Matt dispatches migrations and merges. No credentials or spending
-limits change. Model execution and final desktop/mobile production visuals remain unverified until
-migration, deployment and an authorized real creator review. Pending validation is not completion.
+Leading recent post is selected from the highest current reported views, with a factual summary of
+its views, ratio to this recent set's median, share of returned views and likes. It rotates when another
+recent post overtakes it; no growth-speed claim is made from one snapshot. AI praise/experiments are
+attached only when they cite that exact selected post. Prompt/evidence version 2 anchors praise to the
+leader, keeps integration names out of prose and retains evidence references for audit. A first visit
+or changed evidence can now request the existing governed cached review; unchanged data, fifteen-
+minute creator cooldown, leases, failure backoff and existing gateway spending controls still apply.
+Refresh updates provider readings, then a separate GET reuses or generates the review. No model call
+is bundled into the potentially slow provider-refresh POST. No extra migration or limits increase.
+
+Live production review was tested through Trevon's authorized Creator session and returned
+coach=UNAVAILABLE. The migration workflow's latest run is #54, 43540087829, November 13, before the
+review-table migration. Matt was instructed to run Deploy Prisma Migrations from main with
+`migrate loop-connections-production`; he retains manual migration/merge control. Migration run #55 (44160223320), manually dispatched by Matt, succeeded November 17 at 2:36 PM Eastern and applied the required review table. No migration was run by the agent. Real AI generation and final unified desktop/mobile visuals remain to be verified.
+169 creator/UI tests and four backend review tests pass; both typechecks and the product build pass; lint retains the pre-existing missing configuration. Follow the PR and deployment
+before claiming completion. Migration 20261117170000_creator_analytics_reviews from #464 is now applied in production; this branch adds none. The live retest after migration returned REFUSED_BY_LOOP. Netlify Production LOOP_AI_TASKS omitted creator.analytics.reading; that exact existing task was appended while preserving all prior tasks and all spending limits. A new deploy is required to load it. Preview AI remains disabled, and cannot claim the shared review cache. Browser session is available again on November 17.
 
 ## Creator Hub reference fidelity and agency branding
 
