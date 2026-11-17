@@ -42,3 +42,17 @@ test('valid cited feedback is persisted with provenance, and an authorization ch
   assert.equal((stored as {providerId:string}).providerId,'openai');
  }
 });
+
+test('coach receives recent and historical leaders with distinct audience populations and invalidates old evidence',async()=>{
+ const {analyticsEvidencePosts}=await import('../src/creator/creator-analytics-review');
+ const posts=Array.from({length:60},(_,i)=>({...evidence.posts[0]!,key:'p'+i,views:i===5?1000:i,publishedAt:new Date(1700000000000-i*1000).toISOString()}));
+ const selected=analyticsEvidencePosts(posts);
+ assert.equal(selected[0]?.key,'p5');
+ assert.ok(selected.some(p=>p.key==='p59'));
+ assert.ok(selected.length<=24);
+ const enriched={...evidence,posts:selected,coverage:{imported:60,complete:false},audience:{followers:{ages:[{label:'25-34',percentage:0.6}],genders:[],countries:[]},reached:{ages:[],genders:[],countries:[]},engaged:{ages:[],genders:[],countries:[]}}};
+ const context=analyticsReviewContext(p,enriched);
+ assert.match(context.context.items[0]!.content,/"percent":60/);
+ assert.match(context.context.items[0]!.content,/"complete":false/);
+ assert.notEqual(reviewFingerprint(enriched),reviewFingerprint(evidence));
+});

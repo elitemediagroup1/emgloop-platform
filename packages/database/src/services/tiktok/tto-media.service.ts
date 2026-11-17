@@ -48,7 +48,7 @@ export class TtoMediaService {
             }
             if (!accounts.includes(claim.source.ttoAccountId))
                 throw new TtoReadError('PERMISSION_REQUIRED');
-            const report = await this.config.api.report(token, claim.source.ttoAccountId, claim.handle, new Date());
+            const report = await this.config.api.report(token, claim.source.ttoAccountId, claim.handle, new Date(), claim.previousReport);
             if (!await this.repository.publish(claim, report, new Date()))
                 throw new Error('WITHDRAWN');
             return 'SYNCED';

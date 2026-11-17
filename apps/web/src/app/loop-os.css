@@ -5511,3 +5511,12 @@ a.xb__focuscard:hover { border-color: var(--loop-line-strong); transform: transl
 .ch-featured-ai>span { color:var(--loop-mint); font-size:11px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; }
 .ch-performance-spotlight .ch-featured-context { font-size:11px!important; margin-top:auto!important; }
 .ch-performance-spotlight .loop-btn { margin-top:8px; }
+
+/* Creator audience: separate populations and explicit reported shares. */
+.ch-audience, .ch-video-history { display:grid; gap:16px; min-width:0; }
+.ch-audience-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:28px; padding:20px; }
+.ch-audience-bars { list-style:none; padding:0; margin:0; }
+.ch-audience-bars li { display:grid; grid-template-columns:1fr auto; gap:8px; margin-block:14px; }
+.ch-audience-bars meter { grid-column:1/-1; width:100%; height:10px; accent-color:var(--loop-accent); }
+.ch-video-history .loop-note { padding-inline:20px; }
+@media(max-width:760px){.ch-audience-grid{grid-template-columns:1fr;gap:12px}.ch-video-history td:first-child{min-width:200px}}

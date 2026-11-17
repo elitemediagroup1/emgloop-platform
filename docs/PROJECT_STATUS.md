@@ -1,27 +1,33 @@
-## Unified Creator Analytics and informative featured posts
+## Creator Analytics audience and video history
 
-Main includes PR #464 at 506d0b2af2312de8d8d810fb4f3b748b08a71635. Matt rejected its source-selection
-UI and generic spotlight. Branch `fix/creator-unified-analytics` removes source tabs, provider branding
-and marketing placeholder space. Creators see one TikTok view and Refresh insights. Authorized same-
-account readings are deduplicated by video id, use the fresher available counts and keep provenance
-internal. Mismatched accounts never merge. Legacy source URLs redirect to the canonical platform URL.
+Main b4f2a2e6de5498e60fe111d1de7857f2a58d4a57 includes #465 (verified tree matches local).
+Branch `fix/creator-audience-history` fixes the dropped audience fields and first-page-only media.
+The existing TikTok public profile endpoint documents follower, reached, and engaged age/gender/
+country distributions. Reached/engaged populations cover the past 30 days; fractions are validated,
+retained in the existing authorized snapshot and rendered separately. Missing dimensions have an
+individual explanation. No creator pricing or commercial terms are imported into creator analytics.
 
-Leading recent post is selected from the highest current reported views, with a factual summary of
-its views, ratio to this recent set's median, share of returned views and likes. It rotates when another
-recent post overtakes it; no growth-speed claim is made from one snapshot. AI praise/experiments are
-attached only when they cite that exact selected post. Prompt/evidence version 2 anchors praise to the
-leader, keeps integration names out of prose and retains evidence references for audit. A first visit
-or changed evidence can now request the existing governed cached review; unchanged data, fifteen-
-minute creator cooldown, leases, failure backoff and existing gateway spending controls still apply.
-Refresh updates provider readings, then a separate GET reuses or generates the review. No model call
-is bundled into the potentially slow provider-refresh POST. No extra migration or limits increase.
+Each import reads up to 25 newest videos, resumes one saved 25-video history page, and refreshes the
+previous top ten by ID. Cursor and bounded archive live in the existing snapshot JSON, with the same
+source revision, profile handle, lease and publication authorization checks. Failed reads cannot
+advance the stored cursor. Unfinished backfills become due after two minutes and the existing ten-
+minute scheduled sweep processes one due creator per run. Completed history refreshes after six
+hours; manual refresh retains the two-minute fence. Archive cap is 10,000; capped/incomplete data
+cannot be labeled all-time. Public/private/deleted coverage remains limited to the provider response.
 
-Live production review was tested through Trevon's authorized Creator session and returned
-coach=UNAVAILABLE. The migration workflow's latest run is #54, 43540087829, November 13, before the
-review-table migration. Matt was instructed to run Deploy Prisma Migrations from main with
-`migrate loop-connections-production`; he retains manual migration/merge control. Migration run #55 (44160223320), manually dispatched by Matt, succeeded November 17 at 2:36 PM Eastern and applied the required review table. No migration was run by the agent. Real AI generation and final unified desktop/mobile visuals remain to be verified.
-169 creator/UI tests and four backend review tests pass; both typechecks and the product build pass; lint retains the pre-existing missing configuration. Follow the PR and deployment
-before claiming completion. Migration 20261117170000_creator_analytics_reviews from #464 is now applied in production; this branch adds none. The live retest after migration returned REFUSED_BY_LOOP. Netlify Production LOOP_AI_TASKS omitted creator.analytics.reading; that exact existing task was appended while preserving all prior tasks and all spending limits. A new deploy is required to load it. Preview AI remains disabled, and cannot claim the shared review cache. Browser session is available again on November 17.
+Creator Analytics now shows 14 newest videos and the highest-viewed ten across imported history.
+The label becomes Top 10 All-Time Videos only when the available history has completed and all
+imported posts have reported views. History counts remain explicit. Account supplements are still
+merged only for matching handles; mismatches cannot supply audience data or historical rankings.
+Model evidence v3 includes the newest fourteen plus historical top ten, deduplicated (max 24), and
+reported demographics. Current recent leader anchors praise; broader history can inform comparisons.
+Existing OpenAI gateway, cooldown, failure backoff, schema validation and spending controls remain.
+No migration, new environment variable, paid service or spending increase is required.
+
+Validation: 162 creator/UI tests and 19 provider/backend tests pass; additional final UI and account-isolation checks pass. Web (including test types), database and provider typechecks pass. The product build passes. Lint remains blocked by the existing missing ESLint configuration. Draft PR #466 is open. Production Trevon audience payload and completed-history ranking must
+be verified after Matt merges/deploys. Earlier review migration 20261117170000_creator_analytics_reviews
+was applied by Matt in workflow #55; creator.analytics.reading was added to the existing production
+task allowlist. Successful live persisted coaching still needs confirmation; do not claim it verified.
 
 ## Creator Hub reference fidelity and agency branding
 
