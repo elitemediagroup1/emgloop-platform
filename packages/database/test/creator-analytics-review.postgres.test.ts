@@ -16,7 +16,7 @@ test('Postgres: coaching leases, creator isolation, source change and revocation
   const now=new Date(),p={organizationId:org,userId:user.id};
   const entry={platform:'TIKTOK',state:'CONNECTED',handle:'example',readAt:now.toISOString(),stats:{followers:100},recentVideos:[{id:'a',title:'A post',viewCount:100,likeCount:2},{id:'b',title:'Another post',viewCount:30,likeCount:0}]};
   const profile=await db.creatorProfile.create({data:{organizationId:org,userId:user.id,partyId:'coach-party',displayName:'Creator',socialAccounts:[entry]}});
-  await db.tikTokConnection.create({data:{organizationId:org,userId:user.id,tiktokOpenId:'scoped-account',status:'CONNECTED',connectedAt:now,refreshTokenSealed:Buffer.from('test-only')}});
+  await db.tikTokConnection.create({data:{organizationId:org,userId:user.id,tiktokOpenId:'scoped-account',activeTiktokOpenId:'scoped-account',status:'CONNECTED',connectedAt:now,refreshTokenSealed:Buffer.alloc(48,1),accessTokenSealed:Buffer.alloc(48,2),accessTokenExpiresAt:new Date(+now+86400000),sealVersion:'test-v1',keyRef:'test-key',grantedScopes:['user.info.basic','user.info.profile','user.info.stats','video.list']}});
   assert.equal(await repo.snapshot({...p,organizationId:other},'ACCOUNT',now),null);
   const attempts=await Promise.allSettled([repo.claim(p,'ACCOUNT',now),repo.claim(p,'ACCOUNT',now)]);
   const claims=attempts.flatMap(r=>r.status==='fulfilled'&&r.value?[r.value]:[]);assert.equal(claims.length,1);
@@ -30,7 +30,7 @@ test('Postgres: coaching leases, creator isolation, source change and revocation
   assert.equal(await repo.current(p,'ACCOUNT',now),null,'old evidence cannot appear current');
   assert.equal(await repo.claim(p,'ACCOUNT',now),null,'new evidence does not bypass the spend cooldown');
   const later=new Date(+now+901000),next=await repo.claim(p,'ACCOUNT',later);assert.ok(next);
-  await db.tikTokConnection.updateMany({where:p,data:{status:'REVOKED',refreshTokenSealed:null}});
+  await db.tikTokConnection.updateMany({where:p,data:{status:'REVOKED',activeTiktokOpenId:null,refreshTokenSealed:null,accessTokenSealed:null,accessTokenExpiresAt:null,sealVersion:null,keyRef:null,revokedAt:later,revocationReason:'SELF_DISCONNECT'}});
   assert.equal(await repo.finish(p,next,later,{reading,invocationId:'test-revoked',providerId:'openai'}),false);
   assert.equal(await repo.current(p,'ACCOUNT',later),null,'disconnect withdraws published data immediately');
  }finally{await db.organization.deleteMany({where:{id:{in:[org,other]}}});await db.$disconnect();}
