@@ -1047,3 +1047,8 @@ export type { TtoViewer } from './repositories/tto-media.repository';
 export { TtoMediaService } from './services/tiktok/tto-media.service';
 
 export { profileTtoHandle } from './repositories/tto-media.repository';
+
+export { CreatorAnalyticsReviewRepository } from './creator/creator-analytics-review.repository';
+export { CreatorAnalyticsReviewService } from './creator/creator-analytics-review.service';
+export { analyticsReviewContext, reviewFingerprint, CREATOR_COACH_INSTRUCTIONS } from './creator/creator-analytics-review';
+export type { AnalyticsSource, AnalyticsReviewEvidence } from './creator/creator-analytics-review';

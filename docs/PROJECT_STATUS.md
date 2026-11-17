@@ -1,15 +1,25 @@
-## Connected TikTok analytics source
+## Creator Analytics coaching and layout repair
 
-Branch `fix/creator-tiktok-analytics-source` fixes Analytics reading only TikTok One even after
-Login Kit authorization on Profile. Connected/partly connected accounts now default to their own
-scoped Login Kit reading. TikTok One remains an explicit separate source with its own handle;
-the default overview supplements account counts with TikTok One median views only when exact normalized handles match. Source timestamps and stale flags remain independent. Mismatches are explicitly excluded. Expired/failed reads do not silently switch identity.
-The connected-account Refresh checks only Login Kit and keeps the existing fifteen-minute throttle.
-Missing permissions/counts remain unknown; revoked and demo data are withheld. No migration or
-credential changes. Matt tested his own @chefmattdunn account on Trevon's seat: disconnect that test
-account and have Trevon authorize his own account before treating this as his private account data.
-164 creator/OAuth/navigation tests, web typecheck and product build pass; lint retains
-the existing missing-ESLint-configuration failure. Analytics now includes a source-labeled performance lab: real view ranking bars, returned-sample view totals, a paired-count like rate and leading-content spotlight. No illustrative trend chart remains. The sample is explicitly not a 30-day report; no causal or AI claims are made. Await Matt's merge and production validation.
+PR #463 is merged at b717777216acb5c5f6aefb7a0dc041c045b76400, but production screenshots
+exposed a legacy outer grid colliding with the new sections: overlapping tab rows, clipped chart
+content and a stretched disclosure. Branch `feat/creator-analytics-coach` removes that outer grid,
+uses separate source controls and compact native video details, and adds real governed OpenAI
+coaching through the existing creator.analytics.reading task and domain-reading.v1 contract.
+The coach produces specific praise, constructive critique and a tentative next experiment, each
+citing supplied posts. It only receives captions and counts, not video/audio; no editing, retention,
+demographic or causal claims are authorized. No canned AI output is displayed. Generation is an
+explicit creator action; no provider call occurs on page view. Unchanged evidence is cached;
+per-creator leases and a fifteen-minute cooldown fence duplicate calls and failure retries, while
+the established background/total budget and task activation controls remain in force.
+
+Migration 20261117170000_creator_analytics_reviews adds a tenant/member/creator-scoped review cache
+with immutable bounded evidence, validated results, provenance and thirty-day expiry. Source
+version, creator ownership and authorization are rechecked in a serializable publication transaction
+and on every read; disconnected/reassigned/stale sources cannot expose earlier reviews.
+Local checks: 166 creator/UI tests and four backend coaching tests pass; web/database typechecks pass. Lint retains the pre-existing missing ESLint configuration. The new disposable-Postgres isolation/concurrency test is added to CI; product build and CI are pending.
+No migration is run from Netlify. Matt dispatches migrations and merges. No credentials or spending
+limits change. Model execution and final desktop/mobile production visuals remain unverified until
+migration, deployment and an authorized real creator review. Pending validation is not completion.
 
 ## Creator Hub reference fidelity and agency branding
 

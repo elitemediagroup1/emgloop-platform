@@ -50,7 +50,7 @@ jobs:
         run: node --import tsx --test apps/web/test/creator-*.test.tsx apps/web/test/one-loop-shell.test.tsx apps/web/test/tiktok-login-kit.test.tsx apps/web/test/meta-*.test.tsx
 
       - name: Creator Gmail synthesis and publication contracts
-        run: node --import tsx --test packages/database/test/managed-creator-mail.test.ts packages/database/test/creator-brand-mail.test.ts packages/database/test/creator-domain-discovery.test.ts packages/shared/test/creator-brand-update.test.ts packages/shared/test/ai-capacity.test.ts
+        run: node --import tsx --test packages/database/test/managed-creator-mail.test.ts packages/database/test/creator-brand-mail.test.ts packages/database/test/creator-domain-discovery.test.ts packages/shared/test/creator-brand-update.test.ts packages/shared/test/ai-capacity.test.ts packages/database/test/creator-analytics-review.test.ts
 
   creator-production:
     runs-on: ubuntu-latest
@@ -83,7 +83,7 @@ jobs:
       - name: Apply migrations to disposable database
         run: npm run -w @emgloop/database migrate:deploy
       - name: Creator production lifecycle and isolation
-        run: node --import tsx --test packages/database/test/creator-production.postgres.test.ts
+        run: node --import tsx --test packages/database/test/creator-production.postgres.test.ts packages/database/test/creator-analytics-review.postgres.test.ts
 
       - name: Meta OAuth isolation and lifecycle
         run: node --import tsx --test packages/database/test/meta-*.test.ts packages/providers/test/meta-api.test.ts

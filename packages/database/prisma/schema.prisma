@@ -199,6 +199,7 @@ enum IntegrationEventStatus {
 // ---------------------------------------------------------------------------
 
 model Organization {
+  creatorAnalyticsReviews CreatorAnalyticsReview[]
   ttoCreatorSnapshots TtoCreatorSnapshot[]
   tiktokBusinessConnections TikTokBusinessConnection[]
   tiktokBusinessStates TikTokBusinessOAuthState[]
@@ -585,6 +586,7 @@ model OrganizationMembership {
   receivedCreatorMailCaptures ManagedCreatorMailCapture[] @relation("CreatorCaptureRecipient")
   managedGoogleOAuthStates    ManagedGoogleOAuthState[]    @relation("ManagedMailboxOAuthMember")
   /// A TikTok connection belongs to a membership the same way: the creator, in THIS organization.
+  creatorAnalyticsReviews CreatorAnalyticsReview[]
   tiktokConnection            TikTokConnection[]           @relation("TikTokConnectionMember")
   tiktokOAuthStates           TikTokOAuthState[]           @relation("TikTokOAuthStateMember")
   /// A source connection (Teams, Telegram) belongs to a membership: the person, in THIS
@@ -7224,6 +7226,7 @@ model WorkInstruction {
 /// says which login acts as the creator and what the creator maintains about
 /// themselves. `partyId` is a scalar id, like every identity reference here.
 model CreatorProfile {
+  analyticsReviews CreatorAnalyticsReview[]
   ttoSnapshot TtoCreatorSnapshot?
   id             String  @id @default(cuid())
   organizationId String
@@ -8608,4 +8611,34 @@ model TtoCreatorSnapshot {
   @@unique([organizationId, creatorProfileId])
   @@index([nextAttemptAt])
   @@map("tto_creator_snapshots")
+}
+
+
+/// Creator-private, evidence-versioned AI performance reviews. Evidence is immutable per fingerprint.
+model CreatorAnalyticsReview {
+  id String @id @default(cuid())
+  organizationId String
+  userId String
+  creatorProfileId String
+  source String
+  fingerprint String
+  evidence Json
+  reading Json?
+  state String @default("PENDING")
+  leaseId String?
+  leaseUntil DateTime?
+  nextAttemptAt DateTime @default(now())
+  invocationId String?
+  providerId String?
+  failure String?
+  generatedAt DateTime?
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  membership OrganizationMembership @relation(fields: [userId, organizationId], references: [userId, organizationId], onDelete: Cascade)
+  creator CreatorProfile @relation(fields: [organizationId, creatorProfileId], references: [organizationId, id], onDelete: Cascade)
+  @@unique([organizationId, userId, creatorProfileId, source, fingerprint])
+  @@index([organizationId, userId, creatorProfileId, createdAt])
+  @@index([expiresAt])
+  @@map("creator_analytics_reviews")
 }

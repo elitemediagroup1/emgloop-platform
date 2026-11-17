@@ -1,4 +1,6 @@
 import Link from 'next/link';
+import { CreatorAnalyticsCoach } from '../../../../creator/creator-analytics-coach';
+import { creatorAnalyticsReviewRepository } from '../../../../creator/creator-analytics-coach-runtime';
 import { MetaAnalyticsPanel } from '../../../../meta/meta-panels';
 import { YouTubeAnalyticsPanel } from '../../../../youtube/youtube-panel';
 import { requireWorkspace } from '../../../../workspaces/guard';
@@ -49,6 +51,7 @@ export default async function CreatorAnalyticsPage({
     platform === 'TIKTOK'
       ? await settle(() => ttoMediaRepository().read(principal, seat.profileId, time.now))
       : null;
+  const coach = platform === 'TIKTOK' ? await settle(() => creatorAnalyticsReviewRepository().current(principal, source, time.now)) : null;
   return (
     <LoopPage label="Analytics">
       <CreatorPageHead
@@ -77,12 +80,13 @@ export default async function CreatorAnalyticsPage({
         ))}
       </nav>
       {platform === 'TIKTOK' ? <>
-        <nav aria-label="TikTok data source" className="ch-analytics-tabs">
+        <nav aria-label="TikTok data source" className="ch-analytics-sources">
           <Link className="ch-analytics-tab" href={`${CREATOR_HREFS.analytics}?platform=TIKTOK&source=ACCOUNT`} aria-current={source === 'ACCOUNT' ? 'page' : undefined}>Account overview</Link>
           <Link className="ch-analytics-tab" href={`${CREATOR_HREFS.analytics}?platform=TIKTOK&source=TIKTOK_ONE`} aria-current={source === 'TIKTOK_ONE' ? 'page' : undefined}>TikTok One report</Link>
         </nav>
         <p className="loop-note">Account overview combines available sources only when their TikTok handles match. Each metric keeps its source.</p>
       </> : null}
+      {platform === 'TIKTOK' ? <CreatorAnalyticsCoach review={coach?.ok ? coach.value : null} source={source} time={time} outcome={param(searchParams.coach)} /> : null}
       {platform === 'TIKTOK' ? (
         source === 'ACCOUNT' ? <CreatorConnectedTikTokAnalytics entry={accountEntry} publicReport={publicReport?.ok ? publicReport.value : null} state={status} readFailed={param(searchParams.tiktok_sync) === 'FAILED' || !accountRead?.ok || !accountRead.value.ok || !accountProfile?.ok} time={time} /> :
         publicReport?.ok && publicReport.value?.report ? (
