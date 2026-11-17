@@ -68,6 +68,10 @@ export async function replyCreatorQuestionAction(data: FormData) {
     data.get('complete') === 'on',
   );
   revalidatePath('/app/creator/tasks');
+  if (seat.workspace === 'EMPLOYEE') {
+    revalidatePath(`/app/employee/work/${String(data.get('id') ?? '')}`);
+    redirect(`/app/employee/work/${encodeURIComponent(String(data.get('id') ?? ''))}`);
+  }
   redirect(`${EMG_HREFS.creator(profile)}?hub=${okay ? 'replied' : 'unavailable'}#creator-support`);
 }
 

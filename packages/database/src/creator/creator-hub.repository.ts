@@ -5,7 +5,7 @@ import { IamRepository } from '../repositories/iam.repository';
 import type { CreatorActor, EmgActor } from './creator-production.service';
 const object = (v: unknown): Record<string, unknown> =>
   v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
-const STAFF = ['OWNER', 'ADMIN', 'MANAGER', 'AGENT'];
+const STAFF = ['OWNER', 'ADMIN', 'MANAGER', 'EMPLOYEE'];
 export function creatorHubSettings(raw: unknown) {
   const p = object(raw),
     team = Array.isArray(p.creatorTeam)
@@ -347,6 +347,21 @@ export class CreatorHubRepository {
       at: r.createdAt,
       replies: r.comments.map((c) => ({ id: c.id, body: c.body, at: c.createdAt })),
     }));
+  }
+  async questionForWork(p: EmgActor, id: string) {
+    const a = await membershipAuthority(this.db, p.organizationId, p.userId);
+    if (!a.granted || !STAFF.includes(a.systemRole)) return null;
+    const work = await this.db.workInstance.findFirst({
+      where: { id, organizationId: p.organizationId },
+      select: { metadata: true },
+    });
+    const metadata = object(work?.metadata);
+    if (metadata.creatorHubKind !== 'QUESTION' || typeof metadata.creatorHubProfileId !== 'string')
+      return null;
+    const question = (await this.managerMessages(p, metadata.creatorHubProfileId)).find(
+      (q) => q.id === id,
+    );
+    return question ? { ...question, profileId: metadata.creatorHubProfileId } : null;
   }
   async reply(p: EmgActor, profileId: string, id: string, body: string, complete: boolean) {
     if (!body.trim() || body.length > 2000) return false;

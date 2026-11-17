@@ -16,7 +16,7 @@ test(
     try {
       await db.organization.create({ data: { id: org, name: 'EMG test', slug: org } });
       const iam = new IamRepository(db);
-      async function user(role: 'ADMIN' | 'CREATOR') {
+      async function user(role: 'ADMIN' | 'CREATOR' | 'EMPLOYEE') {
         const u = await iam.createUser({
           organizationId: org,
           email: `${randomUUID()}@example.test`,
@@ -25,6 +25,7 @@ test(
         await iam.activateUser(org, u.id);
         return u.id;
       }
+      const employee = await user('EMPLOYEE');
       const manager = { organizationId: org, userId: await user('ADMIN'), canActOnAnyStep: true },
         creator = await user('CREATOR'),
         other = await user('CREATOR');
@@ -85,6 +86,17 @@ test(
       assert.equal(messages[0]!.replies.length, 1);
       assert.equal(messages[0]!.replies[0]!.body, 'We will clarify the brief with you.');
       assert.equal(JSON.stringify(messages).includes('Private staff strategy'), false);
+      assert.equal(await repo.configure(manager, profile.id, [employee], {}), true);
+      const staff = { organizationId: org, userId: employee, canActOnAnyStep: false };
+      assert.equal((await repo.questionForWork(staff, id!))?.id, id);
+      assert.equal(await repo.reply(staff, profile.id, id!, 'Shared employee reply', false), true);
+      assert.equal(await repo.questionForWork({ ...staff, userId: other }, id!), null);
+      assert.equal(await repo.configure(manager, profile.id, [manager.userId], {}), true);
+      assert.equal(
+        await repo.questionForWork(staff, id!),
+        null,
+        'removed team membership withdraws reply access',
+      );
       await db.permission.create({
         data: {
           organizationId: org,

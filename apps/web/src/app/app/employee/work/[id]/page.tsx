@@ -1,3 +1,4 @@
+import { CreatorWorkQuestion } from '../../../../../creator/creator-work-question';
 // PR #76 — Employee Work Queue
 // Work instance detail for employees: title, current stage, the full ordered
 // stage list with owners, comments, and — only when the CURRENT stage is
@@ -79,6 +80,8 @@ export default async function EmployeeWorkDetailPage({
             {current ? `Current stage: ${current.name}` : 'No active stage.'}
           </p>
         </div>
+
+        <CreatorWorkQuestion actor={{organizationId:actor.organizationId,userId:actor.userId,canActOnAnyStep:false}} workId={instance.id}/>
 
         {/* A creator production: the editing view is the way its steps complete. */}
         {production ? (

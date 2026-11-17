@@ -26,3 +26,16 @@ test('cyclic, chained, empty and conflicting aliases cannot enter creator identi
   ])
     assert.equal(validCreatorBrandAliases(aliases), false);
 });
+
+test('two registered companies sharing a display name stay separate until explicit manager review', () => {
+  const rows = [
+    { brandId: 'crm-a', brand: 'Acme' },
+    { brandId: 'crm-b', brand: 'Acme' },
+    { brandId: 'candidate:acme', brand: 'Acme' },
+  ];
+  assert.equal(new Set(resolveCreatorBrandRows(rows, {}).map((r) => r.brandId)).size, 3);
+  assert.equal(
+    new Set(resolveCreatorBrandRows(rows, { Acme: 'Acme' }).map((r) => r.brandId)).size,
+    1,
+  );
+});

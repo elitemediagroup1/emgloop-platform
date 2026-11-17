@@ -16,6 +16,29 @@ export function resolveCreatorBrandRows<T extends { brandId: string; brand: stri
   rows: readonly T[],
   aliases: Readonly<Record<string, string>>,
 ): T[] {
+  const identities = new Map<string, Set<string>>(),
+    reviewed = new Set(Object.keys(aliases).map(creatorBrandNameKey));
+  for (const row of rows) {
+    const key = creatorBrandNameKey(creatorBrandAliasName(row.brand, aliases));
+    if (!row.brandId.startsWith('candidate:')) {
+      const ids = identities.get(key) ?? new Set<string>();
+      ids.add(row.brandId);
+      identities.set(key, ids);
+    }
+  }
+  const ambiguous = new Set(
+    [...identities]
+      .filter(
+        ([key, ids]) =>
+          ids.size > 1 &&
+          !rows.some(
+            (row) =>
+              creatorBrandNameKey(creatorBrandAliasName(row.brand, aliases)) === key &&
+              reviewed.has(creatorBrandNameKey(row.brand)),
+          ),
+      )
+      .map(([key]) => key),
+  );
   const target = new Map<string, { id: string; name: string }>();
   for (const row of rows) {
     const name = creatorBrandAliasName(row.brand, aliases),
@@ -30,6 +53,9 @@ export function resolveCreatorBrandRows<T extends { brandId: string; brand: stri
       target.set(key, { id: row.brandId, name });
   }
   return rows.map((row) => {
+    const canonical = creatorBrandAliasName(row.brand, aliases);
+    // Same display name is not enough to merge two distinct registered businesses.
+    if (ambiguous.has(creatorBrandNameKey(canonical))) return { ...row, brand: canonical };
     const value = target.get(creatorBrandNameKey(creatorBrandAliasName(row.brand, aliases)))!;
     return { ...row, brandId: value.id, brand: value.name };
   });

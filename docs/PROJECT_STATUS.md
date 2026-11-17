@@ -31,7 +31,12 @@ See `docs/creator-hub-payments-release.md` for ordered setup, sandbox tests and 
 Validation: 173 creator/UI/navigation/OAuth tests and 110 backend/payment/governance contracts pass.
 Database and web typechecks and the production build pass. Disposable Postgres tests are wired into
 the PR CI; local execution skips them because no disposable PostgreSQL server is installed. CI and
-provider/live creator validation remain to be confirmed.
+provider/live creator validation remain to be confirmed. Initial PR CI passed all migration,
+creator-production, payment-concurrency and isolation tests. The TikTok job’s static guard scan
+misread an inline return type on an already authenticated action; the signature is clarified,
+with the security check unchanged. Assigned employees can now reply through their Work queue;
+team removal withdraws that reply access. Distinct CRM companies with the same display name
+remain separate until a manager explicitly reviews their identity.
 Lint remains blocked by the repository's pre-existing missing ESLint configuration. Do not call the
 Hub a verified 10/10 or the payments production-ready before the actual creator/provider checks.
 

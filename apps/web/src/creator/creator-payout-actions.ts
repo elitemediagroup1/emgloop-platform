@@ -7,9 +7,10 @@ const refresh = () => {
   revalidatePath('/app/creator/earnings');
   revalidatePath('/app');
 };
+type BankLinkStart = { nonce: string; linkToken: string } | { error: string };
 export async function beginCreatorBank(
   form: FormData,
-): Promise<{ nonce: string; linkToken: string } | { error: string }> {
+): Promise<BankLinkStart> {
   const seat = await requireCreator(),
     service = creatorPayouts();
   if (!service) return { error: 'Bank linking is not enabled. Ask EMG about payment setup.' };
