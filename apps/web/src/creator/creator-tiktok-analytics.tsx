@@ -1,3 +1,4 @@
+import { CreatorPerformanceInsights } from './creator-performance-insights';
 import type { TtoReport } from '@emgloop/providers';
 import type { TimeView } from '@emgloop/shared';
 import { SummaryStrip, Panel, StateBlock } from '../app/app/_loop-os/record';
@@ -16,7 +17,7 @@ export function CreatorTikTokAnalytics({
   return (
     <div className="ch-platform-report">
       <div className="ch-source-bar">
-        <strong>TikTok One · Public report</strong>
+        <strong>TikTok One · Public report · @{report.handle}</strong>
         <span>{updatedAt ? `Updated ${time.dateTime(updatedAt)}` : 'Update time unavailable'}</span>
         <span>{stale ? 'Refresh pending' : 'Latest saved report'}</span>
       </div>
@@ -41,30 +42,8 @@ export function CreatorTikTokAnalytics({
           { label: 'Reach', value: null, unknownText: 'Not provided' },
         ]}
       />
-      <div className="ch-analytics-context">
-        <Panel title="Audience history">
-          <div className="ch-history-chart" role="img" aria-label="Audience history unavailable">
-            <div>
-              <span>History appears as reports accumulate</span>
-            </div>
-            <p>
-              This public report does not provide a historical audience series. No growth trend is
-              shown.
-            </p>
-          </div>
-        </Panel>
-        <aside className="ch-context-note">
-          <h2>What this tells you</h2>
-          <p>
-            This is TikTok One’s public creator report. Individual view counts are the provider’s
-            reported totals for those videos.
-          </p>
-          <p>
-            Reach, private audience demographics and watch time are not supplied by this connection.
-            Missing metrics are left empty.
-          </p>
-        </aside>
-      </div>
+      <CreatorPerformanceInsights source="TikTok One" videos={report.videos.map(v => ({ id: v.id, title: v.caption, url: v.url, views: v.views, likes: v.likes, thumbnail: v.thumbnailUrl }))} />
+      <details className="ch-context-note"><summary>About your sources &amp; available metrics</summary><p>This is TikTok One’s public creator report. Reach, private audience demographics, watch time and historical audience series are not supplied by this connection. This public report does not provide a historical audience series. No growth trend is shown.</p></details>
       <Panel title="Reported content performance">
         <div className="loop-table-wrap">
           <table className="loop-table" aria-label="TikTok video performance">
