@@ -13,7 +13,9 @@ US recipients and USD ACH only in this release. The creator completes legal iden
 on Stripe's hosted page, without needing a separate Stripe login. Loop stores no bank/routing
 numbers. Setup rechecks current signed creator ownership, same organization/profile/user, unexpired
 single-use session, current active ACH capability, and exactly one eligible US/USD bank method.
-Incomplete/ambiguous setup stays disconnected. At most five starts per creator per hour. Starting
+Incomplete/ambiguous setup stays disconnected with a check-again action for asynchronous capability
+activation. Expired hosted links rotate an authenticated single-use session and resume the same
+recipient. At most five starts/refreshes per creator per hour. Starting
 again creates another scoped recipient; unused ones can be reviewed in the Stripe Dashboard.
 
 Funding is a human Stripe Treasury Dashboard action. This version does not initiate bank debits
@@ -39,6 +41,7 @@ migrations. Redeploy after migration. Before Stripe is configured, managers can 
 earnings but bank setup/release/withdrawal are disabled.
 
 New columns: provider on CreatorPayoutBank/CreatorPayoutLink/CreatorPayout, recipientId on links.
+The database proof constraint accepts only PLAID/settled or STRIPE/posted for a sent payout.
 Defaults retain PLAID ownership for all existing rows. Do not bulk rewrite provider or encrypted bank
 fields. An untouched legacy PENDING earning can switch to Stripe only at manager release; any old
 funding/authorization/transfer/bank/request/release reference blocks adoption. Existing Plaid banks

@@ -636,6 +636,71 @@ export class CreatorPayoutRepository {
     );
     return { url };
   }
+  async refreshHostedLink(p: CreatorActor, nonce: string) {
+    if (
+      this.config.provider !== 'STRIPE' ||
+      this.config.recordingOnly ||
+      !this.api.hostedOnboarding ||
+      !this.config.redirectUri ||
+      !/^[a-f0-9]{64}$/.test(nonce)
+    )
+      throw Error('BANK_LINK_UNAVAILABLE');
+    const next = await this.db.$transaction(
+      async (tx) => {
+        if (
+          !(await this.own(tx, p)) ||
+          (await tx.creatorPayout.count({
+            where: { ...p, environment: this.config.environment, state: { in: IN_FLIGHT } },
+          }))
+        )
+          return null;
+        const session = await tx.creatorPayoutLink.findFirst({
+          where: {
+            ...this.scope(p),
+            nonceHash: hash(nonce),
+            consumedAt: null,
+            expiresAt: { gt: new Date() },
+          },
+        });
+        if (
+          !session?.recipientId ||
+          (await tx.creatorPayoutLink.count({
+            where: { ...this.scope(p), createdAt: { gte: new Date(Date.now() - 3600000) } },
+          })) >= 5
+        )
+          return null;
+        const old = await tx.creatorPayoutBank.findFirst({
+          where: { ...p, environment: this.config.environment },
+        });
+        if (old && ['CONNECTED', 'DISCONNECTING'].includes(old.state)) return null;
+        const claimed = await tx.creatorPayoutLink.updateMany({
+          where: { id: session.id, consumedAt: null, expiresAt: { gt: new Date() } },
+          data: { consumedAt: new Date() },
+        });
+        if (claimed.count !== 1) return null;
+        const fresh = randomBytes(32).toString('hex');
+        await tx.creatorPayoutLink.create({
+          data: {
+            ...this.scope(p),
+            nonceHash: hash(fresh),
+            legalName: session.legalName,
+            recipientId: session.recipientId,
+            expiresAt: new Date(Date.now() + 600000),
+          },
+        });
+        return { nonce: fresh, recipient: session.recipientId };
+      },
+      { isolationLevel: 'Serializable' },
+    );
+    if (!next) throw Error('BANK_LINK_UNAVAILABLE');
+    if (!(await this.own(this.db, p))) throw Error('AUTHORIZATION_WITHDRAWN');
+    return {
+      url: await this.api.hostedOnboarding.link(
+        next.recipient,
+        `${this.config.redirectUri}?bank_session=${next.nonce}`,
+      ),
+    };
+  }
   async finishHostedLink(p: CreatorActor, nonce: string) {
     if (
       this.config.provider !== 'STRIPE' ||

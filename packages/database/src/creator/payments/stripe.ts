@@ -164,11 +164,16 @@ export class StripeGlobalPayoutsApi implements PayoutPort {
       return r.id as string;
     },
     link: async (recipient: string, returnUrl: string) => {
+      const refresh = new URL(returnUrl);
+      const nonce = refresh.searchParams.get('bank_session');
+      if (!nonce) throw Error('INVALID_ONBOARDING_SESSION');
+      refresh.searchParams.delete('bank_session');
+      refresh.searchParams.set('bank_refresh', nonce);
       const r = await this.call('/v2/core/account_links', {
         account: recipient,
         use_case: {
           type: 'account_onboarding',
-          account_onboarding: { return_url: returnUrl, refresh_url: returnUrl },
+          account_onboarding: { return_url: returnUrl, refresh_url: refresh.href },
         },
       });
       const u = new URL(r.url);

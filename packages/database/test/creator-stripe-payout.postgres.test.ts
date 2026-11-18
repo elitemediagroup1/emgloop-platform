@@ -97,10 +97,16 @@ test(
       };
       const stripe = new CreatorPayoutRepository(db, config, port),
         legacy = new CreatorPayoutRepository(db, { ...config, provider: 'PLAID' }, port);
-      const start = await stripe.beginHostedLink(p, 'Creator', true, 'individual'),
-        nonce = new URL(new URL(start.url).searchParams.get('return')!).searchParams.get(
-          'bank_session',
-        )!;
+      const start = await stripe.beginHostedLink(p, 'Creator', true, 'individual');
+      const oldNonce = new URL(new URL(start.url).searchParams.get('return')!).searchParams.get(
+        'bank_session',
+      )!;
+      await assert.rejects(() => stripe.refreshHostedLink({ ...p, userId: other }, oldNonce));
+      const resumed = await stripe.refreshHostedLink(p, oldNonce);
+      assert.equal(await stripe.finishHostedLink(p, oldNonce), false);
+      const nonce = new URL(new URL(resumed.url).searchParams.get('return')!).searchParams.get(
+        'bank_session',
+      )!;
       assert.equal(await stripe.finishHostedLink({ ...p, userId: other }, nonce), false);
       assert.equal(await stripe.finishHostedLink(p, nonce), false);
       ready = true;
@@ -139,6 +145,14 @@ test(
       await stripe.process(earning.id);
       assert.equal(sends, 1);
       assert.equal((await stripe.view(p))?.payouts[0]?.state, 'PAID');
+      await assert.rejects(
+        () =>
+          db.creatorPayout.update({
+            where: { id: earning.id },
+            data: { providerStatus: 'settled' },
+          }),
+        'database requires Stripe proof, not a legacy Plaid status',
+      );
       status = 'returned';
       await stripe.process(earning.id);
       assert.equal((await stripe.view(p))?.payouts[0]?.state, 'RETURNED');

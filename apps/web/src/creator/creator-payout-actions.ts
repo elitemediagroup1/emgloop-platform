@@ -190,3 +190,14 @@ export async function completeCreatorStripeBank(nonce: string): Promise<boolean>
     return false;
   }
 }
+
+export async function refreshCreatorStripeBank(nonce: string): Promise<StripeBankLinkStart> {
+  const seat = await requireCreator(),
+    service = creatorPayouts();
+  if (!service) return { error: 'Bank payouts are awaiting EMG’s Stripe setup.' };
+  try {
+    return await service.refreshHostedLink(seat.actor, nonce);
+  } catch {
+    return { error: 'This setup link expired. Start bank setup again.' };
+  }
+}

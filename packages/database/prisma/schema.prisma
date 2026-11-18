@@ -8651,7 +8651,7 @@ model CreatorAnalyticsReview {
 }
 
 
-/// Encrypted Plaid credentials. No account/routing numbers. Bound to the current creator login.
+/// Encrypted provider references. No account/routing numbers. Bound to the current creator login.
 model CreatorPayoutBank {
   id String @id @default(cuid())
   organizationId String
