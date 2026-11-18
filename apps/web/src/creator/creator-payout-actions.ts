@@ -8,9 +8,7 @@ const refresh = () => {
   revalidatePath('/app');
 };
 type BankLinkStart = { nonce: string; linkToken: string } | { error: string };
-export async function beginCreatorBank(
-  form: FormData,
-): Promise<BankLinkStart> {
+export async function beginCreatorBank(form: FormData): Promise<BankLinkStart> {
   const seat = await requireCreator(),
     service = creatorPayouts();
   if (!service) return { error: 'Bank linking is not enabled. Ask EMG about payment setup.' };
@@ -157,4 +155,38 @@ export async function releaseCreatorPayout(form: FormData) {
   redirect(
     `/app/admin/creator-hub/${encodeURIComponent(profileId)}?payout=${ok ? 'released' : 'unavailable'}#creator-payments`,
   );
+}
+
+type StripeBankLinkStart = { url: string } | { error: string };
+export async function beginCreatorStripeBank(form: FormData): Promise<StripeBankLinkStart> {
+  const seat = await requireCreator(),
+    service = creatorPayouts();
+  if (!service) return { error: 'Bank payouts are awaiting EMG’s Stripe setup.' };
+  const entityType = form.get('entityType');
+  if (entityType !== 'individual' && entityType !== 'company')
+    return { error: 'Choose the recipient type.' };
+  try {
+    return await service.beginHostedLink(
+      seat.actor,
+      String(form.get('legalName') ?? ''),
+      form.get('consent') === 'yes',
+      entityType,
+    );
+  } catch {
+    return {
+      error: 'Bank setup could not start. Check that no payout is pending, then try again.',
+    };
+  }
+}
+export async function completeCreatorStripeBank(nonce: string): Promise<boolean> {
+  const seat = await requireCreator(),
+    service = creatorPayouts();
+  if (!service) return false;
+  try {
+    const ok = await service.finishHostedLink(seat.actor, nonce);
+    refresh();
+    return ok;
+  } catch {
+    return false;
+  }
 }

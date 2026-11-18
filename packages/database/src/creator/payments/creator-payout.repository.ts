@@ -11,10 +11,10 @@ import {
   usdAmount,
   decimalMinor,
   payoutState,
-  type PlaidConfig,
-  type PlaidPort,
-  type PlaidTransfer,
-} from './plaid';
+  type PayoutConfig,
+  type PayoutPort,
+  type PayoutTransfer,
+} from './payout-port';
 type DB = PrismaClient | Prisma.TransactionClient;
 const hash = (v: string) => createHash('sha256').update(v).digest('hex');
 const nonceOK = (v: string) => /^[a-z0-9-]{16,80}$/i.test(v);
@@ -23,11 +23,15 @@ const IN_FLIGHT = ['REQUESTED', 'PROCESSING', 'REVIEW', 'RETURNED'];
 export class CreatorPayoutRepository {
   constructor(
     private db: PrismaClient,
-    readonly config: PlaidConfig,
-    private api: PlaidPort,
+    readonly config: PayoutConfig,
+    private api: PayoutPort,
   ) {}
   private scope(p: CreatorActor) {
-    return { ...p, environment: this.config.environment };
+    return {
+      ...p,
+      environment: this.config.environment,
+      provider: this.config.provider ?? 'PLAID',
+    };
   }
   private async own(db: DB, p: CreatorActor) {
     if (p.organizationId !== this.config.organizationId) return null;
@@ -59,14 +63,15 @@ export class CreatorPayoutRepository {
       where: this.scope(p),
       select: { state: true, mask: true, institution: true, consentAt: true },
     });
-    const total = await this.db.creatorPayout.count({ where: this.scope(p) }),
+    const historyScope = { ...p, environment: this.config.environment };
+    const total = await this.db.creatorPayout.count({ where: historyScope }),
       pages = Math.max(1, Math.ceil(total / 25)),
       page = Math.min(pages, Number.isSafeInteger(requestedPage) ? Math.max(1, requestedPage) : 1);
     const pending = await this.db.creatorPayout.count({
-      where: { ...this.scope(p), state: { in: IN_FLIGHT } },
+      where: { ...p, environment: this.config.environment, state: { in: IN_FLIGHT } },
     });
     const payouts = await this.db.creatorPayout.findMany({
-      where: this.scope(p),
+      where: historyScope,
       orderBy: { createdAt: 'desc' },
       take: 25,
       skip: (page - 1) * 25,
@@ -84,6 +89,7 @@ export class CreatorPayoutRepository {
     return {
       environment: this.config.environment,
       paymentsEnabled: !this.config.recordingOnly,
+      provider: this.config.provider ?? 'PLAID',
       bank,
       payouts,
       pending: pending > 0,
@@ -198,6 +204,7 @@ export class CreatorPayoutRepository {
             creatorProfileId: profile.id,
             userId: profile.userId,
             environment: this.config.environment,
+            provider: this.config.provider ?? 'PLAID',
             compensationEntryId: entry.id,
             approvalSubmission: i.submission,
             earningReference: i.earningReference,
@@ -284,6 +291,18 @@ export class CreatorPayoutRepository {
           }))
         )
           return false;
+        if (row.provider !== (this.config.provider ?? 'PLAID')) {
+          if (
+            this.config.provider !== 'STRIPE' ||
+            row.authorizationId ||
+            row.transferId ||
+            row.fundingRequestedAt ||
+            row.bankId ||
+            row.requestedAt ||
+            row.releasedAt
+          )
+            return false;
+        }
         // Reserve against all other released amounts. In-flight funds are conservatively retained.
         const reserved = await tx.creatorPayout.aggregate({
           where: {
@@ -293,7 +312,20 @@ export class CreatorPayoutRepository {
           },
           _sum: { amountMinor: true },
         });
-        if (balance.availableMinor - (reserved._sum.amountMinor ?? 0) < row.amountMinor)
+        const fees = this.config.feeReserveMinor ?? 0;
+        const reservedCount = fees
+          ? await tx.creatorPayout.count({
+              where: {
+                organizationId: p.organizationId,
+                environment: this.config.environment,
+                state: { in: ['AVAILABLE', 'REQUESTED', 'PROCESSING', 'REVIEW', 'RETURNED'] },
+              },
+            })
+          : 0;
+        if (
+          balance.availableMinor - (reserved._sum.amountMinor ?? 0) - reservedCount * fees <
+          row.amountMinor + fees
+        )
           return false;
         if (
           row.fundingRequestedAt &&
@@ -304,6 +336,7 @@ export class CreatorPayoutRepository {
           where: { id: row.id },
           data: {
             state: 'AVAILABLE',
+            provider: this.config.provider ?? 'PLAID',
             payoutLedgerId: this.config.ledgerId,
             releasedAt: new Date(),
             releasedByUserId: p.userId,
@@ -530,6 +563,152 @@ export class CreatorPayoutRepository {
       { isolationLevel: 'Serializable' },
     );
   }
+  /** Stripe-hosted onboarding. Only opaque recipient/method IDs are persisted, encrypted. */
+  async beginHostedLink(
+    p: CreatorActor,
+    legalName: string,
+    consent: boolean,
+    entityType: 'individual' | 'company',
+  ) {
+    const hosted = this.api.hostedOnboarding;
+    if (
+      this.config.provider !== 'STRIPE' ||
+      this.config.recordingOnly ||
+      !hosted ||
+      !this.config.redirectUri ||
+      !consent ||
+      !legalName.trim() ||
+      legalName.length > 150 ||
+      !['individual', 'company'].includes(entityType)
+    )
+      throw Error('BANK_LINK_UNAVAILABLE');
+    const claim = await this.db.$transaction(
+      async (tx) => {
+        if (
+          !(await this.own(tx, p)) ||
+          (await tx.creatorPayout.count({
+            where: { ...p, environment: this.config.environment, state: { in: IN_FLIGHT } },
+          }))
+        )
+          return null;
+        const old = await tx.creatorPayoutBank.findFirst({
+          where: { ...p, environment: this.config.environment },
+        });
+        if (old && ['CONNECTED', 'DISCONNECTING'].includes(old.state)) return null;
+        if (
+          (await tx.creatorPayoutLink.count({
+            where: { ...this.scope(p), createdAt: { gte: new Date(Date.now() - 3600000) } },
+          })) >= 5
+        )
+          return null;
+        const nonce = randomBytes(32).toString('hex');
+        const row = await tx.creatorPayoutLink.create({
+          data: {
+            ...this.scope(p),
+            nonceHash: hash(nonce),
+            legalName: legalName.trim(),
+            expiresAt: new Date(Date.now() + 600000),
+          },
+        });
+        const user = await tx.user.findFirst({
+          where: { id: p.userId, organizationId: p.organizationId },
+          select: { email: true },
+        });
+        return user ? { row, nonce, email: user.email } : null;
+      },
+      { isolationLevel: 'Serializable' },
+    );
+    if (!claim) throw Error('BANK_LINK_UNAVAILABLE');
+    const recipient = await hosted.recipient({
+      email: claim.email,
+      name: legalName.trim(),
+      entityType,
+      id: claim.row.id,
+    });
+    if (!(await this.own(this.db, p))) throw Error('AUTHORIZATION_WITHDRAWN');
+    await this.db.creatorPayoutLink.update({
+      where: { id: claim.row.id },
+      data: { recipientId: recipient },
+    });
+    const url = await hosted.link(
+      recipient,
+      `${this.config.redirectUri}?bank_session=${claim.nonce}`,
+    );
+    return { url };
+  }
+  async finishHostedLink(p: CreatorActor, nonce: string) {
+    if (
+      this.config.provider !== 'STRIPE' ||
+      !this.api.hostedOnboarding ||
+      !/^([a-f0-9]{64})$/.test(nonce) ||
+      !(await this.own(this.db, p))
+    )
+      return false;
+    const session = await this.db.creatorPayoutLink.findFirst({
+      where: {
+        ...this.scope(p),
+        nonceHash: hash(nonce),
+        consumedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+    });
+    if (!session?.recipientId) return false;
+    const bank = await this.api.hostedOnboarding.inspect(session.recipientId);
+    if (!bank) return false;
+    return this.db.$transaction(
+      async (tx) => {
+        if (
+          !(await this.own(tx, p)) ||
+          (await tx.creatorPayout.count({
+            where: { ...p, environment: this.config.environment, state: { in: IN_FLIGHT } },
+          }))
+        )
+          return false;
+        const used = await tx.creatorPayoutLink.updateMany({
+          where: { id: session.id, consumedAt: null, expiresAt: { gt: new Date() } },
+          data: { consumedAt: new Date() },
+        });
+        if (used.count !== 1) return false;
+        const previous = await tx.creatorPayoutBank.findFirst({
+          where: { ...p, environment: this.config.environment },
+        });
+        if (previous && ['CONNECTED', 'DISCONNECTING'].includes(previous.state)) return false;
+        const data = {
+          provider: 'STRIPE',
+          userId: p.userId,
+          sealed: sealBank(
+            {
+              accessToken: session.recipientId!,
+              itemId: session.recipientId!,
+              accountId: bank.accountId,
+            },
+            this.config.key,
+            bankAAD(p, this.config.environment),
+          ),
+          mask: bank.mask,
+          institution: bank.institution,
+          legalName: session.legalName,
+          verifiedAt: new Date(),
+          consentVersion: 'stripe-ach-credit-v1',
+          consentAt: new Date(),
+          state: 'CONNECTED',
+        };
+        await tx.creatorPayoutBank.upsert({
+          where: {
+            organizationId_creatorProfileId_environment: {
+              organizationId: p.organizationId,
+              creatorProfileId: p.creatorProfileId,
+              environment: this.config.environment,
+            },
+          },
+          create: { ...p, environment: this.config.environment, ...data },
+          update: { ...data, revision: { increment: 1 } },
+        });
+        return true;
+      },
+      { isolationLevel: 'Serializable' },
+    );
+  }
   async beginLink(p: CreatorActor, legalName: string, consent: boolean) {
     if (this.config.recordingOnly) throw Error('PLAID_NOT_CONFIGURED');
     if (!consent || !legalName.trim() || legalName.length > 150 || !(await this.own(this.db, p)))
@@ -605,7 +784,7 @@ export class CreatorPayoutRepository {
           if (
             !(await this.own(tx, p)) ||
             (await tx.creatorPayout.count({
-              where: { ...this.scope(p), state: { in: IN_FLIGHT } },
+              where: { ...p, environment: this.config.environment, state: { in: IN_FLIGHT } },
             }))
           )
             return false;
@@ -622,6 +801,7 @@ export class CreatorPayoutRepository {
           if (previous?.state === 'CONNECTED') return false;
           const data = {
             userId: p.userId,
+            provider: this.config.provider ?? 'PLAID',
             sealed: sealBank(
               { accessToken: token.access_token, accountId, itemId: token.item_id },
               this.config.key,
@@ -735,6 +915,7 @@ export class CreatorPayoutRepository {
           const r = await tx.creatorPayout.findFirst({
             where: {
               id,
+              provider: this.config.provider ?? 'PLAID',
               organizationId: this.config.organizationId,
               environment: this.config.environment,
               state: { in: ['REQUESTED', 'PROCESSING', 'REVIEW', 'PAID'] },
@@ -825,6 +1006,7 @@ export class CreatorPayoutRepository {
         secret.accessToken,
         secret.accountId,
         row.id,
+        usdAmount(row.amountMinor),
       );
       if (transfer.account_id !== secret.accountId) throw Error('PROVIDER_MISMATCH');
       await this.record({ ...row, authorizationId }, transfer);
@@ -838,7 +1020,7 @@ export class CreatorPayoutRepository {
       await this.db.creatorPayout.update({ where: { id: row.id }, data: { leaseUntil: null } });
     }
   }
-  private async record(row: CreatorPayout, t: PlaidTransfer) {
+  private async record(row: CreatorPayout, t: PayoutTransfer) {
     if (
       !t.id ||
       t.type !== 'credit' ||
@@ -854,7 +1036,11 @@ export class CreatorPayoutRepository {
       const secret = openBank(bank.sealed, this.config.key, bankAAD(row, this.config.environment));
       if (t.account_id !== secret.accountId) throw Error('PROVIDER_MISMATCH');
     } else if (!row.transferId) throw Error('PROVIDER_MISMATCH');
-    const state = payoutState(t.status);
+    if (this.config.provider === 'STRIPE' && bank?.sealed) {
+      const secret = openBank(bank.sealed, this.config.key, bankAAD(row, this.config.environment));
+      if (t.recipient_id !== secret.accessToken) throw Error('PROVIDER_MISMATCH');
+    }
+    const state = payoutState(t.status, this.config.provider);
     await this.db.creatorPayout.update({
       where: { id: row.id },
       data: {
@@ -870,6 +1056,7 @@ export class CreatorPayoutRepository {
     const rows = await this.db.creatorPayout.findMany({
       where: {
         organizationId: this.config.organizationId,
+        provider: this.config.provider ?? 'PLAID',
         environment: this.config.environment,
         OR: [
           { state: { in: ['REQUESTED', 'PROCESSING', 'REVIEW'] } },
@@ -888,6 +1075,7 @@ export class CreatorPayoutRepository {
     const funding = await this.db.creatorPayout.findMany({
       where: {
         organizationId: this.config.organizationId,
+        provider: this.config.provider ?? 'PLAID',
         environment: this.config.environment,
         fundingRequestedAt: { not: null },
         OR: [
@@ -912,6 +1100,7 @@ export class CreatorPayoutRepository {
     const banks = await this.db.creatorPayoutBank.findMany({
       where: {
         organizationId: this.config.organizationId,
+        provider: this.config.provider ?? 'PLAID',
         environment: this.config.environment,
         state: { in: ['CONNECTED', 'DISCONNECTING'] },
       },

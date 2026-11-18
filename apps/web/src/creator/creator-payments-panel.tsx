@@ -20,7 +20,7 @@ const labels: Record<string, string> = {
   AVAILABLE: 'Approved · ready to request',
   REQUESTED: 'Transfer requested',
   PROCESSING: 'Transfer in progress',
-  PAID: 'Delivered to your bank',
+  PAID: 'Sent to your bank',
   REVIEW: 'EMG is reviewing this transfer',
   RETURNED: 'Returned · EMG review required',
 };
@@ -42,8 +42,9 @@ export async function CreatorPaymentsPanel({
         <span className="ch-eyebrow">Bank payments</span>
         <h2>Your payout account</h2>
         <p>
-          Only earnings explicitly approved by your manager can be requested. ACH timing depends on
-          bank processing and EMG’s funded payout balance.
+          Only earnings explicitly approved by your manager can be requested. “Sent” means funds
+          left Stripe; receipt and ACH timing depend on bank processing and EMG’s funded payout
+          balance.
         </p>
       </div>
       {outcome ? (
@@ -72,7 +73,7 @@ export async function CreatorPaymentsPanel({
           ) : null}
           {!view.paymentsEnabled ? (
             <p>
-              Bank payments are awaiting EMG’s Plaid setup. Your recorded balance is tracked here;
+              Bank payments are awaiting EMG’s Stripe setup. Your recorded balance is tracked here;
               no withdrawal can start yet.
             </p>
           ) : view.bank?.state === 'CONNECTED' ? (
@@ -222,21 +223,33 @@ export async function ManagerPaymentsPanel({
             <summary>EMG payout funding pool</summary>
             {balance ? (
               <p>
-                Available at Plaid: <strong>{money(balance.availableMinor)}</strong> · Incoming
+                Available at Stripe: <strong>{money(balance.availableMinor)}</strong> · Incoming
                 funding: {money(balance.pendingMinor)}. This pool serves all creators; other
                 released amounts remain reserved.
               </p>
             ) : (
               <p>
                 Funding balance unavailable. You can record earnings, but release requires a
-                verified funded balance and enabled Plaid Transfer.
+                verified funded balance and enabled Stripe Global Payouts.
               </p>
             )}
             <p>
-              Funds move from the EMG business bank registered in Plaid. The creator’s bank is only
-              a payout destination. A deposit request is not proof that funds are available.
+              Fund Stripe from EMG’s registered business bank. The creator’s bank is only a payout
+              destination. A deposit request is not proof that funds are available.
             </p>
           </details>
+          <p className="loop-note">
+            Stripe funding and bank authorization are completed in the Stripe Dashboard. Returning
+            here does not mark earnings available automatically.
+          </p>
+          <a
+            className="loop-btn"
+            href="https://dashboard.stripe.com/treasury"
+            target="_blank"
+            rel="noreferrer noopener"
+          >
+            Manage EMG funding in Stripe ↗
+          </a>
           <h3>1. Record an earning</h3>
           <form action={approveCreatorPayout} className="ch-manager-payment">
             <input type="hidden" name="profileId" value={profileId} />
@@ -285,7 +298,7 @@ export async function ManagerPaymentsPanel({
                   ) : null}
                   {r.state === 'PENDING' ? (
                     <div className="ch-manager-payment-steps">
-                      {!r.fundingRequestedAt ? (
+                      {!r.fundingRequestedAt && service.config.provider !== 'STRIPE' ? (
                         <form action={fundCreatorPayout}>
                           <input type="hidden" name="profileId" value={profileId} />
                           <input type="hidden" name="payoutId" value={r.id} />
@@ -349,7 +362,10 @@ export async function ManagerPaymentsPanel({
                       <input type="hidden" name="profileId" value={profileId} />
                       <input type="hidden" name="payoutId" value={r.id} />
                       <button className="loop-btn">Cancel unpaid earning</button>
-                      <small>Does not reverse a funding deposit already submitted to Plaid.</small>
+                      <small>
+                        Does not reverse a funding deposit already submitted to the payment
+                        provider.
+                      </small>
                     </form>
                   ) : null}
                 </div>

@@ -2,18 +2,19 @@ import 'server-only';
 import {
   prisma,
   CreatorPayoutRepository,
-  plaidConfig,
+  stripePayoutConfig,
   plaidLedgerConfig,
-  PlaidApi,
+  StripeGlobalPayoutsApi,
 } from '@emgloop/database';
 export function creatorPayouts() {
-  const config = plaidConfig();
-  return config ? new CreatorPayoutRepository(prisma, config, new PlaidApi(config)) : null;
+  const config = stripePayoutConfig();
+  return config
+    ? new CreatorPayoutRepository(prisma, config, new StripeGlobalPayoutsApi(config))
+    : null;
 }
-
 export function creatorPayoutLedger(organizationId: string) {
   const enabled = creatorPayouts();
   if (enabled?.config.organizationId === organizationId) return enabled;
-  const config = plaidLedgerConfig(organizationId);
-  return new CreatorPayoutRepository(prisma, config, new PlaidApi(config));
+  const config = { ...plaidLedgerConfig(organizationId), provider: 'STRIPE' as const };
+  return new CreatorPayoutRepository(prisma, config, new StripeGlobalPayoutsApi(config));
 }

@@ -1,35 +1,32 @@
-## Creator Hub launch readiness
+## Creator Hub Stripe payout switch
 
-Production main `3be8dcef8af3c1578d4656d812e280015fc26969` (#467) and the creator-payout
-migration were verified deployed. A signed-in Trevon check found that Analytics still displayed
-no completed review even though manager diagnostics reported READY. The gateway's canonical
-saved signals omit empty `entities`; the UI incorrectly required the wire-schema field again.
-The launch-readiness branch restores that optional field before validation, including the
-featured-post feedback path. Malformed results remain withheld. Regression tests use the actual
-canonical persisted shape, rather than only hand-authored model JSON.
+Matt selected Stripe Global Payouts instead of Plaid Transfer on November 18, 2026.
+This branch uses the existing creator earnings ledger, manager permission checks, release
+reservations, and explicit creator withdrawal flow. Bank/identity collection is Stripe-hosted;
+Loop encrypts only recipient and payout-method references and displays masked bank details.
+A signed, expiring, single-use callback binds setup to the current creator membership/profile.
+PayoutIntents are prepared manually and verified for source, recipient, amount, USD/ACH routing
+and bounded fees before confirmation. Stable idempotency and read-only reconciliation preserve
+ambiguous outcomes for manager review. Latest outbound attempts expose returns without retrying.
+Posted is displayed as sent, not proof of recipient receipt. A ten-minute worker checks status.
 
-Home now previews the accepted authorized AI review and next experiment without a model call.
-An earlier accepted review remains labeled earlier. Mailbox freshness is a separate creator-safe
-projection: own active creator membership, current profile binding, current source authorization,
-oldest source-check time, paused/in-progress state and historical-search completion. No mailbox
-identity, private message, thread identifier or failure detail is exposed. The latest summary
-review time no longer claims all correspondence is fresh. Manager analytics separates current
-authorized TikTok report counts from older recorded observations, including disconnected-account
-history. Mobile Menu markers and compact Home cards use the existing design tokens.
+Migration `20261118190000_stripe_creator_payouts` preserves legacy PLAID ownership on existing
+rows. Stripe can adopt only completely untouched pending earnings on an explicit manager release;
+old bank authorizations, funded rows and in-flight transfers cannot be replayed through Stripe.
+Bookkeeping remains usable without a configured provider. Funding is performed by the human owner
+in Stripe Treasury, then checked in Loop before a manager can release earnings. This release does
+not automatically debit EMG's bank from Loop. No real transfer or Stripe account was created.
 
-Launch remains gated on production verification of the actual coaching text after this release,
-real manager-assigned contacts, completion of budget-governed Gmail processing, and actual Plaid
-business verification/Transfer activation and sandbox-to-production validation. No limit increase,
-email send, real bank operation, transfer, or invented creator data is authorized by this change.
-Matt retains merge, Actions, migrations and production deployment control. No new migration is
-required for this branch. Plaid's dashboard currently says Transfer needs activation; the human
-owner must complete company/beneficial-owner/security attestations before real withdrawals can
-be represented as available. See `docs/creator-hub-payments-release.md` for setup and recovery.
+Production remains #468 at `b5db051f2eeb158f684baa638d939913219f1ed0`; this branch is not deployed.
+The prior authenticated Trevon check confirmed actual saved AI guidance, assigned Matt/Charlie
+contacts, TikTok analytics, and 373 outreach / 29 conversations / zero active deals. Gmail freshness
+still depends on governed processing. No AI limits or mailbox sources change here.
 
-Validation: 175 creator UI/navigation/OAuth tests (including the two canonical-reading regressions),
-112 Gmail/AI/payment contracts, web/database typechecks and the production build pass locally.
-PR CI and authenticated preview/production verification remain required. Lint remains blocked
-by the existing missing ESLint config.
+Validation: 175 creator UI/navigation/OAuth contracts and 121 backend/payment contracts pass
+locally; web/database typechecks and production build pass. Disposable Postgres lifecycle/isolation
+runs in PR CI. ESLint remains unconfigured in the repository. Stripe account approval, sandbox
+hosted-onboarding/API verification and production pilot remain pending human setup. Matt retains
+merge, migration, Actions and deployment control. See `docs/creator-hub-stripe-release.md`.
 
 ## Creator Hub reference fidelity and agency branding
 
