@@ -223,6 +223,26 @@ export class ManagedCreatorMailRepository {
     if (!(await this.mailboxes().permittedFor(principal, 'view'))) return null;
     return absentUntilMigrated(this.prisma.managedCreatorMailCapture.findMany({ where: { organizationId: principal.organizationId, creatorProfileId: profileId }, orderBy: { id: 'asc' } }));
   }
+  /** Creator-safe operational projection. Never exposes mailboxes, threads or failure details. */
+  async creatorFreshness(principal: WorkPrincipal, profileId: string) {
+    const member = await membershipAuthority(this.prisma, principal.organizationId, principal.userId);
+    if (!member.granted || member.systemRole !== 'CREATOR') return null;
+    const profile = await this.prisma.creatorProfile.findFirst({ where: { organizationId: principal.organizationId, id: profileId, userId: principal.userId } });
+    if (!profile) return null;
+    const rows = await absentUntilMigrated(this.prisma.managedCreatorMailCapture.findMany({ where: { organizationId: principal.organizationId, creatorProfileId: profile.id, recipientUserId: principal.userId, enabled: true }, take: 4 }));
+    const authorized = [];
+    for (const row of rows ?? []) if (await this.allowed(this.prisma, row)) authorized.push(row);
+    if (!authorized.length) return null;
+    const checks = authorized.map(row => row.lastCheckedAt);
+    const checkedAt = checks.every((date): date is Date => date !== null)
+      ? new Date(Math.min(...checks.map(date => date.getTime()))) : null;
+    return {
+      checkedAt,
+      processing: authorized.some(row => row.refreshActive || !row.searchComplete || row.pendingThreadIds.length > 0 || row.refreshPendingThreadIds.length > 0),
+      paused: authorized.some(row => !!row.lastFailureClass),
+      historyComplete: authorized.every(row => row.searchComplete && !row.capped && row.pendingThreadIds.length === 0),
+    };
+  }
   async updates(principal: WorkPrincipal, profileId: string, now: Date, manager = false): Promise<PublishedCreatorBrandUpdate[]> {
     if (manager) { if (!(await this.mailboxes().permittedFor(principal, 'view'))) return []; }
     else { const recipient = await membershipAuthority(this.prisma, principal.organizationId, principal.userId); if (!recipient.granted || recipient.systemRole !== 'CREATOR') return []; }

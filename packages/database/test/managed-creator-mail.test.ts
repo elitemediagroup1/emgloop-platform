@@ -860,3 +860,21 @@ test('legacy synthesis rejection gets one corrected retry; a live circuit still 
     assert.equal(calls, 2);
     assert.equal((await service.projections(w.recipient, w.profile.id)).length, 1);
 });
+
+test('creator freshness is own-profile scoped, authorization current, and contains no private source data', async()=>{
+ const w=await world(); await w.start([w.staff.id,w.assigned.id]);
+ const rows=await w.db.managedCreatorMailCapture.findMany({where:{creatorProfileId:w.profile.id}});
+ for(const [i,row] of rows.entries()) await w.db.managedCreatorMailCapture.update({where:{id:row.id},data:{lastCheckedAt:new Date(+T0-i*60000),searchComplete:i===0,capped:false,pendingThreadIds:[],refreshPendingThreadIds:[],lastFailureClass:i===0?null:'BUDGET_TASK_EXHAUSTED'}});
+ const result=await w.repo.creatorFreshness(w.recipient,w.profile.id);
+ assert.equal(result?.checkedAt?.toISOString(),new Date(+T0-60000).toISOString());
+ assert.equal(result?.paused,true); assert.equal(result?.historyComplete,false); assert.equal(result?.processing,true);
+ assert.deepEqual(Object.keys(result!).sort(),['checkedAt','historyComplete','paused','processing']);
+ assert.equal(await w.repo.creatorFreshness(w.second,w.profile.id),null);
+ assert.equal(await w.repo.creatorFreshness(w.foreign,w.profile.id),null);
+ assert.equal(await w.repo.creatorFreshness(w.owner,w.profile.id),null);
+ await w.db.managedGoogleMailbox.update({where:{id:w.assigned.id},data:{status:'DISCONNECTED'}});
+ const remaining=await w.repo.creatorFreshness(w.recipient,w.profile.id);
+ assert.equal(remaining?.paused,false); assert.equal(remaining?.historyComplete,true);
+ await w.db.managedGoogleMailbox.update({where:{id:w.staff.id},data:{status:'DISCONNECTED'}});
+ assert.equal(await w.repo.creatorFreshness(w.recipient,w.profile.id),null);
+});

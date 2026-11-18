@@ -1,3 +1,5 @@
+import { CreatorHomeGuidance } from './creator-home-guidance';
+import { managedCreatorMailRepository, creatorMailSharingEnabled } from './creator-mail-runtime';
 import { creatorHubRepository } from './creator-hub-runtime';
 import { creatorPriorities, actionableBrand } from './creator-priorities';
 import { CreatorTeam } from './creator-team';
@@ -33,6 +35,7 @@ export async function CreatorHome({ seat, time }: { seat: CreatorSeat; time: Tim
     ),
     settle(() => domain.records.earnings(seat.actor.organizationId, seat.profileId)),
   ]);
+  const freshness=creatorMailSharingEnabled()?await settle(()=>managedCreatorMailRepository().creatorFreshness(seat.actor,seat.profileId)):null;
   const replies=await settle(()=>creatorHubRepository().alerts(seat.actor));
   const balance = earnings.ok ? realCreatorEarnings(earnings.value) : null;
   const media = profile.ok ? creatorPublicMedia(profile.value?.preferences) : null;
@@ -71,13 +74,20 @@ export async function CreatorHome({ seat, time }: { seat: CreatorSeat; time: Tim
           <>
             <span className="ch-last-updated">
               {lastChecked
-                ? `Last updated: ${time.dateTime(lastChecked)}`
+                ? `Latest summary review: ${time.dateTime(lastChecked)}`
                 : brands.available ? 'Awaiting first review' : 'Updates unavailable'}
             </span>
             <CreatorRefreshButton />
           </>
         }
       />
+      {freshness?.ok&&freshness.value?<section className="ch-sync-status" aria-label="Partnership update status">
+        <span className={`ch-sync-status__dot${freshness.value.paused?' ch-sync-status__dot--paused':''}`} aria-hidden="true" />
+        <div><strong>{freshness.value.paused?'Updates are waiting to resume':freshness.value.processing?'Your partnership review is in progress':'Partnership sources checked'}</strong>
+        <p>{freshness.value.checkedAt?`All connected sources checked through ${time.dateTime(freshness.value.checkedAt)}.`:'The first source review is still in progress.'} {freshness.value.historyComplete?'Historical search completed.':'Historical review is still building your business picture.'} {freshness.value.paused?'Your saved updates remain available. EMG is managing the processing pause.':''}</p></div>
+        <Link href={CREATOR_HREFS.opportunities}>Your partnerships →</Link>
+      </section>:null}
+      <CreatorHomeGuidance seat={seat} time={time} />
       {replies.ok&&replies.value.length?<Link className="ch-success" href="/app/creator/tasks#team">Your EMG team replied · {replies.value.length} unread →</Link>:null}
       <section
         className={`ch-business-hero${media ? ' ch-business-hero--photo' : ''}`}
