@@ -153,6 +153,11 @@ test(
           }),
         'database requires Stripe proof, not a legacy Plaid status',
       );
+      await assert.rejects(
+        () =>
+          db.creatorPayout.update({ where: { id: earning.id }, data: { providerStatus: null } }),
+        'a NULL status is not payout proof',
+      );
       status = 'returned';
       await stripe.process(earning.id);
       assert.equal((await stripe.view(p))?.payouts[0]?.state, 'RETURNED');

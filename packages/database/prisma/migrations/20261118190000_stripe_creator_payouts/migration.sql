@@ -7,7 +7,7 @@ ALTER TABLE "CreatorPayout" ADD COLUMN "provider" TEXT NOT NULL DEFAULT 'PLAID';
 ALTER TABLE "CreatorPayout" DROP CONSTRAINT "creator_payout_paid_proof";
 ALTER TABLE "CreatorPayout" ADD CONSTRAINT "creator_payout_paid_proof" CHECK (
   "state" <> 'PAID' OR (
-    "transferId" IS NOT NULL AND (
+    "transferId" IS NOT NULL AND length("transferId") > 0 AND "providerStatus" IS NOT NULL AND (
       ("provider" = 'PLAID' AND "providerStatus" = 'settled') OR
       ("provider" = 'STRIPE' AND "providerStatus" = 'posted')
     )
