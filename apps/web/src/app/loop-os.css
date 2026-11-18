@@ -5590,3 +5590,23 @@ a.xb__focuscard:hover { border-color: var(--loop-line-strong); transform: transl
 .ch-manager-funding summary { cursor:pointer; font-weight:650; }
 .ch-payout-list--manager li { display:block; }
 @media(max-width:760px){.ch-manager-balances{grid-template-columns:1fr 1fr}.ch-manager-payment-steps{grid-template-columns:1fr}}
+
+/* Creator launch: compact, honest source freshness and mobile navigation. */
+.ch-sync-status { display:flex; align-items:center; gap:14px; padding:18px 22px; border:1px solid var(--loop-line); border-radius:14px; background:var(--loop-surface); margin-bottom:24px; }
+.ch-sync-status__dot { width:9px; height:9px; flex:none; border-radius:50%; background:var(--loop-creator-teal); }
+.ch-sync-status__dot--paused { background:var(--loop-muted); }
+.ch-sync-status strong { font-size:14px; }
+.ch-sync-status p { margin:5px 0 0; color:var(--loop-muted); font-size:13px; line-height:1.6; }
+.ch-sync-status>a { margin-left:auto; flex:none; font-size:13px; font-weight:650; }
+.ch-mobile-menu>summary { list-style:none; display:flex; align-items:center; gap:8px; }
+.ch-mobile-menu>summary::-webkit-details-marker { display:none; }
+.ch-mobile-menu>summary::after { content:'⌄'; font-size:16px; }
+@media(max-width:650px) { .ch-sync-status { align-items:flex-start; flex-wrap:wrap; padding:16px; } .ch-sync-status>div { flex:1; } .ch-sync-status>a { width:100%; margin-left:23px; } }
+
+.ch-home-guidance { display:grid; grid-template-columns:1.15fr 1fr; gap:32px; padding:30px; margin-bottom:24px; border-radius:18px; background:var(--loop-creator-navy); color:var(--loop-surface); }
+.ch-home-guidance h2 { color:var(--loop-surface); font:400 clamp(25px,3vw,36px)/1.15 var(--loop-editorial-font); margin:12px 0; }
+.ch-home-guidance .ch-eyebrow,.ch-home-guidance a { color:var(--loop-mint); }
+.ch-home-guidance p { line-height:1.7; font-size:15px; margin:12px 0; }
+.ch-home-guidance__next { border-left:1px solid var(--loop-accent); padding-left:30px; }
+.ch-home-guidance small { display:block; font-size:12px; margin-top:14px; }
+@media(max-width:750px) { .ch-home-guidance { grid-template-columns:1fr; gap:20px; padding:24px; } .ch-home-guidance__next { padding-left:0; padding-top:20px; border-left:0; border-top:1px solid var(--loop-accent); } }

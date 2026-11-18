@@ -1,3 +1,5 @@
+import { ttoMediaRepository } from '../../../../../tiktok-business/runtime';
+import { settle } from '../../../_home/settle';
 import { ManagerPaymentsPanel } from '../../../../../creator/creator-payments-panel';
 import { CreatorSupportPanel } from '../../../../../creator/creator-support-panel';
 import Link from 'next/link';
@@ -299,6 +301,8 @@ export default async function CreatorOverviewPage({ params, searchParams }: { pa
     listCreatorLogins(organizationId),
   ]);
   const time = viewerTime();
+  const currentSocial = await settle(() => ttoMediaRepository().read({organizationId,userId:session.userId},profile!.id,time.now));
+  const currentReport = currentSocial.ok ? currentSocial.value?.report : null;
   const here = EMG_HREFS.creator(profile!.id);
   const requests = groupRequests(requestsAll.filter((r) => r.creator.id === profile!.id));
   const weekAhead = time.now.getTime() + 7 * 86400_000;
@@ -508,7 +512,16 @@ export default async function CreatorOverviewPage({ params, searchParams }: { pa
               {earnings.seeded ? <p className="loop-note">Some entries are seeded demo data, labelled as such.</p> : null}
             </Panel>
 
-            <Panel title="Analytics">
+            <Panel title="Current social performance">
+              {currentReport?<><Facts rows={[
+                {label:'TikTok account',value:`@${currentReport.handle}`},
+                {label:'Followers',value:currentReport.followers===null?null:num(currentReport.followers)},
+                {label:'Median views',value:currentReport.medianViews===null?null:num(currentReport.medianViews)},
+                {label:'Imported videos',value:String(currentReport.videos.length)},
+              ]}/><p className="loop-note">Authorized report · checked {currentSocial.ok&&currentSocial.value?.lastReadAt?time.dateTime(currentSocial.value.lastReadAt):'at an unavailable time'}. This is the live report used by the creator hub.</p></>:<p className="loop-note">No current authorized TikTok report is available.</p>}
+            </Panel>
+            <Panel title="Recorded analytics history">
+              <p className="loop-note">Historical observations can include accounts that have since been disconnected. These records are not current creator-account totals.</p>
               {analytics.performance.length === 0 && analytics.latestAudience.length === 0 ? (
                 <p className="loop-note">No evidence yet. {analytics.connected ? 'The platform has reported nothing so far.' : 'No platform is connected.'}</p>
               ) : (
@@ -538,7 +551,7 @@ export default async function CreatorOverviewPage({ params, searchParams }: { pa
               )}
             </Panel>
 
-            <ObservedTikTokReport preferences={profile!.preferences} time={time} />
+            <details><summary>Earlier manually observed TikTok report</summary><ObservedTikTokReport preferences={profile!.preferences} time={time} /></details>
             <Panel title="Profile and login">
               <Facts
                 rows={[

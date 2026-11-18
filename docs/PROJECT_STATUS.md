@@ -1,44 +1,35 @@
-## Creator Hub audit adjustments and approved bank payouts
+## Creator Hub launch readiness
 
-Main `8460feb6deb352eea26e70be99320ecde1bc8c13` (#466) was verified deployed. The live authorized
-Trevon audit covered all seven pages at desktop and phone widths. Audience demographics and 25
-imported TikTok videos were present; current AI coaching was still unavailable. The new branch
-`feat/creator-hub-completion` is one coordinated release and is not yet production-validated.
+Production main `3be8dcef8af3c1578d4656d812e280015fc26969` (#467) and the creator-payout
+migration were verified deployed. A signed-in Trevon check found that Analytics still displayed
+no completed review even though manager diagnostics reported READY. The gateway's canonical
+saved signals omit empty `entities`; the UI incorrectly required the wire-schema field again.
+The launch-readiness branch restores that optional field before validation, including the
+featured-post feedback path. Malformed results remain withheld. Regression tests use the actual
+canonical persisted shape, rather than only hand-authored model JSON.
 
-Home and Tasks use the same evidence-grounded current priorities; old creator-waiting proposals
-are labeled earlier activity. Partnerships prioritize meaningful recent changes, paginate brands,
-and offer a private question form. Questions/replies reuse Work OS with creator-visible comments
-only. Explicit manager-assigned team contacts and exact reviewed aliases are protected preferences;
-creators cannot overwrite them. Aliases consolidate the same relationship evidence and invalidate
-affected synthesis. Analytics retains authorized accepted earlier coaching with a clear earlier
-label, explains budget/setup/validation failures and exposes closed diagnostic codes to managers.
-Mobile navigation, account discovery, Tasks layout, production empty states and disconnected social
-identity presentation are corrected. No fabricated contacts, analytics, tasks or commercial claims.
+Home now previews the accepted authorized AI review and next experiment without a model call.
+An earlier accepted review remains labeled earlier. Mailbox freshness is a separate creator-safe
+projection: own active creator membership, current profile binding, current source authorization,
+oldest source-check time, paused/in-progress state and historical-search completion. No mailbox
+identity, private message, thread identifier or failure detail is exposed. The latest summary
+review time no longer claims all correspondence is fresh. Manager analytics separates current
+authorized TikTok report counts from older recorded observations, including disconnected-account
+history. Mobile Menu markers and compact Home cards use the existing design tokens.
 
-The same release adds Plaid Link and outbound ACH Transfer: encrypted creator-bound credentials,
-one-use Link sessions/OAuth return, server-verified USD accounts, dedicated manager payout authority,
-unique earning references, separate pending earnings / manager funding / manager release steps, explicit creator requests, Serializable reservations, provider idempotency,
-audit records, approval cancellation and bounded scheduled reconciliation. Sandbox and live deploys
-are separated by an immutable build-time gate. Only settled provider-confirmed credits become paid;
-unknown/returned outcomes stay reserved for operator review. Sandbox amounts never enter real balances.
-Managers can record pending balances before Plaid activation; only managers can fund EMG’s Ledger and explicitly release an amount after verified available funding. Production money movement requires actual Plaid Transfer approval, credentials, a verified EMG funding bank and authorized
-end-to-end validation. No real transfer or bank operation has been executed by the agent.
+Launch remains gated on production verification of the actual coaching text after this release,
+real manager-assigned contacts, completion of budget-governed Gmail processing, and actual Plaid
+business verification/Transfer activation and sandbox-to-production validation. No limit increase,
+email send, real bank operation, transfer, or invented creator data is authorized by this change.
+Matt retains merge, Actions, migrations and production deployment control. No new migration is
+required for this branch. Plaid's dashboard currently says Transfer needs activation; the human
+owner must complete company/beneficial-owner/security attestations before real withdrawals can
+be represented as available. See `docs/creator-hub-payments-release.md` for setup and recovery.
 
-New migration `20261117190000_creator_payouts` is manual. Matt retains merge, migration, Actions,
-production configuration and deploy controls. No new Gmail sources, mail sends or AI spending increases.
-See `docs/creator-hub-payments-release.md` for ordered setup, sandbox tests and recovery limitations.
-
-Validation: 173 creator/UI/navigation/OAuth tests and 110 backend/payment/governance contracts pass.
-Database and web typechecks and the production build pass. Disposable Postgres tests are wired into
-the PR CI; local execution skips them because no disposable PostgreSQL server is installed. CI and
-provider/live creator validation remain to be confirmed. Initial PR CI passed all migration,
-creator-production, payment-concurrency and isolation tests. The TikTok job’s static guard scan
-misread an inline return type on an already authenticated action; the signature is clarified,
-with the security check unchanged. Assigned employees can now reply through their Work queue;
-team removal withdraws that reply access. Distinct CRM companies with the same display name
-remain separate until a manager explicitly reviews their identity.
-Lint remains blocked by the repository's pre-existing missing ESLint configuration. Do not call the
-Hub a verified 10/10 or the payments production-ready before the actual creator/provider checks.
+Validation: 175 creator UI/navigation/OAuth tests (including the two canonical-reading regressions),
+112 Gmail/AI/payment contracts, web/database typechecks and the production build pass locally.
+PR CI and authenticated preview/production verification remain required. Lint remains blocked
+by the existing missing ESLint config.
 
 ## Creator Hub reference fidelity and agency branding
 
