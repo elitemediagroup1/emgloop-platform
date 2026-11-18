@@ -1,17 +1,7 @@
 import { PLAID_DEPLOY_CONTEXT } from './deploy-context';
-import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
-export type PlaidConfig = {
-  environment: 'sandbox' | 'production';
-  clientId: string;
-  secret: string;
-  key: Buffer;
-  organizationId: string;
-  ledgerId: string;
-  redirectUri?: string;
-  fundingAccountId?: string;
-  fundingAccountLabel?: string;
-  recordingOnly?: boolean;
-};
+import type { PayoutConfig as PlaidConfig, PayoutPort as PlaidPort, PayoutTransfer as PlaidTransfer, PayoutSweep as PlaidSweep } from './payout-port';
+export { sealBank, openBank, bankAAD, usdAmount, decimalMinor, payoutState } from './payout-port';
+export type { PayoutConfig as PlaidConfig, PayoutPort as PlaidPort, PayoutTransfer as PlaidTransfer, PayoutSweep as PlaidSweep } from './payout-port';
 /** Live traffic requires all independent production gates. A preview never uses live credentials. */
 export function plaidConfig(
   env: NodeJS.ProcessEnv = process.env,
@@ -69,76 +59,6 @@ export function plaidConfig(
     fundingAccountId: env.LOOP_PLAID_FUNDING_ACCOUNT_ID,
     fundingAccountLabel: env.LOOP_PLAID_FUNDING_ACCOUNT_LABEL?.slice(0, 100),
   };
-}
-export type BankSecret = { accessToken: string; accountId: string; itemId: string };
-export function sealBank(value: BankSecret, key: Buffer, aad: string) {
-  const iv = randomBytes(12),
-    c = createCipheriv('aes-256-gcm', key, iv);
-  c.setAAD(Buffer.from(aad));
-  const data = Buffer.concat([c.update(JSON.stringify(value), 'utf8'), c.final()]);
-  return [iv, c.getAuthTag(), data].map((v) => v.toString('base64url')).join('.');
-}
-export function openBank(value: string, key: Buffer, aad: string): BankSecret {
-  const [iv, tag, data] = value.split('.').map((v) => Buffer.from(v, 'base64url'));
-  const d = createDecipheriv('aes-256-gcm', key, iv!);
-  d.setAAD(Buffer.from(aad));
-  d.setAuthTag(tag!);
-  const out = JSON.parse(Buffer.concat([d.update(data!), d.final()]).toString()) as BankSecret;
-  if (!out.accessToken || !out.accountId || !out.itemId) throw Error('BANK_UNAVAILABLE');
-  return out;
-}
-export const bankAAD = (
-  p: { organizationId: string; creatorProfileId: string; userId: string },
-  environment: string,
-) => `${p.organizationId}:${p.creatorProfileId}:${p.userId}:${environment}`;
-export type PlaidTransfer = {
-  id: string;
-  authorization_id?: string;
-  account_id: string;
-  amount: string;
-  type: string;
-  ledger_id?: string;
-  status: string;
-};
-export type PlaidSweep = {
-  id: string;
-  funding_account_id: string;
-  ledger_id: string | null;
-  amount: string;
-  iso_currency_code: string;
-  status: string | null;
-};
-export interface PlaidPort {
-  ledger(): Promise<{ ledger_id: string; balance: { available: string; pending: string } }>;
-  deposit(amount: string, id: string): Promise<PlaidSweep>;
-  sweep(id: string): Promise<PlaidSweep>;
-  link(userId: string): Promise<string>;
-  exchange(publicToken: string): Promise<{ access_token: string; item_id: string }>;
-  accounts(accessToken: string): Promise<
-    {
-      account_id: string;
-      mask: string | null;
-      name: string;
-      type: string;
-      subtype: string | null;
-      balances: { iso_currency_code: string | null };
-    }[]
-  >;
-  remove(accessToken: string): Promise<void>;
-  authorize(input: {
-    accessToken: string;
-    accountId: string;
-    legalName: string;
-    amount: string;
-    id: string;
-  }): Promise<{ id: string; decision: string }>;
-  create(
-    authorizationId: string,
-    accessToken: string,
-    accountId: string,
-    payoutId: string,
-  ): Promise<PlaidTransfer>;
-  get(input: { transferId?: string; authorizationId?: string }): Promise<PlaidTransfer>;
 }
 /** Fixed hosts and endpoint allowlist; provider responses and credentials never appear in thrown errors. */
 export class PlaidApi implements PlaidPort {
@@ -256,29 +176,6 @@ export class PlaidApi implements PlaidPort {
     ).transfer;
   }
 }
-export function payoutState(status: string) {
-  return status === 'settled'
-    ? 'PAID'
-    : status === 'returned'
-      ? 'RETURNED'
-      : ['failed', 'cancelled'].includes(status)
-        ? 'REVIEW'
-        : 'PROCESSING';
-}
-export function usdAmount(minor: number) {
-  if (!Number.isSafeInteger(minor) || minor <= 0 || minor > 100000000)
-    throw Error('INVALID_AMOUNT');
-  return (minor / 100).toFixed(2);
-}
-
-export function decimalMinor(amount: string) {
-  if (!/^\d{1,12}\.\d{2}$/.test(amount)) throw Error('INVALID_AMOUNT');
-  const [whole, cents] = amount.split('.');
-  const minor = Number(whole) * 100 + Number(cents);
-  if (!Number.isSafeInteger(minor)) throw Error('INVALID_AMOUNT');
-  return minor;
-}
-
 /** Allows real manager bookkeeping before Plaid is enabled; no provider operation is permitted. */
 export function plaidLedgerConfig(
   organizationId: string,

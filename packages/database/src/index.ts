@@ -1052,3 +1052,5 @@ export { CreatorAnalyticsReviewRepository } from './creator/creator-analytics-re
 export { CreatorAnalyticsReviewService } from './creator/creator-analytics-review.service';
 export { analyticsReviewContext, reviewFingerprint, CREATOR_COACH_INSTRUCTIONS } from './creator/creator-analytics-review';
 export type { AnalyticsSource, AnalyticsReviewEvidence } from './creator/creator-analytics-review';
+
+export { stripePayoutConfig, StripeGlobalPayoutsApi } from './creator/payments/stripe';

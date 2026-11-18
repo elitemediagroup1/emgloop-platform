@@ -8651,13 +8651,14 @@ model CreatorAnalyticsReview {
 }
 
 
-/// Encrypted Plaid credentials. No account/routing numbers. Bound to the current creator login.
+/// Encrypted provider references. No account/routing numbers. Bound to the current creator login.
 model CreatorPayoutBank {
   id String @id @default(cuid())
   organizationId String
   creatorProfileId String
   userId String
   environment String
+  provider String @default("PLAID")
   sealed String?
   mask String
   institution String
@@ -8676,11 +8677,13 @@ model CreatorPayoutBank {
 
 /// One-use bank linking session; the public token and Link token are never retained.
 model CreatorPayoutLink {
+  recipientId String?
   id String @id @default(cuid())
   organizationId String
   creatorProfileId String
   userId String
   environment String
+  provider String @default("PLAID")
   nonceHash String @unique
   legalName String
   expiresAt DateTime
@@ -8698,6 +8701,7 @@ model CreatorPayout {
   creatorProfileId String
   userId String
   environment String
+  provider String @default("PLAID")
   compensationEntryId String @unique
   entry CreatorCompensationEntry @relation(fields:[compensationEntryId], references:[id], onDelete:NoAction)
   earningReference String

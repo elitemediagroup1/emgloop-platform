@@ -18,7 +18,7 @@ export default function PrivacyPage() {
   return (
     <LegalPage title="Privacy Policy" intro="This policy explains what information EMG Loop holds about you, what it does with a TikTok account you connect, and the choices you have.">
       <h2>Creator bank payouts</h2>
-      <p>When enabled by EMG, bank linking uses Plaid Link. Your bank credentials are entered in Plaid’s flow, not in a Loop form. Loop keeps the account holder’s legal name, masked account display, consent record and encrypted Plaid credentials for the selected account. Loop does not store bank account or routing numbers.</p>
+      <p>When enabled by EMG, bank payout setup uses Stripe’s hosted onboarding. Your bank and identity information are entered with Stripe, not in a Loop form. Loop keeps the account holder’s legal name, masked account display, consent record and encrypted Stripe recipient and payout-method references. Disconnecting removes Loop’s payout authorization; Stripe may retain records under its policies. Existing Plaid records, if any, retain their original provider identity. Loop does not store bank account or routing numbers.</p>
       <p>Managers record earnings and separately release funded amounts for withdrawal. You must request the released amount before Loop initiates an ACH credit. Loop keeps approval, request and transfer-status records for payment reconciliation. Disconnecting removes Loop’s bank connection; it does not cancel an already submitted payment or erase financial audit records. Contact your EMG team about payment questions or data requests.</p>
       <h2>1. Who we are</h2>
       <p>
