@@ -87,7 +87,6 @@ export async function CreatorHome({ seat, time }: { seat: CreatorSeat; time: Tim
         <p>{freshness.value.checkedAt?`All connected sources checked through ${time.dateTime(freshness.value.checkedAt)}.`:'The first source review is still in progress.'} {freshness.value.historyComplete?'Historical search completed.':'Historical review is still building your business picture.'} {freshness.value.paused?'Your saved updates remain available. EMG is managing the processing pause.':''}</p></div>
         <Link href={CREATOR_HREFS.opportunities}>Your partnerships →</Link>
       </section>:null}
-      <CreatorHomeGuidance seat={seat} time={time} />
       {replies.ok&&replies.value.length?<Link className="ch-success" href="/app/creator/tasks#team">Your EMG team replied · {replies.value.length} unread →</Link>:null}
       <section
         className={`ch-business-hero${media ? ' ch-business-hero--photo' : ''}`}
@@ -213,6 +212,7 @@ export async function CreatorHome({ seat, time }: { seat: CreatorSeat; time: Tim
           </Link>
         </section>
       </div>
+      <CreatorHomeGuidance seat={seat} time={time} />
       <CreatorTeam seat={seat}/>
       <p className="loop-note ch-home-coverage">
         Partnership counts reflect accepted, authorized records. Historical review may still be in

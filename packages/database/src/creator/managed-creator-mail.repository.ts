@@ -229,7 +229,7 @@ export class ManagedCreatorMailRepository {
     if (!member.granted || member.systemRole !== 'CREATOR') return null;
     const profile = await this.prisma.creatorProfile.findFirst({ where: { organizationId: principal.organizationId, id: profileId, userId: principal.userId } });
     if (!profile) return null;
-    const rows = await absentUntilMigrated(this.prisma.managedCreatorMailCapture.findMany({ where: { organizationId: principal.organizationId, creatorProfileId: profile.id, recipientUserId: principal.userId, enabled: true }, take: 4 }));
+    const rows = await absentUntilMigrated(this.prisma.managedCreatorMailCapture.findMany({ where: { organizationId: principal.organizationId, creatorProfileId: profile.id, recipientUserId: principal.userId, enabled: true }, take: 4, select: { organizationId: true, creatorProfileId: true, recipientUserId: true, ownerUserId: true, mailboxId: true, mailboxRevision: true, scopeHash: true, enabled: true, lastCheckedAt: true, refreshActive: true, searchComplete: true, capped: true, pendingThreadIds: true, refreshPendingThreadIds: true, lastFailureClass: true } }));
     const authorized = [];
     for (const row of rows ?? []) if (await this.allowed(this.prisma, row)) authorized.push(row);
     if (!authorized.length) return null;
