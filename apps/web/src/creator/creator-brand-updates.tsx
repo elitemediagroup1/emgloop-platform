@@ -95,7 +95,7 @@ function Update({ update, time }: { update: PublishedCreatorBrandUpdate; time: T
         <>
           <span className="loop-label">
             {STAGES[update.stage ?? ''] ?? 'Update'}
-            {update.current ? '' : ' · earlier reading'}
+            {update.current ? '' : ' · Previous summary'}
           </span>
           <p>{update.summary}</p>
           {update.nextStep ? (
@@ -104,8 +104,9 @@ function Update({ update, time }: { update: PublishedCreatorBrandUpdate; time: T
             </p>
           ) : null}
           <p className="loop-note">
-            AI summary {update.generatedAt ? time.relative(update.generatedAt) : 'time unavailable'}
-            . Source conversation through{' '}
+            Summary prepared{' '}
+            {update.generatedAt ? time.relative(update.generatedAt) : 'time unavailable'}. Brand
+            activity through{' '}
             {update.evidenceAt ? time.dateTime(update.evidenceAt) : 'an unknown time'}.
           </p>
         </>
@@ -118,11 +119,28 @@ function Update({ update, time }: { update: PublishedCreatorBrandUpdate; time: T
         {update.checkedAt
           ? `Last checked ${time.relative(update.checkedAt)}.`
           : 'Awaiting first check.'}{' '}
-        {!update.current ? 'A current reading is pending; do not treat this as live status.' : ''}
+        {!update.current
+          ? 'Update check pending. This is a previous summary, not a new brand reply.'
+          : ''}
       </p>
     </div>
   );
 }
+export function creatorRelationshipTimeline(updates: readonly PublishedCreatorBrandUpdate[]) {
+  const snapshots = new Map<string, PublishedCreatorBrandUpdate>();
+  const ordered = [...updates].sort(
+    (a, b) =>
+      Number(Boolean(b.synthesized)) - Number(Boolean(a.synthesized)) ||
+      (b.generatedAt?.getTime() ?? 0) - (a.generatedAt?.getTime() ?? 0),
+  );
+  for (const update of ordered) {
+    if (!update.summary || !update.evidenceAt) continue;
+    const key = update.evidenceAt.toISOString();
+    if (!snapshots.has(key)) snapshots.set(key, update);
+  }
+  return [...snapshots.values()].sort((a, b) => b.evidenceAt!.getTime() - a.evidenceAt!.getTime());
+}
+
 function Brand({
   group,
   time,
@@ -153,8 +171,14 @@ function Brand({
     ].join('|');
     if (!distinct.has(identity)) distinct.set(identity, update);
   }
+  const timeline = creatorRelationshipTimeline(ordered);
   return (
-    <details className="loop-card ch-brand-relationship" open={selected}>
+    <details
+      className="loop-card ch-brand-relationship"
+      id={`brand-${encodeURIComponent(group.brandId)}`}
+      data-relationship-stage={latest?.stage ?? 'UNKNOWN'}
+      open={selected}
+    >
       <summary>
         <span className="ch-brand-overview">
           <span className="ch-brand-name">{group.brand}</span>
@@ -166,45 +190,56 @@ function Brand({
             href={focusHref}
             aria-label={`View ${group.brand} relationship details`}
           >
-            Details ↗
+            View details →
           </Link>
         ) : null}
         {latest ? (
           <span className="ch-brand-status">
-            {latest.stage==='AWAITING_CREATOR'&&!actionableBrand(latest,time.now)?'Earlier creator input':STAGES[latest.stage ?? ''] ?? 'Update'}
-            {latest.current ? '' : ' · earlier'}
+            {latest.stage === 'AWAITING_CREATOR' && !actionableBrand(latest, time.now)
+              ? 'Earlier creator input'
+              : (STAGES[latest.stage ?? ''] ?? 'Update')}
+            {latest.current ? '' : ' · Check pending'}
           </span>
         ) : null}
       </summary>
       {latest ? (
         <div className="loop-stack ch-brand-position" style={{ gap: 6, marginBottom: 12 }}>
-          <span className="loop-label">
-            Latest known position · {STAGES[latest.stage ?? ''] ?? 'Update'}
-          </span>
-          <p>{latest.summary}</p>
+          <span className="loop-label">Status · {STAGES[latest.stage ?? ''] ?? 'Update'}</span>
+          <p className="ch-brand-position__summary">{latest.summary}</p>
           {latest.nextStep ? (
             <p>
               <strong>Next:</strong> {latest.nextStep}
             </p>
           ) : null}
           <p className="loop-note">
-            {latest.synthesized
-              ? 'Consolidated across accepted authorized conversations through'
-              : 'Based on the most recent accepted source conversation,'}{' '}
+            Last brand activity:{' '}
             {latest.evidenceAt ? time.dateTime(latest.evidenceAt) : 'date unavailable'}.{' '}
-            {latest.synthesized
-              ? 'Updates when source evidence changes.'
-              : 'Additional accepted correspondence can update this position.'}
+            {latest.checkedAt
+              ? `Last checked: ${time.dateTime(latest.checkedAt)}.`
+              : 'First check pending.'}
           </p>
         </div>
       ) : null}
       <details>
         <summary>
-          Conversation history · {distinct.size} {distinct.size === 1 ? 'update' : 'updates'}
+          Relationship timeline · {timeline.length} saved{' '}
+          {timeline.length === 1 ? 'update' : 'updates'}
         </summary>
-        {[...distinct.values()].map((update) => (
+        <p className="loop-note">
+          Shared summaries grouped by brand activity date. A new summary of the same correspondence
+          is not a new brand reply.
+        </p>
+        {timeline.map((update) => (
           <Update key={update.id} update={update} time={time} />
         ))}
+        {distinct.size > timeline.length ? (
+          <details>
+            <summary>Summary history · {distinct.size} saved versions</summary>
+            {[...distinct.values()].map((update) => (
+              <Update key={update.id} update={update} time={time} />
+            ))}
+          </details>
+        ) : null}
       </details>
     </details>
   );
@@ -319,7 +354,7 @@ export function CreatorBrandUpdatesView({
                     {recent.update.evidenceAt
                       ? time.date(recent.update.evidenceAt)
                       : 'Source date unavailable'}
-                    {recent.update.current ? '' : ' · Awaiting updated review'}
+                    {recent.update.current ? '' : ' · Update check pending'}
                   </span>
                 </div>
               ) : (
@@ -429,9 +464,17 @@ export function CreatorPartnershipBoard({
       g.brand.toLowerCase().includes(query.toLowerCase()) &&
       (!statusFilter || latestCreatorBrandUpdate(g)?.stage === statusFilter),
   );
-  selected.sort((a,b)=>Number(actionableBrand(latestCreatorBrandUpdate(b)!,time.now))-Number(actionableBrand(latestCreatorBrandUpdate(a)!,time.now)) || (latestCreatorBrandUpdate(b)?.evidenceAt?.getTime()??0)-(latestCreatorBrandUpdate(a)?.evidenceAt?.getTime()??0) || a.brand.localeCompare(b.brand));
-  const pages=Math.max(1,Math.ceil(selected.length/20)),currentPage=Math.min(pages,Math.max(1,page));
-  const visible=selected.slice((currentPage-1)*20,currentPage*20);
+  selected.sort(
+    (a, b) =>
+      Number(actionableBrand(latestCreatorBrandUpdate(b)!, time.now)) -
+        Number(actionableBrand(latestCreatorBrandUpdate(a)!, time.now)) ||
+      (latestCreatorBrandUpdate(b)?.evidenceAt?.getTime() ?? 0) -
+        (latestCreatorBrandUpdate(a)?.evidenceAt?.getTime() ?? 0) ||
+      a.brand.localeCompare(b.brand),
+  );
+  const pages = Math.max(1, Math.ceil(selected.length / 20)),
+    currentPage = Math.min(pages, Math.max(1, page));
+  const visible = selected.slice((currentPage - 1) * 20, currentPage * 20);
   const focused = selected.find((g) => g.brandId === brandId) ?? visible[0];
   const position = focused ? latestCreatorBrandUpdate(focused) : undefined;
   return (
@@ -493,25 +536,53 @@ export function CreatorPartnershipBoard({
                   group={group}
                   time={time}
                   selected={focused?.brandId === group.brandId}
-                  focusHref={`/app/creator/opportunities?stage=${active.key}&page=${currentPage}&q=${encodeURIComponent(query)}&brand=${encodeURIComponent(group.brandId)}&status=${encodeURIComponent(statusFilter ?? '')}`}
+                  focusHref={`/app/creator/opportunities?stage=${active.key}&page=${currentPage}&q=${encodeURIComponent(query)}&brand=${encodeURIComponent(group.brandId)}&status=${encodeURIComponent(statusFilter ?? '')}#relationship-detail`}
                 />
               ))}
             </div>
           ) : (
             <div className="loop-state">
               <h2>{query ? 'No matching brands.' : active.empty}</h2>
-              <p>Only accepted, authorized updates appear here.</p>
+              <p>
+                Your team shares reviewed brand updates here. If you expected a partnership, ask EMG
+                to check its status.
+              </p>
             </div>
           )}
         </div>
-        <aside className="ch-relationship-detail" aria-label="Selected relationship">
+        <aside
+          id="relationship-detail"
+          className="ch-relationship-detail"
+          aria-label="Selected relationship"
+          data-selected={Boolean(brandId && focused)}
+          data-relationship-stage={position?.stage ?? 'UNKNOWN'}
+          tabIndex={-1}
+        >
+          {focused ? (
+            <Link
+              className="ch-relationship-back"
+              href={`/app/creator/opportunities?stage=${active.key}&page=${currentPage}&q=${encodeURIComponent(query)}&status=${encodeURIComponent(statusFilter ?? '')}#brand-${encodeURIComponent(focused.brandId)}`}
+            >
+              ← Back to relationships
+            </Link>
+          ) : null}
           {focused ? (
             <>
               <header>
                 <span className="ch-brand-monogram">{focused.brand.slice(0, 1)}</span>
                 <div>
                   <h2>{focused.brand}</h2>
-                  <p>{position?.stage==='AWAITING_BRAND'?'Next move: brand':position?.stage==='AWAITING_EMG'?'Next move: EMG':position?.stage==='AWAITING_CREATOR'?actionableBrand(position,time.now)?'Next move: you':'Earlier decision · needs a fresh review':'Your partnership overview'}</p>
+                  <p>
+                    {position?.stage === 'AWAITING_BRAND'
+                      ? 'Next move: brand'
+                      : position?.stage === 'AWAITING_EMG'
+                        ? 'Next move: EMG'
+                        : position?.stage === 'AWAITING_CREATOR'
+                          ? actionableBrand(position, time.now)
+                            ? 'Next move: you'
+                            : 'Earlier decision · needs a fresh review'
+                          : 'Your partnership overview'}
+                  </p>
                 </div>
               </header>
               {position ? (
@@ -519,20 +590,29 @@ export function CreatorPartnershipBoard({
                   <span className="ch-brand-status">
                     {STAGES[position.stage ?? ''] ?? 'Awaiting review'}
                   </span>
+                  <p className="ch-relationship-summary">{position.summary}</p>
                   <section>
                     <h3>Next step</h3>
-                    <p>{position.nextStep || (position.stage==='OUTREACH'?'Awaiting a substantive reply from the brand.':'Ask your team for the next step or share your input below.')}</p>
+                    <p>
+                      {position.nextStep ||
+                        (position.stage === 'OUTREACH'
+                          ? 'Awaiting a substantive reply from the brand.'
+                          : 'Ask your team for the next step or share your input below.')}
+                    </p>
                   </section>
                   <section>
-                    <h3>Last meaningful update</h3>
+                    <h3>Last brand activity</h3>
                     <p>
                       {position.evidenceAt
                         ? time.dateTime(position.evidenceAt)
                         : 'Source date unavailable'}
                     </p>
-                    <small>
-                      {position.current ? 'Latest accepted position' : 'Awaiting an updated review'}
-                    </small>
+                    <small>{position.current ? 'Reviewed summary' : 'Update check pending'}</small>
+                    <p className="loop-note">
+                      {position.checkedAt
+                        ? `Last checked: ${time.dateTime(position.checkedAt)}`
+                        : 'First check pending'}
+                    </p>
                   </section>
                 </>
               ) : (
@@ -542,20 +622,48 @@ export function CreatorPartnershipBoard({
           ) : (
             <>
               <h2>Your relationship details</h2>
-              <p>Accepted brand updates and next steps will appear here.</p>
+              <p>Select a brand to see its next step and message your EMG team.</p>
             </>
           )}
-          {focused ? <section id="creator-response"><h3>Talk with your EMG team</h3><CreatorQuestionForm brandId={focused.brandId} brand={focused.brand}/></section> : null}
+          {focused ? (
+            <section id="creator-response">
+              <h3>Talk with your EMG team</h3>
+              <CreatorQuestionForm brandId={focused.brandId} brand={focused.brand} />
+              <Link className="ch-relationship-select" href="/app/creator/profile#creator-documents">Agreements and briefs →</Link>
+            </section>
+          ) : null}
         </aside>
       </div>
-      {pages>1?<nav className="ch-pagination" aria-label="Brand pages"><span>{selected.length} relationships · page {currentPage} of {pages}</span>{currentPage>1?<Link className="loop-btn" href={`/app/creator/opportunities?stage=${active.key}&q=${encodeURIComponent(query)}&status=${encodeURIComponent(statusFilter??'')}&page=${currentPage-1}`}>Previous</Link>:null}{currentPage<pages?<Link className="loop-btn" href={`/app/creator/opportunities?stage=${active.key}&q=${encodeURIComponent(query)}&status=${encodeURIComponent(statusFilter??'')}&page=${currentPage+1}`}>Next</Link>:null}</nav>:null}
+      {pages > 1 ? (
+        <nav className="ch-pagination" aria-label="Brand pages">
+          <span>
+            {selected.length} relationships · page {currentPage} of {pages}
+          </span>
+          {currentPage > 1 ? (
+            <Link
+              className="loop-btn"
+              href={`/app/creator/opportunities?stage=${active.key}&q=${encodeURIComponent(query)}&status=${encodeURIComponent(statusFilter ?? '')}&page=${currentPage - 1}`}
+            >
+              Previous
+            </Link>
+          ) : null}
+          {currentPage < pages ? (
+            <Link
+              className="loop-btn"
+              href={`/app/creator/opportunities?stage=${active.key}&q=${encodeURIComponent(query)}&status=${encodeURIComponent(statusFilter ?? '')}&page=${currentPage + 1}`}
+            >
+              Next
+            </Link>
+          ) : null}
+        </nav>
+      ) : null}
       <details className="ch-brand-coverage">
         <summary>Coverage and privacy</summary>
         <p>
-          Each brand appears once in its latest accepted stage. Historical Gmail discovery is still
-          bounded; these counts may not represent your entire outreach history. Summaries use
-          authorized evidence and may require an updated review. Private email and confidential
-          commercial terms are not shown.
+          These counts cover the brand records shared with you; older or unreviewed conversations
+          may not be included yet. Your team reviews summaries before they are shared. Private email
+          and confidential commercial terms are not shown. Similar brand names can refer to separate
+          records; ask EMG if something looks duplicated.
         </p>
       </details>
     </section>

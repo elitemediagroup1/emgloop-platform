@@ -59,7 +59,7 @@ export async function MetaAnalyticsPanel({ principal, outcome, platform }: { pri
           <StateBlock
             kind={notConnected ? 'unavailable' : instagramMissing ? 'attention' : 'empty'}
             compact
-            title={notConnected ? name + ' analytics are not connected' : instagramMissing ? 'Instagram account not linked' : 'No Instagram report yet'}
+            title={notConnected ? name + ' analytics are not connected' : instagramMissing ? 'Instagram account not linked' : `No ${name} report yet`}
             body={notConnected
               ? 'Connect this account from Profile to fetch its analytics.'
               : instagramMissing
@@ -126,7 +126,7 @@ export async function MetaAnalyticsPanel({ principal, outcome, platform }: { pri
 
     return <div className="ch-meta-analytics">
       <div className="ch-meta-actions" aria-label={name + ' analytics actions'}>
-        <form action={refreshMetaAction}><button className="loop-btn loop-btn--primary" type="submit">Refresh Meta data</button></form>
+        {connection && connection.status !== 'DISCONNECTED' ? <form action={refreshMetaAction}><button className="loop-btn loop-btn--primary" type="submit">Refresh Meta data</button></form> : <a className="loop-btn loop-btn--primary" href="/app/creator/profile#social-connections">Connect {name} →</a>}
         {rows.length ? <form action={analyzeMetaAction}><button className="loop-btn" type="submit">Analyze with Loop AI</button></form> : null}
         {statusText ? <p role="status">{statusText}</p> : null}
       </div>

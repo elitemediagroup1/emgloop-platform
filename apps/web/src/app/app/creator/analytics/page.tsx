@@ -79,7 +79,20 @@ export default async function CreatorAnalyticsPage({
         description=""
         actions={
           <>
-            {platform === 'TIKTOK' ? <form action={refreshCreatorAnalyticsAction}><button className="loop-btn loop-btn--primary" type="submit">Refresh insights</button></form> : <Link className="loop-btn" href={CREATOR_HREFS.profile}>Manage connections →</Link>}
+            {platform === 'TIKTOK' &&
+            (status === 'CONNECTED' ||
+              status === 'PARTIAL' ||
+              Boolean(publicReport?.ok && publicReport.value?.report)) ? (
+              <form action={refreshCreatorAnalyticsAction}>
+                <button className="loop-btn loop-btn--primary" type="submit">
+                  Refresh insights
+                </button>
+              </form>
+            ) : (
+              <Link className="loop-btn" href={`${CREATOR_HREFS.profile}#social-connections`}>
+                Manage connections →
+              </Link>
+            )}
           </>
         }
       />
@@ -95,10 +108,32 @@ export default async function CreatorAnalyticsPage({
           </Link>
         ))}
       </nav>
-      {platform === 'TIKTOK' ? <CreatorAnalyticsCoach review={coach?.ok ? coach.value : null} source={source} time={time} outcome={coachOutcome} status={reviewStatus?.ok?reviewStatus.value:null} earlier={earlier}/> : null}
       {platform === 'TIKTOK' ? (
-        source === 'ACCOUNT' ? <CreatorConnectedTikTokAnalytics feedback={feedback} entry={accountEntry} publicReport={publicReport?.ok ? publicReport.value : null} state={status} readFailed={param(searchParams.tiktok_sync) === 'FAILED' || !accountRead?.ok || !accountRead.value.ok || !accountProfile?.ok} time={time} /> :
-        publicReport?.ok && publicReport.value?.report ? (
+        <CreatorAnalyticsCoach
+          review={coach?.ok ? coach.value : null}
+          source={source}
+          time={time}
+          outcome={coachOutcome}
+          status={reviewStatus?.ok ? reviewStatus.value : null}
+          earlier={earlier}
+        />
+      ) : null}
+      {platform === 'TIKTOK' ? (
+        source === 'ACCOUNT' ? (
+          <CreatorConnectedTikTokAnalytics
+            feedback={feedback}
+            entry={accountEntry}
+            publicReport={publicReport?.ok ? publicReport.value : null}
+            state={status}
+            readFailed={
+              param(searchParams.tiktok_sync) === 'FAILED' ||
+              !accountRead?.ok ||
+              !accountRead.value.ok ||
+              !accountProfile?.ok
+            }
+            time={time}
+          />
+        ) : publicReport?.ok && publicReport.value?.report ? (
           <>
             <CreatorTikTokAnalytics
               feedback={feedback}
@@ -118,7 +153,9 @@ export default async function CreatorAnalyticsPage({
               }
               body="Add your TikTok handle or connect your account on Profile, then refresh your insights."
             />
-            <Link className="loop-btn" href={CREATOR_HREFS.profile}>Manage your TikTok account →</Link>
+            <Link className="loop-btn" href={CREATOR_HREFS.profile}>
+              Manage your TikTok account →
+            </Link>
           </Panel>
         )
       ) : platform === 'YOUTUBE' ? (

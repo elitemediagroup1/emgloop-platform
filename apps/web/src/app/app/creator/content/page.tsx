@@ -45,7 +45,9 @@ export default async function CreatorContentPage({
   await requireWorkspace('CREATOR');
   const seat = await requireCreator();
   const time = viewerTime();
-  const filter = libraryFilterOf(param(searchParams.filter));
+  const requestedFilter = libraryFilterOf(param(searchParams.filter));
+  const filter =
+    requestedFilter === 'videos' || requestedFilter === 'photos' ? requestedFilter : 'all';
   const viewRaw = param(searchParams.view);
   const view = viewRaw === 'production' || viewRaw === 'review' ? viewRaw : 'published';
   const published = await loadCreatorPublishedMedia(seat);
@@ -80,7 +82,15 @@ export default async function CreatorContentPage({
       <CreatorPageHead
         section="Content"
         title="Your work, all together."
-        description=""
+        description="Upload originals, work through edits, and keep your published content together."
+        actions={
+          <Link
+            className="loop-btn loop-btn--primary"
+            href={`${CREATOR_HREFS.content}?view=production&upload=1#upload-original`}
+          >
+            Upload original content →
+          </Link>
+        }
       />
       <nav className="ch-analytics-tabs" aria-label="Content workspace">
         <Link
@@ -108,8 +118,15 @@ export default async function CreatorContentPage({
       <div className="ch-content-layout">
         <aside className="ch-production-workspace">
           <h2>Production workspace</h2>
-          <p>Upload an original for a campaign or independent project. Your team’s edits, your feedback and approvals stay with that content.</p>
-          <details className="ch-upload-panel" open={!!preselected}>
+          <p>
+            Upload an original for a campaign or independent project. Your team’s edits, your
+            feedback and approvals stay with that content.
+          </p>
+          <details
+            id="upload-original"
+            className="ch-upload-panel"
+            open={!!preselected || param(searchParams.upload) === '1'}
+          >
             <summary>Upload an original</summary>
 
             <Panel title="Upload">
@@ -147,7 +164,9 @@ export default async function CreatorContentPage({
           <section className="ch-workflow-guide">
             <h3>How the workflow works</h3>
             <p>
-              Upload creates your private content record. Open that record to request an EMG edit or link a deliverable. Imported social posts are references; importing does not submit them for review.
+              Upload creates your private content record. Open that record to request an EMG edit or
+              link a deliverable. Imported social posts are references; importing does not submit
+              them for review.
             </p>
             <ol>
               <li>
@@ -204,6 +223,13 @@ export default async function CreatorContentPage({
                   body="Your authorized platform reports populate this collection."
                 />
               )}
+              {!social.length && !query ? (
+                <div className="loop-btnrow ch-content-empty-actions">
+                  <Link className="loop-btn" href="/app/creator/profile#social-connections">
+                    Review social connections →
+                  </Link>
+                </div>
+              ) : null}
               {published.incomplete ? (
                 <p className="loop-note">
                   One platform could not be read; this collection may be incomplete.
@@ -218,22 +244,50 @@ export default async function CreatorContentPage({
           {view !== 'published' || shown.length > 0 ? (
             <>
               <nav className="loop-filters" aria-label="Filter content">
-                {LIBRARY_FILTERS.map((f) => (
-                  <Link
-                    key={f.key}
-                    className="loop-filter"
-                    href={`${CREATOR_HREFS.content}?view=${view}&filter=${f.key}`}
-                    aria-current={filter === f.key ? 'true' : undefined}
-                  >
-                    {f.label}
-                  </Link>
-                ))}
+                {LIBRARY_FILTERS.filter((f) => ['all', 'videos', 'photos'].includes(f.key)).map(
+                  (f) => (
+                    <Link
+                      key={f.key}
+                      className="loop-filter"
+                      href={`${CREATOR_HREFS.content}?view=${view}&filter=${f.key}`}
+                      aria-current={filter === f.key ? 'true' : undefined}
+                    >
+                      {f.label}
+                    </Link>
+                  ),
+                )}
               </nav>
               <p className="loop-resultcount">
-                {shown.length} of {items.length} piece{items.length === 1 ? '' : 's'}
+                {shown.length} of{' '}
+                {
+                  (view === 'review'
+                    ? review
+                    : view === 'production'
+                      ? production
+                      : items.filter((i) => i.state === 'PUBLISHED')
+                  ).length
+                }{' '}
+                piece{items.length === 1 ? '' : 's'}
               </p>
               {shown.length === 0 ? (
-                <StateBlock kind="empty" compact title={filter === 'all' ? 'No productions started yet.' : 'No productions match this view.'} body="Published social posts appear in Published library. Production begins when you upload original content or EMG requests a campaign deliverable." />
+                <StateBlock
+                  kind="empty"
+                  compact
+                  title={
+                    filter !== 'all'
+                      ? 'No content matches this filter.'
+                      : view === 'review'
+                        ? 'No edits waiting for your review.'
+                        : view === 'published'
+                          ? 'No uploaded content marked as published yet.'
+                          : 'No productions started yet.'
+                  }
+                  body={
+                    view === 'review'
+                      ? 'When EMG returns an edit or requests changes, the content appears here with its next step.'
+                      : 'Upload an original to start a production. Imported social posts remain in the Published library.'
+                  }
+                />
               ) : (
                 <LibraryGrid
                   items={shown}

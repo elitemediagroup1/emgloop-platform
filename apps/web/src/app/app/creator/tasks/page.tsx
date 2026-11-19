@@ -65,7 +65,17 @@ export default async function CreatorTasksPage({
           Upcoming · {upcoming.length}
         </Link>
       </nav>
-      <div className="ch-task-workspace">
+      <nav className="ch-quick-links" aria-label="Tasks and team">
+        <a href="#task-priorities">Your priorities</a>
+        <a href="#team">Messages with EMG{alerts.length ? ` · ${alerts.length} unread` : ''}</a>
+        <a href="#updates">
+          Content updates
+          {updates.filter((u) => !u.readAt).length
+            ? ` · ${updates.filter((u) => !u.readAt).length} unread`
+            : ''}
+        </a>
+      </nav>
+      <div id="task-priorities" className="ch-task-workspace">
         <section>
           <h2>{searchParams.view === 'upcoming' ? 'Coming up' : 'Your priorities'}</h2>
           {selectedBucket.length ? (
@@ -92,42 +102,81 @@ export default async function CreatorTasksPage({
             />
           )}
         </section>
-        {selected ? <aside className="ch-task-detail">
-          {selected ? (
-            <>
-              <span className="ch-eyebrow">{selected.kind.replace(/_/g, ' ')}</span>
-              <h2>{selected.title}</h2>
-              <p>{selected.detail}</p>
-              <p className="loop-note">
-                {selected.dueAt ? `Due ${time.date(selected.dueAt)}` : 'No due date set'}
-              </p>
-              <Link className="loop-btn loop-btn--primary" href={selected.href}>
-                Open task →
-              </Link>
-              <p className="loop-note">
-                Complete this task on its source record. Progress is recorded there.
-              </p>
-            </>
-          ) : (
-            <>
-              <h2>Nothing selected.</h2>
-              <p>New reviews and deliverables will appear here when they need you.</p>
-            </>
-          )}
-        </aside> : null}
+        {selected ? (
+          <aside className="ch-task-detail">
+            {selected ? (
+              <>
+                <span className="ch-eyebrow">{selected.kind.replace(/_/g, ' ')}</span>
+                <h2>{selected.title}</h2>
+                <p>{selected.detail}</p>
+                <p className="loop-note">
+                  {selected.dueAt ? `Due ${time.date(selected.dueAt)}` : 'No due date set'}
+                </p>
+                <Link className="loop-btn loop-btn--primary" href={selected.href}>
+                  Open task →
+                </Link>
+                <p className="loop-note">
+                  Complete this task on its source record. Progress is recorded there.
+                </p>
+              </>
+            ) : (
+              <>
+                <h2>Nothing selected.</h2>
+                <p>New reviews and deliverables will appear here when they need you.</p>
+              </>
+            )}
+          </aside>
+        ) : null}
       </div>
       <section id="team" className="ch-team-inbox" aria-label="Messages with EMG">
-        <CreatorTeam seat={seat}/>
+        <CreatorTeam seat={seat} />
         <h2>Your conversation with EMG</h2>
-        {alerts.length?<div className="ch-success" role="status"><strong>{alerts.length} unread {alerts.length===1?'reply':'replies'} from EMG</strong>{alerts.map(a=><form key={a.id} action={markTeamReplyRead}><input type="hidden" name="id" value={a.id}/><a href={`#message-${a.workInstanceId}`}>Read reply →</a> <button className="loop-btn">Mark read</button></form>)}</div>:null}
-        {searchParams.message==='sent'?<p className="ch-success" role="status">Your message is saved for EMG. Replies will appear here.</p>:searchParams.message==='unavailable'?<p role="alert">Your message was not saved. Check the message and try again; the daily limit is ten new questions.</p>:null}
-        <CreatorQuestionForm/>
-        {messages.map(m=><article className="loop-panel" key={m.id} id={`message-${m.id}`}><span className="ch-eyebrow">{m.status==='completed'?'Answered':'With EMG'}</span><h3>{m.title}</h3><p>{m.body}</p><small>{time.dateTime(m.at)}</small>{m.replies.map(reply=><div className="ch-team-reply" key={reply.id}><strong>{reply.fromCreator?'You':'EMG'}</strong><p>{reply.body}</p><small>{time.dateTime(reply.at)}</small></div>)}</article>)}
+        {alerts.length ? (
+          <div className="ch-success" role="status">
+            <strong>
+              {alerts.length} unread {alerts.length === 1 ? 'reply' : 'replies'} from EMG
+            </strong>
+            {alerts.map((a) => (
+              <form key={a.id} action={markTeamReplyRead}>
+                <input type="hidden" name="id" value={a.id} />
+                <a href={`#message-${a.workInstanceId}`}>Read reply →</a>{' '}
+                <button className="loop-btn">Mark read</button>
+              </form>
+            ))}
+          </div>
+        ) : null}
+        {searchParams.message === 'sent' ? (
+          <p className="ch-success" role="status">
+            Your message is saved for EMG. Replies will appear here.
+          </p>
+        ) : searchParams.message === 'unavailable' ? (
+          <p role="alert">
+            Your message was not saved. Check the message and try again; the daily limit is ten new
+            questions.
+          </p>
+        ) : null}
+        <CreatorQuestionForm />
+        {messages.map((m) => (
+          <article className="loop-panel" key={m.id} id={`message-${m.id}`}>
+            <span className="ch-eyebrow">{m.status === 'completed' ? 'Answered' : 'With EMG'}</span>
+            <h3>{m.title}</h3>
+            <p>{m.body}</p>
+            <small>{time.dateTime(m.at)}</small>
+            {m.replies.map((reply) => (
+              <div className="ch-team-reply" key={reply.id}>
+                <strong>{reply.fromCreator ? 'You' : 'EMG'}</strong>
+                <p>{reply.body}</p>
+                <small>{time.dateTime(reply.at)}</small>
+              </div>
+            ))}
+          </article>
+        ))}
       </section>
       <section id="updates" aria-label="Your updates">
         <Panel title="Updates">
           <p className="loop-note">
-            Content edit notifications appear here. Partnership decisions are included in your priorities above; replies from EMG appear in your conversation.
+            Content edit notifications appear here. Partnership decisions are included in your
+            priorities above; replies from EMG appear in your conversation.
           </p>
           {updates.length === 0 ? (
             <StateBlock
