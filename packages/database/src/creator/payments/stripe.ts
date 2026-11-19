@@ -179,7 +179,9 @@ export class StripeGlobalPayoutsApi implements PayoutPort {
       const u = new URL(r.url);
       if (
         u.protocol !== 'https:' ||
-        !['connect.stripe.com', 'onboarding.stripe.com'].includes(u.hostname) ||
+        !['accounts.stripe.com', 'connect.stripe.com', 'onboarding.stripe.com'].includes(
+          u.hostname,
+        ) ||
         u.username ||
         u.password
       )

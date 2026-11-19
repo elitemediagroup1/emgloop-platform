@@ -260,3 +260,27 @@ test('reconciliation checks the bound latest attempt and surfaces returns withou
   );
   await assert.rejects(() => wrong.get({ transferId: 'poi_test_a' }));
 });
+
+test('hosted onboarding accepts the Accounts v2 URL returned by Stripe and rejects lookalikes', async () => {
+  const callback =
+    'https://deploy-preview-99--emgloop2.netlify.app/app/creator/earnings?bank_session=fixture';
+  for (const host of ['accounts.stripe.com', 'connect.stripe.com', 'onboarding.stripe.com']) {
+    const url = `https://${host}/r?account=acct_test_creator#fixture`;
+    assert.equal(
+      await api(() => ({ url })).hostedOnboarding.link('acct_test_creator', callback),
+      url,
+    );
+  }
+  for (const url of [
+    'https://accounts.stripe.com.attacker.invalid/r',
+    'https://accounts-stripe.com/r',
+    'https://attacker.invalid/r',
+    'http://accounts.stripe.com/r',
+    'https://user:pass@accounts.stripe.com/r',
+  ]) {
+    await assert.rejects(
+      () => api(() => ({ url })).hostedOnboarding.link('acct_test_creator', callback),
+      /INVALID_ONBOARDING_URL/,
+    );
+  }
+});
