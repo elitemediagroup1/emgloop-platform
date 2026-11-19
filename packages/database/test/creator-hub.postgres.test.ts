@@ -39,6 +39,27 @@ test(
         }),
         p = { organizationId: org, userId: creator, creatorProfileId: profile.id },
         repo = new CreatorHubRepository(db);
+      const privateDetails = {
+        personalEmail: 'personal@example.test', phone: '+12025550123', dateOfBirth: '1996-02-29',
+        addressLine1: 'PO Box 123', addressLine2: '', city: 'New York', region: 'NY', postalCode: '10001', country: 'United States',
+      };
+      assert.equal(await repo.ownContactDetails(p), null);
+      assert.equal(await repo.saveContactDetails({ ...p, userId: other }, privateDetails), false);
+      assert.equal(await repo.saveContactDetails({ ...p, organizationId: 'another-org' }, privateDetails), false);
+      assert.equal(await repo.saveContactDetails(p, { ...privateDetails, dateOfBirth: '1997-02-29' }), false);
+      assert.equal(await repo.saveContactDetails(p, privateDetails), true);
+      assert.equal((await repo.ownContactDetails(p))?.personalEmail, privateDetails.personalEmail);
+      assert.equal(await repo.ownContactDetails({ ...p, userId: other }), null);
+      assert.equal(await repo.managerContactDetails({ organizationId: org, userId: employee }, profile.id), null);
+      assert.equal(await repo.managerContactDetails(p, profile.id), null);
+      assert.equal(await repo.managerContactDetails({ ...manager, organizationId: 'another-org' }, profile.id), null);
+      assert.equal((await repo.managerContactDetails(manager, profile.id))?.dateOfBirth, '1996-02-29');
+      assert.equal(await repo.saveContactDetails(p, { ...privateDetails, addressLine1: 'PO Box 456' }), true);
+      assert.equal((await repo.ownContactDetails(p))?.addressLine1, 'PO Box 456');
+      const publicProfile = await new CreatorRepository(db).profileById(org, profile.id);
+      assert.ok(publicProfile);
+      assert.equal('contactDetails' in publicProfile, false);
+      assert.doesNotMatch(JSON.stringify(publicProfile), /personal@example.test|PO Box 456|1996-02-29/);
       assert.equal(await repo.configure(p, profile.id, [manager.userId], {}), false);
       assert.equal(await repo.configure(manager, profile.id, [other], {}), false);
       assert.equal(

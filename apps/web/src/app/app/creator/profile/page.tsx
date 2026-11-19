@@ -1,3 +1,6 @@
+import { creatorHubRepository } from '../../../../creator/creator-hub-runtime';
+import { CreatorContactForm } from '../../../../creator/creator-contact-form';
+import { saveCreatorContactDetails } from '../../../../creator/creator-contact-action';
 import { CreatorTeam } from '../../../../creator/creator-team';
 import { ttoMediaRepository } from '../../../../tiktok-business/runtime';
 import Link from 'next/link';
@@ -104,6 +107,8 @@ export default async function CreatorProfilePage({
 
   const profile = await domain.creator.profileById(seat.actor.organizationId, seat.profileId);
 
+  const contact = await settle(() => creatorHubRepository().ownContactDetails(seat.actor));
+  const contactOutcome = param(searchParams.contact);
   const saved = param(searchParams.saved);
   const refused = refusedFrom(searchParams);
   const social = readSocial(profile?.socialAccounts).filter((s) => s.platform !== 'TIKTOK')
@@ -133,7 +138,7 @@ export default async function CreatorProfilePage({
           kind="empty"
           compact
           title="Welcome to Creator Hub"
-          body="Complete your profile and add at least one social handle below. Your brand updates and shared work will appear as EMG links them to you. You do not need to connect EMG’s email accounts."
+          body="Add your personal contact details, date of birth and preferred mailing address below, then complete your profile and social handles. Your brand updates and shared work will appear as EMG links them to you. You do not need to connect EMG’s email accounts."
         />
       ) : null}
       {saved ? (
@@ -175,6 +180,15 @@ export default async function CreatorProfilePage({
           </Link>
         </div>
         <section className="ch-profile-main" aria-label="Your profile and connections">
+          <section id="contact-details" aria-label="Personal contact and mailing details">
+            <Panel title="Contact &amp; mailing details">
+              {contactOutcome === 'saved' ? <p className="ch-success" role="status">Your contact and mailing details are saved.</p> : null}
+              {contactOutcome === 'invalid' ? <p role="alert">Check your email, phone number, date of birth and complete mailing address, then save again.</p> : null}
+              {contactOutcome === 'unavailable' ? <p role="alert">Your details could not be saved. Please try again.</p> : null}
+              {contact.ok ? <CreatorContactForm details={contact.value} action={saveCreatorContactDetails} today={time.now.toISOString().slice(0, 10)} /> :
+                <StateBlock kind="error" compact title="Contact details are temporarily unavailable." body="Please try again shortly to view or update your details." />}
+            </Panel>
+          </section>
           <Panel title="Creator profile">
             <div className="ch-profile-save">
               <button
