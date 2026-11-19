@@ -56,6 +56,26 @@ export class CreatorHubRepository {
       return true;
     });
   }
+  async saveManagerContactDetails(
+    p: { organizationId: string; userId: string },
+    profileId: string,
+    input: CreatorContactDetailsInput,
+  ) {
+    if (validateCreatorContactDetails(input) || !(await this.manager(p))) return false;
+    return this.db.$transaction(async (tx) => {
+      const profile = await tx.creatorProfile.findFirst({
+        where: { organizationId: p.organizationId, id: profileId },
+        select: { id: true },
+      });
+      if (!profile) return false;
+      await tx.creatorContactDetails.upsert({
+        where: { creatorProfileId: profile.id },
+        create: { ...input, organizationId: p.organizationId, creatorProfileId: profile.id },
+        update: input,
+      });
+      return true;
+    });
+  }
   async health(p: EmgActor, profileId: string) {
     if (!(await this.manager(p))) return null;
     const profile = await this.db.creatorProfile.findFirst({

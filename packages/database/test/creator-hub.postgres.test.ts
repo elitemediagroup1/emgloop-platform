@@ -44,6 +44,16 @@ test(
         addressLine1: 'PO Box 123', addressLine2: '', city: 'New York', region: 'NY', postalCode: '10001', country: 'United States',
       };
       assert.equal(await repo.ownContactDetails(p), null);
+      assert.equal(await repo.saveManagerContactDetails(p, profile.id, privateDetails), false);
+      assert.equal(await repo.saveManagerContactDetails({ organizationId: org, userId: employee }, profile.id, privateDetails), false);
+      assert.equal(await repo.saveManagerContactDetails({ ...manager, organizationId: 'another-org' }, profile.id, privateDetails), false);
+      assert.equal(await repo.saveManagerContactDetails(manager, 'missing-profile', privateDetails), false);
+      assert.equal(await repo.saveManagerContactDetails(manager, profile.id, { ...privateDetails, personalEmail: 'invalid' }), false);
+      assert.equal(await repo.saveManagerContactDetails(manager, profile.id, privateDetails), true);
+      assert.equal((await repo.ownContactDetails(p))?.personalEmail, privateDetails.personalEmail);
+      assert.equal(await repo.saveManagerContactDetails(manager, profile.id, { ...privateDetails, phone: '+12025550199' }), true);
+      assert.equal((await repo.ownContactDetails(p))?.phone, '+12025550199');
+
       assert.equal(await repo.saveContactDetails({ ...p, userId: other }, privateDetails), false);
       assert.equal(await repo.saveContactDetails({ ...p, organizationId: 'another-org' }, privateDetails), false);
       assert.equal(await repo.saveContactDetails(p, { ...privateDetails, dateOfBirth: '1997-02-29' }), false);

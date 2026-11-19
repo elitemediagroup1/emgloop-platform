@@ -51,33 +51,42 @@ export function CreatorContactForm({
   details,
   action,
   today,
+  managerProfileId,
 }: {
   details: CreatorContactDetailsInput | null;
   action: (data: FormData) => void | Promise<void>;
   today: string;
+  managerProfileId?: string;
 }) {
   return (
     <form className="ch-contact-form" action={action}>
+      {managerProfileId ? <input type="hidden" name="profileId" value={managerProfileId} /> : null}
       <p className="loop-note">
-        Share your personal contact information with EMG. Your personal email can be different from
-        your sign-in email.
+        {managerProfileId
+          ? 'Update this creator’s personal contact information and preferred mailing address.'
+          : 'Share your personal contact information with EMG. Your personal email can be different from your sign-in email.'}
       </p>
       <div className="ch-contact-grid">
         {fields.slice(0, 3).map((field) => (
           <ContactField key={field.name} field={field} details={details} today={today} />
         ))}
       </div>
-      <h3>Where should gifted items go?</h3>
+      <h3>{managerProfileId ? 'Gift shipping address' : 'Where should gifted items go?'}</h3>
       <p className="loop-note">
-        Use your home address or a mailing address you prefer for receiving gifted items and
-        campaign packages.
+        {managerProfileId
+          ? 'Use the home or mailing address this creator prefers for gifted items and campaign packages.'
+          : 'Use your home address or a mailing address you prefer for receiving gifted items and campaign packages.'}
       </p>
       <div className="ch-contact-grid">
         {fields.slice(3).map((field) => (
           <ContactField key={field.name} field={field} details={details} today={today} />
         ))}
       </div>
-      <p className="loop-note">These details are visible to you and authorized EMG managers.</p>
+      <p className="loop-note">
+        {managerProfileId
+          ? 'These details are visible to this creator and authorized EMG managers.'
+          : 'These details are visible to you and authorized EMG managers.'}
+      </p>
       <button className="loop-btn loop-btn--primary" type="submit">
         Save contact details
       </button>

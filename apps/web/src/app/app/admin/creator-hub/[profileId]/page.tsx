@@ -1,3 +1,5 @@
+import { CreatorContactForm } from '../../../../../creator/creator-contact-form';
+import { saveManagerCreatorContactDetails } from '../../../../../creator/creator-contact-action';
 import { creatorHubRepository } from '../../../../../creator/creator-hub-runtime';
 import { ttoMediaRepository } from '../../../../../tiktok-business/runtime';
 import { settle } from '../../../_home/settle';
@@ -283,7 +285,7 @@ function LibraryTable({ items, profileId }: { items: readonly LibraryItem[]; pro
   );
 }
 
-export default async function CreatorOverviewPage({ params, searchParams }: { params: { profileId: string }; searchParams?: { refused?: string; mailbox?: string; capture?: string; hub?: string; payout?: string } }) {
+export default async function CreatorOverviewPage({ params, searchParams }: { params: { profileId: string }; searchParams?: { refused?: string; mailbox?: string; capture?: string; hub?: string; contact?: string; payout?: string } }) {
   const session = await requireWorkspace('ADMIN');
   const organizationId = session.organizationId;
   const domain = creatorDomain();
@@ -332,19 +334,64 @@ export default async function CreatorOverviewPage({ params, searchParams }: { pa
       />
       <ManagerPaymentsPanel actor={{organizationId,userId:session.userId,canActOnAnyStep:true}} profileId={profile!.id} outcome={searchParams?.payout} />
       <CreatorSupportPanel actor={{organizationId,userId:session.userId,canActOnAnyStep:true}} profileId={profile!.id} preferences={profile!.preferences} time={time} outcome={searchParams?.hub}/>
-      <Panel title="Creator contact &amp; mailing details">
-        {contact.ok && contact.value ? <dl className="ch-manager-contact">
-          <dt>Personal email</dt><dd>{contact.value.personalEmail}</dd>
-          <dt>Phone number</dt><dd>{contact.value.phone}</dd>
-          <dt>Date of birth</dt><dd>{contact.value.dateOfBirth}</dd>
-          <dt>Gift shipping address</dt><dd>
-            {contact.value.addressLine1}<br />
-            {contact.value.addressLine2 ? <>{contact.value.addressLine2}<br /></> : null}
-            {contact.value.city}{contact.value.region ? `, ${contact.value.region}` : ''} {contact.value.postalCode}<br />
-            {contact.value.country}
-          </dd>
-        </dl> : <p className="loop-note">{contact.ok ? 'The creator can add their contact details and preferred gift shipping address in Profile.' : 'Contact details could not be loaded. Please try again.'}</p>}
-      </Panel>
+      <section id="contact-details" aria-label="Creator contact and mailing details">
+        <Panel title="Creator contact &amp; mailing details">
+          {searchParams?.contact === 'saved' ? (
+            <p role="status">Creator contact details saved.</p>
+          ) : null}
+          {searchParams?.contact === 'invalid' ? (
+            <p role="alert">
+              Check the email, phone number, date of birth and complete mailing address, then save
+              again.
+            </p>
+          ) : null}
+          {searchParams?.contact === 'unavailable' ? (
+            <p role="alert">Contact details could not be saved. Please try again.</p>
+          ) : null}
+          {contact.ok && contact.value ? (
+            <dl className="ch-manager-contact">
+              <dt>Personal email</dt>
+              <dd>{contact.value.personalEmail}</dd>
+              <dt>Phone number</dt>
+              <dd>{contact.value.phone}</dd>
+              <dt>Date of birth</dt>
+              <dd>{contact.value.dateOfBirth}</dd>
+              <dt>Gift shipping address</dt>
+              <dd>
+                {contact.value.addressLine1}
+                <br />
+                {contact.value.addressLine2 ? (
+                  <>
+                    {contact.value.addressLine2}
+                    <br />
+                  </>
+                ) : null}
+                {contact.value.city}
+                {contact.value.region ? `, ${contact.value.region}` : ''} {contact.value.postalCode}
+                <br />
+                {contact.value.country}
+              </dd>
+            </dl>
+          ) : (
+            <p className="loop-note">
+              {contact.ok
+                ? 'No contact details recorded yet. Add them below or ask the creator to complete their Profile.'
+                : 'Contact details could not be loaded. Please try again.'}
+            </p>
+          )}
+          {contact.ok ? (
+            <details open={!contact.value || searchParams?.contact === 'invalid'}>
+              <summary>{contact.value ? 'Edit contact details' : 'Add contact details'}</summary>
+              <CreatorContactForm
+                details={contact.value}
+                managerProfileId={profile!.id}
+                action={saveManagerCreatorContactDetails}
+                today={time.now.toISOString().slice(0, 10)}
+              />
+            </details>
+          ) : null}
+        </Panel>
+      </section>
       <RefusedBlock refused={searchParams?.refused} />
 
       <SummaryStrip
