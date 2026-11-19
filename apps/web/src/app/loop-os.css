@@ -5569,8 +5569,8 @@ a.xb__focuscard:hover { border-color: var(--loop-line-strong); transform: transl
 /* Approved earnings and bank linking share the Creator Hub's layout and tokens. */
 .ch-payout-panel { margin-top:24px; padding:clamp(20px,3vw,36px); background:var(--loop-surface); border:1px solid var(--loop-line); border-radius:20px; }
 .ch-payout-panel h2 { margin:8px 0 12px; }
-.ch-payout-panel form,.ch-manager-payment { display:grid; gap:14px; max-width:620px; }
-.ch-payout-panel input:not([type=checkbox]),.ch-manager-payment input:not([type=checkbox]) { width:100%; min-height:44px; padding:10px; border:1px solid var(--loop-line); border-radius:8px; background:var(--loop-surface); color:inherit; }
+.ch-payout-panel form,.ch-payment-setup form,.ch-manager-payment { display:grid; gap:14px; max-width:620px; }
+.ch-payout-panel input:not([type=checkbox]),.ch-payment-setup input:not([type=checkbox]),.ch-manager-payment input:not([type=checkbox]) { width:100%; min-height:44px; padding:10px; border:1px solid var(--loop-line); border-radius:8px; background:var(--loop-surface); color:inherit; }
 .ch-consent { display:flex; align-items:flex-start; gap:10px; line-height:1.6; font-size:14px; }
 .ch-consent input { flex:none; margin-top:5px; }
 .ch-payout-list { list-style:none; padding:0; }
@@ -5610,3 +5610,10 @@ a.xb__focuscard:hover { border-color: var(--loop-line-strong); transform: transl
 .ch-home-guidance__next { border-left:1px solid var(--loop-accent); padding-left:30px; }
 .ch-home-guidance small { display:block; font-size:12px; margin-top:14px; }
 @media(max-width:750px) { .ch-home-guidance { grid-template-columns:1fr; gap:20px; padding:24px; } .ch-home-guidance__next { padding-left:0; padding-top:20px; border-left:0; border-top:1px solid var(--loop-accent); } }
+
+.ch-payment-setup { min-width:0; }
+.ch-payment-setup details { margin-top:14px; }
+.ch-payment-setup summary { cursor:pointer; font-weight:700; }
+.ch-payment-setup label { display:grid; gap:6px; }
+.ch-payment-setup label:has(input[type=checkbox]) { display:block; }
+.ch-payment-setup select { width:100%; }

@@ -1,7 +1,8 @@
-import { CreatorPaymentsPanel } from '../../../../creator/creator-payments-panel';
+import { creatorPayoutLedger } from '../../../../creator/creator-payout-runtime';
+import { CreatorBankPanel, CreatorPaymentsPanel } from '../../../../creator/creator-payments-panel';
 import Link from 'next/link';
 import { CreatorPageHead } from '../../../../creator/creator-page-head';
-import { realCreatorEarnings } from '../../../../creator/creator-earnings';
+import { creatorPaymentEarnings } from '../../../../creator/creator-earnings';
 import { requireWorkspace } from '../../../../workspaces/guard';
 import { creatorDomain, requireCreator } from '../../../../creator/creator-runtime';
 import { viewerTime } from '../../../../time/viewer-time';
@@ -25,11 +26,17 @@ export default async function CreatorEarningsPage({
     seat.actor.organizationId,
     seat.profileId,
   );
+  const paymentView = await creatorPayoutLedger(seat.actor.organizationId).view(
+    seat.actor,
+    typeof searchParams.payoutPage === 'string' ? Number.parseInt(searchParams.payoutPage, 10) : 1,
+  );
+  const sandbox = paymentView?.environment === 'sandbox';
   const currencies = [
     ...new Set(earnings.entries.filter((e) => e.source !== 'SEEDED_DEMO').map((e) => e.currency)),
   ];
-  const real = realCreatorEarnings(
+  const real = creatorPaymentEarnings(
     earnings,
+    paymentView,
     typeof searchParams.currency === 'string' ? searchParams.currency : undefined,
   );
   return (
@@ -39,7 +46,7 @@ export default async function CreatorEarningsPage({
         title="Your earnings, clearly tracked."
         description="Follow compensation from expected to approved and paid, with the campaign and status behind each entry."
       />
-      {currencies.length > 1 ? (
+      {!sandbox && currencies.length > 1 ? (
         <nav className="ch-analytics-tabs" aria-label="Payment currency">
           {currencies.map((currency) => (
             <Link
@@ -54,8 +61,21 @@ export default async function CreatorEarningsPage({
         </nav>
       ) : null}
 
-      <EarningsBody earnings={real} time={time} />
-      <CreatorPaymentsPanel page={typeof searchParams.payoutPage === "string" ? Number.parseInt(searchParams.payoutPage,10) : 1} actor={seat.actor} outcome={typeof searchParams.payout === "string" ? searchParams.payout : undefined} />
+      {sandbox ? (
+        <p className="ch-test-banner" role="note">
+          <strong>Sandbox testing — no real money moves.</strong> All totals and transactions below
+          show test payouts only.
+        </p>
+      ) : null}
+      <EarningsBody
+        earnings={real}
+        time={time}
+        payoutSetup={<CreatorBankPanel view={paymentView} />}
+      />
+      <CreatorPaymentsPanel
+        view={paymentView}
+        outcome={typeof searchParams.payout === 'string' ? searchParams.payout : undefined}
+      />
     </LoopPage>
   );
 }

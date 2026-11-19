@@ -229,6 +229,13 @@ describe('The Content Record', () => {
 // ---- earnings --------------------------------------------------------------------------------------------
 
 describe('Earnings', () => {
+  it('places the functional bank control once in the overview tile', () => {
+    const html = render(<EarningsBody earnings={earnings()} time={time} payoutSetup={<button>Connect your bank</button>} />);
+    const aside = html.slice(html.indexOf('<aside'), html.indexOf('</aside>'));
+    assert.match(aside, /Connect your bank/);
+    assert.equal(html.split('Connect your bank').length - 1, 1);
+    assert.equal(html.includes('Manage your bank account and request manager-approved payouts below.'), false);
+  });
   it('keeps the compensation ledger separate from manager-approved bank payout requests', () => {
     const html = render(<EarningsBody earnings={earnings()} time={time} />);
     assert.match(html, /data-available-minor="5000"[^>]*>\$50\.00</);

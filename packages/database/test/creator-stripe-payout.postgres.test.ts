@@ -158,8 +158,14 @@ test(
           db.creatorPayout.update({ where: { id: earning.id }, data: { providerStatus: null } }),
         'a NULL status is not payout proof',
       );
+      assert.equal(await stripe.refreshTransfers({ ...p, userId: other }), false);
+      assert.equal((await stripe.view(p))?.earnings[0]?.state, 'PAID');
       status = 'returned';
-      await stripe.process(earning.id);
+      await db.creatorPayout.update({
+        where: { id: earning.id },
+        data: { checkedAt: new Date(0) },
+      });
+      assert.equal(await stripe.refreshTransfers(p), true);
       assert.equal((await stripe.view(p))?.payouts[0]?.state, 'RETURNED');
       assert.equal(sends, 1);
       assert.equal(await stripe.disconnect(p), false, 'returned funds remain under manager review');

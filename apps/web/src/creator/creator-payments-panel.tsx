@@ -1,11 +1,12 @@
 import { viewerTime } from '../time/viewer-time';
 import Link from 'next/link';
 import { randomUUID } from 'node:crypto';
-import type { CreatorActor, EmgActor } from '@emgloop/database';
+import type { EmgActor } from '@emgloop/database';
 import { creatorPayoutLedger } from './creator-payout-runtime';
 import { CreatorBankLink } from './creator-bank-link';
 import {
   approveCreatorPayout,
+  refreshCreatorPayoutStatus,
   fundCreatorPayout,
   releaseCreatorPayout,
   cancelCreatorPayout,
@@ -24,53 +25,18 @@ const labels: Record<string, string> = {
   REVIEW: 'EMG is reviewing this transfer',
   RETURNED: 'Returned · EMG review required',
 };
-export async function CreatorPaymentsPanel({
-  actor,
-  outcome,
-  page = 1,
-}: {
-  page?: number;
-  actor: CreatorActor;
-  outcome?: string;
-}) {
-  const service = creatorPayoutLedger(actor.organizationId),
-    view = await service?.view(actor, page);
-  const time = viewerTime();
+export type CreatorPaymentView = Awaited<
+  ReturnType<ReturnType<typeof creatorPayoutLedger>['view']>
+>;
+export function CreatorBankPanel({ view }: { view: CreatorPaymentView }) {
   return (
-    <section className="ch-payout-panel" id="bank-payments">
-      <div>
-        <span className="ch-eyebrow">Bank payments</span>
-        <h2>Your payout account</h2>
-        <p>
-          Only earnings explicitly approved by your manager can be requested. “Sent” means funds
-          left Stripe; receipt and ACH timing depend on bank processing and EMG’s funded payout
-          balance.
-        </p>
-      </div>
-      {outcome ? (
-        <p role="status">
-          {outcome === 'bank-connected'
-            ? 'Your bank account is connected.'
-            : outcome === 'requested'
-              ? 'Your request has been recorded. Follow its status below.'
-              : outcome === 'disconnected'
-                ? 'Your bank connection has been removed.'
-                : 'This action needs review. No new amount has been marked paid.'}
-        </p>
-      ) : null}
+    <>
+      <span className="ch-eyebrow">Your payout method</span>
+      <h2>{view?.bank?.state === 'CONNECTED' ? 'Your connected bank' : 'Set up your bank'}</h2>
       {!view ? (
-        <p>
-          Bank payments are awaiting EMG’s payment-service setup. Your recorded earnings remain
-          available above. <Link href="/app/creator/tasks#team">Ask your EMG team →</Link>
-        </p>
+        <p>Bank setup is unavailable. Contact your EMG team.</p>
       ) : (
         <>
-          {view.environment === 'sandbox' ? (
-            <p className="ch-test-banner" role="note">
-              <strong>Sandbox testing — no real money moves.</strong> Test approvals are excluded
-              from your earnings totals.
-            </p>
-          ) : null}
           {!view.paymentsEnabled ? (
             <p>
               Bank payments are awaiting EMG’s Stripe setup. Your recorded balance is tracked here;
@@ -82,11 +48,14 @@ export async function CreatorPaymentsPanel({
                 {view.bank.institution} ···· {view.bank.mask}
               </strong>
               <p>Connected securely. Loop does not store your bank account or routing number.</p>
-              <form action={disconnectCreatorBank}>
-                <button className="loop-btn" disabled={view.pending}>
-                  Disconnect bank
-                </button>
-              </form>
+              <details>
+                <summary>Manage bank account</summary>
+                <form action={disconnectCreatorBank}>
+                  <button className="loop-btn" disabled={view.pending}>
+                    Disconnect bank
+                  </button>
+                </form>
+              </details>
             </div>
           ) : view.bank?.state === 'DISCONNECTING' ? (
             <div>
@@ -96,9 +65,57 @@ export async function CreatorPaymentsPanel({
               </form>
             </div>
           ) : (
-            <CreatorBankLink />
+            <details>
+              <summary>Connect your bank →</summary>
+              <CreatorBankLink />
+            </details>
           )}
-          <h3>{view.environment === 'sandbox' ? 'Test payouts' : 'Approved payouts'}</h3>
+        </>
+      )}
+      <p className="loop-note">
+        Bank setup does not require an approved earning. Only manager-released amounts can be
+        requested.
+      </p>
+    </>
+  );
+}
+export function CreatorPaymentsPanel({
+  view,
+  outcome,
+}: {
+  view: CreatorPaymentView;
+  outcome?: string;
+}) {
+  const time = viewerTime();
+  return (
+    <section className="ch-payout-panel" id="bank-payments">
+      <h2>{view?.environment === 'sandbox' ? 'Test payout requests' : 'Payout requests'}</h2>
+      <form action={refreshCreatorPayoutStatus}>
+        <button className="loop-btn" disabled={!view?.paymentsEnabled}>
+          Refresh payout status
+        </button>
+      </form>
+      <p>
+        Only manager-released earnings can be requested. Sent means funds left Stripe; bank receipt
+        depends on bank processing.
+      </p>
+      {outcome ? (
+        <p role="status">
+          {outcome === 'refreshed'
+            ? 'Payout status checked. See the latest saved result below.'
+            : outcome === 'bank-connected'
+              ? 'Your bank account is connected.'
+              : outcome === 'requested'
+                ? 'Your request has been recorded. Follow its status below.'
+                : outcome === 'disconnected'
+                  ? 'Your bank connection has been removed.'
+                  : 'This action needs review. No new amount has been marked paid.'}
+        </p>
+      ) : null}
+      {!view ? (
+        <p>Payout records are unavailable.</p>
+      ) : (
+        <>
           {!view.payouts.length ? (
             <p>
               No manager-approved payouts yet. Once approved, each amount and its status will appear

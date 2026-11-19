@@ -201,3 +201,14 @@ export async function refreshCreatorStripeBank(nonce: string): Promise<StripeBan
     return { error: 'This setup link expired. Start bank setup again.' };
   }
 }
+
+export async function refreshCreatorPayoutStatus() {
+  const seat = await requireCreator(),
+    service = creatorPayouts();
+  let ok = false;
+  try {
+    ok = (await service?.refreshTransfers(seat.actor)) ?? false;
+  } catch {}
+  refresh();
+  redirect(`/app/creator/earnings?payout=${ok ? 'refreshed' : 'review'}`);
+}

@@ -1,4 +1,5 @@
 // Compensation read model. Bank linking and approved requests live in the payout panel.
+import type { ReactNode } from 'react';
 import type { EarningsView } from '@emgloop/database';
 import type { CompensationState, TimeView } from '@emgloop/shared';
 import {
@@ -18,7 +19,15 @@ const TOTAL_ORDER: readonly CompensationState[] = [
   'PAID',
 ];
 
-export function EarningsBody({ earnings, time }: { earnings: EarningsView; time: TimeView }) {
+export function EarningsBody({
+  earnings,
+  time,
+  payoutSetup,
+}: {
+  earnings: EarningsView;
+  time: TimeView;
+  payoutSetup?: ReactNode;
+}) {
   const available = earnings.totals[PAYABLE_COMPENSATION_STATE];
   return (
     <>
@@ -55,10 +64,16 @@ export function EarningsBody({ earnings, time }: { earnings: EarningsView; time:
           </Panel>
         </section>
         <aside className="ch-payment-setup">
-          <span className="ch-eyebrow">Your payout method</span>
-          <h2>Your payment setup</h2>
-          <p>Manage your bank account and request manager-approved payouts below.</p>
-          <p className="loop-note">Questions about a payment? Contact your EMG team from Tasks.</p>
+          {payoutSetup ?? (
+            <>
+              <span className="ch-eyebrow">Your payout method</span>
+              <h2>Your payment setup</h2>
+              <p>Manage your bank account and request manager-approved payouts below.</p>
+              <p className="loop-note">
+                Questions about a payment? Contact your EMG team from Tasks.
+              </p>
+            </>
+          )}
         </aside>
       </div>
 
@@ -129,7 +144,6 @@ export function EarningsBody({ earnings, time }: { earnings: EarningsView; time:
             </table>
           )}
         </Panel>
-
       </div>
     </>
   );
