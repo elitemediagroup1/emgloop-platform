@@ -1,32 +1,15 @@
-## Creator Hub Stripe payout switch
+## Creator Hub Stripe payouts
 
-Matt selected Stripe Global Payouts instead of Plaid Transfer on November 18, 2026.
-This branch uses the existing creator earnings ledger, manager permission checks, release
-reservations, and explicit creator withdrawal flow. Bank/identity collection is Stripe-hosted;
-Loop encrypts only recipient and payout-method references and displays masked bank details.
-A signed, expiring, single-use callback binds setup to the current creator membership/profile.
-PayoutIntents are prepared manually and verified for source, recipient, amount, USD/ACH routing
-and bounded fees before confirmation. Stable idempotency and read-only reconciliation preserve
-ambiguous outcomes for manager review. Latest outbound attempts expose returns without retrying.
-Posted is displayed as sent, not proof of recipient receipt. A ten-minute worker checks status.
+PR #469 is merged at `d191ff2fd5a812a093ccd418d7ee0b195c0fcdbc`; the Stripe migration
+was applied by Matt. Live payouts remain disabled. A rebuilt sandbox preview can start
+provider requests: Stripe logs show successful recipient and account-link creation.
+The returned `https://accounts.stripe.com` link was incorrectly rejected by Loop's host
+allowlist; this fix accepts that exact host while rejecting lookalikes, HTTP and credentials.
+No migration or environment changes are required for this fix. Sandbox bank onboarding and
+end-to-end payout reconciliation still need live verification after deployment.
 
-Migration `20261118190000_stripe_creator_payouts` preserves legacy PLAID ownership on existing
-rows. Stripe can adopt only completely untouched pending earnings on an explicit manager release;
-old bank authorizations, funded rows and in-flight transfers cannot be replayed through Stripe.
-Bookkeeping remains usable without a configured provider. Funding is performed by the human owner
-in Stripe Treasury, then checked in Loop before a manager can release earnings. This release does
-not automatically debit EMG's bank from Loop. No real transfer or Stripe account was created.
-
-Production remains #468 at `b5db051f2eeb158f684baa638d939913219f1ed0`; this branch is not deployed.
-The prior authenticated Trevon check confirmed actual saved AI guidance, assigned Matt/Charlie
-contacts, TikTok analytics, and 373 outreach / 29 conversations / zero active deals. Gmail freshness
-still depends on governed processing. No AI limits or mailbox sources change here.
-
-Validation: 175 creator UI/navigation/OAuth contracts and 121 backend/payment contracts pass
-locally; web/database typechecks and production build pass. Disposable Postgres lifecycle/isolation
-runs in PR CI. ESLint remains unconfigured in the repository. Stripe account approval, sandbox
-hosted-onboarding/API verification and production pilot remain pending human setup. Matt retains
-merge, migration, Actions and deployment control. See `docs/creator-hub-stripe-release.md`.
+Validation: ten Stripe adapter regression tests and database typecheck pass. Production build passes. ESLint remains unconfigured (next lint exits at its setup prompt).
+Matt retains merge, migration, Actions and production deployment control.
 
 ## Creator Hub reference fidelity and agency branding
 
