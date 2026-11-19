@@ -86,7 +86,22 @@ export class CreatorPayoutRepository {
         failure: true,
       },
     });
+    // Full scoped read model: totals must not change with the 25-row action history page.
+    const earnings = await this.db.creatorPayout.findMany({
+      where: historyScope,
+      select: {
+        id: true,
+        compensationEntryId: true,
+        description: true,
+        amountMinor: true,
+        state: true,
+        approvedAt: true,
+        requestedAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
     return {
+      earnings,
       environment: this.config.environment,
       paymentsEnabled: !this.config.recordingOnly,
       provider: this.config.provider ?? 'PLAID',
@@ -971,6 +986,23 @@ export class CreatorPayoutRepository {
       },
       { isolationLevel: 'Serializable' },
     );
+  }
+  /** Refresh only already-submitted transfers owned by the signed creator; never initiate one. */
+  async refreshTransfers(p: CreatorActor) {
+    if (this.config.recordingOnly || !(await this.own(this.db, p))) return false;
+    const rows = await this.db.creatorPayout.findMany({
+      where: {
+        ...this.scope(p),
+        transferId: { not: null },
+        state: { in: ['PROCESSING', 'REVIEW', 'PAID'] },
+        OR: [{ checkedAt: null }, { checkedAt: { lt: new Date(Date.now() - 60000) } }],
+      },
+      orderBy: { checkedAt: 'asc' },
+      take: 10,
+      select: { id: true },
+    });
+    for (const row of rows) await this.process(row.id);
+    return true;
   }
   async process(id: string) {
     if (this.config.recordingOnly) return;

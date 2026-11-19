@@ -1,15 +1,23 @@
 ## Creator Hub Stripe payouts
 
-PR #469 is merged at `d191ff2fd5a812a093ccd418d7ee0b195c0fcdbc`; the Stripe migration
-was applied by Matt. Live payouts remain disabled. A rebuilt sandbox preview can start
-provider requests: Stripe logs show successful recipient and account-link creation.
-The returned `https://accounts.stripe.com` link was incorrectly rejected by Loop's host
-allowlist; this fix accepts that exact host while rejecting lookalikes, HTTP and credentials.
-No migration or environment changes are required for this fix. Sandbox bank onboarding and
-end-to-end payout reconciliation still need live verification after deployment.
+PR #470 is merged at `3a6037094285ed3c2d07b6b4df4ea14d6d4b23b6`. Matt completed
+sandbox hosted bank setup for his own payout-test creator; masked bank 6789 survived reload.
+He recorded/released/requested a $1 sandbox earning. Stripe displayed one posted payout to
+Matt's test recipient, while Loop retained PROCESSING pending reconciliation. No real money moved.
 
-Validation: ten Stripe adapter regression tests and database typecheck pass. Production build passes. ESLint remains unconfigured (next lint exits at its setup prompt).
-Matt retains merge, migration, Actions and production deployment control.
+The current payment-overview fix moves bank setup/status/management into the upper-right tile,
+removes the duplicate lower bank form, and uses scoped current payout states for summary cards
+and transaction history. Sandbox totals contain only sandbox payouts, with one test-only banner.
+Linked compensation records are replaced, not summed twice. Totals use the full scoped payout
+read model independently of the paginated request list. A creator-authorized, throttled refresh
+checks only already-submitted transfer references; it cannot initiate a payout.
+
+Validation: 103 creator UI tests and 17 payout adapter tests pass; web/database typechecks pass.
+Production build passes. ESLint is still unconfigured. Postgres lifecycle coverage
+adds cross-creator refresh denial and returned-status reconciliation; it runs in PR CI.
+No migration needed. Production payouts remain disabled. Matt requested a real-bank live pilot
+under his own creator identity after review/deployment; bank entry and actual transfer remain
+human actions. The upper tile and status reconciliation need authenticated preview verification.
 
 ## Creator Hub reference fidelity and agency branding
 
