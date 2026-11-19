@@ -74,3 +74,6 @@ export { creatorBrandNameKey, creatorBrandAliasName, resolveCreatorBrandRows } f
 
 export {CreatorPayoutRepository} from './payments/creator-payout.repository';
 export {plaidConfig,plaidLedgerConfig,PlaidApi} from './payments/plaid';
+
+export { validateCreatorContactDetails } from "./creator-contact-details";
+export type { CreatorContactDetailsInput } from "./creator-contact-details";

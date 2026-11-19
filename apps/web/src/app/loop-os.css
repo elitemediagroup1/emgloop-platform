@@ -5617,3 +5617,19 @@ a.xb__focuscard:hover { border-color: var(--loop-line-strong); transform: transl
 .ch-payment-setup label { display:grid; gap:6px; }
 .ch-payment-setup label:has(input[type=checkbox]) { display:block; }
 .ch-payment-setup select { width:100%; }
+
+/* Private creator contact details, shown during onboarding and editable from Profile. */
+.ch-contact-form { display:grid; gap:16px; }
+.ch-contact-form h3, .ch-contact-form p { margin:0; }
+.ch-contact-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+.ch-contact-grid .loop-field { min-width:0; }
+.ch-contact-form input { width:100%; min-width:0; box-sizing:border-box; }
+.ch-contact-form button { justify-self:start; }
+.ch-manager-contact { display:grid; grid-template-columns:minmax(120px,1fr) 3fr; gap:12px 20px; }
+.ch-manager-contact dt { font-weight:600; }
+.ch-manager-contact dd { margin:0; overflow-wrap:anywhere; }
+@media(max-width:600px) {
+  .ch-contact-grid { grid-template-columns:1fr; }
+  .ch-manager-contact { grid-template-columns:1fr; gap:8px; }
+  .ch-manager-contact dd { margin-bottom:12px; }
+}

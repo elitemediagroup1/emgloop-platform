@@ -1,3 +1,4 @@
+import { creatorHubRepository } from '../../../../../creator/creator-hub-runtime';
 import { ttoMediaRepository } from '../../../../../tiktok-business/runtime';
 import { settle } from '../../../_home/settle';
 import { ManagerPaymentsPanel } from '../../../../../creator/creator-payments-panel';
@@ -303,6 +304,7 @@ export default async function CreatorOverviewPage({ params, searchParams }: { pa
   const time = viewerTime();
   const currentSocial = await settle(() => ttoMediaRepository().read({organizationId,userId:session.userId},profile!.id,time.now));
   const currentReport = currentSocial.ok ? currentSocial.value?.report : null;
+  const contact = await settle(() => creatorHubRepository().managerContactDetails({ organizationId, userId: session.userId }, profile!.id));
   const here = EMG_HREFS.creator(profile!.id);
   const requests = groupRequests(requestsAll.filter((r) => r.creator.id === profile!.id));
   const weekAhead = time.now.getTime() + 7 * 86400_000;
@@ -330,6 +332,19 @@ export default async function CreatorOverviewPage({ params, searchParams }: { pa
       />
       <ManagerPaymentsPanel actor={{organizationId,userId:session.userId,canActOnAnyStep:true}} profileId={profile!.id} outcome={searchParams?.payout} />
       <CreatorSupportPanel actor={{organizationId,userId:session.userId,canActOnAnyStep:true}} profileId={profile!.id} preferences={profile!.preferences} time={time} outcome={searchParams?.hub}/>
+      <Panel title="Creator contact &amp; mailing details">
+        {contact.ok && contact.value ? <dl className="ch-manager-contact">
+          <dt>Personal email</dt><dd>{contact.value.personalEmail}</dd>
+          <dt>Phone number</dt><dd>{contact.value.phone}</dd>
+          <dt>Date of birth</dt><dd>{contact.value.dateOfBirth}</dd>
+          <dt>Gift shipping address</dt><dd>
+            {contact.value.addressLine1}<br />
+            {contact.value.addressLine2 ? <>{contact.value.addressLine2}<br /></> : null}
+            {contact.value.city}{contact.value.region ? `, ${contact.value.region}` : ''} {contact.value.postalCode}<br />
+            {contact.value.country}
+          </dd>
+        </dl> : <p className="loop-note">{contact.ok ? 'The creator can add their contact details and preferred gift shipping address in Profile.' : 'Contact details could not be loaded. Please try again.'}</p>}
+      </Panel>
       <RefusedBlock refused={searchParams?.refused} />
 
       <SummaryStrip

@@ -7229,6 +7229,7 @@ model WorkInstruction {
 /// says which login acts as the creator and what the creator maintains about
 /// themselves. `partyId` is a scalar id, like every identity reference here.
 model CreatorProfile {
+  contactDetails CreatorContactDetails?
   payoutBanks CreatorPayoutBank[]
   payoutLinks CreatorPayoutLink[]
   payouts CreatorPayout[]
@@ -8740,4 +8741,25 @@ model CreatorPayout {
   @@unique([organizationId,environment,earningReference])
   @@index([environment,state,checkedAt])
   @@index([organizationId,creatorProfileId,userId])
+}
+
+/// Private creator contact and gift shipping details. Read explicitly by the creator or EMG management.
+model CreatorContactDetails {
+  creatorProfileId String @id
+  organizationId String
+  personalEmail String @db.VarChar(254)
+  phone String @db.VarChar(40)
+  dateOfBirth String @db.VarChar(10)
+  addressLine1 String @db.VarChar(200)
+  addressLine2 String @default("") @db.VarChar(200)
+  city String @db.VarChar(100)
+  region String @default("") @db.VarChar(100)
+  postalCode String @db.VarChar(24)
+  country String @db.VarChar(80)
+  updatedAt DateTime @updatedAt
+  creatorProfile CreatorProfile @relation(fields: [organizationId, creatorProfileId], references: [organizationId, id], onDelete: Cascade, map: "creator_contact_details_profile_fkey")
+
+  @@unique([organizationId, creatorProfileId])
+  @@index([organizationId])
+  @@map("creator_contact_details")
 }

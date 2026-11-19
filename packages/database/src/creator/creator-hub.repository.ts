@@ -1,3 +1,4 @@
+import { validateCreatorContactDetails, type CreatorContactDetailsInput } from './creator-contact-details';
 import { validCreatorBrandAliases } from './creator-brand-identity';
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { membershipAuthority } from '../repositories/membership.repository';
@@ -29,6 +30,30 @@ export class CreatorHubRepository {
     if (!a.granted || a.systemRole !== 'CREATOR') return null;
     return db.creatorProfile.findFirst({
       where: { organizationId: p.organizationId, id: p.creatorProfileId, userId: p.userId },
+    });
+  }
+  async ownContactDetails(p: CreatorActor) {
+    if (!(await this.own(this.db, p))) return null;
+    return this.db.creatorContactDetails.findFirst({
+      where: { organizationId: p.organizationId, creatorProfileId: p.creatorProfileId },
+    });
+  }
+  async managerContactDetails(p: { organizationId: string; userId: string }, profileId: string) {
+    if (!(await this.manager(p))) return null;
+    return this.db.creatorContactDetails.findFirst({
+      where: { organizationId: p.organizationId, creatorProfileId: profileId },
+    });
+  }
+  async saveContactDetails(p: CreatorActor, input: CreatorContactDetailsInput) {
+    if (validateCreatorContactDetails(input)) return false;
+    return this.db.$transaction(async (tx) => {
+      if (!(await this.own(tx, p))) return false;
+      await tx.creatorContactDetails.upsert({
+        where: { creatorProfileId: p.creatorProfileId },
+        create: { ...input, organizationId: p.organizationId, creatorProfileId: p.creatorProfileId },
+        update: input,
+      });
+      return true;
     });
   }
   async health(p: EmgActor, profileId: string) {
