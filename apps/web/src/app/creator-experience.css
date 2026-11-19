@@ -1,0 +1,335 @@
+/* Creator presentation only. No staff layout, integration endpoint or business state changes. */
+.loop-os.ch-shell .ch-topbar {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 20px;
+}
+.ch-shell .ch-topbar__brand {
+  min-width: 0;
+}
+.ch-shell .ch-desktop-nav {
+  min-width: 0;
+}
+.ch-shell .ch-topbar .loop-sb__scroll {
+  justify-content: flex-start;
+  width: 100%;
+  overflow: visible;
+}
+.ch-shell .ch-topbar__account {
+  flex-shrink: 0;
+  margin: 0;
+}
+.ch-shell .ch-page-head {
+  gap: 20px;
+}
+.ch-shell .ch-page-head h1 {
+  font-size: clamp(32px, 3.3vw, 52px);
+  line-height: 1.12;
+}
+.ch-shell .ch-page-head p:not(.ch-eyebrow) {
+  font-size: 16px;
+  max-width: 75ch;
+}
+.ch-shell .ch-page-head__actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  min-width: 0;
+}
+.ch-shell .loop-btn,
+.ch-shell summary,
+.ch-shell .loop-iconbtn {
+  min-height: 44px;
+}
+.ch-shell summary {
+  cursor: pointer;
+  align-content: center;
+}
+.ch-shell .ch-relationship-select {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 10px;
+  font-size: 14px;
+}
+.ch-shell .ch-brand-name {
+  font-family: var(--loop-font);
+}
+.ch-shell .ch-brand-status {
+  color: #24435a;
+  background: #eaf0f4;
+}
+.ch-shell [data-relationship-stage='AWAITING_CREATOR'] .ch-brand-status {
+  color: #734509;
+  background: #fff0ce;
+}
+.ch-shell [data-relationship-stage='AWAITING_EMG'] .ch-brand-status {
+  color: #354978;
+  background: #edf0fb;
+}
+.ch-shell [data-relationship-stage='CONFIRMED'] .ch-brand-status {
+  color: #1b5848;
+  background: #d9eee6;
+}
+.ch-shell .ch-brand-position .ch-brand-position__summary {
+  display: none;
+}
+.ch-shell .ch-relationship-detail {
+  position: sticky;
+  top: 20px;
+  min-width: 0;
+  scroll-margin-top: 110px;
+}
+.ch-shell .ch-relationship-detail h2 {
+  overflow-wrap: anywhere;
+}
+.ch-shell .ch-relationship-back {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  margin-bottom: 12px;
+}
+.ch-shell .ch-home-action-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: 24px;
+  align-items: start;
+}
+.ch-shell .ch-home-action-grid > section {
+  background: var(--loop-surface);
+  border: 1px solid var(--loop-line);
+  border-radius: 14px;
+  padding: 24px;
+  min-width: 0;
+}
+.ch-shell .ch-home-action-grid h2 {
+  font-size: 23px;
+}
+.ch-shell .ch-setup-checklist > p {
+  margin: 0 0 16px;
+  color: var(--loop-muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+.ch-shell .ch-setup-checklist ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.ch-shell .ch-setup-checklist li {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 14px 0;
+  border-top: 1px solid var(--loop-line);
+}
+.ch-shell .ch-setup-checklist li > span {
+  background: var(--loop-mint);
+  color: var(--loop-creator-navy);
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+}
+.ch-shell .ch-setup-checklist small {
+  display: block;
+  color: var(--loop-muted);
+  font-size: 13px;
+  line-height: 1.5;
+  margin-top: 4px;
+}
+.ch-shell .ch-setup-checklist a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  font-size: 14px;
+}
+.ch-shell .ch-business-grid {
+  grid-template-columns: 1fr;
+}
+.ch-shell .ch-team-updates p {
+  -webkit-line-clamp: 2;
+}
+.ch-shell .ch-sync-status {
+  margin-bottom: 0;
+}
+.ch-shell .ch-quick-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+.ch-shell .ch-quick-links a {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+}
+.ch-shell .ch-content-empty-actions {
+  margin-top: 12px;
+}
+.ch-shell #upload-original,
+.ch-shell #social-connections,
+.ch-shell #creator-documents,
+.ch-shell #team,
+.ch-shell #updates {
+  scroll-margin-top: 110px;
+}
+.ch-shell .ch-question-privacy {
+  margin: 0;
+}
+.ch-shell .ch-question-privacy p {
+  margin-top: 8px;
+}
+.ch-shell .ch-payment-journey {
+  padding: 18px 22px;
+  border: 1px solid var(--loop-line);
+  border-radius: 12px;
+  background: var(--loop-surface);
+  font-size: 14px;
+  line-height: 1.7;
+}
+.ch-shell .ch-payment-state-details .loop-strip {
+  flex-wrap: wrap;
+}
+.ch-shell .ch-profile-identity img {
+  object-position: 50% 25%;
+}
+@media (min-width: 901px) and (max-width: 1500px) {
+  .loop-os.ch-shell .ch-topbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0 20px;
+    padding-top: 8px;
+  }
+  .ch-shell .ch-topbar__brand .ch-talent-logo { width:90px; height:60px; }
+  .ch-shell .ch-topbar__brand .ch-loop-logo { width:150px; height:auto; }
+  .ch-shell .ch-desktop-nav {
+    grid-column: 1/-1;
+    grid-row: 2;
+  }
+  .ch-shell .ch-topbar__account {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .ch-shell .ch-topbar .loop-sb__scroll {
+    justify-content: center;
+    padding: 8px 0 16px;
+  }
+  .loop-os.ch-shell .ch-topbar .loop-sb__link {
+    padding: 10px 14px;
+  }
+}
+@media (max-width: 1100px) {
+  .ch-shell .ch-home-action-grid {
+    grid-template-columns: 1fr;
+  }
+  .ch-shell .ch-page-head__actions {
+    justify-content: flex-start;
+  }
+}
+@media (max-width: 900px) {
+  .loop-os.ch-shell .ch-topbar {
+    display: flex;
+    min-height: 76px;
+    gap: 10px;
+    padding: 8px 16px;
+  }
+  .ch-shell .ch-topbar__brand {
+    flex: 1;
+    gap: 10px;
+  }
+  .ch-shell .ch-topbar__brand .ch-talent-logo {
+    width: 66px;
+    height: 44px;
+  }
+  .ch-shell .ch-topbar__brand .ch-loop-logo {
+    width: 110px;
+    height: auto;
+  }
+  .ch-shell .ch-brand-divider {
+    height: 28px;
+  }
+  .ch-shell .ch-topbar__account {
+    padding: 0;
+    border: 0;
+  }
+  .ch-shell .ch-account-avatar {
+    width: 44px;
+    height: 44px;
+  }
+  .ch-shell .ch-mobile-menu {
+    flex: none;
+    margin-left: 0;
+  }
+  .ch-shell .ch-mobile-menu[open] > nav {
+    max-height: calc(100dvh - 100px);
+    overflow: auto;
+  }
+  .ch-shell .ch-topbar .loop-sb__scroll {
+    display: grid;
+    width: auto;
+  }
+  .ch-shell .ch-account-menu > div {
+    max-width: calc(100vw - 32px);
+  }
+}
+@media (max-width: 760px) {
+  .ch-shell .ch-relationship-layout {
+    display: flex;
+    flex-direction: column;
+  }
+  .ch-shell .ch-relationship-layout > div {
+    width: 100%;
+    min-width: 0;
+  }
+  .ch-shell .ch-relationship-detail {
+    display: none;
+    position: static;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 22px;
+  }
+  .ch-shell .ch-relationship-detail[data-selected='true'] {
+    display: block;
+    order: -1;
+  }
+  .ch-shell .ch-content-layout {
+    flex-direction: column;
+  }
+  .ch-shell .ch-production-workspace {
+    border-top: 0;
+    padding-top: 0;
+  }
+  .ch-shell .ch-page-head h1 {
+    font-size: 34px;
+  }
+  .ch-shell .ch-home-action-grid > section {
+    padding: 20px;
+  }
+  .ch-shell .ch-setup-checklist li {
+    grid-template-columns: 28px minmax(0, 1fr);
+  }
+  .ch-shell .ch-setup-checklist li > a {
+    grid-column: 2;
+  }
+  .ch-shell .ch-task-workspace .ch-task-detail {
+    order: -1;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .ch-shell .ch-payment-state-details .loop-strip__item {
+    padding: 8px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ch-shell *,
+  .ch-shell *::before,
+  .ch-shell *::after {
+    scroll-behavior: auto !important;
+    animation: none !important;
+    transition: none !important;
+  }
+}
+@media (max-width: 380px) {
+  .ch-shell .ch-topbar__brand .ch-talent-logo,
+  .ch-shell .ch-brand-divider { display: none; }
+}

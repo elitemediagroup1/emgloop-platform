@@ -168,12 +168,23 @@ export default async function CreatorProfilePage({
           <div>
             <span className="ch-eyebrow">EMG Talent Group · Creator</span>
             <h2>{profile?.displayName ?? seat.displayName}</h2>
-            {displayHandle ? <p>@{displayHandle.replace(/^@/,'')}</p> : null}
+            {displayHandle ? <p>@{displayHandle.replace(/^@/, '')}</p> : null}
           </div>
-          <Link className="loop-btn loop-btn--primary" href="#creator-profile-form">Edit profile</Link>
+          <Link className="loop-btn loop-btn--primary" href="#creator-profile-form">
+            Edit profile
+          </Link>
         </div>
         <section className="ch-profile-main" aria-label="Your profile and connections">
-          <Panel title="Creator profile"><div className="ch-profile-save"><button className="loop-btn loop-btn--primary" type="submit" form="creator-profile-form">Save</button></div>
+          <Panel title="Creator profile">
+            <div className="ch-profile-save">
+              <button
+                className="loop-btn loop-btn--primary"
+                type="submit"
+                form="creator-profile-form"
+              >
+                Save
+              </button>
+            </div>
             <form id="creator-profile-form" className="ch-form" action={updateProfileAction}>
               <label className="loop-field">
                 <span className="loop-label">Display name</span>
@@ -245,131 +256,145 @@ export default async function CreatorProfilePage({
                   ))}
                 </fieldset>
               </details>
-
             </form>
           </Panel>
 
-          <Panel title="Social accounts">
-            <details className="ch-social-connection" open={Boolean(param(searchParams.tiktok))}>
-              <summary>
-                <span className="ch-social-badge">♪</span>
-                <span>
-                  <strong>TikTok</strong>
-                  <small>
-                    {publicTikTokAvailable
-                      ? 'Public content · Available through EMG'
-                      : 'Review account authorization'}
-                  </small>
-                </span>
-                <span aria-hidden="true">›</span>
-              </summary>{' '}
-              <Panel title="Account authorization">
-                {tiktokStatus.ok ? (
-                  <TikTokConnectionRow status={tiktokStatus.value}
-                    entry={tiktokEntry}
-                    outcome={tiktokOutcomeParam(searchParams.tiktok)}
-                    readProblem={readProblem}
-                    time={time}
-                  />
-                ) : (
-                  <StateBlock
-                    kind="error"
-                    compact
-                    title="Loop could not check your TikTok connection just now."
-                    body="This is a failure to read, not a finding that there is none."
-                  />
-                )}
-                {social.length === 0 ? null : (
-                  <ul
-                    className="ch-list"
-                    aria-label="Other social accounts"
-                    style={{ marginTop: 12 }}
-                  >
-                    {social
-                      .filter((s) => !['INSTAGRAM', 'FACEBOOK'].includes(s.platform))
-                      .map((s) => (
-                        <li
-                          key={`${s.platform}:${s.handle ?? ''}`}
-                          className="ch-row ch-row--static"
-                          data-social-state={s.state}
-                        >
-                          <span className="ch-row__main">
-                            <span className="ch-row__title">
-                              {(SOCIAL_PLATFORM_LABELS as Record<string, string>)[s.platform] ??
-                                s.platform}
+          <section id="social-connections" aria-label="Account connections">
+            <Panel title="Social accounts">
+              <details className="ch-social-connection" open={Boolean(param(searchParams.tiktok))}>
+                <summary>
+                  <span className="ch-social-badge">♪</span>
+                  <span>
+                    <strong>TikTok</strong>
+                    <small>
+                      {publicTikTokAvailable
+                        ? 'Public content · Available through EMG'
+                        : tiktokStatus.ok && tiktokStatus.value.permitted
+                          ? (
+                              {
+                                CONNECTED: 'Connected',
+                                PARTIAL: 'Partly connected',
+                                EXPIRED: 'Reconnect required',
+                                NOT_CONNECTED: 'Not connected',
+                                NOT_CONFIGURED: 'Awaiting EMG setup',
+                              } as const
+                            )[tiktokStatus.value.state]
+                          : 'Status unavailable'}
+                    </small>
+                  </span>
+                  <span aria-hidden="true">›</span>
+                </summary>{' '}
+                <Panel title="Account authorization">
+                  {tiktokStatus.ok ? (
+                    <TikTokConnectionRow status={tiktokStatus.value}
+                      entry={tiktokEntry}
+                      outcome={tiktokOutcomeParam(searchParams.tiktok)}
+                      readProblem={readProblem}
+                      time={time}
+                    />
+                  ) : (
+                    <StateBlock
+                      kind="error"
+                      compact
+                      title="Loop could not check your TikTok connection just now."
+                      body="This is a failure to read, not a finding that there is none."
+                    />
+                  )}
+                  {social.length === 0 ? null : (
+                    <ul
+                      className="ch-list"
+                      aria-label="Other social accounts"
+                      style={{ marginTop: 12 }}
+                    >
+                      {social
+                        .filter((s) => !['INSTAGRAM', 'FACEBOOK'].includes(s.platform))
+                        .map((s) => (
+                          <li
+                            key={`${s.platform}:${s.handle ?? ''}`}
+                            className="ch-row ch-row--static"
+                            data-social-state={s.state}
+                          >
+                            <span className="ch-row__main">
+                              <span className="ch-row__title">
+                                {(SOCIAL_PLATFORM_LABELS as Record<string, string>)[s.platform] ??
+                                  s.platform}
+                              </span>
+                              <span className="ch-row__meta">
+                                {s.handle ? `@${s.handle.replace(/^@/, '')}` : 'No handle recorded'}
+                              </span>
                             </span>
-                            <span className="ch-row__meta">
-                              {s.handle ? `@${s.handle.replace(/^@/, '')}` : 'No handle recorded'}
+                            <span className="ch-row__side">
+                              {s.state === 'SEEDED_DEMO' ? (
+                                <Pill tone="neutral" small>
+                                  Demo data
+                                </Pill>
+                              ) : s.state === 'NOT_CONNECTED' ? (
+                                <ActionButton
+                                  action={{
+                                    label: 'Connect',
+                                    href: null,
+                                    reason: 'Connecting this platform is not available yet',
+                                  }}
+                                />
+                              ) : (
+                                <Pill tone="good" small>
+                                  {s.state.charAt(0) +
+                                    s.state.slice(1).toLowerCase().replace(/_/g, ' ')}
+                                </Pill>
+                              )}
                             </span>
-                          </span>
-                          <span className="ch-row__side">
-                            {s.state === 'SEEDED_DEMO' ? (
-                              <Pill tone="neutral" small>
-                                Demo data
-                              </Pill>
-                            ) : s.state === 'NOT_CONNECTED' ? (
-                              <ActionButton
-                                action={{
-                                  label: 'Connect',
-                                  href: null,
-                                  reason: 'Connecting this platform is not available yet',
-                                }}
-                              />
-                            ) : (
-                              <Pill tone="good" small>
-                                {s.state.charAt(0) +
-                                  s.state.slice(1).toLowerCase().replace(/_/g, ' ')}
-                              </Pill>
-                            )}
-                          </span>
-                        </li>
-                      ))}
-                  </ul>
-                )}
-              </Panel>
-            </details>
-            <details className="ch-social-connection" open={Boolean(param(searchParams.meta))}>
-              <summary>
-                <span className="ch-social-badge">◎</span>
-                <span>
-                  <strong>Instagram &amp; Facebook</strong>
-                  <small>Review connection status</small>
-                </span>
-                <span aria-hidden="true">›</span>
-              </summary>{' '}
-              <MetaConnectionPanel
-                principal={{
-                  organizationId: seat.actor.organizationId,
-                  userId: seat.actor.userId,
-                  creatorProfileId: seat.profileId,
-                }}
-                outcome={param(searchParams.meta) ?? undefined}
-                reference={param(searchParams.meta_ref) ?? undefined}
-                diagnostic={{
-                  stage: param(searchParams.meta_stage) ?? undefined,
-                  failure: param(searchParams.meta_failure) ?? undefined,
-                  invalidResponse: param(searchParams.meta_invalidResponse) ?? undefined,
-                  httpStatus: param(searchParams.meta_httpStatus) ?? undefined,
-                  graphCode: param(searchParams.meta_graphCode) ?? undefined,
-                  graphSubcode: param(searchParams.meta_graphSubcode) ?? undefined,
-                }}
-              />
-            </details>
-            <details className="ch-social-connection" open={Boolean(param(searchParams.youtube))}>
-              <summary>
-                <span className="ch-social-badge">▶</span>
-                <span>
-                  <strong>YouTube</strong>
-                  <small>Review connected channel</small>
-                </span>
-                <span aria-hidden="true">›</span>
-              </summary>{' '}
-              <YouTubeConnectionPanel
-                principal={{ organizationId: seat.actor.organizationId, userId: seat.actor.userId }}
-                outcome={param(searchParams.youtube) ?? undefined}
-              />
-            </details>
-          </Panel>
+                          </li>
+                        ))}
+                    </ul>
+                  )}
+                </Panel>
+              </details>
+              <details className="ch-social-connection" open>
+                <summary>
+                  <span className="ch-social-badge">◎</span>
+                  <span>
+                    <strong>Instagram &amp; Facebook</strong>
+                    <small>Connection status and account settings</small>
+                  </span>
+                  <span aria-hidden="true">›</span>
+                </summary>{' '}
+                <MetaConnectionPanel
+                  principal={{
+                    organizationId: seat.actor.organizationId,
+                    userId: seat.actor.userId,
+                    creatorProfileId: seat.profileId,
+                  }}
+                  outcome={param(searchParams.meta) ?? undefined}
+                  reference={param(searchParams.meta_ref) ?? undefined}
+                  diagnostic={{
+                    stage: param(searchParams.meta_stage) ?? undefined,
+                    failure: param(searchParams.meta_failure) ?? undefined,
+                    invalidResponse: param(searchParams.meta_invalidResponse) ?? undefined,
+                    httpStatus: param(searchParams.meta_httpStatus) ?? undefined,
+                    graphCode: param(searchParams.meta_graphCode) ?? undefined,
+                    graphSubcode: param(searchParams.meta_graphSubcode) ?? undefined,
+                  }}
+                />
+              </details>
+              <details className="ch-social-connection" open>
+                <summary>
+                  <span className="ch-social-badge">▶</span>
+                  <span>
+                    <strong>YouTube</strong>
+                    <small>Connection status and channel settings</small>
+                  </span>
+                  <span aria-hidden="true">›</span>
+                </summary>{' '}
+                <YouTubeConnectionPanel
+                  principal={{
+                    organizationId: seat.actor.organizationId,
+                    userId: seat.actor.userId,
+                  }}
+                  outcome={param(searchParams.youtube) ?? undefined}
+                />
+              </details>
+            </Panel>
+          </section>
           <Panel title="Preferences">
             <p className="loop-note">Current time zone: {time.timeZone}</p>
             <form className="ch-form" action={updatePreferencesAction}>
@@ -394,7 +419,7 @@ export default async function CreatorProfilePage({
           </Panel>
         </section>
         <aside className="ch-profile-aside" aria-label="Preferences and shared details">
-            <CreatorTeam seat={seat}/>
+          <CreatorTeam seat={seat} />
           <Panel title="Account &amp; security">
             <dl className="ch-security-list">
               <div>
@@ -437,34 +462,36 @@ export default async function CreatorProfilePage({
             </Link>
           </Panel>
 
-          <Panel title="Documents">
-            {documents.length === 0 ? (
-              <StateBlock
-                kind="empty"
-                compact
-                title="No documents."
-                body="Agreements and briefs EMG shares with you appear here."
-              />
-            ) : (
-              <ul className="ch-list" aria-label="Documents">
-                {documents.map((d) => (
-                  <li key={d.name} className="ch-row ch-row--static">
-                    <span className="ch-row__main">
-                      <span className="ch-row__title">
-                        {d.url ? (
-                          <a href={d.url} rel="noreferrer noopener">
-                            {d.name}
-                          </a>
-                        ) : (
-                          d.name
-                        )}
+          <section id="creator-documents" aria-label="Shared documents">
+            <Panel title="Documents">
+              {documents.length === 0 ? (
+                <StateBlock
+                  kind="empty"
+                  compact
+                  title="No documents."
+                  body="Agreements and briefs EMG shares with you appear here."
+                />
+              ) : (
+                <ul className="ch-list" aria-label="Documents">
+                  {documents.map((d) => (
+                    <li key={d.name} className="ch-row ch-row--static">
+                      <span className="ch-row__main">
+                        <span className="ch-row__title">
+                          {d.url ? (
+                            <a href={d.url} rel="noreferrer noopener">
+                              {d.name}
+                            </a>
+                          ) : (
+                            d.name
+                          )}
+                        </span>
                       </span>
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Panel>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Panel>
+          </section>
         </aside>
       </div>
     </LoopPage>

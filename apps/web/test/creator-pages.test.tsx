@@ -258,7 +258,7 @@ describe('Earnings', () => {
     assert.match(seededRow, /data-seeded-row[^>]*>seeded demo data</);
     assert.equal(emgRow.includes('data-seeded-row'), false);
     assert.match(html, /data-seeded[^>]*>Some of these amounts are seeded demo data/);
-    for (const label of ['Expected', 'Pending', 'Received by EMG', 'Available to you', 'Transfer pending', 'Paid']) assert.ok(html.includes(label), label);
+    for (const label of ['Expected', 'Pending confirmation', 'Received by EMG', 'Available to request', 'Transfer in progress', 'Sent to your bank']) assert.ok(html.includes(label), label);
   });
 });
 

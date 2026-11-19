@@ -21,10 +21,14 @@ export function CreatorQuestionForm({ brandId, brand }: { brandId?: string; bran
       <button className="loop-btn loop-btn--primary" type="submit">
         Send to EMG
       </button>
-      <p className="loop-note">
-        Saved privately in Loop for your team. This does not accept a contract, approve payment or
-        send a message to the brand.
-      </p>
+      <p className="loop-note">Only you and your EMG team can see this message.</p>
+      <details className="ch-question-privacy">
+        <summary>About this message</summary>
+        <p className="loop-note">
+          Saved privately in Loop for your team. This does not accept a contract, approve payment or
+          send a message to the brand. Replies appear in your conversation with EMG.
+        </p>
+      </details>
     </form>
   );
 }

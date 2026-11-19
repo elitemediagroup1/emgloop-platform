@@ -292,6 +292,19 @@ export function Uploader(props: Props) {
         </div>
       ) : (
         <div className="ch-form">
+            <label className="loop-field">
+              <span className="loop-label">Campaign or independent project</span>
+              <select className="loop-select" value={deliverableId} disabled={busy || reserved.current !== null} onChange={(e) => setDeliverableId(e.target.value)}>
+                <option value="">Not for a deliverable (independent content)</option>
+                {props.deliverables.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.title} · {d.campaignName}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+          <p className="loop-note">Choose the project first, then upload your file. Uploading saves your original; request edits from its content record.</p>
           <label className="loop-field">
             <span className="loop-label">File</span>
             <input ref={inputRef} className="loop-input" type="file" accept={props.accept} disabled={busy || reserved.current !== null} onChange={(e) => choose(e.target.files?.[0] ?? null)} />
@@ -303,19 +316,6 @@ export function Uploader(props: Props) {
             <span className="loop-label">Name</span>
             <input className="loop-input" type="text" value={title} maxLength={140} disabled={busy || reserved.current !== null} placeholder="What you call this piece" onChange={(e) => setTitle(e.target.value)} />
           </label>
-          {props.deliverables.length > 0 ? (
-            <label className="loop-field">
-              <span className="loop-label">For a deliverable</span>
-              <select className="loop-select" value={deliverableId} disabled={busy || reserved.current !== null} onChange={(e) => setDeliverableId(e.target.value)}>
-                <option value="">Not for a deliverable (independent content)</option>
-                {props.deliverables.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.title} · {d.campaignName}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
           <div className="ch-uploader__row">
             {phase.kind === 'uploading' ? <ProgressRing percent={phase.percent} /> : null}
             {phase.kind === 'reading' ? <span className="loop-note">Reading the file…</span> : null}

@@ -2,11 +2,7 @@
 import type { ReactNode } from 'react';
 import type { EarningsView } from '@emgloop/database';
 import type { CompensationState, TimeView } from '@emgloop/shared';
-import {
-  COMPENSATION_STATE_LABELS,
-  EVIDENCE_SOURCE_LABELS,
-  PAYABLE_COMPENSATION_STATE,
-} from '@emgloop/shared';
+import { EVIDENCE_SOURCE_LABELS, PAYABLE_COMPENSATION_STATE } from '@emgloop/shared';
 import { Panel, StateBlock, SummaryStrip } from '../../_loop-os/record';
 import { COMPENSATION_TONES, moneyMinor, Pill } from './vocabulary';
 
@@ -18,6 +14,15 @@ const TOTAL_ORDER: readonly CompensationState[] = [
   'TRANSFER_PENDING',
   'PAID',
 ];
+
+export const CREATOR_PAYMENT_LABELS: Record<CompensationState, string> = {
+  EXPECTED: 'Expected',
+  PENDING: 'Pending confirmation',
+  RECEIVED_BY_EMG: 'Received by EMG',
+  AVAILABLE: 'Available to request',
+  TRANSFER_PENDING: 'Transfer in progress',
+  PAID: 'Sent to your bank',
+};
 
 export function EarningsBody({
   earnings,
@@ -33,11 +38,11 @@ export function EarningsBody({
     <>
       <div className="ch-payment-overview">
         <section className="ch-payment-cards" aria-label="Earnings overview">
-          <Panel title="Approved earnings">
+          <Panel title="Available to request">
             <p className="ch-balance" data-available-minor={available}>
               {moneyMinor(available, earnings.currency)}
             </p>
-            <p className="loop-note">Approved by EMG.</p>
+            <p className="loop-note">Released by EMG. Request a payout below.</p>
             {earnings.seeded ? (
               <p className="ch-seeded" data-seeded>
                 Some of these amounts are seeded demo data, not payments.
@@ -45,7 +50,7 @@ export function EarningsBody({
             ) : null}
           </Panel>
 
-          <Panel title="Awaiting EMG approval">
+          <Panel title="Not yet available">
             <p className="ch-balance">
               {moneyMinor(
                 earnings.totals.EXPECTED +
@@ -54,13 +59,13 @@ export function EarningsBody({
                 earnings.currency,
               )}
             </p>
-            <p className="loop-note">Not available to withdraw.</p>
+            <p className="loop-note">Expected, pending, or received by EMG; not yet released.</p>
           </Panel>
           <Panel title="Transfer in progress">
             <p className="ch-balance">
               {moneyMinor(earnings.totals.TRANSFER_PENDING, earnings.currency)}
             </p>
-            <p className="loop-note">Awaiting completion.</p>
+            <p className="loop-note">Requested or processing; bank receipt is not yet confirmed.</p>
           </Panel>
         </section>
         <aside className="ch-payment-setup">
@@ -77,12 +82,23 @@ export function EarningsBody({
         </aside>
       </div>
 
+      <section className="ch-payment-journey" aria-label="How payments move">
+        <strong>Your payment journey</strong>
+        <p>
+          Expected → Pending confirmation → Received by EMG → Available to request → Transfer in
+          progress → Sent to your bank
+        </p>
+        <p className="loop-note">
+          Only released amounts can be requested. A transfer marked sent can still take time to
+          arrive at your bank. Amounts and terms are shown only when recorded by EMG.
+        </p>
+      </section>
       <details className="ch-payment-state-details">
         <summary>All recorded payment states</summary>
         <SummaryStrip
           label="Totals by state"
           items={TOTAL_ORDER.map((state) => ({
-            label: COMPENSATION_STATE_LABELS[state],
+            label: CREATOR_PAYMENT_LABELS[state],
             value: moneyMinor(earnings.totals[state], earnings.currency),
           }))}
         />
@@ -131,7 +147,7 @@ export function EarningsBody({
                     </td>
                     <td data-label="State">
                       <Pill tone={COMPENSATION_TONES[e.state] ?? 'neutral'} small>
-                        {e.stateLabel}
+                        {CREATOR_PAYMENT_LABELS[e.state] ?? e.stateLabel}
                       </Pill>
                     </td>
                     <td data-label="When">{time.date(e.occurredAt)}</td>

@@ -13,8 +13,8 @@ const row = (patch: Partial<PublishedCreatorBrandUpdate> = {}): PublishedCreator
 test('creator brand cards group canonical brands, stamp evidence times and label earlier readings', () => {
   const html = renderToStaticMarkup(<CreatorBrandUpdatesView rows={[row(), row({ id: 'shared2', current: false, nextStep: '', summary: 'An earlier conversation is awaiting review.' }), row({ id: 'shared3', brandId: 'different-brand', brand: 'Brand Two', summary: null, generatedAt: null, current: false })]} time={time} />);
   assert.equal((html.match(/class="ch-brand-name">Brand /g) ?? []).length, 2);
-  assert.match(html, /earlier reading/);
-  assert.match(html, /Source conversation through/);
+  assert.match(html, /Previous summary/);
+  assert.match(html, /Brand activity through/);
   assert.match(html, /shareable summary is not available yet/);
   assert.match(html, /Last checked/);
   assert.doesNotMatch(html, /ownerUserId|recipientUserId|sourceFingerprint|mail_message:|mailto:/);
@@ -100,7 +100,7 @@ test('a consolidated relationship determines the stage instead of a later unansw
   ]} />);
   assert.match(html, /1 brand conversation is underway/);
   assert.match(html, /No current active deals are shared yet/);
-  assert.match(html, /Consolidated across accepted authorized conversations/);
+  assert.match(html, /Last brand activity:/);
   assert.doesNotMatch(html, /EMG has reached out to 1/);
 });
 
@@ -114,7 +114,7 @@ test('stage previews use source chronology and explicitly mark stale accepted ev
   const glance = html.match(/class="ch-brand-glance">([\s\S]*?)<\/div>/)?.[1] ?? '';
   assert.match(glance, /Recent Brand/);
   assert.match(glance, /Latest known development/);
-  assert.match(glance, /Awaiting updated review/);
+  assert.match(glance, /Update check pending/);
   assert.doesNotMatch(glance, /Earlier Brand|Pending Brand|mail_message:/);
 });
 

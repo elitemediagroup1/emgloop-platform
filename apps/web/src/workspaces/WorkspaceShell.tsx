@@ -1,3 +1,4 @@
+import { CreatorHeader } from './CreatorHeader';
 import Link from 'next/link';
 import { logoutAction } from '../auth/actions';
 import { EmgLoopWordmark } from '../app/crm/_brand/Logos';
@@ -56,53 +57,7 @@ export default async function WorkspaceShell({
           Skip to content
         </a>
         <TimeZoneSync timeZone={time.timeZone} source={time.source} />
-        <header className="ch-topbar">
-          <Link
-            href={LOOP_NAV.home}
-            className="ch-topbar__brand"
-            aria-label="EMG Talent Group and EMG Loop Home"
-          >
-            <img
-              className="ch-talent-logo"
-              src="/brand/emg-talent-original.png"
-              alt="EMG Talent Group"
-              width={120}
-              height={80}
-            />
-            <span className="ch-brand-divider" aria-hidden="true" />
-            <img
-              className="ch-loop-logo"
-              src="/brand/emg-loop-original.png"
-              alt="EMG Loop"
-              width={188}
-              height={36}
-            />
-          </Link>
-          <details className="ch-mobile-menu"><summary>Menu</summary><ShellNav groups={groups} label={LOOP_NAV.label}/></details>
-          <div className="ch-desktop-nav"><ShellNav groups={groups} label={LOOP_NAV.label}/></div>
-          <div className="ch-topbar__account">
-            {workHref ? (
-              <Link className="loop-iconbtn" href={workHref} aria-label="View work notifications">
-                <SidebarIcon name="bell" />
-              </Link>
-            ) : null}
-            <details className="ch-account-menu">
-              <summary aria-label="Your account">
-                <span className="ch-account-avatar">{initials(session.name)}</span><span className="ch-account-label">Account ▾</span>
-              </summary>
-              <div>
-                <strong>{session.name}</strong>
-                <span>{session.roleLabel}</span>
-                <Link href="/app/creator/profile">Manage profile</Link>
-                <form action={logoutAction}>
-                  <button type="submit" className="loop-btn">
-                    Sign out
-                  </button>
-                </form>
-              </div>
-            </details>
-          </div>
-        </header>
+        <CreatorHeader name={session.name} roleLabel={session.roleLabel} groups={groups} workHref={workHref} />
         <main className="loop-main" id="loop-main" tabIndex={-1}>
           {children}
         </main>

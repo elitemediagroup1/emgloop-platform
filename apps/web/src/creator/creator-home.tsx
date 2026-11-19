@@ -1,3 +1,4 @@
+import { CreatorSetupChecklist } from './creator-setup-checklist';
 import { CreatorHomeGuidance } from './creator-home-guidance';
 import { managedCreatorMailRepository, creatorMailSharingEnabled } from './creator-mail-runtime';
 import { creatorHubRepository } from './creator-hub-runtime';
@@ -74,20 +75,80 @@ export async function CreatorHome({ seat, time }: { seat: CreatorSeat; time: Tim
           <>
             <span className="ch-last-updated">
               {lastChecked
-                ? `Latest summary review: ${time.dateTime(lastChecked)}`
-                : brands.available ? 'Awaiting first review' : 'Updates unavailable'}
+                ? `Last checked: ${time.dateTime(lastChecked)}`
+                : brands.available
+                  ? 'First review pending'
+                  : 'Updates unavailable'}
             </span>
+            <Link className="loop-btn" href="/app/creator/tasks#team">Message EMG →</Link>
             <CreatorRefreshButton />
           </>
         }
       />
-      {freshness?.ok&&freshness.value?<section className="ch-sync-status" aria-label="Partnership update status">
-        <span className={`ch-sync-status__dot${freshness.value.paused?' ch-sync-status__dot--paused':''}`} aria-hidden="true" />
-        <div><strong>{freshness.value.paused?'Updates are waiting to resume':freshness.value.processing?'Your partnership review is in progress':'Partnership sources checked'}</strong>
-        <p>{freshness.value.checkedAt?`All connected sources checked through ${time.dateTime(freshness.value.checkedAt)}.`:'The first source review is still in progress.'} {freshness.value.historyComplete?'Historical search completed.':'Historical review is still building your business picture.'} {freshness.value.paused?'Your saved updates remain available. EMG is managing the processing pause.':''}</p></div>
-        <Link href={CREATOR_HREFS.opportunities}>Your partnerships →</Link>
-      </section>:null}
-      {replies.ok&&replies.value.length?<Link className="ch-success" href="/app/creator/tasks#team">Your EMG team replied · {replies.value.length} unread →</Link>:null}
+      {freshness?.ok && freshness.value ? (
+        <section className="ch-sync-status" aria-label="Partnership update status">
+          <span
+            className={`ch-sync-status__dot${freshness.value.paused ? ' ch-sync-status__dot--paused' : ''}`}
+            aria-hidden="true"
+          />
+          <div>
+            <strong>
+              {freshness.value.paused
+                ? 'Updates paused · saved activity is available'
+                : freshness.value.processing
+                  ? 'Checking for partnership updates'
+                  : 'Partnership updates checked'}
+            </strong>
+            <p>
+              {freshness.value.checkedAt
+                ? `Sources last checked ${time.dateTime(freshness.value.checkedAt)}.`
+                : 'Your first update is being prepared.'}{' '}
+              {freshness.value.historyComplete
+                ? 'Older messages have been searched.'
+                : 'Older messages are still being reviewed; the list may be incomplete.'}{' '}
+              {freshness.value.paused ? 'EMG is managing the pause.' : ''}
+            </p>
+          </div>
+          <Link href={CREATOR_HREFS.opportunities}>Your partnerships →</Link>
+        </section>
+      ) : null}
+      {replies.ok && replies.value.length ? (
+        <Link className="ch-success" href="/app/creator/tasks#team">
+          Your EMG team replied · {replies.value.length} unread →
+        </Link>
+      ) : null}
+      <div className="ch-home-action-grid">
+        <section aria-label="Your priorities">
+          <header className="ch-section-head">
+            <h2>Your priorities</h2>
+            <Link href={CREATOR_HREFS.tasks}>All tasks →</Link>
+          </header>
+          {!tasks.ok ? (
+            <StateBlock
+              kind="error"
+              compact
+              title="Tasks could not be read."
+              body="Try again shortly; this does not mean your task list is empty."
+            />
+          ) : needs.length ? (
+            <TaskList tasks={needs.slice(0, 3)} time={time} />
+          ) : (
+            <StateBlock
+              kind="empty"
+              compact
+              title="No campaign tasks need you right now."
+              body="Reviews and deliverables appear here when they need you. Account setup is listed separately."
+            />
+          )}
+          <Link className="ch-payment-link" href={CREATOR_HREFS.earnings}>
+            <span>Payments</span>
+            <strong>
+              {balance ? moneyMinor(balance.availableMinor, balance.currency) : 'View balance'} →
+            </strong>
+          </Link>
+        </section>
+        <CreatorSetupChecklist profile={profile.ok ? profile.value : null} />
+      </div>
       <section
         className={`ch-business-hero${media ? ' ch-business-hero--photo' : ''}`}
         aria-label="Your EMG briefing"
@@ -135,7 +196,10 @@ export async function CreatorHome({ seat, time }: { seat: CreatorSeat; time: Tim
           ['Conversations', conversations],
           ['Active partnerships', active],
         ].map(([label, value]) => (
-          <Link key={label} href={`${CREATOR_HREFS.opportunities}?stage=${label==='Outreach'?'0':label==='Conversations'?'1':'2'}`}>
+          <Link
+            key={label}
+            href={`${CREATOR_HREFS.opportunities}?stage=${label === 'Outreach' ? '0' : label === 'Conversations' ? '1' : '2'}`}
+          >
             <span>{label}</span>
             <strong>{brands.available ? value : '—'}</strong>
           </Link>
@@ -162,7 +226,7 @@ export async function CreatorHome({ seat, time }: { seat: CreatorSeat; time: Tim
                     <p>{update.summary}</p>
                     <small>
                       {update.evidenceAt ? time.date(update.evidenceAt) : 'Source date unavailable'}
-                      {update.current ? '' : ' · Awaiting updated review'}
+                      {update.current ? '' : ' · Update check pending'}
                     </small>
                   </div>
                   <Link
@@ -178,42 +242,13 @@ export async function CreatorHome({ seat, time }: { seat: CreatorSeat; time: Tim
               kind={brands.available ? 'empty' : 'error'}
               compact
               title={brands.available ? 'No updates shared yet.' : 'Updates are unavailable.'}
-              body="Your team’s accepted brand summaries will appear here."
+              body="Your team’s shared brand updates will appear here."
             />
           )}
-        </section>
-        <section aria-label="Up next">
-          <header className="ch-section-head">
-            <h2>Up next</h2>
-            <Link href={CREATOR_HREFS.tasks}>All tasks →</Link>
-          </header>
-          {!tasks.ok ? (
-            <StateBlock
-              kind="error"
-              compact
-              title="Tasks could not be read."
-              body="Try again shortly; this does not mean your task list is empty."
-            />
-          ) : needs.length ? (
-            <TaskList tasks={needs.slice(0, 3)} time={time} />
-          ) : (
-            <StateBlock
-              kind="empty"
-              compact
-              title="No current actions are assigned to you."
-              body="Your team is handling the shared brand conversations. New reviews and deliverables will appear here when they need you."
-            />
-          )}
-          <Link className="ch-payment-link" href={CREATOR_HREFS.earnings}>
-            <span>Payments</span>
-            <strong>
-              {balance ? moneyMinor(balance.availableMinor, balance.currency) : 'View balance'} →
-            </strong>
-          </Link>
         </section>
       </div>
       <CreatorHomeGuidance seat={seat} time={time} />
-      <CreatorTeam seat={seat}/>
+      <CreatorTeam seat={seat} />
       <p className="loop-note ch-home-coverage">
         Partnership counts reflect accepted, authorized records. Historical review may still be in
         progress. <Link href={CREATOR_HREFS.opportunities}>See coverage and history</Link>.
