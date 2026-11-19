@@ -30,3 +30,17 @@ test('onboarding contact fields use appropriate inputs and restore saved details
   assert.match(html, /receiving gifted items/);
   assert.match(html, /authorized EMG managers/);
 });
+
+test('manager contact editor targets the selected creator and explains whose details are being edited', () => {
+  const html = renderToStaticMarkup(
+    <CreatorContactForm
+      today="2026-11-19"
+      action={() => {}}
+      details={null}
+      managerProfileId="creator-123"
+    />,
+  );
+  assert.match(html, /name="profileId" value="creator-123"/);
+  assert.match(html, /Update this creator/);
+  assert.match(html, /Save contact details/);
+});
