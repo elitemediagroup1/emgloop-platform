@@ -48,3 +48,22 @@ test('a filter with no matches has no creator message action or fabricated selec
   assert.match(html, /No matching brands/);
   assert.doesNotMatch(html, /Send to EMG|data-selected="true"/);
 });
+
+test('every outreach shows its full accepted summary and next step before expanding details', () => {
+  const longSummary = 'EMG shared a fishing partnership proposal. The brand asked for a media kit and is reviewing the planned deliverables before discussing a budget.';
+  const html = renderToStaticMarkup(<CreatorPartnershipBoard rows={[
+    { ...row, summary: longSummary },
+    { ...row, id: 'second', brandId: 'two', brand: 'Two Brand', summary: 'The brand requested campaign dates.', nextStep: 'EMG will send the proposed dates.' },
+  ]} time={time} stage="1" query="" available />);
+  const cards = [...html.matchAll(/<article\b[^>]*class="[^"]*ch-brand-brief"[^>]*>([\s\S]*?)<\/article>/g)];
+  assert.equal(cards.length, 2);
+  const firstBrief = cards[0]![1]!.split('<details')[0]!;
+  assert.ok(firstBrief.includes(longSummary));
+  assert.ok(firstBrief.includes(row.nextStep!));
+  assert.match(cards[1]![1]!.split('<details')[0]!, /The brand requested campaign dates/);
+  assert.match(cards[1]![1]!.split('<details')[0]!, /EMG will send the proposed dates/);
+  for (const card of cards) {
+    assert.match(card[1]!, /<details class="ch-brand-details"><summary>View details<\/summary>/);
+    assert.doesNotMatch(card[1]!, /<summary>[^<]*<a/);
+  }
+});

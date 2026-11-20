@@ -5230,7 +5230,7 @@ a.xb__focuscard:hover { border-color: var(--loop-line-strong); transform: transl
 .ch-shell .ch-brand-relationship[open]>summary:after { content:'⌄'; }
 .ch-brand-overview { display:grid; gap:7px; min-width:0; flex:1; }
 .ch-shell .ch-brand-name { font-size:18px; font-weight:650; }
-.ch-brand-preview { color:var(--loop-muted); font-size:14px; line-height:1.6; display:-webkit-box; -webkit-line-clamp:1; -webkit-box-orient:vertical; overflow:hidden; }
+
 .ch-shell .ch-brand-status { font-size:13px; color:var(--loop-creator-link); padding:7px 12px; border-radius:9px; background:var(--loop-accent-soft); }
 .ch-relationship-select { font-size:12px; color:var(--loop-creator-link); white-space:nowrap; }
 .ch-shell .ch-brand-position, .ch-shell .ch-brand-relationship>details { margin:0 28px 25px; padding:20px 0 0 24px; border-left:2px solid var(--loop-mint); font-size:16px; line-height:1.7; }
@@ -5633,3 +5633,17 @@ a.xb__focuscard:hover { border-color: var(--loop-line-strong); transform: transl
   .ch-manager-contact { grid-template-columns:1fr; gap:8px; }
   .ch-manager-contact dd { margin-bottom:12px; }
 }
+
+/* Read the accepted outreach summary immediately; expand its history in place. */
+.ch-shell .ch-brand-brief { padding:24px; min-width:0; }
+.ch-brand-brief__header { display:flex; align-items:flex-start; justify-content:space-between; gap:14px; flex-wrap:wrap; }
+.ch-brand-brief__summary, .ch-brand-brief__next { margin:14px 0; font-size:15px; line-height:1.7; overflow-wrap:anywhere; }
+.ch-brand-brief__next strong { color:var(--loop-creator-navy); }
+.ch-shell .ch-brand-brief[data-selected="true"] { box-shadow:inset 3px 0 var(--loop-creator-teal); }
+.ch-shell .ch-brand-brief>.ch-brand-details { margin:16px 0 0; padding:0; border-left:0; border-top:1px solid var(--loop-line); }
+.ch-brand-details>summary { display:flex; align-items:center; justify-content:space-between; cursor:pointer; padding:12px 0; min-height:44px; font-size:14px; font-weight:600; color:var(--loop-creator-link); list-style:none; }
+.ch-brand-details>summary::-webkit-details-marker { display:none; }
+.ch-brand-details>summary::after { content:'+'; font-size:20px; }
+.ch-brand-details[open]>summary::after { content:'−'; }
+.ch-brand-details h3 { font-size:15px; margin:18px 0 10px; }
+@media(max-width:760px) { .ch-shell .ch-brand-brief { padding:18px; } }
