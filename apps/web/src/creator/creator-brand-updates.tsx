@@ -173,26 +173,15 @@ function Brand({
   }
   const timeline = creatorRelationshipTimeline(ordered);
   return (
-    <details
-      className="loop-card ch-brand-relationship"
+    <article
+      className="loop-card ch-brand-relationship ch-brand-brief"
       id={`brand-${encodeURIComponent(group.brandId)}`}
+      aria-label={`${group.brand} outreach summary`}
       data-relationship-stage={latest?.stage ?? 'UNKNOWN'}
-      open={selected}
+      data-selected={Boolean(selected)}
     >
-      <summary>
-        <span className="ch-brand-overview">
-          <span className="ch-brand-name">{group.brand}</span>
-          {latest?.summary ? <span className="ch-brand-preview">{latest.summary}</span> : null}
-        </span>
-        {focusHref ? (
-          <Link
-            className="ch-relationship-select"
-            href={focusHref}
-            aria-label={`View ${group.brand} relationship details`}
-          >
-            View details →
-          </Link>
-        ) : null}
+      <header className="ch-brand-brief__header">
+        <span className="ch-brand-name">{group.brand}</span>
         {latest ? (
           <span className="ch-brand-status">
             {latest.stage === 'AWAITING_CREATOR' && !actionableBrand(latest, time.now)
@@ -201,14 +190,13 @@ function Brand({
             {latest.current ? '' : ' · Check pending'}
           </span>
         ) : null}
-      </summary>
+      </header>
       {latest ? (
-        <div className="loop-stack ch-brand-position" style={{ gap: 6, marginBottom: 12 }}>
-          <span className="loop-label">Status · {STAGES[latest.stage ?? ''] ?? 'Update'}</span>
-          <p className="ch-brand-position__summary">{latest.summary}</p>
+        <>
+          <p className="ch-brand-brief__summary">{latest.summary}</p>
           {latest.nextStep ? (
-            <p>
-              <strong>Next:</strong> {latest.nextStep}
+            <p className="ch-brand-brief__next">
+              <strong>Next step</strong> {latest.nextStep}
             </p>
           ) : null}
           <p className="loop-note">
@@ -218,13 +206,24 @@ function Brand({
               ? `Last checked: ${time.dateTime(latest.checkedAt)}.`
               : 'First check pending.'}
           </p>
-        </div>
-      ) : null}
-      <details>
-        <summary>
+        </>
+      ) : (
+        <p className="loop-note">
+          This conversation is linked. A shareable summary is not available yet.
+        </p>
+      )}
+      <details className="ch-brand-details">
+        <summary>View details</summary>
+        {focusHref ? (
+          <Link className="ch-relationship-select" href={focusHref}>
+            Message EMG about {group.brand} →
+          </Link>
+        ) : null}
+        <h3>
           Relationship timeline · {timeline.length} saved{' '}
           {timeline.length === 1 ? 'update' : 'updates'}
-        </summary>
+        </h3>
+
         <p className="loop-note">
           Shared summaries grouped by brand activity date. A new summary of the same correspondence
           is not a new brand reply.
@@ -241,7 +240,7 @@ function Brand({
           </details>
         ) : null}
       </details>
-    </details>
+    </article>
   );
 }
 export function groupCreatorBrandRows(rows: readonly PublishedCreatorBrandUpdate[]): BrandGroup[] {
@@ -377,7 +376,7 @@ export function CreatorBrandUpdatesView({
                     View {bucket.title.toLowerCase()} · {count} {count === 1 ? 'brand' : 'brands'}
                   </summary>
                   <p className="loop-note">
-                    {bucket.description} Open a brand for its summaries and next steps.
+                    {bucket.description} Read each brand’s summary and next step below.
                   </p>
                   {selected.map((group) => (
                     <Brand key={group.brandId} group={group} time={time} />
@@ -629,7 +628,12 @@ export function CreatorPartnershipBoard({
             <section id="creator-response">
               <h3>Talk with your EMG team</h3>
               <CreatorQuestionForm brandId={focused.brandId} brand={focused.brand} />
-              <Link className="ch-relationship-select" href="/app/creator/profile#creator-documents">Agreements and briefs →</Link>
+              <Link
+                className="ch-relationship-select"
+                href="/app/creator/profile#creator-documents"
+              >
+                Agreements and briefs →
+              </Link>
             </section>
           ) : null}
         </aside>
@@ -683,14 +687,20 @@ export async function loadCreatorBrandUpdates(seat: CreatorSeat, time: TimeView)
     settle(() => managedCreatorMailRepository().updates(principal, seat.profileId, time.now)),
     settle(() => creatorRelationshipService().projections(principal, seat.profileId)),
   ]);
-  const profile=await creatorDomain().creator.profileById(principal.organizationId,seat.profileId);
+  const profile = await creatorDomain().creator.profileById(
+    principal.organizationId,
+    seat.profileId,
+  );
   return {
     available: true,
-    rows: resolveCreatorBrandRows([
-      ...result.value,
-      ...(managed.ok ? managed.value : []),
-      ...(synthesized.ok ? synthesized.value : []),
-    ],creatorHubSettings(profile?.preferences).aliases),
+    rows: resolveCreatorBrandRows(
+      [
+        ...result.value,
+        ...(managed.ok ? managed.value : []),
+        ...(synthesized.ok ? synthesized.value : []),
+      ],
+      creatorHubSettings(profile?.preferences).aliases,
+    ),
     incomplete: !managed.ok || !synthesized.ok,
   };
 }
