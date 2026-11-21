@@ -126,6 +126,23 @@ export default async function BookingSettingsPage() {
   const profile = await prisma.employeeBookingProfile.findUnique({
     where: { userId: session.userId }, include: { eventTypes: { orderBy: { createdAt: 'asc' } } },
   });
+  const requests = profile ? await prisma.booking.findMany({
+    where: {
+      organizationId: session.organizationId,
+      status: 'REQUESTED',
+      startAt: { gte: new Date() },
+      AND: [
+        { attributes: { path: ['source'], equals: 'employee-booking-request' } },
+        { attributes: { path: ['profileUserId'], equals: session.userId } },
+      ],
+    },
+    select: { id: true, title: true, startAt: true, attributes: true },
+    orderBy: { startAt: 'asc' },
+    take: 50,
+  }) : [];
+  const requestTime = profile && new Intl.DateTimeFormat('en-US', {
+    dateStyle: 'medium', timeStyle: 'short', timeZone: profile.timeZone,
+  });
   const weekly = profile?.weeklyHours as Prisma.JsonObject | undefined;
   const overrides = profile?.dateOverrides as Prisma.JsonObject | undefined;
   return (
@@ -137,6 +154,15 @@ export default async function BookingSettingsPage() {
       ) : (
         <>
           <p>Reserved link <strong>book.emgloop.com/{profile.slug}</strong></p>
+          <section className="loop-panel">
+            <h2>Pending booking requests</h2>
+            {requests.length ? <ul>{requests.map((request) => {
+              const guest = request.attributes as Prisma.JsonObject;
+              return <li key={request.id}>
+                {request.title} · {requestTime && requestTime.format(request.startAt)} · {String(guest.guestName ?? '')} ({String(guest.guestEmail ?? '')})
+              </li>;
+            })}</ul> : <p>No upcoming requests.</p>}
+          </section>
           <form action={saveSchedule} className="loop-panel">
             <h2>Availability</h2>
             <p>Use 24-hour time ranges separated by commas. Leave a day blank to keep it unavailable.</p>
