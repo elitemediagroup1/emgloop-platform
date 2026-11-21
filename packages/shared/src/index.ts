@@ -609,3 +609,5 @@ export * from './public-news';
 export * from './ai/creator-brand-update';
 
 export * from './youtube';
+
+export * from './qualification-intake';

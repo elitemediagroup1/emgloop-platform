@@ -217,6 +217,7 @@ describe('Grouping', () => {
       ['People', '/app/crm/people', false, false],
       ['Relationships', '/app/crm/relationships', false, false],
       ['Opportunities', '/app/crm/opportunities', false, false],
+      ['Intake & Qualification', '/app/crm/intakes', false, false],
       ['Command Center', '/crm', false, false],
       ['Conversations', '/crm/conversations', false, true],
       ['Intake Records', '/crm/customers', false, true],
@@ -340,7 +341,7 @@ describe('Navigation follows the authority each page enforces', () => {
   it('Employees get the CRM, the intelligence they can read, their own work queue, and nothing administrative they cannot open', () => {
     const intelligence = ['Intelligence Flow ▸', 'Analytics ▸', 'Traffic ▸', 'Revenue ▸'];
     const operations = ['Live Operations ▸', 'Live Calls ▸', 'Websites ▸'];
-    const crm = ['People', 'Relationships', 'Opportunities', 'Command Center', 'Conversations ▸', 'Intake Records ▸', 'Intake Board ▸', 'Identity Review ▸', 'Inbox ▸', 'Search ▸', 'Automations ▸'];
+    const crm = ['People', 'Relationships', 'Opportunities', 'Intake & Qualification', 'Command Center', 'Conversations ▸', 'Intake Records ▸', 'Intake Board ▸', 'Identity Review ▸', 'Inbox ▸', 'Search ▸', 'Automations ▸'];
     // A PERSON employee reaches canonical identity and the commercial area; an AI
     // principal reaches NEITHER. `identityResolution` has its own grant table with no
     // READ_ONLY fallback, and `relationships` and `opportunities` hard-deny AI_EMPLOYEE because
@@ -359,7 +360,7 @@ describe('Navigation follows the authority each page enforces', () => {
       // nor the work state derived from one, and no Permission row can give it either.
       ['', ['Home']],
       // Nor Opportunities: PD-F-11 hard-denies AI_EMPLOYEE view.
-      ['CRM', crm.filter((l) => !['People', 'Relationships', 'Opportunities', 'Identity Review ▸'].includes(l))],
+      ['CRM', crm.filter((l) => !['People', 'Relationships', 'Opportunities', 'Intake & Qualification', 'Identity Review ▸'].includes(l))],
       ['Work', ['My Work']],
       ['Intelligence', intelligence],
       ['Operations', operations],
@@ -378,7 +379,7 @@ describe('Navigation follows the authority each page enforces', () => {
       ['', ['Home', 'Mail', 'Chats', 'Calendar', 'Connections']],
       // READ_ONLY holds identityResolution:view and relationships:view, and may
       // perform no act through either -- capabilities decide that, not the nav.
-      ['CRM', ['People', 'Relationships', 'Opportunities', 'Command Center', 'Conversations ▸', 'Intake Records ▸', 'Intake Board ▸', 'Identity Review ▸', 'Inbox ▸', 'Search ▸', 'Automations ▸']],
+      ['CRM', ['People', 'Relationships', 'Opportunities', 'Intake & Qualification', 'Command Center', 'Conversations ▸', 'Intake Records ▸', 'Intake Board ▸', 'Identity Review ▸', 'Inbox ▸', 'Search ▸', 'Automations ▸']],
       ['Intelligence', intelligence],
       ['Operations', operations],
       ['Administration', ['AI Employees ▸']],
