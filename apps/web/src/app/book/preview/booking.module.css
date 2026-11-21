@@ -1,0 +1,68 @@
+.shell {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: clamp(16px, 4vw, 64px);
+  background: #edf4f2;
+  color: #16283e;
+  font-family: system-ui, sans-serif;
+}
+
+.card {
+  width: min(100%, 960px);
+  display: grid;
+  grid-template-columns: minmax(255px, 1fr) minmax(0, 1.55fr);
+  border-radius: 24px;
+  overflow: hidden;
+  box-shadow: 0 20px 70px #19374c18;
+  background: #fff;
+}
+
+.details, .schedule { padding: clamp(22px, 4vw, 44px); }
+.details { background: #172940; color: #fff; }
+.details h1 { font-size: clamp(27px, 4vw, 44px); line-height: 1.08; }
+.details dl { display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; }
+.details dt { color: #a6dacb; }
+.details dd { margin: 0; }
+.details p { line-height: 1.6; }
+.schedule h2 { margin: 0 0 8px; }
+.note { color: #4c6373; min-height: 1.5em; }
+.zone { display: grid; gap: 8px; margin-block: 24px; }
+.zone select, .schedule button {
+  border: 1px solid #a6bcbf;
+  border-radius: 10px;
+  background: #fff;
+  color: #172940;
+  min-height: 44px;
+  padding: 8px;
+  font: inherit;
+}
+.days, .times { display: grid; gap: 8px; }
+.days { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.times { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.days strong { display: block; font-size: 1.4rem; }
+.schedule button { cursor: pointer; }
+.schedule button[aria-pressed='true'] { background: #186353; color: #fff; border-color: #186353; }
+.schedule button:focus-visible, .zone select:focus-visible { outline: 3px solid #186353; outline-offset: 3px; }
+
+@media (max-width: 660px) {
+  .card { grid-template-columns: 1fr; }
+}
+
+.brands {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: center;
+  padding: 12px clamp(8px, 3vw, 30px);
+}
+
+.brands > div { display: grid; place-items: center; padding: 6px clamp(4px, 2vw, 24px); }
+.brands > div + div { border-left: 1px solid #dbe6e3; }
+.brands img { width: 100%; max-width: 212px; height: clamp(52px, 10vw, 100px); object-fit: contain; }
+.monthNavigation { display: flex; align-items: center; justify-content: space-between; margin-block: 12px; }
+.monthNavigation h3 { margin: 0; }
+.monthNavigation button { min-width: 44px; font-size: 1.25rem; }
+.weekday { text-align: center; font-size: 0.78rem; color: #4c6373; }
+.days button { padding-inline: 0; }
+.schedule button:disabled { cursor: default; color: #627585; background: #f4f7f6; border-color: transparent; }

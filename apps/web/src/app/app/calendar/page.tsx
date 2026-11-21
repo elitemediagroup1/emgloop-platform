@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createTimeView, resolveDisplayTimeZone } from '@emgloop/shared';
 
@@ -54,6 +55,9 @@ export default async function CalendarPage() {
         <PageHead
           trail={[{ label: 'Home', href: LOOP_HOME }, { label: 'Calendar' }]}
           title="Calendar"
+          actions={['OWNER', 'ADMIN', 'MANAGER', 'EMPLOYEE'].includes(session.systemRole) ? (
+            <Link href="/app/calendar/booking">Booking settings</Link>
+          ) : null}
           subtitle="Your own day: what is on now, what is next, and what is clear."
         />
         <CalendarView day={day} time={time} />
