@@ -264,6 +264,7 @@ export const LOOP_NAV: ShellConfig = {
         { href: '/app/crm/people', label: 'People', icon: 'users', requires: IDENTITY_VIEW },
         { href: '/app/crm/relationships', label: 'Relationships', icon: 'flow', requires: RELATIONSHIPS_VIEW },
         { href: '/app/crm/opportunities', label: 'Opportunities', icon: 'target', requires: OPPORTUNITIES_VIEW },
+        { href: '/app/crm/intakes', label: 'Intake & Qualification', icon: 'check', requires: { resource: 'intakes', action: 'view' } },
         // The operator's landing page reads intake records first; it enforces
         // customers:view itself, so a login that holds nothing (a creator) is not offered it.
         { href: '/crm', label: 'Command Center', icon: 'grid', requires: INTAKE_RECORDS_VIEW },

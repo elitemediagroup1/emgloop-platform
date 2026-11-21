@@ -1054,3 +1054,5 @@ export { analyticsReviewContext, reviewFingerprint, CREATOR_COACH_INSTRUCTIONS }
 export type { AnalyticsSource, AnalyticsReviewEvidence } from './creator/creator-analytics-review';
 
 export { stripePayoutConfig, StripeGlobalPayoutsApi } from './creator/payments/stripe';
+
+export { QualificationIntakeRepository } from './intake/qualification-intake.repository';

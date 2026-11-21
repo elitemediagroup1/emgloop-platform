@@ -1,0 +1,47 @@
+name: Intake and qualification
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'packages/shared/src/qualification-intake.ts'
+      - 'packages/shared/test/qualification-intake.test.ts'
+      - 'packages/database/src/intake/**'
+      - 'packages/database/src/repositories/iam.repository.ts'
+      - 'packages/database/test/qualification-intake.postgres.test.ts'
+      - 'packages/database/prisma/**'
+      - 'apps/web/src/intake/**'
+      - 'apps/web/src/app/api/intakes/**'
+      - 'apps/web/src/app/app/crm/intakes/**'
+      - 'apps/web/src/workspaces/config.ts'
+      - 'apps/web/test/qualification-intake.test.tsx'
+      - '.github/workflows/qualification-intake-ci.yml'
+permissions:
+  contents: read
+jobs:
+  intake-lifecycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: intakes
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U ci -d intakes"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/intakes?schema=public
+      LOOP_TEST_POSTGRES_URL: postgresql://ci:ci@127.0.0.1:5432/intakes?schema=public
+      TSX_TSCONFIG_PATH: apps/web/tsconfig.test.json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+      - run: npm install --no-audit --no-fund
+      - run: npm run -w @emgloop/database migrate:deploy
+      - name: Template, authority, navigation and revision contracts
+        run: node --import tsx --test packages/shared/test/qualification-intake.test.ts apps/web/test/qualification-intake.test.tsx apps/web/test/one-loop-shell.test.tsx packages/database/test/qualification-intake.postgres.test.ts

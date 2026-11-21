@@ -199,6 +199,7 @@ enum IntegrationEventStatus {
 // ---------------------------------------------------------------------------
 
 model Organization {
+  qualificationIntakes QualificationIntake[]
   creatorBanks CreatorPayoutBank[]
   creatorLinkSessions CreatorPayoutLink[]
   creatorPayouts CreatorPayout[]
@@ -8762,4 +8763,44 @@ model CreatorContactDetails {
   @@unique([organizationId, creatorProfileId])
   @@index([organizationId])
   @@map("creator_contact_details")
+}
+
+/// One engagement intake references an existing canonical identity. The template snapshot is immutable.
+model QualificationIntake {
+  id String @id @default(cuid())
+  organizationId String
+  partyId String
+  opportunityId String?
+  templateKey String
+  subtype String
+  templateVersion Int
+  templateSnapshot Json
+  requestKey String
+  currentRevision Int @default(1)
+  state String @default("DRAFT")
+  createdByUserId String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  revisions QualificationIntakeRevision[]
+  @@unique([organizationId, id])
+  @@unique([organizationId, requestKey])
+  @@index([organizationId, partyId])
+  @@index([organizationId, opportunityId])
+  @@map("qualification_intakes")
+}
+
+/// Append-only answers, classifications, closing requirements and review decisions.
+model QualificationIntakeRevision {
+  id String @id @default(cuid())
+  organizationId String
+  intakeId String
+  number Int
+  state String
+  content Json
+  recordedByUserId String
+  createdAt DateTime @default(now())
+  intake QualificationIntake @relation(fields: [organizationId, intakeId], references: [organizationId, id], onDelete: Cascade)
+  @@unique([organizationId, intakeId, number])
+  @@map("qualification_intake_revisions")
 }
