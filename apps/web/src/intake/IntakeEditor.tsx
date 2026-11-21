@@ -14,7 +14,7 @@ import { createQualificationIntake, reviseQualificationIntake } from './intake-a
 
 export interface IntakeEditorProps {
   template: IntakeTemplate;
-  parties: { id: string; displayName: string | null; entityType: string }[];
+  identities: { id: string; displayName: string | null; entityType: string }[];
   owners: { id: string; name: string | null }[];
   content: IntakeContent;
   partyId: string;
@@ -134,7 +134,7 @@ export function IntakeEditor(props: IntakeEditorProps) {
         </p>
         <div className="iq-fields">
           <DecisionMakerSelect
-            people={props.parties.filter((p) => p.entityType === 'PERSON')}
+            people={props.identities.filter((p) => p.entityType === 'PERSON')}
             defaultValue={content.decisionMakerPartyId}
           />
           <label className="loop-field">

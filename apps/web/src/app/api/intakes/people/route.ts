@@ -12,7 +12,7 @@ export async function GET(request: Request) {
     true,
   );
   return Response.json(
-    { people: result?.parties.filter((p) => p.entityType === 'PERSON') ?? [] },
+    { people: result?.identities.filter((p) => p.entityType === 'PERSON') ?? [] },
     { headers: { 'Cache-Control': 'private, no-store' } },
   );
 }

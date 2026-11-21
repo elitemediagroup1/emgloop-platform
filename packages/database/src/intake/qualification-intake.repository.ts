@@ -48,16 +48,16 @@ export class QualificationIntakeRepository {
       organizationId,
       rows.map((r) => r.id),
     );
-    const parties = rows
+    const identities = rows
       .slice(0, 200)
       .filter((r) => resolutions.get(r.id)?.state === 'ESTABLISHED');
-    return { parties, truncated: rows.length > 200 };
+    return { identities, truncated: rows.length > 200 };
   }
   async options(organizationId: string, userId: string, query = '') {
     if (!(await this.allowed(organizationId, userId, 'view'))) return null;
     const found = await this.partyOptions(organizationId, userId, query);
     if (!found) return null;
-    const { parties } = found;
+    const { identities } = found;
     const users = await this.db.user.findMany({
       where: { organizationId, status: 'ACTIVE' },
       select: { id: true, name: true },
@@ -67,7 +67,7 @@ export class QualificationIntakeRepository {
     for (const user of users) {
       if (await this.allowed(organizationId, user.id, 'update')) owners.push(user);
     }
-    return { parties, owners, truncated: found.truncated };
+    return { identities, owners, truncated: found.truncated };
   }
   async subject(organizationId: string, userId: string, partyId: string) {
     if (!(await this.allowed(organizationId, userId, 'view'))) return null;

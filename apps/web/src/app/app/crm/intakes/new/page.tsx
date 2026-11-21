@@ -127,7 +127,7 @@ export default async function NewIntakePage({
                   <span className="loop-label">Existing identity</span>
                   <select className="loop-select" name="party" required>
                     <option value="">Select a record</option>
-                    {options.parties
+                    {options.identities
                       .filter(
                         (p) =>
                           template.key !== 'CREATOR_REPRESENTATION' || p.entityType === 'PERSON',
@@ -163,7 +163,7 @@ export default async function NewIntakePage({
               </div>
               <IntakeEditor
                 template={template}
-                parties={options.parties}
+                identities={options.identities}
                 owners={options.owners}
                 partyId={party.id}
                 requestKey={randomUUID()}

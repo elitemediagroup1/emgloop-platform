@@ -120,7 +120,7 @@ export default async function IntakeRecordPage({
       {canUpdate && options ? (
         <IntakeEditor
           template={template}
-          parties={options.parties}
+          identities={options.identities}
           owners={options.owners}
           content={content}
           partyId={record.partyId}
