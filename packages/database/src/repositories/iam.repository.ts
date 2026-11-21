@@ -46,6 +46,7 @@ import { WORK_RETENTION_POLICY_VERSION } from '@emgloop/shared';
 
 
 export type Resource =
+  | 'intakes'
   | 'creatorPayoutFunding'
   | 'creatorPayouts'
   | 'customers'
@@ -386,8 +387,14 @@ export function roleLabel(role: string | null | undefined): string {
 }
 
 
+export const INTAKE_QUALIFICATION_GRANTS: Readonly<Record<string, readonly Action[]>> = {
+  OWNER: ['view', 'create', 'update', 'approve'], ADMIN: ['view', 'create', 'update', 'approve'],
+  MANAGER: ['view', 'create', 'update', 'approve'], EMPLOYEE: ['view', 'create', 'update'], READ_ONLY: ['view'],
+};
+
 /** Pure matrix check (no DB). Baseline before explicit rules. */
 export function matrixAllows(role: string, resource: Resource, action: Action): boolean {
+  if (resource === 'intakes') return (INTAKE_QUALIFICATION_GRANTS[role] ?? []).includes(action);
   if (resource === 'managedMailboxes') return ['OWNER', 'ADMIN', 'MANAGER'].includes(role) && ['view', 'update'].includes(action);
   if (resource === 'identityResolution') {
     return (IDENTITY_RESOLUTION_GRANTS[role] ?? []).includes(action);
@@ -516,6 +523,7 @@ export class IamRepository {
     if (!authority.granted) return false;
     const role = authority.systemRole;
     // A machine never asserts identity: no Permission row can grant it.
+    if (resource === 'intakes' && !Object.hasOwn(INTAKE_QUALIFICATION_GRANTS, role)) return false;
     if (resource === 'identityResolution' && IDENTITY_RESOLUTION_FORBIDDEN_ROLES.includes(role)) return false;
     // Nor sees or works an Opportunity (PD-F-11).
     if (resource === 'opportunities' && OPPORTUNITY_FORBIDDEN_ROLES.includes(role)) return false;
@@ -583,6 +591,7 @@ export class IamRepository {
     });
 
     return checks.map(({ resource, action }) => {
+      if (resource === 'intakes' && !Object.hasOwn(INTAKE_QUALIFICATION_GRANTS, role)) return false;
       if (resource === 'identityResolution' && IDENTITY_RESOLUTION_FORBIDDEN_ROLES.includes(role)) return false;
       if (resource === 'googleWorkspace' && GOOGLE_WORKSPACE_FORBIDDEN_ROLES.includes(role)) return false;
       if (resource === 'employeeIntelligence' && EMPLOYEE_INTELLIGENCE_FORBIDDEN_ROLES.includes(role)) return false;

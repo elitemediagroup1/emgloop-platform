@@ -5647,3 +5647,33 @@ a.xb__focuscard:hover { border-color: var(--loop-line-strong); transform: transl
 .ch-brand-details[open]>summary::after { content:'−'; }
 .ch-brand-details h3 { font-size:15px; margin:18px 0 10px; }
 @media(max-width:760px) { .ch-shell .ch-brand-brief { padding:18px; } }
+
+/* Classification-led intake uses the shared CRM page and panel primitives. */
+.iq-templates { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:20px; }
+.iq-section { display:grid; gap:18px; padding:24px; }
+.iq-section h2, .iq-section p { margin:0; }
+.iq-section h2 { font-size:21px; }
+.iq-editor { display:grid; gap:22px; }
+.iq-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:22px; }
+.iq-fields .loop-field, .iq-editor .loop-field { min-width:0; }
+.iq-editor textarea, .iq-editor input:not([type="checkbox"]), .iq-editor select { width:100%; box-sizing:border-box; }
+.iq-editor fieldset { margin:0; padding:16px; border:1px solid var(--loop-line); border-radius:10px; }
+.iq-roles { display:flex; flex-wrap:wrap; gap:16px; margin-top:12px; }
+.iq-context { display:flex; flex-wrap:wrap; align-items:center; gap:18px; padding:18px 0; border-bottom:1px solid var(--loop-line); margin-bottom:24px; }
+.iq-context span { color:var(--loop-muted); font-size:13px; }
+.iq-save { display:flex; justify-content:space-between; align-items:flex-end; gap:20px; padding:20px; border:1px solid var(--loop-line); border-radius:12px; background:var(--loop-surface); }
+.iq-save button { min-height:44px; }
+.iq-errors { padding:20px; border:1px solid var(--loop-crit); border-radius:10px; }
+.iq-errors h2 { margin:0; font-size:18px; }
+.iq-list { display:grid; gap:14px; }
+.iq-list-card { display:flex; justify-content:space-between; gap:24px; padding:24px; color:inherit; text-decoration:none; }
+.iq-list-card h2 { margin:8px 0; font-size:21px; }
+.iq-list-card p { margin:8px 0; }
+.iq-reading dl { display:grid; gap:18px; }
+.iq-reading dt { font-weight:600; margin-bottom:6px; }
+.iq-reading dd { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; }
+.iq-history { border-top:1px solid var(--loop-line); padding:14px 0; }
+.iq-history summary { min-height:40px; cursor:pointer; }
+.iq-notice { padding:16px; background:var(--loop-accent-soft); border-radius:10px; }
+@media(max-width:900px) { .iq-templates, .iq-fields { grid-template-columns:1fr; } }
+@media(max-width:600px) { .iq-list-card, .iq-save { flex-direction:column; align-items:stretch; } .iq-section { padding:18px; } }
