@@ -7,7 +7,7 @@ export const managerEmail = 'charlie@elitemediagroup.io';
 
 // Approved public names from EMG's Talent Roster for CRM. Studio profiles also
 // exist for staff and prospects, so profile creation must not publish a name.
-const creators = [
+const creators = ([
   ['clarence-jones', 'Clarence Jones'],
   ['denise-schilling', 'Denise Schilling (Kona, Kai & Kaleo)'],
   ['dr-shan', 'Dr. Shan MD (Shannalee Stephens)'],
@@ -16,7 +16,7 @@ const creators = [
   ['katrina-gorham', 'Katrina Gorham (Mrs. G DIY Designs)'],
   ['koaty-and-sumner', 'Koaty & Sumner Blayne'],
   ['trevon-hill', 'Trevon Hill'],
-].map(([id, displayName]) => ({ id, displayName }));
+] as const).map(([id, displayName]) => ({ id, displayName }));
 
 export async function bookingDirectory() {
   const anchor = await prisma.employeeBookingProfile.findFirst({
