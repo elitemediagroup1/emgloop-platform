@@ -1,5 +1,7 @@
 'use server';
 
+import { provisionEmployeeBookingProfile } from '../booking/provision-profile';
+
 // Auth server actions â Sprint 7 (Identity, Authentication & Organizations).
 //
 // Form actions for the login / logout / forgot-password / reset-password flows.
@@ -192,6 +194,7 @@ export async function acceptInviteAction(formData: FormData) {
   const passwordHash = hashPassword(password);
 
   let userEmail = invitation.email;
+  let employeeUserId: string;
   if (existing) {
     // Activate FIRST, and stop if it is refused: a row an administrator removed
     // after this invitation was issued must not come back through a stale link.
@@ -205,6 +208,7 @@ export async function acceptInviteAction(formData: FormData) {
     }
     await auth.setPasswordHash(existing.id, passwordHash);
     userEmail = existing.email;
+    employeeUserId = existing.id;
   } else {
     const created = await iam.createUser({
       organizationId: invitation.organizationId,
@@ -215,7 +219,15 @@ export async function acceptInviteAction(formData: FormData) {
     });
     await iam.activateUser(invitation.organizationId, created.id);
     userEmail = created.email;
+    employeeUserId = created.id;
   }
+
+  await provisionEmployeeBookingProfile({
+    organizationId: invitation.organizationId,
+    userId: employeeUserId,
+    systemRole: invitationSystemRole(invitation),
+    name: name || userEmail.split('@')[0]!,
+  });
 
   // Mark the invitation accepted (idempotent: status flips out of PENDING so the
   // same link cannot create a second account).

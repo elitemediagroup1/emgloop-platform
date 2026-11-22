@@ -444,6 +444,7 @@ model User {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   role         Role?        @relation(fields: [roleId], references: [id], onDelete: SetNull)
 
+  employeeBookingProfile     EmployeeBookingProfile?
   assignedConversations      Conversation[]              @relation("ConversationAssignee")
   auditLogs                  AuditLog[]
   // --- Sprint 2 ---
@@ -803,6 +804,51 @@ model Message {
 // ---------------------------------------------------------------------------
 // Commerce: Booking / Order / ServiceRequest
 // ---------------------------------------------------------------------------
+
+model EmployeeBookingProfile {
+  userId        String  @id
+  slug          String  @unique
+  isPublished   Boolean @default(false)
+  timeZone      String
+  notetakerDefault BookingNotetakerPolicy @default(OFF)
+  weeklyHours   Json    @default("{}")
+  dateOverrides Json    @default("{}")
+  blockedTimes  Json    @default("[]")
+
+  user       User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  eventTypes EmployeeBookingEventType[]
+}
+
+enum BookingNotetakerPolicy {
+  OFF
+  EXTERNAL_ONLY
+  ALL_MEETINGS
+}
+
+enum EmployeeBookingEventStyle {
+  ONE_ON_ONE
+  GROUP
+}
+
+model EmployeeBookingEventType {
+  id              String                    @id @default(cuid())
+  profileUserId   String
+  slug            String
+  title           String
+  description     String?
+  style           EmployeeBookingEventStyle @default(ONE_ON_ONE)
+  durationMinutes Int
+  groupCapacity   Int?
+  isPublished     Boolean                   @default(false)
+  notetakerPolicy BookingNotetakerPolicy?
+  settings        Json                      @default("{}")
+  createdAt       DateTime                  @default(now())
+  updatedAt       DateTime                  @updatedAt
+
+  profile EmployeeBookingProfile @relation(fields: [profileUserId], references: [userId], onDelete: Cascade)
+
+  @@unique([profileUserId, slug])
+}
 
 model Booking {
   id               String        @id @default(cuid())

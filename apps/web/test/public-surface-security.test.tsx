@@ -7,7 +7,7 @@
 // their modules and the unscoped repository reads they relied on are deleted.
 //
 // These tests pin that, and the wider property it exposed: a route reachable
-// without a session must not read or write tenant data. They inventory every
+// without a session must not read or write tenant data except for reviewed public flows. They inventory every
 // public page, every server action and every API route, so a new unguarded
 // entry point fails here rather than in production.
 
@@ -108,7 +108,7 @@ describe('No unscoped customer-data read remains for a route to reach', () => {
 
 // ---------------------------------------------------------------------------
 
-describe('Every page reachable without a session reads no tenant data', () => {
+describe('Public pages expose only the reviewed data', () => {
   // /crm is cookie-gated at the edge and every /crm page guards itself; /app
   // guards in its layouts. Everything else in src/app is public.
   // /terms and /privacy are the public legal documents (Terms of Service, Privacy Policy):
@@ -116,6 +116,9 @@ describe('Every page reachable without a session reads no tenant data', () => {
   // system's stylesheet. They must stay reachable without a session and must read nothing.
   // Product detail pages are static descriptions, never a public projection of creator records.
   const PUBLIC_PAGES = new Set(['page.tsx', 'login/page.tsx', 'status/page.tsx', 'dashboard/page.tsx', '(legal)/terms/page.tsx', '(legal)/privacy/page.tsx', '(public)/creator-hub/page.tsx', '(public)/integrations/tiktok/page.tsx']);
+  const publicBookingPages = ['book/[host]/page.tsx', 'book/[host]/[event]/page.tsx'];
+  PUBLIC_PAGES.add('book/preview/page.tsx');
+  for (const page of publicBookingPages) PUBLIC_PAGES.add(page);
   const DATA = /@emgloop\/database|crm\/crm-data|repositories|prisma|crmRepos/;
 
   const pages = walk(join(SRC, 'app'))
@@ -127,11 +130,27 @@ describe('Every page reachable without a session reads no tenant data', () => {
     assert.deepEqual(pages.sort(), [...PUBLIC_PAGES].sort());
   });
 
-  it('no public page imports a data layer', () => {
-    for (const p of pages) {
+  it('static public pages do not import a data layer', () => {
+    for (const p of pages.filter((page) => !publicBookingPages.includes(page))) {
       assert.equal(DATA.test(readFileSync(join(SRC, 'app', p), 'utf8')), false, p);
     }
   });
+  it('booking pages select only published schedules for active hosts and expose no contact data', () => {
+    const [hostPage, eventPage] = publicBookingPages.map((page) =>
+      code(readFileSync(join(SRC, 'app', page), 'utf8')),
+    );
+    assert.match(hostPage!, /where: \{ slug: params.host, isPublished: true, user: \{ status: 'ACTIVE' \} \}/);
+    assert.match(hostPage!, /eventTypes: \{\s*where: \{ isPublished: true \}/);
+    assert.match(eventPage!, /where: \{\s*slug: eventSlug,\s*isPublished: true,\s*profile: \{ slug: host, isPublished: true, user: \{ status: 'ACTIVE' \} \}/);
+    for (const page of [hostPage!, eventPage!]) {
+      assert.doesNotMatch(page, /email: true|phone: true|calendarEventId: true|prisma\.booking\.find/);
+    }
+    const action = bodyAt(eventPage!, eventPage!.indexOf('async function requestBooking'));
+    assert.match(action, /if \(!requestsEnabled\(\)\) notFound\(\)[\s\S]+await loadSchedule\(host, eventSlug, date\)[\s\S]+await prisma\.booking\.upsert/);
+    assert.match(action, /organizationId: latest.user.organizationId/);
+    assert.match(action, /status: 'REQUESTED'/);
+  });
+
 });
 
 describe('Every server action authenticates, except the reviewed sign-in flows', () => {
