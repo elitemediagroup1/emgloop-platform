@@ -1,3 +1,4 @@
+import { headers } from 'next/headers';
 import { prisma } from '@emgloop/database';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
@@ -20,6 +21,7 @@ export default async function HostBookingPage({ params }: { params: { host: stri
   });
   if (!profile) notFound();
 
+  const prefix = headers().get('host') === 'book.emgloop.com' ? '' : '/book';
   return (
     <main>
       <h1>Meet with {profile.user.name ?? 'EMG'}</h1>
@@ -27,7 +29,7 @@ export default async function HostBookingPage({ params }: { params: { host: stri
       {profile.eventTypes.length ? (
         <ul>{profile.eventTypes.map((event) => (
           <li key={event.id}>
-            <h2><Link href={`/book/${params.host}/${event.slug}`}>{event.title}</Link></h2>
+            <h2><Link href={`${prefix}/${params.host}/${event.slug}`}>{event.title}</Link></h2>
             <p>{event.durationMinutes} minutes</p>
             {event.description && <p>{event.description}</p>}
           </li>
