@@ -1,17 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  async rewrites() {
-    const has = [{ type: 'host', value: 'book\\.emgloop\\.com' }];
-    return {
-      beforeFiles: [
-        { source: '/:host((?!book(?:\/|$))[a-z0-9-]{1,64})/:event([a-z0-9-]{1,64})', has, destination: '/book/:host/:event' },
-        { source: '/:host((?!book(?:\/|$))[a-z0-9-]{1,64})', has, destination: '/book/:host' },
-      ],
-      afterFiles: [],
-      fallback: [],
-    };
-  },
   // @emgloop/brain: pure functions the database package composes for the Creator Hub (2026-09-22).
   transpilePackages: ['@emgloop/shared', '@emgloop/database', '@emgloop/providers', '@emgloop/brain'],
   experimental: {

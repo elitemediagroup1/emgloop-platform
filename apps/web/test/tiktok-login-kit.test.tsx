@@ -357,7 +357,7 @@ describe('the public legal pages', () => {
 
   it('are public: outside the middleware matcher, in the reviewed public-page set, and import no session, data or environment', () => {
     const middleware = code(read('middleware.ts'));
-    assert.match(middleware, /matcher: \['\/crm\/:path\*', '\/app\/:path\*'\]/);
+    assert.match(middleware, /matcher: \[\s*'\/crm\/:path\*',\s*'\/app\/:path\*',\s*\{ source: [^\n]+book/);
     assert.deepEqual({ ...LEGAL_PATHS }, { terms: '/terms', privacy: '/privacy' });
     for (const p of ['app/(legal)/terms/page.tsx', 'app/(legal)/privacy/page.tsx', 'app/_legal/legal-document.tsx', 'app/(legal)/layout.tsx']) {
       const src = read(p);

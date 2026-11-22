@@ -41,6 +41,14 @@ function withPathname(req: NextRequest) {
 
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
+  const hostname = req.headers.get('host') ?? req.nextUrl.hostname;
+  if (hostname === 'book.emgloop.com' &&
+      !/^\/book(?:\/|$)/.test(pathname) &&
+      /^\/[a-z0-9-]{1,64}(?:\/[a-z0-9-]{1,64})?$/.test(pathname)) {
+    const url = req.nextUrl.clone();
+    url.pathname = `/book${pathname}`;
+    return NextResponse.rewrite(url);
+  }
 
   // Team/user management moved to Administration. Redirect the legacy CRM route
   // at the EDGE — before the CRM layout or any server code runs — so its
@@ -74,5 +82,9 @@ export function middleware(req: NextRequest) {
 // any non-/crm path, so /app remains ungated at the edge and continues to rely
 // on requireWorkspace() in its layouts. No route gains or loses protection.
 export const config = {
-  matcher: ['/crm/:path*', '/app/:path*'],
+  matcher: [
+    '/crm/:path*',
+    '/app/:path*',
+    { source: '/:slug([a-z0-9-]{1,64})/:event([a-z0-9-]{1,64})?', has: [{ type: 'host', value: 'book\\.emgloop\\.com' }] },
+  ],
 };
