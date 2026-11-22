@@ -14,7 +14,7 @@
 // this file and to the architecture record, never a configuration value.
 
 /** What a person can connect, in the order onboarding asks for them. */
-export const GOOGLE_WORKSPACE_CAPABILITIES = ['gmail', 'calendar', 'drive', 'booking'] as const;
+export const GOOGLE_WORKSPACE_CAPABILITIES = ['gmail', 'calendar', 'drive', 'booking', 'meet'] as const;
 export type GoogleWorkspaceCapability = (typeof GOOGLE_WORKSPACE_CAPABILITIES)[number];
 
 /**
@@ -42,6 +42,7 @@ export const GOOGLE_WORKSPACE_CAPABILITY_SCOPES: Readonly<Record<GoogleWorkspace
   gmail: Object.freeze(['https://www.googleapis.com/auth/gmail.readonly', 'https://www.googleapis.com/auth/gmail.send']),
   calendar: Object.freeze(['https://www.googleapis.com/auth/calendar.events.readonly']),
   booking: Object.freeze(['https://www.googleapis.com/auth/calendar.events.owned', 'https://www.googleapis.com/auth/calendar.events.freebusy']),
+  meet: Object.freeze(['https://www.googleapis.com/auth/meetings.space.settings', 'https://www.googleapis.com/auth/meetings.space.readonly']),
   drive: Object.freeze(['https://www.googleapis.com/auth/drive.metadata.readonly']),
 });
 
@@ -86,6 +87,7 @@ export const GOOGLE_WORKSPACE_CAPABILITY_LABELS: Readonly<Record<GoogleWorkspace
   calendar: 'Calendar',
   drive: 'Drive',
   booking: 'Booking Calendar',
+  meet: 'Google Meet Notetaker',
 });
 
 /**
@@ -102,6 +104,7 @@ export const GOOGLE_WORKSPACE_CAPABILITY_IN_USE: Readonly<Record<GoogleWorkspace
   calendar: true,
   drive: false,
   booking: false,
+  meet: false,
 });
 
 /** The capabilities Loop reads today, in canonical order. */
@@ -114,6 +117,7 @@ export const GOOGLE_WORKSPACE_CAPABILITY_READS: Readonly<Record<GoogleWorkspaceC
   gmail: 'Your mail, so Loop can show it. Headers and labels are stored; a message body is read only when you open the conversation, and is never stored. Loop sends a reply only when you press Send, from your own account. It never sends on its own, and cannot change or delete mail.',
   calendar: 'Events on your calendars, read-only. Loop cannot create, change or delete events.',
   booking: 'Check calendar availability and create Google Meet events with calendar invitations when you confirm bookings. This permission cannot access Gmail.',
+  meet: 'Allow Loop to turn on transcription for eligible booked meetings and read their transcripts and attendance.',
   drive: 'Loop does not read Drive yet, so nothing from Drive appears in Loop. If you allowed it earlier, Loop holds permission to see file names, types, owners and modified times, uses none of it, and cannot open, change or delete files.',
 });
 

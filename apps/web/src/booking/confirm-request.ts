@@ -6,6 +6,7 @@ import { prisma, type Prisma } from '@emgloop/database';
 import { googleWorkspace } from '../google/google-runtime';
 import { jointAvailability, withinManagerHours } from './joint-availability';
 import { bookingOverlapWhere } from './reservations';
+import { prepareBookingTranscription } from './notetaker';
 import { bookingAttendeeEmails } from './attendees';
 import { createGoogleMeetEvent, findGoogleMeetEvent, googleBusyPeriods, inviteGoogleMeetAttendees } from './google-calendar';
 
@@ -83,6 +84,8 @@ export async function confirmBookingRequest(
     }
     if (event?.status === 'cancelled') return 'unavailable';
     if (!event?.hangoutLink?.startsWith('https://meet.google.com/')) return 'pending';
+    const notetaker = await prepareBookingTranscription(principal, attributes.eventTypeId, attendeeEmails, event.hangoutLink)
+      .catch(() => 'transcription-unavailable');
     if (!(await inviteGoogleMeetAttendees(token, eventId, event, attendeeEmails))) return 'pending';
     const host = await prisma.user.findFirst({
       where: { id: principal.userId, organizationId: principal.organizationId },
@@ -101,7 +104,7 @@ export async function confirmBookingRequest(
         status: 'CONFIRMED',
         calendarProvider: 'GOOGLE_BOOKING',
         calendarEventId: eventId,
-        attributes: { ...attributes, meetUrl: event.hangoutLink },
+        attributes: { ...attributes, meetUrl: event.hangoutLink, notetaker },
       },
     });
     return 'confirmed';

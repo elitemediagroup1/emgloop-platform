@@ -66,7 +66,7 @@ export interface GoogleSourceView {
   readonly lastReadAt: Date | null;
 }
 
-const SOURCE_NOUN: Readonly<Record<GoogleWorkspaceCapability, string>> = { gmail: 'mail', calendar: 'calendar', drive: 'Drive', booking: 'booking calendar' };
+const SOURCE_NOUN: Readonly<Record<GoogleWorkspaceCapability, string>> = { gmail: 'mail', calendar: 'calendar', drive: 'Drive', booking: 'booking calendar', meet: 'meeting transcripts' };
 
 type RowAction = 'CONNECT' | 'ALLOW' | 'RECONNECT' | 'REMOVE' | null;
 
@@ -259,7 +259,7 @@ export function GoogleWorkspacePanel(props: {
 
       <Panel title="Access" lead="Each connection below describes the Google access you can grant. Booking Calendar access is optional.">
         <div role="list" aria-label="Google access by kind">
-          {GOOGLE_WORKSPACE_CAPABILITIES.filter((capability) => capability !== 'booking' || mode === 'CONNECTIONS').map((capability) => {
+          {GOOGLE_WORKSPACE_CAPABILITIES.filter((capability) => (capability !== 'booking' && capability !== 'meet') || mode === 'CONNECTIONS').map((capability) => {
             const state = status.capabilities[capability];
             const shown = capabilityPresentation(capability, state, props.sources?.[capability], time);
             return (
