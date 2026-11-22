@@ -241,6 +241,7 @@ export default async function BookingSettingsPage({ searchParams }: { searchPara
                 : [];
               return <li key={request.id}>
                 {request.title} · {requestTime && requestTime.format(request.startAt)} · {String(guest.guestName ?? '')} ({bookerEmail})
+                {typeof guest.introduction === 'string' && <p>{guest.introduction}</p>}
                 {additionalAttendees.length > 0 && <p>Additional attendees: {additionalAttendees.join(', ')}</p>}
                 <form action={confirmRequest}>
                   <input type="hidden" name="requestId" value={request.id} />

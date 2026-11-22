@@ -2,6 +2,7 @@ import 'server-only';
 import { createHash } from 'node:crypto';
 import { prisma, type Prisma } from '@emgloop/database';
 import { googleWorkspace } from '../google/google-runtime';
+import { jointAvailability, withinManagerHours } from './joint-availability';
 import { bookingAttendeeEmails } from './attendees';
 import { createGoogleMeetEvent, findGoogleMeetEvent, googleBusyPeriods, inviteGoogleMeetAttendees } from './google-calendar';
 
@@ -39,8 +40,15 @@ export async function confirmBookingRequest(
     let event = await findGoogleMeetEvent(token, eventId);
     if (!event) {
       if ((await googleBusyPeriods(token, ['primary'], slot)).length > 0) return 'busy';
+      const hostIds = [principal.userId];
+      if (typeof attributes.cohostUserId === 'string') {
+        const joint = await jointAvailability(principal.organizationId, principal.userId, slot);
+        if (!joint || joint.manager.userId !== attributes.cohostUserId) return 'connect';
+        if (joint.busy.length || !withinManagerHours(slot, joint.hours)) return 'busy';
+        hostIds.push(joint.manager.userId);
+      }
       const reserved = await prisma.$transaction(async (tx) => {
-        await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtextextended(${principal.userId}, 0))`;
+        for (const hostId of hostIds.sort()) await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtextextended(${hostId}, 0))`;
         const collision = await tx.booking.findFirst({
           where: {
             id: { not: request.id },
@@ -49,7 +57,10 @@ export async function confirmBookingRequest(
             calendarProvider: 'GOOGLE_BOOKING',
             startAt: { lt: request.endAt! },
             endAt: { gt: request.startAt },
-            attributes: { path: ['profileUserId'], equals: principal.userId },
+            OR: hostIds.flatMap(id => [
+              { attributes: { path: ['profileUserId'], equals: id } },
+              { attributes: { path: ['cohostUserId'], equals: id } },
+            ]),
           },
           select: { id: true },
         });
@@ -62,7 +73,7 @@ export async function confirmBookingRequest(
       if (!reserved) return 'busy';
       try {
         event = await createGoogleMeetEvent(token, {
-          calendarId: 'primary', eventId, title: request.title ?? 'EMG meeting', slot,
+          calendarId: 'primary', eventId, introduction: typeof attributes.introduction === 'string' ? attributes.introduction : undefined, title: request.title ?? 'EMG meeting', slot,
         });
       } catch {
         // An ambiguous provider response can still mean the event was created.

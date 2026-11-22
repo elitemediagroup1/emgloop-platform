@@ -18,7 +18,7 @@ function RequestButton() {
 }
 
 const requestErrors = {
-  invalid: 'Check your name and the attendee email addresses, then try again.',
+  invalid: 'Check your introduction, name and the attendee email addresses, then try again.',
   unavailable: 'That time is no longer available. Choose another date or time.',
   failed: 'We couldn’t save your request. Please try again.',
 };
@@ -80,6 +80,7 @@ export function GuestTimeSlots({
           <input name="start" type="hidden" value={selected} />
           <label>Your name <input name="guestName" autoComplete="name" maxLength={120} required /></label>
           <label>Email <input name="guestEmail" type="email" autoComplete="email" maxLength={254} required /></label>
+          <label>What would you like to discuss? <textarea name="introduction" required maxLength={800} rows={3} /></label>
           <label>Additional attendee emails <small>Optional. Separate addresses with commas or line breaks.</small>
             <textarea name="additionalGuests" maxLength={MAX_GUEST_EMAIL_INPUT} rows={2} />
           </label>
