@@ -1,3 +1,5 @@
+import { BookingFrame } from '../../_components/BookingFrame';
+import styles from '../../_components/public-booking.module.css';
 import { headers } from 'next/headers';
 import { randomUUID } from 'node:crypto';
 import { prisma } from '@emgloop/database';
@@ -120,23 +122,24 @@ export default async function EventBookingPage({
   const time = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', timeZone: availability.timeZone });
 
   return (
-    <main>
+    <BookingFrame><div className={styles.layout}><aside className={styles.details}>
       <p>{user.name ?? 'EMG'} · {event.durationMinutes} minutes · Google Meet</p>
       <h1>{event.title}</h1>
       {event.description && <p>{event.description}</p>}
+      </aside><section className={styles.schedule}>
       {requestsEnabled() ? (
         <p>Request a time for this meeting. A request does not confirm the appointment or send a calendar invite.</p>
       ) : <p>Schedule preview. Live calendar conflicts and booking are unavailable.</p>}
       {searchParams.request === 'received' && <p role="status">Your request was received. The meeting is not confirmed.</p>}
       {searchParams.request === 'invalid' && <p role="alert">Enter your name, choose a time, and use valid email addresses for up to 50 attendees.</p>}
       {searchParams.request === 'unavailable' && <p role="alert">That time is no longer available. Choose another time.</p>}
-      <form>
+      <form className={styles.form}>
         <label>Date <input type="date" name="date" min={isoDay(firstDay)} max={isoDay(lastDay)} defaultValue={date} required /></label>
-        <button type="submit">Show scheduled hours</button>
+        <button className={styles.button} type="submit">Show scheduled hours</button>
       </form>
       <h2>Scheduled start times ({availability.timeZone})</h2>
       {slots.length && requestsEnabled() ? (
-        <form action={requestBooking}>
+        <form className={styles.form} action={requestBooking}>
           <p><label>Start time <select name="start" required>
             <option value="">Choose a time</option>
             {slots.map((slot) => <option key={slot.start} value={slot.start}>{time.format(slot.start)}</option>)}
@@ -149,13 +152,13 @@ export default async function EventBookingPage({
             </label>
             <span id="guest-email-help">Separate email addresses with a comma or put each on its own line.</span>
           </p>
-          <button type="submit">Request meeting</button>
+          <button className={styles.button} type="submit">Request meeting</button>
         </form>
       ) : slots.length ? (
-        <ul>{slots.map((slot) => (
+        <ul className={styles.times}>{slots.map((slot) => (
           <li key={slot.start}><time dateTime={new Date(slot.start).toISOString()}>{time.format(slot.start)}</time></li>
         ))}</ul>
       ) : <p>No start times are scheduled for this date.</p>}
-    </main>
+    </section></div></BookingFrame>
   );
 }

@@ -1,3 +1,5 @@
+import { BookingFrame } from '../_components/BookingFrame';
+import styles from '../_components/public-booking.module.css';
 import { headers } from 'next/headers';
 import { prisma } from '@emgloop/database';
 import Link from 'next/link';
@@ -23,18 +25,17 @@ export default async function HostBookingPage({ params }: { params: { host: stri
 
   const prefix = headers().get('host') === 'book.emgloop.com' ? '' : '/book';
   return (
-    <main>
+    <BookingFrame><div className={styles.body}>
       <h1>Meet with {profile.user.name ?? 'EMG'}</h1>
       <p>Google Meet</p>
       {profile.eventTypes.length ? (
-        <ul>{profile.eventTypes.map((event) => (
+        <ul className={styles.links}>{profile.eventTypes.map((event) => (
           <li key={event.id}>
-            <h2><Link href={`${prefix}/${params.host}/${event.slug}`}>{event.title}</Link></h2>
-            <p>{event.durationMinutes} minutes</p>
+            <Link href={`${prefix}/${params.host}/${event.slug}`} prefetch={false}>{event.title}<small>{event.durationMinutes} minutes</small></Link>
             {event.description && <p>{event.description}</p>}
           </li>
         ))}</ul>
       ) : <p>No meetings are available to book.</p>}
-    </main>
+    </div></BookingFrame>
   );
 }
