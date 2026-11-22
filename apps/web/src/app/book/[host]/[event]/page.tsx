@@ -1,3 +1,4 @@
+import { headers } from 'next/headers';
 import { randomUUID } from 'node:crypto';
 import { prisma } from '@emgloop/database';
 import { zonedParts } from '@emgloop/shared';
@@ -74,11 +75,12 @@ export default async function EventBookingPage({
   const requested = typeof searchParams.date === 'string' ? searchParams.date : '';
   const { event, user, availability, date, slots, firstDay, lastDay } = await loadSchedule(host, eventSlug, requested);
   const requestId = randomUUID();
+  const prefix = headers().get('host') === 'book.emgloop.com' ? '' : '/book';
 
   async function requestBooking(form: FormData) {
     'use server';
     if (!requestsEnabled()) notFound();
-    const path = `/book/${host}/${eventSlug}`;
+    const path = `${prefix}/${host}/${eventSlug}`;
     const returnTo = (status: string) => redirect(`${path}?date=${date}&request=${status}`);
     const guestName = String(form.get('guestName') ?? '').trim();
     const guestEmail = String(form.get('guestEmail') ?? '').trim().toLowerCase();
