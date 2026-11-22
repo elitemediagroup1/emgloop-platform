@@ -117,6 +117,7 @@ describe('Public pages expose only the reviewed data', () => {
   // Product detail pages are static descriptions, never a public projection of creator records.
   const PUBLIC_PAGES = new Set(['page.tsx', 'login/page.tsx', 'status/page.tsx', 'dashboard/page.tsx', '(legal)/terms/page.tsx', '(legal)/privacy/page.tsx', '(public)/creator-hub/page.tsx', '(public)/integrations/tiktok/page.tsx']);
   const publicBookingPages = ['book/[host]/page.tsx', 'book/[host]/[event]/page.tsx'];
+  PUBLIC_PAGES.add('book/page.tsx');
   PUBLIC_PAGES.add('book/preview/page.tsx');
   for (const page of publicBookingPages) PUBLIC_PAGES.add(page);
   const DATA = /@emgloop\/database|crm\/crm-data|repositories|prisma|crmRepos/;

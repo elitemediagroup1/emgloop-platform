@@ -42,6 +42,11 @@ function withPathname(req: NextRequest) {
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const hostname = req.headers.get('host') ?? req.nextUrl.hostname;
+  if (hostname === 'book.emgloop.com' && pathname === '/') {
+    const url = req.nextUrl.clone();
+    url.pathname = '/book';
+    return NextResponse.rewrite(url);
+  }
   if (hostname === 'book.emgloop.com' &&
       !/^\/book(?:\/|$)/.test(pathname) &&
       /^\/[a-z0-9-]{1,64}(?:\/[a-z0-9-]{1,64})?$/.test(pathname)) {
@@ -85,6 +90,7 @@ export const config = {
   matcher: [
     '/crm/:path*',
     '/app/:path*',
+    { source: '/', has: [{ type: 'host', value: 'book\\.emgloop\\.com' }] },
     { source: '/:slug([a-z0-9-]{1,64})/:event([a-z0-9-]{1,64})?', has: [{ type: 'host', value: 'book\\.emgloop\\.com' }] },
   ],
 };
