@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { prisma } from '@emgloop/database';
 import { zonedParts } from '@emgloop/shared';
 import { notFound, redirect } from 'next/navigation';
+import { MAX_GUEST_EMAIL_INPUT, parseBookingAttendees } from '../../../../booking/attendees';
 import { bookingSlots } from '../../../../booking/slots';
 import type { EmployeeAvailability } from '../../../../booking/availability';
 
@@ -81,10 +82,10 @@ export default async function EventBookingPage({
     const returnTo = (status: string) => redirect(`${path}?date=${date}&request=${status}`);
     const guestName = String(form.get('guestName') ?? '').trim();
     const guestEmail = String(form.get('guestEmail') ?? '').trim().toLowerCase();
+    const attendeeEmails = parseBookingAttendees(guestEmail, String(form.get('additionalGuests') ?? ''));
     const start = Number(form.get('start'));
-    if (!guestName || guestName.length > 120 || guestEmail.length > 254 ||
-        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(guestEmail) || !Number.isSafeInteger(start)) {
-      returnTo('invalid');
+    if (!guestName || guestName.length > 120 || !attendeeEmails || !Number.isSafeInteger(start)) {
+      return returnTo('invalid');
     }
     const latest = await loadSchedule(host, eventSlug, date);
     const slot = latest.slots.find((candidate) => candidate.start === start);
@@ -107,6 +108,7 @@ export default async function EventBookingPage({
           eventTypeId: latest.event.id,
           guestName,
           guestEmail,
+          attendeeEmails,
         },
       },
     });
@@ -124,7 +126,7 @@ export default async function EventBookingPage({
         <p>Request a time for this meeting. A request does not confirm the appointment or send a calendar invite.</p>
       ) : <p>Schedule preview. Live calendar conflicts and booking are unavailable.</p>}
       {searchParams.request === 'received' && <p role="status">Your request was received. The meeting is not confirmed.</p>}
-      {searchParams.request === 'invalid' && <p role="alert">Enter your name and a valid email, then choose a time.</p>}
+      {searchParams.request === 'invalid' && <p role="alert">Enter your name, choose a time, and use valid email addresses for up to 50 attendees.</p>}
       {searchParams.request === 'unavailable' && <p role="alert">That time is no longer available. Choose another time.</p>}
       <form>
         <label>Date <input type="date" name="date" min={isoDay(firstDay)} max={isoDay(lastDay)} defaultValue={date} required /></label>
@@ -139,6 +141,12 @@ export default async function EventBookingPage({
           </select></label></p>
           <p><label>Your name <input name="guestName" autoComplete="name" maxLength={120} required /></label></p>
           <p><label>Email <input name="guestEmail" type="email" autoComplete="email" maxLength={254} required /></label></p>
+          <p>
+            <label>Additional attendee emails (optional)
+              <textarea name="additionalGuests" maxLength={MAX_GUEST_EMAIL_INPUT} rows={3} aria-describedby="guest-email-help" />
+            </label>
+            <span id="guest-email-help">Separate email addresses with a comma or put each on its own line.</span>
+          </p>
           <button type="submit">Request meeting</button>
         </form>
       ) : slots.length ? (

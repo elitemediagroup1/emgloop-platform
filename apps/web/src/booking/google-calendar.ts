@@ -1,4 +1,5 @@
 import 'server-only';
+import { bookingAttendeeEmails } from './attendees';
 import type { BusyPeriod } from './availability';
 
 const calendarApi = 'https://www.googleapis.com/calendar/v3';
@@ -50,6 +51,9 @@ export async function createGoogleMeetEvent(token: string, event: {
 }) {
   // Reuse the persisted event ID and conference request ID when retrying this booking.
   if (!/^[a-v0-9]{5,1024}$/.test(event.eventId)) throw new Error('Invalid Google Calendar event ID.');
+  const [bookerEmail, ...guests] = event.attendeeEmails;
+  const attendees = bookerEmail ? bookingAttendeeEmails(bookerEmail, guests) : null;
+  if (!attendees) throw new Error('A valid booking attendee list is required.');
   return calendarRequest(
     `/calendars/${encodeURIComponent(event.calendarId)}/events?conferenceDataVersion=1&sendUpdates=all`,
     token,
@@ -58,7 +62,7 @@ export async function createGoogleMeetEvent(token: string, event: {
       summary: event.title,
       start: { dateTime: new Date(event.slot.start).toISOString() },
       end: { dateTime: new Date(event.slot.end).toISOString() },
-      attendees: event.attendeeEmails.map((email) => ({ email })),
+      attendees: attendees.map((email) => ({ email })),
       conferenceData: {
         createRequest: { requestId: event.eventId, conferenceSolutionKey: { type: 'hangoutsMeet' } },
       },

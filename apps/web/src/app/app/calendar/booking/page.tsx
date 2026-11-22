@@ -158,8 +158,14 @@ export default async function BookingSettingsPage() {
             <h2>Pending booking requests</h2>
             {requests.length ? <ul>{requests.map((request) => {
               const guest = request.attributes as Prisma.JsonObject;
+              const bookerEmail = typeof guest.guestEmail === 'string' ? guest.guestEmail : '';
+              const additionalAttendees = Array.isArray(guest.attendeeEmails)
+                ? guest.attendeeEmails.filter((email): email is string =>
+                  typeof email === 'string' && email.toLowerCase() !== bookerEmail.toLowerCase())
+                : [];
               return <li key={request.id}>
-                {request.title} · {requestTime && requestTime.format(request.startAt)} · {String(guest.guestName ?? '')} ({String(guest.guestEmail ?? '')})
+                {request.title} · {requestTime && requestTime.format(request.startAt)} · {String(guest.guestName ?? '')} ({bookerEmail})
+                {additionalAttendees.length > 0 && <p>Additional attendees: {additionalAttendees.join(', ')}</p>}
               </li>;
             })}</ul> : <p>No upcoming requests.</p>}
           </section>
