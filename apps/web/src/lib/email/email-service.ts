@@ -73,9 +73,10 @@ const provider = new ResendEmailProvider();
  */
 async function send(
   to: EmailAddress,
-  rendered: { subject: string; html: string; text: string },
+  rendered: { subject: string; html?: string; text: string },
   purpose: string,
   replyToOverride?: EmailAddress,
+  idempotencyKey?: string,
 ): Promise<void> {
   const config = readConfig();
 
@@ -97,6 +98,7 @@ async function send(
     from: config.from,
     to: [to],
     subject: rendered.subject,
+    idempotencyKey,
     html: rendered.html,
     text: rendered.text,
     ...((replyToOverride ?? config.replyTo)
@@ -173,4 +175,18 @@ export async function sendAccessRequestEmail(params: {
     'access-request',
     { email: params.email, name: params.fullName },
   );
+}
+
+
+export async function sendBookingHostConfirmation(params: {
+  to: string;
+  bookingId: string;
+  title: string;
+  when: string;
+  meetUrl: string;
+}): Promise<void> {
+  await send({ email: params.to }, {
+    subject: 'Booking confirmed: ' + params.title,
+    text: [params.title, params.when, 'Join Google Meet: ' + params.meetUrl].join('\n'),
+  }, 'booking confirmation', undefined, 'booking-host/' + params.bookingId);
 }

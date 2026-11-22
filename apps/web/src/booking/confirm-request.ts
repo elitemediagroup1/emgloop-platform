@@ -1,4 +1,6 @@
 import 'server-only';
+import { setTimeout } from 'node:timers/promises';
+import { sendBookingHostConfirmation } from '../lib/email/email-service';
 import { createHash } from 'node:crypto';
 import { prisma, type Prisma } from '@emgloop/database';
 import { googleWorkspace } from '../google/google-runtime';
@@ -20,7 +22,8 @@ export async function confirmBookingRequest(
       { attributes: { path: ['profileUserId'], equals: principal.userId } },
     ],
   };
-  const request = await prisma.booking.findFirst({ where });
+  const request = await prisma.booking.findFirst({ where: { ...where, status: { in: ['REQUESTED', 'CONFIRMED'] } } });
+  if (request?.status === 'CONFIRMED') return 'confirmed';
   if (!request?.endAt) return 'unavailable';
   const attributes = request.attributes as Prisma.JsonObject;
   const extras = Array.isArray(attributes.attendeeEmails) ? attributes.attendeeEmails : [];
@@ -80,9 +83,25 @@ export async function confirmBookingRequest(
         event = await findGoogleMeetEvent(token, eventId);
       }
     }
+    for (const delay of [250, 500, 1000]) {
+      if (!event || event.hangoutLink || event.status === 'cancelled') break;
+      await setTimeout(delay);
+      event = await findGoogleMeetEvent(token, eventId);
+    }
     if (event?.status === 'cancelled') return 'unavailable';
     if (!event?.hangoutLink?.startsWith('https://meet.google.com/')) return 'pending';
     if (!(await inviteGoogleMeetAttendees(token, eventId, event, attendeeEmails))) return 'pending';
+    const host = await prisma.user.findFirst({
+      where: { id: principal.userId, organizationId: principal.organizationId },
+      select: { email: true, employeeBookingProfile: { select: { timeZone: true } } },
+    });
+    if (!host) return 'pending';
+    const when = new Intl.DateTimeFormat('en-US', {
+      dateStyle: 'full', timeStyle: 'long', timeZone: host.employeeBookingProfile?.timeZone ?? 'UTC',
+    }).format(request.startAt);
+    await sendBookingHostConfirmation({
+      to: host.email, when, bookingId: request.id, title: request.title ?? 'EMG meeting', meetUrl: event.hangoutLink,
+    });
     await prisma.booking.updateMany({
       where,
       data: {
