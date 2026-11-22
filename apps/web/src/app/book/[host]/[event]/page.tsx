@@ -9,6 +9,8 @@ import { prisma } from '@emgloop/database';
 import { zonedParts } from '@emgloop/shared';
 import { notFound } from 'next/navigation';
 import { parseBookingAttendees } from '../../../../booking/attendees';
+import { bookingDirectory, managerEmail } from '../../../../booking/directory';
+import { jointAvailability, withinManagerHours } from '../../../../booking/joint-availability';
 import { bookingSlots } from '../../../../booking/slots';
 import type { EmployeeAvailability } from '../../../../booking/availability';
 
@@ -18,7 +20,7 @@ function isoDay(day: Date) {
   return day.toISOString().slice(0, 10);
 }
 
-async function loadSchedule(host: string, eventSlug: string, requested: string) {
+async function loadSchedule(host: string, eventSlug: string, requested: string, creatorId?: string, month?: string) {
   const slug = /^[a-z0-9-]{1,64}$/;
   if (!slug.test(host) || !slug.test(eventSlug)) notFound();
   const event = await prisma.employeeBookingEventType.findFirst({
@@ -53,6 +55,16 @@ async function loadSchedule(host: string, eventSlug: string, requested: string) 
   const lastDay = new Date(firstDay.valueOf() + (windowDays - 1) * 86_400_000);
   const date = /^\d{4}-\d{2}-\d{2}$/.test(requested) && isoDay(firstDay) <= requested && requested <= isoDay(lastDay)
     ? requested : undefined;
+  const creator = creatorId ? (await bookingDirectory()).creators.find(c => c.id === creatorId) : undefined;
+  if (creatorId && (!creator || host !== 'matt')) notFound();
+  const selectedMonth = date?.slice(0, 7) ?? month;
+  const startMonth = selectedMonth && /^\d{4}-(0[1-9]|1[0-2])$/.test(selectedMonth) &&
+    selectedMonth >= isoDay(firstDay).slice(0,7) && selectedMonth <= isoDay(lastDay).slice(0,7)
+    ? selectedMonth : isoDay(firstDay).slice(0,7);
+  const begin = new Date(startMonth + '-01T00:00:00Z');
+  const joint = creator ? await jointAvailability(user.organizationId, event.profileUserId, {
+    start: begin.valueOf() - 86400000, end: Date.UTC(begin.getUTCFullYear(), begin.getUTCMonth()+1, 2),
+  }) : null;
   const slotsForDay = (hostDate: string) => bookingSlots({
     availability,
     hostDate,
@@ -62,9 +74,9 @@ async function loadSchedule(host: string, eventSlug: string, requested: string) 
     noticeMinutes: readSetting('noticeMinutes', 60, 0, 10080),
     bufferBeforeMinutes: readSetting('bufferBeforeMinutes', 0, 0, 240),
     bufferAfterMinutes: readSetting('bufferAfterMinutes', 0, 0, 240),
-    calendarBusy: [],
-  });
-  return { event, user, availability, date, slotsForDay, firstDay, lastDay };
+    calendarBusy: joint?.busy ?? [],
+  }).filter(slot => !creator || (joint && withinManagerHours(slot, joint.hours)));
+  return { creator, joint, event, user, availability, date, slotsForDay, firstDay, lastDay };
 
 }
 
@@ -75,14 +87,15 @@ export default async function EventBookingPage({
   searchParams,
 }: {
   params: { host: string; event: string };
-  searchParams: { date?: string; month?: string };
+  searchParams: { date?: string; month?: string; creator?: string };
 }) {
   const { host, event: eventSlug } = params;
   const requested = typeof searchParams.date === 'string' ? searchParams.date : '';
-  const { event, user, availability, date, slotsForDay, firstDay, lastDay } = await loadSchedule(host, eventSlug, requested);
+  const { creator, joint, event, user, availability, date, slotsForDay, firstDay, lastDay } = await loadSchedule(host, eventSlug, requested, searchParams.creator, searchParams.month);
   const requestId = randomUUID();
   const prefix = headers().get('host') === 'book.emgloop.com' ? '' : '/book';
   const path = `${prefix}/${host}/${eventSlug}`;
+  const suffix = creator ? '&creator=' + encodeURIComponent(creator.id) : '';
   const minMonth = isoDay(firstDay).slice(0, 7);
   const maxMonth = isoDay(lastDay).slice(0, 7);
   const requestedMonth = date?.slice(0, 7) ?? searchParams.month;
@@ -110,12 +123,13 @@ export default async function EventBookingPage({
     const guestName = String(form.get('guestName') ?? '').trim();
     const guestEmail = String(form.get('guestEmail') ?? '').trim().toLowerCase();
     const attendeeEmails = parseBookingAttendees(guestEmail, String(form.get('additionalGuests') ?? ''));
+    const introduction = String(form.get('introduction') ?? '').trim();
     const start = Number(form.get('start'));
-    if (!guestName || guestName.length > 120 || !attendeeEmails || !Number.isSafeInteger(start)) {
+    if ((creator && attendeeEmails && attendeeEmails.length >= 50 && !attendeeEmails.includes(managerEmail)) || !introduction || introduction.length > 800 || !guestName || guestName.length > 120 || !attendeeEmails || !Number.isSafeInteger(start)) {
       return 'invalid';
     }
     try {
-      const latest = await loadSchedule(host, eventSlug, date);
+      const latest = creator ? await loadSchedule(host, eventSlug, date, creator.id) : await loadSchedule(host, eventSlug, date);
       const slot = latest.date === date
         ? latest.slotsForDay(date).find((candidate) => candidate.start === start)
         : undefined;
@@ -127,7 +141,7 @@ export default async function EventBookingPage({
         create: {
           id: requestId,
           organizationId: latest.user.organizationId,
-          title: latest.event.title,
+          title: latest.creator ? latest.creator.displayName + ' · Creator management' : latest.event.title,
           status: 'REQUESTED',
           startAt: new Date(slot.start),
           endAt: new Date(slot.end),
@@ -137,7 +151,9 @@ export default async function EventBookingPage({
             eventTypeId: latest.event.id,
             guestName,
             guestEmail,
-            attendeeEmails,
+            introduction,
+            ...(latest.creator && latest.joint ? { creatorId: latest.creator.id, cohostUserId: latest.joint.manager.userId } : {}),
+            attendeeEmails: latest.creator ? [...new Set([...attendeeEmails, managerEmail])] : attendeeEmails,
           },
         },
       });
@@ -152,8 +168,8 @@ export default async function EventBookingPage({
     <BookingFrame>
       <div className={styles.layout}>
         <aside className={styles.details}>
-          <p className={calendarStyles.hostName}>{user.name ?? 'EMG'}</p>
-          <h1 className={calendarStyles.hostTitle}>{event.title}</h1>
+          <p className={calendarStyles.hostName}>{creator ? 'Matt Dunn and Charlie Brugnolotti' : user.name ?? 'EMG'}</p>
+          <h1 className={calendarStyles.hostTitle}>{creator ? creator.displayName + ' · Creator inquiry' : event.title}</h1>
           <dl className={calendarStyles.meta}>
             <div><dt>Duration</dt><dd>{event.durationMinutes} min</dd></div>
             <div><dt>Location</dt><dd>Google Meet · Link sent after confirmation</dd></div>
@@ -164,9 +180,9 @@ export default async function EventBookingPage({
           <h2 id="booking-calendar-title">Choose a date &amp; time</h2>
           {!requestsEnabled() && <p>Schedule preview. Booking is unavailable.</p>}
           <nav className={calendarStyles.navigation} aria-label="Calendar month navigation">
-            {previousMonth >= minMonth ? <Link href={`${path}?month=${previousMonth}`} aria-label="Previous month" prefetch={false}>‹</Link> : <span aria-hidden="true">‹</span>}
+            {previousMonth >= minMonth ? <Link href={`${path}?month=${previousMonth}${suffix}`} aria-label="Previous month" prefetch={false}>‹</Link> : <span aria-hidden="true">‹</span>}
             <h3>{monthLabel.format(monthDate)}</h3>
-            {nextMonth <= maxMonth ? <Link href={`${path}?month=${nextMonth}`} aria-label="Next month" prefetch={false}>›</Link> : <span aria-hidden="true">›</span>}
+            {nextMonth <= maxMonth ? <Link href={`${path}?month=${nextMonth}${suffix}`} aria-label="Next month" prefetch={false}>›</Link> : <span aria-hidden="true">›</span>}
           </nav>
           <div className={calendarStyles.grid} aria-label={`${monthLabel.format(monthDate)} dates`}>
             {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) =>
@@ -174,11 +190,11 @@ export default async function EventBookingPage({
             )}
             {Array.from({ length: monthDate.getUTCDay() }, (_, index) => <span key={`pad-${index}`} aria-hidden="true" />)}
             {days.map((day) => day.slots.length ? (
-              <Link key={day.key} className={calendarStyles.day} href={`${path}?date=${day.key}`}
+              <Link key={day.key} className={calendarStyles.day} href={`${path}?date=${day.key}${suffix}`}
                 aria-label={day.label} aria-current={day.key === date ? 'date' : undefined} prefetch={false}>{day.number}</Link>
             ) : <span key={day.key} className={calendarStyles.day} aria-label={`${day.label}, unavailable`}>{day.number}</span>)}
           </div>
-          {!days.some((day) => day.slots.length) && <p>No times are scheduled this month.</p>}
+          {!days.some((day) => day.slots.length) && <p>{creator && !joint ? 'Joint booking is unavailable until both manager calendars are connected.' : 'No times are scheduled this month.'}</p>}
           <GuestTimeSlots key={date ?? month} slots={selectedDay?.slots.map((slot) => slot.start) ?? []}
             date={selectedDay?.key} timeZone={availability.timeZone} enabled={requestsEnabled()} requestBooking={requestBooking} />
         </section>

@@ -67,6 +67,7 @@ export async function createGoogleMeetEvent(token: string, event: {
   calendarId: string;
   eventId: string;
   title: string;
+  introduction?: string;
   slot: BusyPeriod;
 }) {
   // Reuse the persisted event ID and conference request ID when retrying this booking.
@@ -77,6 +78,7 @@ export async function createGoogleMeetEvent(token: string, event: {
     {
       id: event.eventId,
       summary: event.title,
+      description: event.introduction,
       start: { dateTime: new Date(event.slot.start).toISOString() },
       end: { dateTime: new Date(event.slot.end).toISOString() },
       conferenceData: {
