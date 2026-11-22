@@ -253,13 +253,13 @@ describe('onboarding and connections', () => {
 
 const NOW = new Date('2026-09-17T12:00:00Z');
 const time = createTimeView(resolveDisplayTimeZone({ device: 'UTC' }), NOW);
-function status(over: Partial<GoogleWorkspaceStatus> = {}, capabilities: Partial<Record<'gmail' | 'calendar' | 'drive', GoogleCapabilityState>> = {}): GoogleWorkspaceStatus {
+function status(over: Partial<GoogleWorkspaceStatus> = {}, capabilities: Partial<Record<'gmail' | 'calendar' | 'drive' | 'booking', GoogleCapabilityState>> = {}): GoogleWorkspaceStatus {
   return {
     permitted: true,
     configured: true,
     canConnect: true,
     connection: null,
-    capabilities: { gmail: 'NOT_CONNECTED', calendar: 'NOT_CONNECTED', drive: 'NOT_CONNECTED', ...capabilities },
+    capabilities: { gmail: 'NOT_CONNECTED', calendar: 'NOT_CONNECTED', drive: 'NOT_CONNECTED', booking: 'NOT_CONNECTED', ...capabilities },
     ...over,
   };
 }
