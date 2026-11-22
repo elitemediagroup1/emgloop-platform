@@ -1,4 +1,6 @@
 import Link from 'next/link';
+import { revalidatePath } from 'next/cache';
+import { reservedBookingPeriods } from '../../../../booking/reservations';
 import { GuestTimeSlots, type BookingRequestState } from '../../_components/GuestTimeSlots';
 import calendarStyles from '../../_components/guest-calendar.module.css';
 import { BookingFrame } from '../../_components/BookingFrame';
@@ -66,7 +68,7 @@ async function loadSchedule(host: string, eventSlug: string, requested: string, 
   const joint = creator ? await jointAvailability(user.organizationId, event.profileUserId, {
     start: begin.valueOf() - 86400000, end: Date.UTC(begin.getUTCFullYear(), begin.getUTCMonth()+1, 2),
   }) : null;
-  const slotsForDay = (hostDate: string) => bookingSlots({
+  const slotsForDay = (hostDate: string, reserved: readonly { start: number; end: number }[] = []) => bookingSlots({
     availability,
     hostDate,
     now,
@@ -75,7 +77,7 @@ async function loadSchedule(host: string, eventSlug: string, requested: string, 
     noticeMinutes: readSetting('noticeMinutes', 60, 0, 10080),
     bufferBeforeMinutes: readSetting('bufferBeforeMinutes', 0, 0, 240),
     bufferAfterMinutes: readSetting('bufferAfterMinutes', 0, 0, 240),
-    calendarBusy: joint?.busy ?? [],
+    calendarBusy: joint ? [...joint.busy, ...reserved] : reserved,
   }).filter(slot => !creator || (joint && withinManagerHours(slot, joint.hours)));
   return { creator, joint, event, user, availability, date, slotsForDay, firstDay, lastDay };
 
@@ -110,10 +112,17 @@ export default async function EventBookingPage({
   const nextMonth = isoDay(new Date(Date.UTC(year, monthIndex + 1, 1))).slice(0, 7);
   const dayLabel = new Intl.DateTimeFormat('en-US', { dateStyle: 'full', timeZone: 'UTC' });
   const monthLabel = new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+  const hostIds = [event.profileUserId];
+  if (joint) hostIds.push(joint.manager.userId);
+  // Include time-zone offsets and configured buffers around the displayed month.
+  const reserved = await reservedBookingPeriods(
+    user.organizationId, hostIds,
+    new Date(Date.UTC(year, monthIndex, -1)), new Date(Date.UTC(year, monthIndex + 1, 3)),
+  );
   const days = Array.from({ length: new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate() }, (_, index) => {
     const day = new Date(Date.UTC(year, monthIndex, index + 1));
     const key = isoDay(day);
-    const slots = key >= isoDay(firstDay) && key <= isoDay(lastDay) ? slotsForDay(key) : [];
+    const slots = key >= isoDay(firstDay) && key <= isoDay(lastDay) ? slotsForDay(key, reserved) : [];
     return { key, number: index + 1, label: dayLabel.format(day), slots };
   });
   const selectedDay = days.find((day) => day.key === date);
@@ -165,6 +174,9 @@ export default async function EventBookingPage({
       const outcome = await confirmBookingRequest({
         userId: latest.event.profileUserId, organizationId: latest.user.organizationId,
       }, booking.id);
+      if (outcome === 'confirmed' || outcome === 'busy') {
+        revalidatePath('/book/[host]/[event]', 'page');
+      }
       if (outcome === 'confirmed') return 'confirmed';
       if (outcome === 'pending') return 'pending';
       await prisma.booking.updateMany({
