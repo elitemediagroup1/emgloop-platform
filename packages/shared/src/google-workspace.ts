@@ -152,7 +152,7 @@ export function parseGoogleWorkspaceCapabilities(raw: unknown): GoogleWorkspaceC
     .map((value) => (typeof value === 'string' ? value.trim() : value));
   if (parts.length === 0 || parts.length > GOOGLE_WORKSPACE_CAPABILITIES.length) return null;
   if (!parts.every(isGoogleWorkspaceCapability)) return null;
-  if (parts.length === GOOGLE_WORKSPACE_CAPABILITIES.length && new Set(parts).size !== parts.length) return null;
+  if (parts.length >= 4 && new Set(parts).size !== parts.length) return null;
   return inOrder(parts as GoogleWorkspaceCapability[]);
 }
 

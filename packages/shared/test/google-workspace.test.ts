@@ -79,7 +79,7 @@ test('a request names known capabilities only, is refused whole otherwise, and i
   assert.deepEqual(parseGoogleWorkspaceCapabilities(['calendar', 'gmail']), ['gmail', 'calendar']);
   assert.deepEqual(parseGoogleWorkspaceCapabilities('gmail,gmail'), ['gmail']);
   assert.deepEqual(parseGoogleWorkspaceCapabilities(' calendar '), ['calendar']);
-  for (const bad of [undefined, null, '', 'contacts', 'gmail,contacts', ['gmail', 7], 'gmail,calendar,drive,booking,gmail', [], 'GMAIL']) {
+  for (const bad of [undefined, null, '', 'contacts', 'gmail,contacts', ['gmail', 7], 'gmail,calendar,drive,gmail', 'gmail,calendar,drive,booking,gmail', [], 'GMAIL']) {
     assert.equal(parseGoogleWorkspaceCapabilities(bad), null, JSON.stringify(bad));
   }
 });
