@@ -5,6 +5,19 @@ export const employees = ['Charlie Brugnolotti', 'Matt Dunn', 'Mike Dunn', 'Jona
 export const organizerEmail = 'matt@elitemediagroup.io';
 export const managerEmail = 'charlie@elitemediagroup.io';
 
+// Approved public names from EMG's Talent Roster for CRM. Studio profiles also
+// exist for staff and prospects, so profile creation must not publish a name.
+const creators = [
+  ['clarence-jones', 'Clarence Jones'],
+  ['denise-schilling', 'Denise Schilling (Kona, Kai & Kaleo)'],
+  ['dr-shan', 'Dr. Shan MD (Shannalee Stephens)'],
+  ['eric-gibbons', 'Eric Gibbons (ArtEdGuru)'],
+  ['hope-holcer', 'Hope Holcer'],
+  ['katrina-gorham', 'Katrina Gorham (Mrs. G DIY Designs)'],
+  ['koaty-and-sumner', 'Koaty & Sumner Blayne'],
+  ['trevon-hill', 'Trevon Hill'],
+].map(([id, displayName]) => ({ id, displayName }));
+
 export async function bookingDirectory() {
   const anchor = await prisma.employeeBookingProfile.findFirst({
     where: { slug: 'matt', user: { email: { equals: organizerEmail, mode: 'insensitive' }, status: 'ACTIVE' } },
@@ -12,13 +25,9 @@ export async function bookingDirectory() {
   });
   if (!anchor) return { profiles: [], creators: [] };
   const organizationId = anchor.user.organizationId;
-  const [profiles, roster] = await Promise.all([
-    prisma.employeeBookingProfile.findMany({
+  const profiles = await prisma.employeeBookingProfile.findMany({
       where: { isPublished: true, user: { organizationId, status: 'ACTIVE', name: { in: employees, mode: 'insensitive' } }, eventTypes: { some: { isPublished: true } } },
       select: { slug: true, user: { select: { name: true } } },
-    }),
-    prisma.creatorProfile.findMany({ where: { organizationId }, select: { id: true, displayName: true, handle: true }, orderBy: { displayName: 'asc' } }),
-  ]);
-  const creators = roster.filter(row => !/ella\s*isaacson|courtney\s*ni[ei][ls]sen|\b(?:ella|courtney)\b/i.test(row.displayName + ' ' + (row.handle ?? '')) && !/courtneynielson/i.test(row.handle ?? ''));
+    });
   return { profiles, creators };
 }
