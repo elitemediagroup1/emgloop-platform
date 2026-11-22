@@ -5,8 +5,8 @@ const nextConfig = {
     const has = [{ type: 'host', value: 'book\\.emgloop\\.com' }];
     return {
       beforeFiles: [
-        { source: '/:host([a-z0-9-]{1,64})/:event([a-z0-9-]{1,64})', has, destination: '/book/:host/:event' },
-        { source: '/:host([a-z0-9-]{1,64})', has, destination: '/book/:host' },
+        { source: '/:host((?!book(?:\/|$))[a-z0-9-]{1,64})/:event([a-z0-9-]{1,64})', has, destination: '/book/:host/:event' },
+        { source: '/:host((?!book(?:\/|$))[a-z0-9-]{1,64})', has, destination: '/book/:host' },
       ],
       afterFiles: [],
       fallback: [],
