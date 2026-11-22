@@ -8,7 +8,7 @@ CREATE TABLE "EmployeeBookingProfile" (
     "blockedTimes" JSONB NOT NULL DEFAULT '[]',
     CONSTRAINT "EmployeeBookingProfile_pkey" PRIMARY KEY ("userId"),
     CONSTRAINT "EmployeeBookingProfile_userId_fkey" FOREIGN KEY ("userId")
-        REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE
+        REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 CREATE UNIQUE INDEX "EmployeeBookingProfile_slug_key" ON "EmployeeBookingProfile"("slug");
