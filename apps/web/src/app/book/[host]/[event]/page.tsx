@@ -95,6 +95,7 @@ export default async function EventBookingPage({
   const requestId = randomUUID();
   const prefix = headers().get('host') === 'book.emgloop.com' ? '' : '/book';
   const path = `${prefix}/${host}/${eventSlug}`;
+  const creatorId = creator?.id ?? null;
   const suffix = creator ? '&creator=' + encodeURIComponent(creator.id) : '';
   const minMonth = isoDay(firstDay).slice(0, 7);
   const maxMonth = isoDay(lastDay).slice(0, 7);
@@ -125,11 +126,11 @@ export default async function EventBookingPage({
     const attendeeEmails = parseBookingAttendees(guestEmail, String(form.get('additionalGuests') ?? ''));
     const introduction = String(form.get('introduction') ?? '').trim();
     const start = Number(form.get('start'));
-    if ((creator && attendeeEmails && attendeeEmails.length >= 50 && !attendeeEmails.includes(managerEmail)) || !introduction || introduction.length > 800 || !guestName || guestName.length > 120 || !attendeeEmails || !Number.isSafeInteger(start)) {
+    if ((creatorId && attendeeEmails && attendeeEmails.length >= 50 && !attendeeEmails.includes(managerEmail)) || !introduction || introduction.length > 800 || !guestName || guestName.length > 120 || !attendeeEmails || !Number.isSafeInteger(start)) {
       return 'invalid';
     }
     try {
-      const latest = creator ? await loadSchedule(host, eventSlug, date, creator.id) : await loadSchedule(host, eventSlug, date);
+      const latest = creatorId ? await loadSchedule(host, eventSlug, date, creatorId) : await loadSchedule(host, eventSlug, date);
       const slot = latest.date === date
         ? latest.slotsForDay(date).find((candidate) => candidate.start === start)
         : undefined;
