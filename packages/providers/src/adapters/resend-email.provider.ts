@@ -76,7 +76,7 @@ export class ResendEmailProvider implements EmailProvider {
     // Reply-To is optional: only set when provided by the caller.
     if (req.replyTo) payload.replyTo = fmt(req.replyTo) as string;
 
-    const { data, error } = await resend.emails.send(payload as never);
+    const { data, error } = await resend.emails.send(payload as never, req.idempotencyKey ? { idempotencyKey: req.idempotencyKey } : undefined);
 
     if (error) {
       // Surface a useful server error without leaking provider internals or

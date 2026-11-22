@@ -4,13 +4,14 @@ import calendarStyles from '../../_components/guest-calendar.module.css';
 import { BookingFrame } from '../../_components/BookingFrame';
 import styles from '../../_components/public-booking.module.css';
 import { headers } from 'next/headers';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { prisma } from '@emgloop/database';
 import { zonedParts } from '@emgloop/shared';
 import { notFound } from 'next/navigation';
 import { parseBookingAttendees } from '../../../../booking/attendees';
 import { bookingDirectory, managerEmail } from '../../../../booking/directory';
 import { jointAvailability, withinManagerHours } from '../../../../booking/joint-availability';
+import { confirmBookingRequest } from '../../../../booking/confirm-request';
 import { bookingSlots } from '../../../../booking/slots';
 import type { EmployeeAvailability } from '../../../../booking/availability';
 
@@ -126,7 +127,7 @@ export default async function EventBookingPage({
     const attendeeEmails = parseBookingAttendees(guestEmail, String(form.get('additionalGuests') ?? ''));
     const introduction = String(form.get('introduction') ?? '').trim();
     const start = Number(form.get('start'));
-    if ((creatorId && attendeeEmails && attendeeEmails.length >= 50 && !attendeeEmails.includes(managerEmail)) || !introduction || introduction.length > 800 || !guestName || guestName.length > 120 || !attendeeEmails || !Number.isSafeInteger(start)) {
+    if ((creatorId && attendeeEmails && attendeeEmails.length >= 50 && !attendeeEmails.includes(managerEmail)) || introduction.length > 800 || !guestName || guestName.length > 120 || !attendeeEmails || !Number.isSafeInteger(start)) {
       return 'invalid';
     }
     try {
@@ -136,11 +137,12 @@ export default async function EventBookingPage({
         : undefined;
       if (!slot) return 'unavailable';
 
-      await prisma.booking.upsert({
-        where: { id: requestId },
+      const bookingId = createHash('sha256').update(requestId + ':' + start).digest('hex');
+      const booking = await prisma.booking.upsert({
+        where: { id: bookingId },
         update: {},
         create: {
-          id: requestId,
+          id: bookingId,
           organizationId: latest.user.organizationId,
           title: latest.creator ? latest.creator.displayName + ' · Creator management' : latest.event.title,
           status: 'REQUESTED',
@@ -152,13 +154,24 @@ export default async function EventBookingPage({
             eventTypeId: latest.event.id,
             guestName,
             guestEmail,
-            introduction,
+            ...(introduction ? { introduction } : {}),
             ...(latest.creator && latest.joint ? { creatorId: latest.creator.id, cohostUserId: latest.joint.manager.userId } : {}),
             attendeeEmails: latest.creator ? [...new Set([...attendeeEmails, managerEmail])] : attendeeEmails,
           },
         },
       });
-      return 'received';
+      const saved = booking.attributes as { guestEmail?: string };
+      if (booking.startAt.valueOf() !== start || saved.guestEmail !== guestEmail) return 'unavailable';
+      const outcome = await confirmBookingRequest({
+        userId: latest.event.profileUserId, organizationId: latest.user.organizationId,
+      }, booking.id);
+      if (outcome === 'confirmed') return 'confirmed';
+      if (outcome === 'pending') return 'pending';
+      await prisma.booking.updateMany({
+        where: { id: booking.id, status: 'REQUESTED', calendarProvider: null },
+        data: { status: 'CANCELED' },
+      });
+      return outcome === 'connect' ? 'calendarUnavailable' : 'unavailable';
     } catch (error) {
       if (error && typeof error === 'object' && 'digest' in error && error.digest === 'NEXT_NOT_FOUND') return 'unavailable';
       return 'failed';
@@ -173,7 +186,7 @@ export default async function EventBookingPage({
           <h1 className={calendarStyles.hostTitle}>{creator ? creator.displayName + ' · Creator inquiry' : event.title}</h1>
           <dl className={calendarStyles.meta}>
             <div><dt>Duration</dt><dd>{event.durationMinutes} min</dd></div>
-            <div><dt>Location</dt><dd>Google Meet · Link sent after confirmation</dd></div>
+            <div><dt>Location</dt><dd>Google Meet · Link included in your invite</dd></div>
           </dl>
           {event.description && <p>{event.description}</p>}
         </aside>

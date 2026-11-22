@@ -6,13 +6,13 @@ import { MAX_GUEST_EMAIL_INPUT } from '../../../booking/attendees';
 import styles from './guest-calendar.module.css';
 import publicStyles from './public-booking.module.css';
 
-export type BookingRequestState = 'idle' | 'received' | 'invalid' | 'unavailable' | 'failed';
+export type BookingRequestState = 'idle' | 'confirmed' | 'invalid' | 'unavailable' | 'failed' | 'pending' | 'calendarUnavailable';
 
 function RequestButton() {
   const { pending } = useFormStatus();
   return (
     <button className={publicStyles.button} type="submit" disabled={pending}>
-      {pending ? 'Sending request…' : 'Request meeting'}
+      {pending ? 'Confirming…' : 'Book meeting'}
     </button>
   );
 }
@@ -20,7 +20,9 @@ function RequestButton() {
 const requestErrors = {
   invalid: 'Check your introduction, name and the attendee email addresses, then try again.',
   unavailable: 'That time is no longer available. Choose another date or time.',
-  failed: 'We couldn’t save your request. Please try again.',
+  pending: 'We’re still confirming this booking. Submit again to check its status.',
+  calendarUnavailable: 'The host’s calendar is temporarily unavailable. Please try again later.',
+  failed: 'We couldn’t complete your booking. Please try again.',
 };
 
 export function GuestTimeSlots({
@@ -59,7 +61,7 @@ export function GuestTimeSlots({
           {slots.length ? (
             <div className={styles.slotGrid} aria-label="Available times">
               {slots.map((start) => enabled ? (
-                <button type="button" key={start} aria-pressed={selected === start} onClick={() => select({ date, start })} disabled={requestState === 'received'}>
+                <button type="button" key={start} aria-pressed={selected === start} onClick={() => select({ date, start })} disabled={requestState === 'confirmed'}>
                   {slotTime.format(start)}
                 </button>
               ) : <span key={start}>{slotTime.format(start)}</span>)}
@@ -67,26 +69,25 @@ export function GuestTimeSlots({
           ) : <p>No times remain for this date.</p>}
         </div>
       )}
-      {requestState === 'received' && (
+      {requestState === 'confirmed' && (
         <div className={styles.confirmation} role="status" tabIndex={-1} ref={(node) => node?.focus()}>
-          <h3>Request sent</h3>
-          <p>The host received your request. Watch for the Google Meet invitation after they confirm.</p>
+          <h3>Booking confirmed</h3>
+          <p>Check your email for the Google Calendar invitation and Meet link.</p>
         </div>
       )}
-      {enabled && selected !== null && requestState !== 'received' && (
+      {enabled && selected !== null && requestState !== 'confirmed' && (
         <form className={`${publicStyles.form} ${styles.requestForm}`} action={submitRequest}>
-          <h3>Request this meeting</h3>
+          <h3>Book this meeting</h3>
           <p><strong>{fullTime.format(selected)}</strong> · {zone.replaceAll('_', ' ')}</p>
           <input name="start" type="hidden" value={selected} />
           <label>Your name <input name="guestName" autoComplete="name" maxLength={120} required /></label>
           <label>Email <input name="guestEmail" type="email" autoComplete="email" maxLength={254} required /></label>
-          <label>What would you like to discuss? <textarea name="introduction" required maxLength={800} rows={3} /></label>
+          <label>What would you like to discuss? <small>Optional</small> <textarea name="introduction" maxLength={800} rows={3} /></label>
           <label>Additional attendee emails <small>Optional. Separate addresses with commas or line breaks.</small>
             <textarea name="additionalGuests" maxLength={MAX_GUEST_EMAIL_INPUT} rows={2} />
           </label>
           {requestState !== 'idle' && <p className={styles.error} role="alert">{requestErrors[requestState]}</p>}
           <RequestButton />
-          <small>The host confirms your request before Google sends an invitation.</small>
         </form>
       )}
     </>
