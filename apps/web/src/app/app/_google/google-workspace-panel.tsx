@@ -85,7 +85,7 @@ export function capabilityPresentation(
 ): { readonly pill: SubjectState; readonly detail: string | null; readonly action: RowAction } {
   const noun = SOURCE_NOUN[capability];
   const name = GOOGLE_WORKSPACE_CAPABILITY_LABELS[capability];
-  if (capability === 'booking') {
+  if (capability === 'booking' || capability === 'meet') {
     if (state === 'CONNECTED') return { pill: { label: 'Authorized', tone: 'good' }, detail: null, action: 'REMOVE' };
     if (state === 'EXPIRED') return { pill: { label: 'Reconnect required', tone: 'critical' }, detail: null, action: 'RECONNECT' };
     if (state === 'INSUFFICIENT_SCOPE') return { pill: { label: 'Permission needed', tone: 'attention' }, detail: null, action: 'ALLOW' };
