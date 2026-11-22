@@ -117,7 +117,7 @@ export const GOOGLE_WORKSPACE_CAPABILITY_READS: Readonly<Record<GoogleWorkspaceC
   gmail: 'Your mail, so Loop can show it. Headers and labels are stored; a message body is read only when you open the conversation, and is never stored. Loop sends a reply only when you press Send, from your own account. It never sends on its own, and cannot change or delete mail.',
   calendar: 'Events on your calendars, read-only. Loop cannot create, change or delete events.',
   booking: 'Check calendar availability and create Google Meet events with calendar invitations when you confirm bookings. This permission cannot access Gmail.',
-  meet: 'Allow Loop to turn on transcription for eligible booked meetings and read their transcripts and attendance.',
+  meet: 'Allow Loop to turn on transcription for eligible booked meetings and read their transcripts and attendance. Meet access cannot read Gmail or edit Calendar events.',
   drive: 'Loop does not read Drive yet, so nothing from Drive appears in Loop. If you allowed it earlier, Loop holds permission to see file names, types, owners and modified times, uses none of it, and cannot open, change or delete files.',
 });
 
