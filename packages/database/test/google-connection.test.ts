@@ -365,7 +365,7 @@ test('a granted capability is stored sealed, audited by id and scope, and nothin
 
   const status = await w.service.status(alice);
   assert.ok(status.permitted);
-  assert.deepEqual({ ...status.capabilities }, { gmail: 'CONNECTED', calendar: 'NOT_CONNECTED', drive: 'NOT_CONNECTED', booking: 'NOT_CONNECTED' });
+  assert.deepEqual({ ...status.capabilities }, { gmail: 'CONNECTED', calendar: 'NOT_CONNECTED', drive: 'NOT_CONNECTED', booking: 'NOT_CONNECTED', meet: 'NOT_CONNECTED' });
   assert.equal(status.connection?.email, ALICE.email);
 });
 
@@ -418,7 +418,7 @@ test('a capability declined on Google’s screen is INSUFFICIENT_SCOPE; declinin
   assert.deepEqual(await connect(w, alice, 'drive', ALICE, `openid email ${GMAIL}`), { returnTo: 'ONBOARDING', outcome: 'PARTIAL' });
   const status = await w.service.status(alice);
   assert.ok(status.permitted);
-  assert.deepEqual({ ...status.capabilities }, { gmail: 'CONNECTED', calendar: 'NOT_CONNECTED', drive: 'INSUFFICIENT_SCOPE', booking: 'NOT_CONNECTED' });
+  assert.deepEqual({ ...status.capabilities }, { gmail: 'CONNECTED', calendar: 'NOT_CONNECTED', drive: 'INSUFFICIENT_SCOPE', booking: 'NOT_CONNECTED', meet: 'NOT_CONNECTED' });
 
   const begin = await w.service.beginConnect(alice, { capabilities: 'calendar', returnTo: 'ONBOARDING' });
   assert.equal(begin.kind, 'redirect');
@@ -579,7 +579,7 @@ test('disconnecting deletes the credential and live link in one step, then asks 
   assert.equal(revoked.metadata.credentialDeleted, true);
   const status = await w.service.status(alice);
   assert.ok(status.permitted);
-  assert.deepEqual({ ...status.capabilities }, { gmail: 'NOT_CONNECTED', calendar: 'NOT_CONNECTED', drive: 'NOT_CONNECTED', booking: 'NOT_CONNECTED' });
+  assert.deepEqual({ ...status.capabilities }, { gmail: 'NOT_CONNECTED', calendar: 'NOT_CONNECTED', drive: 'NOT_CONNECTED', booking: 'NOT_CONNECTED', meet: 'NOT_CONNECTED' });
   assert.equal(await w.service.disconnect(alice), 'NOT_CONNECTED');
 });
 

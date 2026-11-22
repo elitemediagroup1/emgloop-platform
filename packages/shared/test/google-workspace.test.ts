@@ -33,11 +33,11 @@ const BOOKING_FREE_BUSY = 'https://www.googleapis.com/auth/calendar.events.freeb
 const BOOKING_WRITE = 'https://www.googleapis.com/auth/calendar.events.owned';
 const DRIVE = 'https://www.googleapis.com/auth/drive.metadata.readonly';
 
-test('exactly four capabilities, each with exactly its approved scopes', () => {
-  assert.deepEqual([...GOOGLE_WORKSPACE_CAPABILITIES], ['gmail', 'calendar', 'drive', 'booking']);
+test('exactly five capabilities, each with exactly its approved scopes', () => {
+  assert.deepEqual([...GOOGLE_WORKSPACE_CAPABILITIES], ['gmail', 'calendar', 'drive', 'booking', 'meet']);
   assert.deepEqual(
     JSON.parse(JSON.stringify(GOOGLE_WORKSPACE_CAPABILITY_SCOPES)),
-    { gmail: [GMAIL_READ, GMAIL_SEND], calendar: [CALENDAR], drive: [DRIVE], booking: [BOOKING_WRITE, BOOKING_FREE_BUSY] },
+    { gmail: [GMAIL_READ, GMAIL_SEND], calendar: [CALENDAR], drive: [DRIVE], booking: [BOOKING_WRITE, BOOKING_FREE_BUSY], meet: ['https://www.googleapis.com/auth/meetings.space.settings', 'https://www.googleapis.com/auth/meetings.space.readonly'] },
     'Gmail reads and sends; nothing modifies, labels or deletes',
   );
   assert.deepEqual([...GOOGLE_IDENTITY_SCOPES], ['openid', 'email'], 'no profile scope');
@@ -62,6 +62,8 @@ test('no broader Google scope is named anywhere in the contract', () => {
     GMAIL_LEGACY,
     GMAIL_READ,
     GMAIL_SEND,
+    'https://www.googleapis.com/auth/meetings.space.readonly',
+    'https://www.googleapis.com/auth/meetings.space.settings',
     'https://www.googleapis.com/auth/userinfo.email',
   ]);
   // The scopes that would let Loop write to, relabel or delete somebody's mailbox or drive are
@@ -77,7 +79,7 @@ test('a request names known capabilities only, is refused whole otherwise, and i
   assert.deepEqual(parseGoogleWorkspaceCapabilities(['calendar', 'gmail']), ['gmail', 'calendar']);
   assert.deepEqual(parseGoogleWorkspaceCapabilities('gmail,gmail'), ['gmail']);
   assert.deepEqual(parseGoogleWorkspaceCapabilities(' calendar '), ['calendar']);
-  for (const bad of [undefined, null, '', 'contacts', 'gmail,contacts', ['gmail', 7], 'gmail,calendar,drive,gmail', [], 'GMAIL']) {
+  for (const bad of [undefined, null, '', 'contacts', 'gmail,contacts', ['gmail', 7], 'gmail,calendar,drive,gmail', 'gmail,calendar,drive,booking,gmail', [], 'GMAIL']) {
     assert.equal(parseGoogleWorkspaceCapabilities(bad), null, JSON.stringify(bad));
   }
 });
@@ -137,11 +139,11 @@ test('what Google granted is read from its answer; anything beyond the allowlist
 });
 
 test('each capability state is derived from what was granted and asked for, and the connection status', () => {
-  const all = (s: string) => ({ gmail: s, calendar: s, drive: s, booking: s });
+  const all = (s: string) => ({ gmail: s, calendar: s, drive: s, booking: s, meet: s });
   assert.deepEqual({ ...googleCapabilityStates(null) }, all('NOT_CONNECTED'));
   const connected = { status: 'CONNECTED' as const, grantedScopes: [GMAIL_READ, GMAIL_SEND], requestedScopes: [GMAIL_READ, GMAIL_SEND, CALENDAR] };
-  assert.deepEqual({ ...googleCapabilityStates(connected) }, { gmail: 'CONNECTED', calendar: 'INSUFFICIENT_SCOPE', drive: 'NOT_CONNECTED', booking: 'NOT_CONNECTED' });
-  assert.deepEqual({ ...googleCapabilityStates({ ...connected, status: 'EXPIRED' }) }, { gmail: 'EXPIRED', calendar: 'NOT_CONNECTED', drive: 'NOT_CONNECTED', booking: 'NOT_CONNECTED' });
+  assert.deepEqual({ ...googleCapabilityStates(connected) }, { gmail: 'CONNECTED', calendar: 'INSUFFICIENT_SCOPE', drive: 'NOT_CONNECTED', booking: 'NOT_CONNECTED', meet: 'NOT_CONNECTED' });
+  assert.deepEqual({ ...googleCapabilityStates({ ...connected, status: 'EXPIRED' }) }, { gmail: 'EXPIRED', calendar: 'NOT_CONNECTED', drive: 'NOT_CONNECTED', booking: 'NOT_CONNECTED', meet: 'NOT_CONNECTED' });
   assert.deepEqual({ ...googleCapabilityStates({ ...connected, status: 'REVOKED' }) }, all('NOT_CONNECTED'));
   // A connection made before GM-1, or one where send was declined: asked for, not covered.
   const partial = { status: 'CONNECTED' as const, grantedScopes: [GMAIL_LEGACY], requestedScopes: [GMAIL_LEGACY] };
