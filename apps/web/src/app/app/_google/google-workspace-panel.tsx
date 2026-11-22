@@ -66,7 +66,7 @@ export interface GoogleSourceView {
   readonly lastReadAt: Date | null;
 }
 
-const SOURCE_NOUN: Readonly<Record<GoogleWorkspaceCapability, string>> = { gmail: 'mail', calendar: 'calendar', drive: 'Drive' };
+const SOURCE_NOUN: Readonly<Record<GoogleWorkspaceCapability, string>> = { gmail: 'mail', calendar: 'calendar', drive: 'Drive', booking: 'booking calendar' };
 
 type RowAction = 'CONNECT' | 'ALLOW' | 'RECONNECT' | 'REMOVE' | null;
 
@@ -85,6 +85,12 @@ export function capabilityPresentation(
 ): { readonly pill: SubjectState; readonly detail: string | null; readonly action: RowAction } {
   const noun = SOURCE_NOUN[capability];
   const name = GOOGLE_WORKSPACE_CAPABILITY_LABELS[capability];
+  if (capability === 'booking') {
+    if (state === 'CONNECTED') return { pill: { label: 'Authorized', tone: 'good' }, detail: null, action: 'REMOVE' };
+    if (state === 'EXPIRED') return { pill: { label: 'Reconnect required', tone: 'critical' }, detail: null, action: 'RECONNECT' };
+    if (state === 'INSUFFICIENT_SCOPE') return { pill: { label: 'Permission needed', tone: 'attention' }, detail: null, action: 'ALLOW' };
+    return { pill: { label: 'Not connected', tone: 'neutral' }, detail: null, action: 'CONNECT' };
+  }
   if (!GOOGLE_WORKSPACE_CAPABILITY_IN_USE[capability]) {
     // Authorized, perhaps, but nothing reads it: its description says so. Keep a person's earlier
     // authorization removable; never offer to create one.
@@ -251,9 +257,9 @@ export function GoogleWorkspacePanel(props: {
         )}
       </Panel>
 
-      <Panel title="Access" lead="Each connection below says what Loop reads. Loop sends mail only when you press Send, and never changes or deletes anything in your Google account.">
+      <Panel title="Access" lead="Each connection below describes the Google access you can grant. Booking Calendar access is optional.">
         <div role="list" aria-label="Google access by kind">
-          {GOOGLE_WORKSPACE_CAPABILITIES.map((capability) => {
+          {GOOGLE_WORKSPACE_CAPABILITIES.filter((capability) => capability !== 'booking' || mode === 'CONNECTIONS').map((capability) => {
             const state = status.capabilities[capability];
             const shown = capabilityPresentation(capability, state, props.sources?.[capability], time);
             return (

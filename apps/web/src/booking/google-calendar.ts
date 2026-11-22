@@ -1,4 +1,5 @@
 import 'server-only';
+import { bookingAttendeeEmails } from './attendees';
 import type { BusyPeriod } from './availability';
 
 const calendarApi = 'https://www.googleapis.com/calendar/v3';
@@ -26,7 +27,9 @@ export async function googleBusyPeriods(
     items: calendarIds.map((id) => ({ id })),
   }) as { calendars?: Record<string, { errors?: unknown[]; busy?: { start: string; end: string }[] }> };
   return calendarIds.flatMap((id) => {
-    const calendar = result.calendars?.[id];
+    const returned = Object.values(result.calendars ?? {});
+    const calendar = result.calendars?.[id] ??
+      (id === 'primary' && calendarIds.length === 1 && returned.length === 1 ? returned[0] : undefined);
     if (calendar?.errors?.length || !Array.isArray(calendar?.busy)) {
       throw new Error('Google Calendar availability is incomplete.');
     }
@@ -41,27 +44,67 @@ export async function googleBusyPeriods(
   });
 }
 
+export async function findGoogleMeetEvent(token: string, eventId: string) {
+  if (!/^[a-v0-9]{5,1024}$/.test(eventId)) throw new Error('Invalid Google Calendar event ID.');
+  const response = await fetch(`${calendarApi}/calendars/primary/events/${eventId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(10_000),
+    cache: 'no-store',
+  });
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(`Google Calendar request failed (${response.status}).`);
+  return response.json() as Promise<GoogleBookingEvent>;
+}
+
+export interface GoogleBookingEvent {
+  hangoutLink?: string;
+  status?: string;
+  etag?: string;
+  attendees?: { email?: string }[];
+}
+
 export async function createGoogleMeetEvent(token: string, event: {
   calendarId: string;
   eventId: string;
   title: string;
   slot: BusyPeriod;
-  attendeeEmails: readonly string[];
 }) {
   // Reuse the persisted event ID and conference request ID when retrying this booking.
   if (!/^[a-v0-9]{5,1024}$/.test(event.eventId)) throw new Error('Invalid Google Calendar event ID.');
   return calendarRequest(
-    `/calendars/${encodeURIComponent(event.calendarId)}/events?conferenceDataVersion=1&sendUpdates=all`,
+    `/calendars/${encodeURIComponent(event.calendarId)}/events?conferenceDataVersion=1&sendUpdates=none`,
     token,
     {
       id: event.eventId,
       summary: event.title,
       start: { dateTime: new Date(event.slot.start).toISOString() },
       end: { dateTime: new Date(event.slot.end).toISOString() },
-      attendees: event.attendeeEmails.map((email) => ({ email })),
       conferenceData: {
         createRequest: { requestId: event.eventId, conferenceSolutionKey: { type: 'hangoutsMeet' } },
       },
     },
+  ) as Promise<GoogleBookingEvent>;
+}
+
+/** Send invitations only after Google has finished provisioning the Meet link. */
+export async function inviteGoogleMeetAttendees(
+  token: string, eventId: string, meeting: GoogleBookingEvent, attendeeEmails: readonly string[],
+) {
+  const [bookerEmail, ...guests] = attendeeEmails;
+  const attendees = bookerEmail ? bookingAttendeeEmails(bookerEmail, guests) : null;
+  if (!attendees || !/^[a-v0-9]{5,1024}$/.test(eventId)) throw new Error('Invalid booking invitation.');
+  if (!meeting.hangoutLink?.startsWith('https://meet.google.com/') || meeting.status === 'cancelled') return false;
+  const existing = new Map(
+    (meeting.attendees ?? []).flatMap(({ email }) => email ? [[email.toLowerCase(), email] as const] : []),
   );
+  if (attendees.every((email) => existing.has(email.toLowerCase()))) return true;
+  if (!meeting.etag) return false;
+  for (const email of attendees) existing.set(email.toLowerCase(), email);
+  const response = await fetch(`${calendarApi}/calendars/primary/events/${eventId}?conferenceDataVersion=1&sendUpdates=all`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'If-Match': meeting.etag },
+    body: JSON.stringify({ attendees: [...existing.values()].map((email) => ({ email })) }),
+    signal: AbortSignal.timeout(10_000),
+  });
+  return response.ok;
 }

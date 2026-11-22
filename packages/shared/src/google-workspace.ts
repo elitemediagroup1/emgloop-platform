@@ -7,14 +7,14 @@
 // CONNECTING IS NOT SIGNING IN. Nothing here proves who a Loop user is; a person connects
 // Google from inside a Loop session they already have, as a separate, declinable act.
 //
-// READ-ONLY, AND NO WIDER THAN THIS FILE. The three capability scopes below are the only
+// READ-ONLY, AND NO WIDER THAN THIS FILE. The known capability scopes below are the only
 // Google data scopes Loop ever requests. A token response that reports anything else is
 // refused whole (`parseGoogleGrantedScopes`), so a broader grant can never be stored.
 // No body, no content, no send, no write -- widening any of that is a reviewed change to
 // this file and to the architecture record, never a configuration value.
 
 /** What a person can connect, in the order onboarding asks for them. */
-export const GOOGLE_WORKSPACE_CAPABILITIES = ['gmail', 'calendar', 'drive'] as const;
+export const GOOGLE_WORKSPACE_CAPABILITIES = ['gmail', 'calendar', 'drive', 'booking'] as const;
 export type GoogleWorkspaceCapability = (typeof GOOGLE_WORKSPACE_CAPABILITIES)[number];
 
 /**
@@ -41,6 +41,7 @@ export type GoogleWorkspaceCapability = (typeof GOOGLE_WORKSPACE_CAPABILITIES)[n
 export const GOOGLE_WORKSPACE_CAPABILITY_SCOPES: Readonly<Record<GoogleWorkspaceCapability, readonly string[]>> = Object.freeze({
   gmail: Object.freeze(['https://www.googleapis.com/auth/gmail.readonly', 'https://www.googleapis.com/auth/gmail.send']),
   calendar: Object.freeze(['https://www.googleapis.com/auth/calendar.events.readonly']),
+  booking: Object.freeze(['https://www.googleapis.com/auth/calendar.events.owned', 'https://www.googleapis.com/auth/calendar.events.freebusy']),
   drive: Object.freeze(['https://www.googleapis.com/auth/drive.metadata.readonly']),
 });
 
@@ -84,6 +85,7 @@ export const GOOGLE_WORKSPACE_CAPABILITY_LABELS: Readonly<Record<GoogleWorkspace
   gmail: 'Gmail',
   calendar: 'Calendar',
   drive: 'Drive',
+  booking: 'Booking Calendar',
 });
 
 /**
@@ -99,6 +101,7 @@ export const GOOGLE_WORKSPACE_CAPABILITY_IN_USE: Readonly<Record<GoogleWorkspace
   gmail: true,
   calendar: true,
   drive: false,
+  booking: false,
 });
 
 /** The capabilities Loop reads today, in canonical order. */
@@ -110,6 +113,7 @@ export const GOOGLE_WORKSPACE_CAPABILITIES_IN_USE: readonly GoogleWorkspaceCapab
 export const GOOGLE_WORKSPACE_CAPABILITY_READS: Readonly<Record<GoogleWorkspaceCapability, string>> = Object.freeze({
   gmail: 'Your mail, so Loop can show it. Headers and labels are stored; a message body is read only when you open the conversation, and is never stored. Loop sends a reply only when you press Send, from your own account. It never sends on its own, and cannot change or delete mail.',
   calendar: 'Events on your calendars, read-only. Loop cannot create, change or delete events.',
+  booking: 'Check calendar availability and create Google Meet events with calendar invitations when you confirm bookings. This permission cannot access Gmail.',
   drive: 'Loop does not read Drive yet, so nothing from Drive appears in Loop. If you allowed it earlier, Loop holds permission to see file names, types, owners and modified times, uses none of it, and cannot open, change or delete files.',
 });
 
@@ -136,7 +140,7 @@ export function isGoogleWorkspaceCapability(value: unknown): value is GoogleWork
 /**
  * The capabilities a request names (`gmail`, or `calendar,drive`, or a repeated
  * parameter). Null when nothing is named, when anything unknown is named, or when more
- * than the three exist -- a request is refused whole, never partly honoured.
+ * than the supported capabilities exist -- a request is refused whole, never partly honoured.
  */
 export function parseGoogleWorkspaceCapabilities(raw: unknown): GoogleWorkspaceCapability[] | null {
   const parts = (Array.isArray(raw) ? raw : [raw])
@@ -144,6 +148,7 @@ export function parseGoogleWorkspaceCapabilities(raw: unknown): GoogleWorkspaceC
     .map((value) => (typeof value === 'string' ? value.trim() : value));
   if (parts.length === 0 || parts.length > GOOGLE_WORKSPACE_CAPABILITIES.length) return null;
   if (!parts.every(isGoogleWorkspaceCapability)) return null;
+  if (parts.length === GOOGLE_WORKSPACE_CAPABILITIES.length && new Set(parts).size !== parts.length) return null;
   return inOrder(parts as GoogleWorkspaceCapability[]);
 }
 
@@ -178,7 +183,7 @@ export type GoogleGrantedScopes =
  *
  * Loop reads the GRANTED set, never what it asked for: a person may decline any
  * capability on Google's consent screen. Anything outside the identity scopes and the
- * three capability scopes refuses the whole grant, so a wider token is never stored.
+ * known capability scopes refuses the whole grant, so a wider token is never stored.
  */
 export function parseGoogleGrantedScopes(scope: unknown): GoogleGrantedScopes {
   if (typeof scope !== 'string' || scope.trim() === '') return { ok: false, reason: 'MISSING' };

@@ -1,3 +1,5 @@
+import { googleWorkspace } from '../../../../google/google-runtime';
+import { confirmBookingRequest } from '../../../../booking/confirm-request';
 import { bookingSlug, provisionEmployeeBookingProfile } from '../../../../booking/provision-profile';
 import { prisma, type Prisma } from '@emgloop/database';
 import { redirect } from 'next/navigation';
@@ -121,7 +123,52 @@ function displayHours(value: Prisma.JsonValue | undefined): string {
   }).join(', ');
 }
 
-export default async function BookingSettingsPage() {
+async function publishEvent(form: FormData) {
+  'use server';
+  const session = await employee();
+  const id = String(form.get('eventId') ?? '');
+  const publish = form.get('publish') === 'true';
+  if (publish) {
+    const status = await googleWorkspace().status(session);
+    if (!status.permitted || status.capabilities.booking !== 'CONNECTED') {
+      redirect(`${path}?confirmation=connect`);
+    }
+  }
+  await prisma.$transaction(async (tx) => {
+    const changed = await tx.employeeBookingEventType.updateMany({
+      where: { id, profileUserId: session.userId, style: 'ONE_ON_ONE' },
+      data: { isPublished: publish },
+    });
+    if (changed.count !== 1) return;
+    const published = await tx.employeeBookingEventType.count({
+      where: { profileUserId: session.userId, isPublished: true },
+    });
+    await tx.employeeBookingProfile.update({
+      where: { userId: session.userId },
+      data: { isPublished: published > 0 },
+    });
+  });
+  revalidatePath(path);
+}
+
+async function confirmRequest(form: FormData) {
+  'use server';
+  const session = await employee();
+  const requestId = String(form.get('requestId') ?? '');
+  const result = await confirmBookingRequest(session, requestId);
+  revalidatePath(path);
+  redirect(`${path}?confirmation=${result}`);
+}
+
+const confirmationMessages: Record<string, string> = {
+  confirmed: 'Meeting confirmed. Google Calendar was asked to notify all attendees.',
+  connect: 'Connect Booking Calendar in Connections before confirming a meeting.',
+  busy: 'This time is busy on your calendar or is reserved for another booking.',
+  pending: 'Loop could not verify the Google Meet link yet. Retry confirmation to check the same event.',
+  unavailable: 'This request is no longer available to confirm.',
+};
+
+export default async function BookingSettingsPage({ searchParams }: { searchParams: { confirmation?: string } }) {
   const session = await employee();
   const profile = await prisma.employeeBookingProfile.findUnique({
     where: { userId: session.userId }, include: { eventTypes: { orderBy: { createdAt: 'asc' } } },
@@ -153,13 +200,27 @@ export default async function BookingSettingsPage() {
         <form action={createProfile}><button type="submit">Reserve my booking link</button></form>
       ) : (
         <>
-          <p>Reserved link <strong>book.emgloop.com/{profile.slug}</strong></p>
+          <p>Booking link <strong>book.emgloop.com/{profile.slug}</strong></p>
+          {profile.isPublished && <p><a href={`/book/${profile.slug}`}>Open booking page</a></p>}
           <section className="loop-panel">
             <h2>Pending booking requests</h2>
+            <p><a href="/app/connections">Manage Booking Calendar connection</a></p>
+            {searchParams.confirmation && Object.hasOwn(confirmationMessages, searchParams.confirmation) &&
+              <p role="status">{confirmationMessages[searchParams.confirmation]}</p>}
             {requests.length ? <ul>{requests.map((request) => {
               const guest = request.attributes as Prisma.JsonObject;
+              const bookerEmail = typeof guest.guestEmail === 'string' ? guest.guestEmail : '';
+              const additionalAttendees = Array.isArray(guest.attendeeEmails)
+                ? guest.attendeeEmails.filter((email): email is string =>
+                  typeof email === 'string' && email.toLowerCase() !== bookerEmail.toLowerCase())
+                : [];
               return <li key={request.id}>
-                {request.title} · {requestTime && requestTime.format(request.startAt)} · {String(guest.guestName ?? '')} ({String(guest.guestEmail ?? '')})
+                {request.title} · {requestTime && requestTime.format(request.startAt)} · {String(guest.guestName ?? '')} ({bookerEmail})
+                {additionalAttendees.length > 0 && <p>Additional attendees: {additionalAttendees.join(', ')}</p>}
+                <form action={confirmRequest}>
+                  <input type="hidden" name="requestId" value={request.id} />
+                  <button type="submit">Confirm and send invites</button>
+                </form>
               </li>;
             })}</ul> : <p>No upcoming requests.</p>}
           </section>
@@ -184,6 +245,11 @@ export default async function BookingSettingsPage() {
             <ul>{profile.eventTypes.map((event) => (
               <li key={event.id}>
                 <p>{event.title} · {event.durationMinutes} min · /{profile.slug}/{event.slug} · {event.isPublished ? 'Published' : 'Draft'}</p>
+                {event.style === 'ONE_ON_ONE' && <form action={publishEvent}>
+                  <input type="hidden" name="eventId" value={event.id} />
+                  <input type="hidden" name="publish" value={String(!event.isPublished)} />
+                  <button type="submit">{event.isPublished ? 'Unpublish link' : 'Publish link'}</button>
+                </form>}
                 <form action={saveEventSettings}>
                   <input type="hidden" name="eventId" value={event.id} />
                   <p><label>Event title <input name="eventTitle" defaultValue={event.title} required maxLength={100} /></label></p>

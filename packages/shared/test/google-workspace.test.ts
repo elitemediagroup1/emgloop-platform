@@ -29,13 +29,15 @@ const GMAIL_READ = 'https://www.googleapis.com/auth/gmail.readonly';
 const GMAIL_SEND = 'https://www.googleapis.com/auth/gmail.send';
 const GMAIL_LEGACY = 'https://www.googleapis.com/auth/gmail.metadata';
 const CALENDAR = 'https://www.googleapis.com/auth/calendar.events.readonly';
+const BOOKING_FREE_BUSY = 'https://www.googleapis.com/auth/calendar.events.freebusy';
+const BOOKING_WRITE = 'https://www.googleapis.com/auth/calendar.events.owned';
 const DRIVE = 'https://www.googleapis.com/auth/drive.metadata.readonly';
 
-test('exactly three capabilities, each with exactly its approved scopes', () => {
-  assert.deepEqual([...GOOGLE_WORKSPACE_CAPABILITIES], ['gmail', 'calendar', 'drive']);
+test('exactly four capabilities, each with exactly its approved scopes', () => {
+  assert.deepEqual([...GOOGLE_WORKSPACE_CAPABILITIES], ['gmail', 'calendar', 'drive', 'booking']);
   assert.deepEqual(
     JSON.parse(JSON.stringify(GOOGLE_WORKSPACE_CAPABILITY_SCOPES)),
-    { gmail: [GMAIL_READ, GMAIL_SEND], calendar: [CALENDAR], drive: [DRIVE] },
+    { gmail: [GMAIL_READ, GMAIL_SEND], calendar: [CALENDAR], drive: [DRIVE], booking: [BOOKING_WRITE, BOOKING_FREE_BUSY] },
     'Gmail reads and sends; nothing modifies, labels or deletes',
   );
   assert.deepEqual([...GOOGLE_IDENTITY_SCOPES], ['openid', 'email'], 'no profile scope');
@@ -53,6 +55,8 @@ test('no broader Google scope is named anywhere in the contract', () => {
     .replace(/^\s*\/\/.*$/gm, ' ');
   const named = [...src.matchAll(/https:\/\/(?:www\.googleapis\.com\/auth\/[\w.]+|mail\.google\.com\/?)/g)].map((m) => m[0]);
   assert.deepEqual([...new Set(named)].sort(), [
+    BOOKING_FREE_BUSY,
+    BOOKING_WRITE,
     CALENDAR,
     DRIVE,
     GMAIL_LEGACY,
@@ -133,11 +137,11 @@ test('what Google granted is read from its answer; anything beyond the allowlist
 });
 
 test('each capability state is derived from what was granted and asked for, and the connection status', () => {
-  const all = (s: string) => ({ gmail: s, calendar: s, drive: s });
+  const all = (s: string) => ({ gmail: s, calendar: s, drive: s, booking: s });
   assert.deepEqual({ ...googleCapabilityStates(null) }, all('NOT_CONNECTED'));
   const connected = { status: 'CONNECTED' as const, grantedScopes: [GMAIL_READ, GMAIL_SEND], requestedScopes: [GMAIL_READ, GMAIL_SEND, CALENDAR] };
-  assert.deepEqual({ ...googleCapabilityStates(connected) }, { gmail: 'CONNECTED', calendar: 'INSUFFICIENT_SCOPE', drive: 'NOT_CONNECTED' });
-  assert.deepEqual({ ...googleCapabilityStates({ ...connected, status: 'EXPIRED' }) }, { gmail: 'EXPIRED', calendar: 'NOT_CONNECTED', drive: 'NOT_CONNECTED' });
+  assert.deepEqual({ ...googleCapabilityStates(connected) }, { gmail: 'CONNECTED', calendar: 'INSUFFICIENT_SCOPE', drive: 'NOT_CONNECTED', booking: 'NOT_CONNECTED' });
+  assert.deepEqual({ ...googleCapabilityStates({ ...connected, status: 'EXPIRED' }) }, { gmail: 'EXPIRED', calendar: 'NOT_CONNECTED', drive: 'NOT_CONNECTED', booking: 'NOT_CONNECTED' });
   assert.deepEqual({ ...googleCapabilityStates({ ...connected, status: 'REVOKED' }) }, all('NOT_CONNECTED'));
   // A connection made before GM-1, or one where send was declined: asked for, not covered.
   const partial = { status: 'CONNECTED' as const, grantedScopes: [GMAIL_LEGACY], requestedScopes: [GMAIL_LEGACY] };
