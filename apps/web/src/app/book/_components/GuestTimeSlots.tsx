@@ -75,6 +75,9 @@ export function GuestTimeSlots({
           <p>Check your email for the Google Calendar invitation and Meet link.</p>
         </div>
       )}
+      {requestState === 'unavailable' && selected === null && (
+        <p className={styles.error} role="alert">{requestErrors.unavailable}</p>
+      )}
       {enabled && selected !== null && requestState !== 'confirmed' && (
         <form className={`${publicStyles.form} ${styles.requestForm}`} action={submitRequest}>
           <h3>Book this meeting</h3>

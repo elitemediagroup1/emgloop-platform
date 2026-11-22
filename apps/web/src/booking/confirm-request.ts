@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { prisma, type Prisma } from '@emgloop/database';
 import { googleWorkspace } from '../google/google-runtime';
 import { jointAvailability, withinManagerHours } from './joint-availability';
+import { bookingOverlapWhere } from './reservations';
 import { bookingAttendeeEmails } from './attendees';
 import { createGoogleMeetEvent, findGoogleMeetEvent, googleBusyPeriods, inviteGoogleMeetAttendees } from './google-calendar';
 
@@ -55,15 +56,7 @@ export async function confirmBookingRequest(
         const collision = await tx.booking.findFirst({
           where: {
             id: { not: request.id },
-            organizationId: principal.organizationId,
-            status: { in: ['REQUESTED', 'CONFIRMED', 'RESCHEDULED'] },
-            calendarProvider: 'GOOGLE_BOOKING',
-            startAt: { lt: request.endAt! },
-            endAt: { gt: request.startAt },
-            OR: hostIds.flatMap(id => [
-              { attributes: { path: ['profileUserId'], equals: id } },
-              { attributes: { path: ['cohostUserId'], equals: id } },
-            ]),
+            ...bookingOverlapWhere(principal.organizationId, hostIds, request.startAt, new Date(slot.end)),
           },
           select: { id: true },
         });
