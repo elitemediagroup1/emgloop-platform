@@ -1,6 +1,6 @@
 import 'server-only';
 
-const endpoint = 'https://us-east-1.recall.ai/api/v1/bot/';
+const endpoint = 'https://us-west-2.recall.ai/api/v1/bot/';
 
 export function captureConfigured() {
   return Boolean(process.env.RECALL_API_KEY);
