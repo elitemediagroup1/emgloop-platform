@@ -199,6 +199,7 @@ enum IntegrationEventStatus {
 // ---------------------------------------------------------------------------
 
 model Organization {
+  meetingCaptures MeetingCapture[]
   qualificationIntakes QualificationIntake[]
   creatorBanks CreatorPayoutBank[]
   creatorLinkSessions CreatorPayoutLink[]
@@ -426,6 +427,7 @@ model Role {
 }
 
 model User {
+  meetingCaptures MeetingCapture[]
   id             String     @id @default(cuid())
   organizationId String
   roleId         String?
@@ -8849,4 +8851,19 @@ model QualificationIntakeRevision {
   intake QualificationIntake @relation(fields: [organizationId, intakeId], references: [organizationId, id], onDelete: Cascade)
   @@unique([organizationId, intakeId, number])
   @@map("qualification_intake_revisions")
+}
+
+model MeetingCapture {
+  id             String   @id
+  organizationId String
+  requestedById  String
+  meetingUrl     String
+  providerBotId  String?  @unique
+  status         String
+  createdAt      DateTime @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  requestedBy    User @relation(fields: [requestedById], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, requestedById, createdAt], map: "meeting_captures_requester_idx")
+  @@map("meeting_captures")
 }

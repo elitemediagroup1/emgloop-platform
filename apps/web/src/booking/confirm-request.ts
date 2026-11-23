@@ -84,7 +84,7 @@ export async function confirmBookingRequest(
     }
     if (event?.status === 'cancelled') return 'unavailable';
     if (!event?.hangoutLink?.startsWith('https://meet.google.com/')) return 'pending';
-    const notetaker = await prepareBookingTranscription(principal, attributes.eventTypeId, attendeeEmails, event.hangoutLink)
+    const notetaker = await prepareBookingTranscription(principal, attributes.eventTypeId, attendeeEmails, event.hangoutLink, request.startAt)
       .catch(() => 'transcription-unavailable');
     if (!(await inviteGoogleMeetAttendees(token, eventId, event, attendeeEmails))) return 'pending';
     const host = await prisma.user.findFirst({

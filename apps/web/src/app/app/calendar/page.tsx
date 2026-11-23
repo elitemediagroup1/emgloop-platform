@@ -56,7 +56,10 @@ export default async function CalendarPage() {
           trail={[{ label: 'Home', href: LOOP_HOME }, { label: 'Calendar' }]}
           title="Calendar"
           actions={['OWNER', 'ADMIN', 'MANAGER', 'EMPLOYEE'].includes(session.systemRole) ? (
-            <Link href="/app/calendar/booking">Booking settings</Link>
+            <>
+              <Link href="/app/calendar/booking">Booking settings</Link>
+              <Link href="/app/calendar/notetaker">Notetaker</Link>
+            </>
           ) : null}
           subtitle="Your own day: what is on now, what is next, and what is clear."
         />
