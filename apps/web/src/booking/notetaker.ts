@@ -1,6 +1,8 @@
 import 'server-only';
 import { prisma } from '@emgloop/database';
 import { googleWorkspace } from '../google/google-runtime';
+import { captureConfigured } from '../notetaker/recall';
+import { scheduleCapture } from '../notetaker/capture';
 import { setAutomaticTranscription } from './google-meet';
 
 export async function prepareBookingTranscription(
@@ -8,6 +10,7 @@ export async function prepareBookingTranscription(
   eventTypeId: unknown,
   attendeeEmails: readonly string[],
   meetUrl: string,
+  startAt: Date,
 ) {
   if (typeof eventTypeId !== 'string') return 'off';
   const eventType = await prisma.employeeBookingEventType.findFirst({
@@ -30,6 +33,9 @@ export async function prepareBookingTranscription(
     if (attendeeEmails.every(email => internal.has(email.toLowerCase()))) return 'off';
   }
 
+  if (captureConfigured()) {
+    return scheduleCapture(principal, meetUrl, startAt);
+  }
   const connection = await googleWorkspace().accessToken(principal, 'meet');
   if (!connection.ok) return 'connection-required';
   const code = new URL(meetUrl).pathname.slice(1);
