@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { AI_TASK_MEETING_SUMMARY, aiOutputContract } from '@emgloop/shared';
-import { formatRecallTranscript } from '../src/notetaker/transcript';
+import { formatRecallTranscript, recallTranscriptDownloadUrl } from '../src/notetaker/transcript';
+
+test('transcript downloads accept provider and object storage hosts over HTTPS only', () => {
+  assert.equal(recallTranscriptDownloadUrl('https://us-east-1.recall.ai/transcript.json?signature=test').search, '?signature=test');
+  assert.equal(recallTranscriptDownloadUrl('https://bucket.s3.us-east-1.amazonaws.com/transcript.json').hostname, 'bucket.s3.us-east-1.amazonaws.com');
+  assert.equal(recallTranscriptDownloadUrl('https://storage.googleapis.com/bucket/transcript.json').hostname, 'storage.googleapis.com');
+  for (const value of ['https://recall.ai.example.com/file', 'http://recall.ai/file', 'https://user@recall.ai/file', 'https://recall.ai:444/file', 'https://127.0.0.1/file']) {
+    assert.throws(() => recallTranscriptDownloadUrl(value), /Unexpected Recall transcript download host/);
+  }
+});
 
 test('the full transcript preserves every speech segment and its relative time', () => {
   const artifact = [
