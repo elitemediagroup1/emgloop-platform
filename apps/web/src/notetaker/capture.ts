@@ -3,7 +3,7 @@ import 'server-only';
 import { randomUUID } from 'node:crypto';
 import { prisma } from '@emgloop/database';
 import { supportedMeetingUrl } from './meeting-link';
-import { recallRequest, validBotId } from './recall';
+import { audioRecording, recallRequest, validBotId } from './recall';
 
 interface Principal {
   organizationId: string;
@@ -14,7 +14,7 @@ export function ownCaptures(principal: Principal) {
   return { organizationId: principal.organizationId, requestedById: principal.userId };
 }
 
-export async function scheduleCapture(principal: Principal, input: string, joinAt?: Date) {
+export async function scheduleCapture(principal: Principal, input: string, booking?: { startAt: Date }) {
   const meetingUrl = supportedMeetingUrl(input);
   if (!meetingUrl) return 'invalid';
   const id = randomUUID();
@@ -27,15 +27,15 @@ export async function scheduleCapture(principal: Principal, input: string, joinA
       where: { ...ownCaptures(principal), meetingUrl, status: { notIn: ['done', 'fatal'] } },
       select: { providerBotId: true },
     });
-    return joinAt && existing?.providerBotId ? 'already-scheduled' : 'duplicate';
+    return booking && existing?.providerBotId ? 'already-scheduled' : 'duplicate';
   }
 
   try {
     const bot = await recallRequest('', 'POST', {
       meeting_url: meetingUrl,
       bot_name: 'EMG Loop Notetaker',
-      recording_config: null,
-      ...(joinAt ? { join_at: joinAt.toISOString() } : {}),
+      recording_config: booking ? audioRecording : null,
+      ...(booking ? { join_at: booking.startAt.toISOString() } : {}),
       metadata: { loop_capture_id: id },
     });
     if (!validBotId(bot.id)) return 'unknown';

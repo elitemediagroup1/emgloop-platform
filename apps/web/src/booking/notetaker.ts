@@ -34,7 +34,7 @@ export async function prepareBookingTranscription(
   }
 
   if (captureConfigured()) {
-    return scheduleCapture(principal, meetUrl, startAt);
+    return scheduleCapture(principal, meetUrl, { startAt });
   }
   const connection = await googleWorkspace().accessToken(principal, 'meet');
   if (!connection.ok) return 'connection-required';
