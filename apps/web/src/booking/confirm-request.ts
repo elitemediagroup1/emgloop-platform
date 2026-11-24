@@ -86,7 +86,7 @@ export async function confirmBookingRequest(
     if (!event?.hangoutLink?.startsWith('https://meet.google.com/')) return 'pending';
     const notetaker = await prepareBookingTranscription(principal, attributes.eventTypeId, attendeeEmails, event.hangoutLink, request.startAt)
       .catch(() => 'transcription-unavailable');
-    if (!(await inviteGoogleMeetAttendees(token, eventId, event, attendeeEmails))) return 'pending';
+    if (!(await inviteGoogleMeetAttendees(token, eventId, event, attendeeEmails, notetaker === 'scheduled' || notetaker === 'already-scheduled'))) return 'pending';
     const host = await prisma.user.findFirst({
       where: { id: principal.userId, organizationId: principal.organizationId },
       select: { email: true, employeeBookingProfile: { select: { timeZone: true } } },

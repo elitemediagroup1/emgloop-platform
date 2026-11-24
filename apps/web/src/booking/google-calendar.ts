@@ -60,6 +60,7 @@ export interface GoogleBookingEvent {
   hangoutLink?: string;
   status?: string;
   etag?: string;
+  description?: string;
   attendees?: { email?: string }[];
 }
 
@@ -88,9 +89,12 @@ export async function createGoogleMeetEvent(token: string, event: {
   ) as Promise<GoogleBookingEvent>;
 }
 
+export const notetakerInvitationNotice = 'EMG Loop Notetaker is scheduled to join this meeting. Audio capture begins after participants agree.';
+
 /** Send invitations only after Google has finished provisioning the Meet link. */
 export async function inviteGoogleMeetAttendees(
   token: string, eventId: string, meeting: GoogleBookingEvent, attendeeEmails: readonly string[],
+  notetakerScheduled = false,
 ) {
   const [bookerEmail, ...guests] = attendeeEmails;
   const attendees = bookerEmail ? bookingAttendeeEmails(bookerEmail, guests) : null;
@@ -99,13 +103,17 @@ export async function inviteGoogleMeetAttendees(
   const existing = new Map(
     (meeting.attendees ?? []).flatMap(({ email }) => email ? [[email.toLowerCase(), email] as const] : []),
   );
-  if (attendees.every((email) => existing.has(email.toLowerCase()))) return true;
+  const addNotice = notetakerScheduled && !meeting.description?.includes(notetakerInvitationNotice);
+  if (!addNotice && attendees.every((email) => existing.has(email.toLowerCase()))) return true;
   if (!meeting.etag) return false;
   for (const email of attendees) existing.set(email.toLowerCase(), email);
   const response = await fetch(`${calendarApi}/calendars/primary/events/${eventId}?conferenceDataVersion=1&sendUpdates=all`, {
     method: 'PATCH',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'If-Match': meeting.etag },
-    body: JSON.stringify({ attendees: [...existing.values()].map((email) => ({ email })) }),
+    body: JSON.stringify({
+      attendees: [...existing.values()].map((email) => ({ email })),
+      ...(addNotice ? { description: [meeting.description, notetakerInvitationNotice].filter(Boolean).join('\n\n') } : {}),
+    }),
     signal: AbortSignal.timeout(10_000),
   });
   return response.ok;
