@@ -3,7 +3,7 @@ import { prisma } from '@emgloop/database';
 import { ownCaptures } from '../../../../../notetaker/capture';
 import WorkspaceShell from '../../../../../workspaces/WorkspaceShell';
 import { LoopPage, PageHead, Panel } from '../../../_loop-os/record';
-import { captureDate, captureTitle, notetakerPath, notetakerTimeZone, requireNotetaker } from '../meeting-display';
+import { captureDate, captureTitle, notetakerBookerNames, notetakerPath, notetakerTimeZone, requireNotetaker } from '../meeting-display';
 import { MeetingNotesLoader } from './MeetingNotesLoader';
 
 export default async function MeetingNotesPage({ params }: { params: { id: string } }) {
@@ -13,7 +13,8 @@ export default async function MeetingNotesPage({ params }: { params: { id: strin
     notetakerTimeZone(session),
   ]);
   if (!capture) notFound();
-  const title = captureTitle(capture);
+  const bookerNames = await notetakerBookerNames(session, [capture]);
+  const title = captureTitle(capture, bookerNames.get(capture.id));
   const finished = capture.status === 'done';
   const needsNotes = capture.transcript === null || (!!capture.transcript && !capture.summary);
 

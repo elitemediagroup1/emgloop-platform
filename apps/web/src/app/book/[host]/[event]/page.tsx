@@ -132,11 +132,12 @@ export default async function EventBookingPage({
     if (!requestsEnabled()) notFound();
     if (!date) notFound();
     const guestName = String(form.get('guestName') ?? '').trim();
+    const guestCompany = String(form.get('guestCompany') ?? '').trim();
     const guestEmail = String(form.get('guestEmail') ?? '').trim().toLowerCase();
     const attendeeEmails = parseBookingAttendees(guestEmail, String(form.get('additionalGuests') ?? ''));
     const introduction = String(form.get('introduction') ?? '').trim();
     const start = Number(form.get('start'));
-    if ((creatorId && attendeeEmails && attendeeEmails.length >= 50 && !attendeeEmails.includes(managerEmail)) || introduction.length > 800 || !guestName || guestName.length > 120 || !attendeeEmails || !Number.isSafeInteger(start)) {
+    if ((creatorId && attendeeEmails && attendeeEmails.length >= 50 && !attendeeEmails.includes(managerEmail)) || introduction.length > 800 || !guestName || guestName.length > 120 || guestCompany.length > 120 || !attendeeEmails || !Number.isSafeInteger(start)) {
       return 'invalid';
     }
     try {
@@ -162,6 +163,7 @@ export default async function EventBookingPage({
             profileUserId: latest.event.profileUserId,
             eventTypeId: latest.event.id,
             guestName,
+            ...(guestCompany ? { guestCompany } : {}),
             guestEmail,
             ...(introduction ? { introduction } : {}),
             ...(latest.creator && latest.joint ? { creatorId: latest.creator.id, cohostUserId: latest.joint.manager.userId } : {}),

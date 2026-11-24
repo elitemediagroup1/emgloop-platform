@@ -84,6 +84,7 @@ export function GuestTimeSlots({
           <p><strong>{fullTime.format(selected)}</strong> · {zone.replaceAll('_', ' ')}</p>
           <input name="start" type="hidden" value={selected} />
           <label>Your name <input name="guestName" autoComplete="name" maxLength={120} required /></label>
+          <label>Company <small>Optional</small> <input name="guestCompany" autoComplete="organization" maxLength={120} /></label>
           <label>Email <input name="guestEmail" type="email" autoComplete="email" maxLength={254} required /></label>
           <label>What would you like to discuss? <small>Optional</small> <textarea name="introduction" maxLength={800} rows={3} /></label>
           <label>Additional attendee emails <small>Optional. Separate addresses with commas or line breaks.</small>

@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { parseBookingAttendees } from '../src/booking/attendees';
+import { bookingBookerName } from '../src/booking/booker-name';
 import { createGoogleMeetEvent, inviteGoogleMeetAttendees } from '../src/booking/google-calendar';
+
+test('Notetaker titles use the submitted company or the original booker name', () => {
+  assert.equal(bookingBookerName({ guestCompany: '  Acme Media ', guestName: 'Jane Guest' }), 'Acme Media');
+  assert.equal(bookingBookerName({ guestName: ' Jane Guest ', guestCompany: ' ' }), 'Jane Guest');
+  assert.equal(bookingBookerName({ guestEmail: 'guest@example.com' }), undefined);
+});
 
 test('the booker and additional guests are each included once in the Calendar invite', async (t) => {
   const attendeeEmails = parseBookingAttendees('matt@example.com', 'charlie@example.com,\njonathan@example.com; MATT@example.com');

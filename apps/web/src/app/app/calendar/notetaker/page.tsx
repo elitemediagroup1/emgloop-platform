@@ -5,7 +5,7 @@ import { ownCaptures, scheduleCapture } from '../../../../notetaker/capture';
 import { audioRecording, captureConfigured, recallBotStatus, recallRequest, validBotId } from '../../../../notetaker/recall';
 import WorkspaceShell from '../../../../workspaces/WorkspaceShell';
 import { LoopPage, PageHead } from '../../_loop-os/record';
-import { captureDate, captureTitle, requireNotetaker, notetakerTimeZone, notetakerPath as path } from './meeting-display';
+import { captureDate, captureTitle, notetakerBookerNames, requireNotetaker, notetakerTimeZone, notetakerPath as path } from './meeting-display';
 
 const messages: Record<string, string> = {
   scheduled: 'The Notetaker was requested.',
@@ -89,6 +89,7 @@ export default async function NotetakerPage({ searchParams }: { searchParams: { 
     }),
     notetakerTimeZone(session),
   ]);
+  const bookerNames = await notetakerBookerNames(session, captures);
   const result = searchParams.result;
   return (
     <WorkspaceShell session={session}>
@@ -111,7 +112,7 @@ export default async function NotetakerPage({ searchParams }: { searchParams: { 
           {captures.map(capture => (
             <li key={capture.id}>
               <p><Link href={`${path}/${capture.id}`} prefetch={false}>
-                <strong>{captureTitle(capture)}</strong> · <time dateTime={(capture.meetingAt ?? capture.createdAt).toISOString()}>{captureDate(capture, timeZone)}</time>
+                <strong>{captureTitle(capture, bookerNames.get(capture.id))}</strong> · <time dateTime={(capture.meetingAt ?? capture.createdAt).toISOString()}>{captureDate(capture, timeZone)}</time>
               </Link> · {statuses[capture.status]}</p>
               {configured && capture.providerBotId && capture.status !== 'done' && (
                 <form action={controlCapture}>
