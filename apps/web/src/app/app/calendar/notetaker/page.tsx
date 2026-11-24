@@ -1,12 +1,12 @@
 import { redirect } from 'next/navigation';
+import Link from 'next/link';
 import { prisma } from '@emgloop/database';
-import { requirePermission } from '../../../../auth/guard';
 import { ownCaptures, scheduleCapture } from '../../../../notetaker/capture';
 import { audioRecording, captureConfigured, recallBotStatus, recallRequest, validBotId } from '../../../../notetaker/recall';
 import WorkspaceShell from '../../../../workspaces/WorkspaceShell';
 import { LoopPage, PageHead } from '../../_loop-os/record';
+import { captureDate, captureTitle, requireNotetaker, notetakerTimeZone, notetakerPath as path } from './meeting-display';
 
-const path = '/app/calendar/notetaker';
 const messages: Record<string, string> = {
   scheduled: 'The Notetaker was requested.',
   invalid: 'Enter a Google Meet, Zoom, Microsoft Teams, or Webex join link.',
@@ -28,23 +28,18 @@ const statuses: Record<string, string> = {
   fatal: 'Unable to join or record',
 };
 
-function employee(session: Awaited<ReturnType<typeof requirePermission>>) {
-  if (!['OWNER', 'ADMIN', 'MANAGER', 'EMPLOYEE'].includes(session.systemRole)) redirect('/crm/unauthorized');
-  return session;
-}
-
 async function addCapture(form: FormData) {
   'use server';
-  const principal = employee(await requirePermission('employeeIntelligence', 'update'));
+  const principal = await requireNotetaker('update');
   const outcome = captureConfigured()
-    ? await scheduleCapture(principal, String(form.get('meetingUrl') ?? '').trim())
+    ? await scheduleCapture(principal, String(form.get('meetingUrl') ?? '').trim(), { title: String(form.get('title') ?? '') })
     : 'failed';
   redirect(path + '?result=' + outcome);
 }
 
 async function controlCapture(form: FormData) {
   'use server';
-  const principal = employee(await requirePermission('employeeIntelligence', 'update'));
+  const principal = await requireNotetaker('update');
   const capture = await prisma.meetingCapture.findFirst({
     where: { ...ownCaptures(principal), id: String(form.get('id') ?? '') },
   });
@@ -85,12 +80,15 @@ async function controlCapture(form: FormData) {
 }
 
 export default async function NotetakerPage({ searchParams }: { searchParams: { result?: string } }) {
-  const session = employee(await requirePermission('employeeIntelligence', 'view'));
+  const session = await requireNotetaker('view');
   const configured = captureConfigured();
-  const captures = configured ? await prisma.meetingCapture.findMany({
-    where: ownCaptures(session), orderBy: { createdAt: 'desc' }, take: 30,
-    select: { id: true, meetingUrl: true, status: true, providerBotId: true },
-  }) : [];
+  const [captures, timeZone] = await Promise.all([
+    prisma.meetingCapture.findMany({
+      where: ownCaptures(session), orderBy: { createdAt: 'desc' }, take: 30,
+      select: { id: true, meetingUrl: true, status: true, providerBotId: true, title: true, meetingAt: true, createdAt: true },
+    }),
+    notetakerTimeZone(session),
+  ]);
   const result = searchParams.result;
   return (
     <WorkspaceShell session={session}>
@@ -103,16 +101,19 @@ export default async function NotetakerPage({ searchParams }: { searchParams: { 
           <details>
           <summary>Add Notetaker to an outside meeting</summary>
           <form action={addCapture}>
+            <label>Meeting name <input name="title" maxLength={160} /></label>
             <label>Meeting link <input type="url" name="meetingUrl" maxLength={2048} required /></label>
             <button type="submit">Add Notetaker</button>
           </form>
           </details>
         ) : <p>Meeting capture provider setup is pending.</p>}
-        <ul>
+        <ul className="loop-panel">
           {captures.map(capture => (
             <li key={capture.id}>
-              <p>{new URL(capture.meetingUrl).hostname} · {statuses[capture.status]}</p>
-              {capture.providerBotId && (
+              <p><Link href={`${path}/${capture.id}`} prefetch={false}>
+                <strong>{captureTitle(capture)}</strong> · <time dateTime={(capture.meetingAt ?? capture.createdAt).toISOString()}>{captureDate(capture, timeZone)}</time>
+              </Link> · {statuses[capture.status]}</p>
+              {configured && capture.providerBotId && capture.status !== 'done' && (
                 <form action={controlCapture}>
                   <input type="hidden" name="id" value={capture.id} />
                   <button type="submit" name="action" value="refresh" formNoValidate>Refresh status</button>

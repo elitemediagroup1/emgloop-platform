@@ -1,5 +1,6 @@
 import { CREATOR_BRAND_UPDATE_SCHEMA_ID, parseCreatorBrandUpdate, validateCreatorBrandUpdate } from './creator-brand-update';
 import { LOOP_CHAT_SCHEMA_ID, parseLoopChatOutput, validateLoopChatOutput } from './loop-chat-contract';
+import { MEETING_SUMMARY_SCHEMA_ID, parseMeetingSummary, validateMeetingSummary } from './meeting-summary';
 // The output-contract registry: how the gateway parses and validates an answer. PR 1 (AI runtime).
 //
 // ONE LOOKUP, NO BRANCH. A task declares `outputSchemaId`; the gateway finds that schema's contract
@@ -36,6 +37,7 @@ function existingRules(schemaId: string): AiOutputContract {
 }
 
 export const AI_OUTPUT_CONTRACTS: Readonly<Record<string, AiOutputContract>> = Object.freeze({
+  [MEETING_SUMMARY_SCHEMA_ID]: Object.freeze({ schemaId: MEETING_SUMMARY_SCHEMA_ID, parse: parseMeetingSummary, validate: validateMeetingSummary }),
   [CREATOR_BRAND_UPDATE_SCHEMA_ID]: Object.freeze({ schemaId: CREATOR_BRAND_UPDATE_SCHEMA_ID, parse: parseCreatorBrandUpdate, validate: validateCreatorBrandUpdate }),
   [LOOP_CHAT_SCHEMA_ID]: Object.freeze({ schemaId: LOOP_CHAT_SCHEMA_ID, parse: parseLoopChatOutput, validate: validateLoopChatOutput }),
   'case-explanation.v2': existingRules('case-explanation.v2'),

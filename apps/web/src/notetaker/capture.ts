@@ -14,12 +14,13 @@ export function ownCaptures(principal: Principal) {
   return { organizationId: principal.organizationId, requestedById: principal.userId };
 }
 
-export async function scheduleCapture(principal: Principal, input: string, booking?: { startAt: Date }) {
+export async function scheduleCapture(principal: Principal, input: string, options?: { startAt?: Date; title?: string | null }) {
   const meetingUrl = supportedMeetingUrl(input);
   if (!meetingUrl) return 'invalid';
+  const startAt = options?.startAt;
   const id = randomUUID();
   const inserted = await prisma.meetingCapture.createMany({
-    data: { ...ownCaptures(principal), id, meetingUrl, status: 'submitting' },
+    data: { ...ownCaptures(principal), id, meetingUrl, status: 'submitting', title: options?.title?.trim().slice(0, 160) || null, meetingAt: startAt },
     skipDuplicates: true,
   });
   if (!inserted.count) {
@@ -27,15 +28,15 @@ export async function scheduleCapture(principal: Principal, input: string, booki
       where: { ...ownCaptures(principal), meetingUrl, status: { notIn: ['done', 'fatal'] } },
       select: { providerBotId: true },
     });
-    return booking && existing?.providerBotId ? 'already-scheduled' : 'duplicate';
+    return startAt && existing?.providerBotId ? 'already-scheduled' : 'duplicate';
   }
 
   try {
     const bot = await recallRequest('', 'POST', {
       meeting_url: meetingUrl,
       bot_name: 'EMG Loop Notetaker',
-      recording_config: booking ? audioRecording : null,
-      ...(booking ? { join_at: booking.startAt.toISOString() } : {}),
+      recording_config: startAt ? audioRecording : null,
+      ...(startAt ? { join_at: startAt.toISOString() } : {}),
       metadata: { loop_capture_id: id },
     });
     if (!validBotId(bot.id)) return 'unknown';

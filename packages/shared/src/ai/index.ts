@@ -18,6 +18,7 @@ export * from './domain-reading';
 export * from './telegram-triage-v5';
 // Loop Intelligence tasks (Phases D-G): defined, routed, budgeted -- activated by nothing.
 export * from './intelligence-tasks';
+export * from './meeting-summary';
 // Phases F-G: the situation synthesis / verification contracts and the Briefing contract.
 export * from './situation-contracts';
 export * from './briefing-contract';

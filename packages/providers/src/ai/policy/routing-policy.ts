@@ -112,7 +112,7 @@ function target(
 // was not Claude; no fallback to the subject's own provider -- with OpenAI uncommissioned a Claude-written
 // situation is simply not independently verified, and says so), and the Briefing (SYNTHESIS lane). One model
 // per call: no task calls both providers for the same answer. Existing entries are UNCHANGED.
-export const AI_ROUTING_POLICY_VERSION = 'routing.2026-11-06.19';
+export const AI_ROUTING_POLICY_VERSION = 'routing.2026-11-24.20';
 
 function situationRoute(taskId: string) {
   return Object.freeze({
@@ -161,6 +161,11 @@ export const AI_ROUTING_POLICY: AiRoutingPolicy = Object.freeze({
   version: AI_ROUTING_POLICY_VERSION,
   specializationPolicyVersion: AI_PROVIDER_SPECIALIZATION_POLICY_VERSION,
   tasks: Object.freeze({
+    'meeting.summary': Object.freeze({
+      taskId: 'meeting.summary', taskVersion: '1.0.0',
+      primary: target('openai', 'gpt-6.1-terra', { reasoningEffort: 'low', timeoutMs: 20_000, maxOutputTokens: 1600 }),
+      fallback: null, fallbackPermitted: false, budgetClass: 'meeting-summary', lane: 'INTERACTIVE',
+    }),
     'case.explanation': Object.freeze({
       taskId: 'case.explanation',
       taskVersion: '2.0.0',
@@ -286,11 +291,15 @@ export const AI_ROUTING_POLICY: AiRoutingPolicy = Object.freeze({
 // .6 (2026-09-26, Loop Intelligence Phases F-G): adds situation-synthesis, situation-verification and
 // loop-briefing, again WITHOUT raising the organization or global ceilings. A synthesis runs only for a
 // CHANGED cluster. Briefings reuse matching fresh evidence and pace model refreshes per viewer.
-export const AI_BUDGET_POLICY_VERSION = 'budget.2026-11-04.10';
+export const AI_BUDGET_POLICY_VERSION = 'budget.2026-11-24.11';
 
 export const AI_BUDGET_POLICY: AiBudgetPolicy = Object.freeze({
   version: AI_BUDGET_POLICY_VERSION,
   classes: Object.freeze({
+    'meeting-summary': Object.freeze({
+      maxInputTokensPerCall: 48_000, maxOutputTokensPerCall: 1600,
+      taskDaily: Object.freeze({ maxInvocations: 12, maxInputTokens: 576_000, maxOutputTokens: 19_200 }),
+    }),
     'case-explanation': Object.freeze({
       maxInputTokensPerCall: 40_000,
       maxOutputTokensPerCall: 6_000,

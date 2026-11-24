@@ -11,6 +11,7 @@ export async function prepareBookingTranscription(
   attendeeEmails: readonly string[],
   meetUrl: string,
   startAt: Date,
+  title: string | null,
 ) {
   if (typeof eventTypeId !== 'string') return 'off';
   const eventType = await prisma.employeeBookingEventType.findFirst({
@@ -34,7 +35,7 @@ export async function prepareBookingTranscription(
   }
 
   if (captureConfigured()) {
-    return scheduleCapture(principal, meetUrl, { startAt });
+    return scheduleCapture(principal, meetUrl, { startAt, title });
   }
   const connection = await googleWorkspace().accessToken(principal, 'meet');
   if (!connection.ok) return 'connection-required';
