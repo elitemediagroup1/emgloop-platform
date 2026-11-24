@@ -8860,6 +8860,13 @@ model MeetingCapture {
   meetingUrl     String
   providerBotId  String?  @unique
   status         String
+  title          String?
+  meetingAt      DateTime?
+  transcript     String?  @db.Text
+  transcriptState String?
+  transcriptRequestedAt DateTime?
+  summary        String?  @db.Text
+  summaryRequestedAt DateTime?
   createdAt      DateTime @default(now())
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   requestedBy    User @relation(fields: [requestedById], references: [id], onDelete: Cascade)

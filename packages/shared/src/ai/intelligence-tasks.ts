@@ -15,6 +15,7 @@
 // PURE.
 
 import type { AiTaskDefinition } from './task';
+import { MEETING_SUMMARY_SCHEMA_ID } from './meeting-summary';
 
 const BACKGROUND_EXECUTION = Object.freeze({
   classes: Object.freeze(['INTERACTIVE'] as const),
@@ -192,8 +193,19 @@ export const AI_TASK_CREATOR_ANALYTICS_READING: AiTaskDefinition = Object.freeze
   maxOutputTokens: 1200, timeoutMs: 20_000,
 });
 
+export const AI_TASK_MEETING_SUMMARY: AiTaskDefinition = Object.freeze({
+  ...AI_TASK_CALENDAR_DOMAIN_READING,
+  taskId: 'meeting.summary',
+  capabilityRoute: 'COMMUNICATION',
+  resultOwner: Object.freeze({ authority: 'EMPLOYEE_INTELLIGENCE', subjectType: 'MEETING_CAPTURE' } as const),
+  outputSchemaId: MEETING_SUMMARY_SCHEMA_ID,
+  maxOutputTokens: 1600,
+  timeoutMs: 20_000,
+});
+
 /** Every Loop Intelligence task, in phase order. */
 export const AI_INTELLIGENCE_TASKS: readonly AiTaskDefinition[] = Object.freeze([
+  AI_TASK_MEETING_SUMMARY,
   AI_TASK_MAIL_CONTENT_TRIAGE,
   AI_TASK_CREATOR_BRAND_UPDATE,
   AI_TASK_CREATOR_ANALYTICS_READING,

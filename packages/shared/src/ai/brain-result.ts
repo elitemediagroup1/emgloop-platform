@@ -117,6 +117,7 @@ export const BRAIN_RESULT_SUBJECT_TYPES = [
   'EMPLOYEE_SITUATION_CLAIMS',
   'EMPLOYEE_BRIEFING',
   'EMPLOYEE_QUESTION',
+  'MEETING_CAPTURE',
 ] as const;
 export type BrainResultSubjectType = (typeof BRAIN_RESULT_SUBJECT_TYPES)[number];
 
@@ -169,6 +170,7 @@ export const BRAIN_OWNERSHIP_RULES: readonly BrainOwnershipRule[] = Object.freez
   rule('ANALYSIS', 'EMPLOYEE_INTELLIGENCE', 'EMPLOYEE_SITUATION', 'a situation connected from one person\'s own intelligence, stored as their PRIVATE Case'),
   rule('ANALYSIS', 'EMPLOYEE_INTELLIGENCE', 'EMPLOYEE_SITUATION_CLAIMS', 'an independent check of a private situation\'s claims, recorded on that person\'s own Case'),
   rule('ANALYSIS', 'EMPLOYEE_INTELLIGENCE', 'EMPLOYEE_QUESTION', 'a read-only answer held transiently for the invoking person'),
+  rule('ANALYSIS', 'EMPLOYEE_INTELLIGENCE', 'MEETING_CAPTURE', 'a private meeting summary held for the capture requester'),
   rule('ANALYSIS', 'EMPLOYEE_INTELLIGENCE', 'EMPLOYEE_BRIEFING', 'a person\'s own Briefing, stored in their work_briefs'),
 ]);
 

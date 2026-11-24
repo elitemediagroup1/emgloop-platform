@@ -42,7 +42,7 @@ test('23: no external HTTP/API call and no vendor SDK is introduced on the websi
 });
 
 test('24: the website reading keeps its one existing task and no website source has its own', () => {
-  assert.equal(AI_TASKS.filter(t => t.taskId !== 'loop.question.answer').length, 20); // Includes creator.analytics.reading; website inventory below is unchanged.
+  assert.equal(AI_TASKS.filter(t => t.taskId !== 'loop.question.answer').length, 21); // Includes meeting.summary; website inventory below is unchanged.
   assert.equal(AI_TASKS.filter(t => t.taskId === 'loop.question.answer').length, 1);
   const ids = AI_TASKS.map((t) => t.taskId);
   assert.equal(ids.filter((id) => id.startsWith('website.')).length, 1);

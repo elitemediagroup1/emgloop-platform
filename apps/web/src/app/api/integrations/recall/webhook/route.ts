@@ -1,6 +1,7 @@
 import { prisma } from '@emgloop/database';
 import { recallRequest, validBotId, recallBotStatus } from '../../../../../notetaker/recall';
 import { verifyWebhook } from '../../../../../notetaker/verify-webhook';
+import { updateMeetingTranscript } from '../../../../../notetaker/meeting-notes';
 
 export const runtime = 'nodejs';
 
@@ -15,20 +16,24 @@ export async function POST(request: Request) {
   try { event = JSON.parse(raw.toString('utf8')); }
   catch { return new Response(null, { status: 400 }); }
   const botId = event?.data?.bot?.id;
-  if (!validBotId(botId) || typeof event.event !== 'string' || !event.event.startsWith('bot.')) {
+  if (!validBotId(botId) || typeof event.event !== 'string' ||
+      !/^(bot\.|recording\.done$|transcript\.(done|failed)$)/.test(event.event)) {
     return new Response(null, { status: 204 });
   }
   const capture = await prisma.meetingCapture.findUnique({
-    where: { providerBotId: botId }, select: { id: true, status: true },
+    where: { providerBotId: botId },
+    select: { id: true, status: true, providerBotId: true, transcript: true, transcriptRequestedAt: true },
   });
   if (!capture) return new Response(null, { status: 204 });
 
   // Recall retries deliveries. Use the current bot state even for an older notification.
-  const status = recallBotStatus(await recallRequest(botId + '/', 'GET'));
+  const bot = await recallRequest(botId + '/', 'GET');
+  const status = recallBotStatus(bot);
   if (status && !(capture.status === 'recording_requested' && status === 'in_call_not_recording')) {
     await prisma.meetingCapture.updateMany({
       where: { id: capture.id, status: capture.status }, data: { status },
     });
   }
+  if (status === 'done') await updateMeetingTranscript(capture, bot);
   return new Response(null, { status: 204 });
 }

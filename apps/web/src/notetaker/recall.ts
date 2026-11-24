@@ -1,6 +1,6 @@
 import 'server-only';
 
-const endpoint = 'https://us-east-1.recall.ai/api/v1/bot/';
+const endpoint = 'https://us-east-1.recall.ai/api/v1/';
 
 export function captureConfigured() {
   return Boolean(process.env.RECALL_US_EAST_API_KEY);
@@ -11,6 +11,10 @@ export function validBotId(value: unknown): value is string {
 }
 
 export async function recallRequest(path: string, method: 'GET' | 'POST', payload?: object) {
+  return recallApiRequest('bot/' + path, method, payload);
+}
+
+export async function recallApiRequest(path: string, method: 'GET' | 'POST', payload?: object) {
   const key = process.env.RECALL_US_EAST_API_KEY;
   if (!key) throw new Error('Meeting capture is unavailable.');
   const response = await fetch(endpoint + path, {
