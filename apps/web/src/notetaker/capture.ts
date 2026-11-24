@@ -22,7 +22,13 @@ export async function scheduleCapture(principal: Principal, input: string, joinA
     data: { ...ownCaptures(principal), id, meetingUrl, status: 'submitting' },
     skipDuplicates: true,
   });
-  if (!inserted.count) return 'duplicate';
+  if (!inserted.count) {
+    const existing = await prisma.meetingCapture.findFirst({
+      where: { ...ownCaptures(principal), meetingUrl, status: { notIn: ['done', 'fatal'] } },
+      select: { providerBotId: true },
+    });
+    return joinAt && existing?.providerBotId ? 'already-scheduled' : 'duplicate';
+  }
 
   try {
     const bot = await recallRequest('', 'POST', {

@@ -97,11 +97,16 @@ export default async function NotetakerPage({ searchParams }: { searchParams: { 
       <LoopPage label="Notetaker">
         <PageHead trail={[{ label: 'Calendar', href: '/app/calendar' }]} title="Notetaker" />
         {result && Object.hasOwn(messages, result) && <p role="status">{messages[result]}</p>}
+        <p>Loop automatically schedules the Notetaker for bookings that match your event settings.</p>
+        <a href="/app/calendar/booking">Manage when Notetaker joins bookings</a>
         {configured ? (
+          <details>
+          <summary>Add Notetaker to an outside meeting</summary>
           <form action={addCapture}>
             <label>Meeting link <input type="url" name="meetingUrl" maxLength={2048} required /></label>
             <button type="submit">Add Notetaker</button>
           </form>
+          </details>
         ) : <p>Meeting capture provider setup is pending.</p>}
         <ul>
           {captures.map(capture => (

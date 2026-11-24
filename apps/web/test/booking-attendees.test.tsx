@@ -39,3 +39,21 @@ test('the booker and additional guests are each included once in the Calendar in
 test('an invalid additional email is rejected instead of silently dropping an attendee', () => {
   assert.equal(parseBookingAttendees('matt@example.com', 'charlie@example.com, broken'), null);
 });
+
+test('scheduled Notetaker is disclosed in the calendar invitation without losing the introduction', async (t) => {
+  const fetch = t.mock.method(globalThis, 'fetch', async () => new Response(null, { status: 200 }));
+  const meeting = {
+    hangoutLink: 'https://meet.google.com/abc-defg-hij',
+    etag: '"booking"',
+    description: 'Discuss a new campaign',
+  };
+  const attendees = ['guest@example.com'];
+  assert.equal(await inviteGoogleMeetAttendees('test-token', 'booking1', meeting, attendees, true), true);
+  const [, init] = fetch.mock.calls[0]!.arguments as unknown as [string, RequestInit];
+  const { description } = JSON.parse(String(init.body));
+  assert.match(description, /^Discuss a new campaign\n\nEMG Loop Notetaker is scheduled/);
+  assert.equal(await inviteGoogleMeetAttendees('test-token', 'booking1', {
+    ...meeting, description, attendees: [{ email: attendees[0] }],
+  }, attendees, true), true);
+  assert.equal(fetch.mock.callCount(), 1);
+});
