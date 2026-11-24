@@ -1,9 +1,9 @@
 import 'server-only';
 
-const endpoint = 'https://us-west-2.recall.ai/api/v1/bot/';
+const endpoint = 'https://us-east-1.recall.ai/api/v1/bot/';
 
 export function captureConfigured() {
-  return Boolean(process.env.RECALL_API_KEY);
+  return Boolean(process.env.RECALL_US_EAST_API_KEY);
 }
 
 export function validBotId(value: unknown): value is string {
@@ -11,7 +11,7 @@ export function validBotId(value: unknown): value is string {
 }
 
 export async function recallRequest(path: string, method: 'GET' | 'POST', payload?: object) {
-  const key = process.env.RECALL_API_KEY;
+  const key = process.env.RECALL_US_EAST_API_KEY;
   if (!key) throw new Error('Meeting capture is unavailable.');
   const response = await fetch(endpoint + path, {
     method, redirect: 'error', cache: 'no-store',
@@ -20,7 +20,8 @@ export async function recallRequest(path: string, method: 'GET' | 'POST', payloa
     signal: AbortSignal.timeout(8000),
   });
   if (!response.ok) throw new Error('Meeting capture provider request failed.');
-  return response.status === 204 ? {} : response.json();
+  const body = await response.text();
+  return body ? JSON.parse(body) : {};
 }
 
 export const audioRecording = {
@@ -30,3 +31,13 @@ export const audioRecording = {
   participant_events: {},
   meeting_metadata: null,
 };
+
+
+const botStatuses = new Set([
+  'joining_call', 'in_waiting_room', 'in_call_not_recording',
+  'in_call_recording', 'call_ended', 'done', 'fatal',
+]);
+
+export function recallBotStatus(bot: { status_changes?: { code?: string }[] }): string | undefined {
+  return bot.status_changes?.filter(({ code }) => typeof code === 'string' && botStatuses.has(code)).at(-1)?.code;
+}
