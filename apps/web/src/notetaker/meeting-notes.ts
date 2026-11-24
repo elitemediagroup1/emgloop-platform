@@ -2,7 +2,7 @@ import 'server-only';
 
 import { prisma, type MeetingCapture } from '@emgloop/database';
 import { recallApiRequest, recallBotStatus, recallRequest, validBotId } from './recall';
-import { formatRecallTranscript } from './transcript';
+import { formatRecallTranscript, recallTranscriptDownloadUrl } from './transcript';
 
 type Artifact = {
   status?: { code?: string };
@@ -17,11 +17,7 @@ type Recording = {
 type Bot = Parameters<typeof recallBotStatus>[0] & { recordings?: Recording[] };
 
 async function downloadTranscript(address: string): Promise<string> {
-  const url = new URL(address);
-  if (url.protocol !== 'https:' || url.username || url.password || url.port ||
-      !/(?:^|\.)amazonaws\.com$/.test(url.hostname)) {
-    throw new Error('Unexpected Recall transcript download host.');
-  }
+  const url = recallTranscriptDownloadUrl(address);
   const response = await fetch(url, { redirect: 'error', cache: 'no-store', signal: AbortSignal.timeout(10_000) });
   if (!response.ok) throw new Error('Could not read the Recall transcript.');
   return formatRecallTranscript(await response.json());

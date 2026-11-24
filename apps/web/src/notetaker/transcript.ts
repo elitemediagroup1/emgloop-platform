@@ -3,6 +3,17 @@ type Segment = {
   words?: { text?: string; start_timestamp?: { relative?: number } }[];
 };
 
+export function recallTranscriptDownloadUrl(address: string): URL {
+  const url = new URL(address);
+  const supportedHost = url.hostname === 'recall.ai' || url.hostname.endsWith('.recall.ai') ||
+    /(?:^|\.)s3(?:[.-][a-z0-9-]+)*\.amazonaws\.com$/.test(url.hostname) ||
+    url.hostname === 'storage.googleapis.com';
+  if (!supportedHost || url.protocol !== 'https:' || url.username || url.password || url.port) {
+    throw new Error('Unexpected Recall transcript download host: ' + url.hostname);
+  }
+  return url;
+}
+
 export function formatRecallTranscript(value: unknown): string {
   if (!Array.isArray(value)) throw new Error('Unexpected Recall transcript format.');
   return (value as Segment[]).flatMap(segment => {
