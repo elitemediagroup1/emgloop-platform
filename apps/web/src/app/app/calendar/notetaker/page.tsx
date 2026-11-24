@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation';
 import { prisma } from '@emgloop/database';
 import { requirePermission } from '../../../../auth/guard';
 import { ownCaptures, scheduleCapture } from '../../../../notetaker/capture';
-import { audioRecording, captureConfigured, recallRequest, validBotId } from '../../../../notetaker/recall';
+import { audioRecording, captureConfigured, recallBotStatus, recallRequest, validBotId } from '../../../../notetaker/recall';
 import WorkspaceShell from '../../../../workspaces/WorkspaceShell';
 import { LoopPage, PageHead } from '../../_loop-os/record';
 
@@ -54,7 +54,7 @@ async function controlCapture(form: FormData) {
   let result = 'failed';
   try {
     const bot = await recallRequest(botId + '/', 'GET');
-    const state = bot.status_changes?.at(-1)?.code;
+    const state = recallBotStatus(bot);
     if (typeof state === 'string' && Object.hasOwn(statuses, state)) {
       if (action === 'refresh' && capture.status !== 'recording_requested') {
         await prisma.meetingCapture.update({ where: { id: capture.id }, data: { status: state } });
