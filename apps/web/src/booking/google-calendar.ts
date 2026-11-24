@@ -89,7 +89,7 @@ export async function createGoogleMeetEvent(token: string, event: {
   ) as Promise<GoogleBookingEvent>;
 }
 
-export const notetakerInvitationNotice = 'EMG Loop Notetaker is scheduled to join this meeting. Audio capture begins after participants agree.';
+export const notetakerInvitationNotice = 'EMG Loop Notetaker is scheduled to join this meeting and automatically record audio once admitted. The host should confirm participants agree before admitting the Notetaker.';
 
 /** Send invitations only after Google has finished provisioning the Meet link. */
 export async function inviteGoogleMeetAttendees(

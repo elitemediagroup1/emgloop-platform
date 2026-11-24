@@ -51,7 +51,7 @@ test('scheduled Notetaker is disclosed in the calendar invitation without losing
   assert.equal(await inviteGoogleMeetAttendees('test-token', 'booking1', meeting, attendees, true), true);
   const [, init] = fetch.mock.calls[0]!.arguments as unknown as [string, RequestInit];
   const { description } = JSON.parse(String(init.body));
-  assert.match(description, /^Discuss a new campaign\n\nEMG Loop Notetaker is scheduled/);
+  assert.match(description, /^Discuss a new campaign\n\nEMG Loop Notetaker is scheduled.*automatically record audio once admitted/);
   assert.equal(await inviteGoogleMeetAttendees('test-token', 'booking1', {
     ...meeting, description, attendees: [{ email: attendees[0] }],
   }, attendees, true), true);

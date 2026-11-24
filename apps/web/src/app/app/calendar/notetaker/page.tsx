@@ -97,7 +97,7 @@ export default async function NotetakerPage({ searchParams }: { searchParams: { 
       <LoopPage label="Notetaker">
         <PageHead trail={[{ label: 'Calendar', href: '/app/calendar' }]} title="Notetaker" />
         {result && Object.hasOwn(messages, result) && <p role="status">{messages[result]}</p>}
-        <p>Loop automatically schedules the Notetaker for bookings that match your event settings.</p>
+        <p>For bookings that match your event settings, the Notetaker starts recording audio when it joins. Confirm participants agree before admitting it.</p>
         <a href="/app/calendar/booking">Manage when Notetaker joins bookings</a>
         {configured ? (
           <details>
