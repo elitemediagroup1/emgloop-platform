@@ -111,7 +111,7 @@ test('each connection is reported by the cycle ref, with scopes, eligibility, fr
   // The same digest the cycle logs, so a line here follows into a cycle run.
   assert.match(text, new RegExp(`event=EMPLOYEE ref=${employeeRef(matt)} initial=M role=OWNER membership=ACTIVE connection=CONNECTED`));
   // Charlie did not grant send: Gmail is not a usable capability, and the cycle would skip him.
-  assert.match(text, /event=SCOPES ref=\w+ gmail.readonly=true gmail.send=false calendar.events.readonly=true drive.metadata.readonly=true legacy.gmail.metadata=false/);
+  assert.match(text, /event=SCOPES ref=\w+ gmail.readonly=true gmail.send=false calendar.events.readonly=true drive.metadata.readonly=true calendar.events.owned=false calendar.events.freebusy=false meetings.space.settings=false meetings.space.readonly=false legacy.gmail.metadata=false/);
   assert.match(text, /event=CAPABILITIES ref=\w+ gmail=INSUFFICIENT_SCOPE calendar=CONNECTED drive=CONNECTED/);
   assert.match(text, /source=GMAIL eligible=false readiness=PERMISSION_NEEDED freshness=CAPABILITY_NOT_GRANTED position=false/);
   assert.match(text, /source=GMAIL eligible=true readiness=READY freshness=CURRENT position=true cursor=GMAIL_HISTORY_ID/);
@@ -151,7 +151,7 @@ test('1. Matt’s production facts read as Gmail READY and eligible -- the same 
   const { deps, out } = world({ rows: [MATT_ROW()], cursors: { 'user_matt:GMAIL': MATT_CURSOR }, runs: { 'user_matt:GMAIL': MATT_RUNS } });
   await runEmployeeSources({ organizationSlug: ORG.slug }, deps);
   const text = out.join('\n');
-  assert.match(text, /gmail\.readonly=true gmail\.send=true calendar\.events\.readonly=true drive\.metadata\.readonly=true legacy\.gmail\.metadata=true/);
+  assert.match(text, /gmail\.readonly=true gmail\.send=true calendar\.events\.readonly=true drive\.metadata\.readonly=true calendar\.events\.owned=false calendar\.events\.freebusy=false meetings\.space\.settings=false meetings\.space\.readonly=false legacy\.gmail\.metadata=true/);
   assert.match(text, /CAPABILITIES ref=\w+ gmail=CONNECTED/, 'a leftover legacy scope does not hide the current ones');
   assert.match(text, /source=GMAIL eligible=true readiness=READY freshness=STALE position=false cursor=- /);
   assert.match(text, /lastCompleted=2026-09-19T01:50:55\.000Z/);
