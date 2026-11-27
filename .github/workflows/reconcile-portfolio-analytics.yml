@@ -1,0 +1,34 @@
+name: Reconcile website analytics
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: Apply verified GA bindings and enable Loop on the listed production sites
+        required: true
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: register-web-property
+  cancel-in-progress: false
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --no-audit --no-fund
+      - run: npm run test:operations
+      - name: Validate portfolio
+        env:
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+        run: npx --no-install tsx scripts/operations/reconcile-portfolio-analytics.ts
+      - name: Apply and verify
+        if: inputs.apply
+        env:
+          DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+        run: npx --no-install tsx scripts/operations/reconcile-portfolio-analytics.ts --apply
